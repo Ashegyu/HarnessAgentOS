@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\FORYOUCOM\\\\Desktop\\\\Code\\\\HarnessAgentOS\" -Name)"
+    ]
+  }
+}

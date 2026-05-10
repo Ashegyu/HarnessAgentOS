@@ -1,0 +1,96 @@
+import type {
+  CreateThreadInput,
+  Thread,
+  UpdateThreadInput,
+} from "@harness/core";
+import type { HarnessDb } from "../db";
+import { newId, nowIso } from "../id";
+import { rowToThread } from "./row-mappers";
+
+export interface ThreadRepository {
+  create(input: CreateThreadInput): Promise<Thread>;
+  list(): Promise<Thread[]>;
+  get(id: string): Promise<Thread | null>;
+  update(id: string, patch: UpdateThreadInput): Promise<Thread>;
+}
+
+export class SqliteThreadRepository implements ThreadRepository {
+  constructor(private readonly db: HarnessDb) {}
+
+  async create(input: CreateThreadInput): Promise<Thread> {
+    const now = nowIso();
+    const thread: Thread = {
+      id: newId("thread"),
+      title: input.title,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (input.targetDir !== undefined) thread.targetDir = input.targetDir;
+
+    this.db
+      .prepare(
+        `INSERT INTO threads(id, title, target_dir, created_at, updated_at, archived_at)
+         VALUES(@id, @title, @targetDir, @createdAt, @updatedAt, NULL)`,
+      )
+      .run({
+        id: thread.id,
+        title: thread.title,
+        targetDir: thread.targetDir ?? null,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+      });
+
+    return thread;
+  }
+
+  async list(): Promise<Thread[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, target_dir, created_at, updated_at, archived_at
+         FROM threads ORDER BY datetime(updated_at) DESC, rowid DESC`,
+      )
+      .all() as Parameters<typeof rowToThread>[0][];
+    return rows.map(rowToThread);
+  }
+
+  async get(id: string): Promise<Thread | null> {
+    const row = this.db
+      .prepare(
+        `SELECT id, title, target_dir, created_at, updated_at, archived_at
+         FROM threads WHERE id = ?`,
+      )
+      .get(id) as Parameters<typeof rowToThread>[0] | undefined;
+    return row ? rowToThread(row) : null;
+  }
+
+  async update(id: string, patch: UpdateThreadInput): Promise<Thread> {
+    const existing = await this.get(id);
+    if (!existing) {
+      throw new Error(`Thread ${id} not found`);
+    }
+    const next: Thread = { ...existing };
+    if (patch.title !== undefined) next.title = patch.title;
+    if (patch.targetDir !== undefined) next.targetDir = patch.targetDir;
+    if (patch.archivedAt !== undefined) {
+      if (patch.archivedAt === null) delete next.archivedAt;
+      else next.archivedAt = patch.archivedAt;
+    }
+    next.updatedAt = nowIso();
+
+    this.db
+      .prepare(
+        `UPDATE threads
+         SET title=@title, target_dir=@targetDir, updated_at=@updatedAt, archived_at=@archivedAt
+         WHERE id=@id`,
+      )
+      .run({
+        id: next.id,
+        title: next.title,
+        targetDir: next.targetDir ?? null,
+        updatedAt: next.updatedAt,
+        archivedAt: next.archivedAt ?? null,
+      });
+
+    return next;
+  }
+}

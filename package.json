@@ -1,0 +1,27 @@
+{
+  "name": "harness-agent-os",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Local desktop development workbench - serverless Electron + React + SQLite",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/desktop run dev",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "rebuild:node": "npm --workspace apps/desktop run rebuild:node",
+    "rebuild:electron": "npm --workspace apps/desktop run rebuild:electron",
+    "test": "npm run rebuild:node --silent && node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\" \"apps/desktop/**/*.test.mjs\"",
+    "verify": "npm run check && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
