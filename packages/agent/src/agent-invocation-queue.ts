@@ -1,3 +1,4 @@
+import { harnessError, AGENT_CANCELLED } from "@harness/core";
 import type { AgentProvider } from "@harness/core";
 
 /**
@@ -27,8 +28,7 @@ interface QueueEntry {
   invocationId: string;
   controller: AbortController;
   run: () => void;
-  /** Marker for cancel-of-queued so we can short-circuit before `run`. */
-  cancelled: boolean;
+  reject: (err: unknown) => void;
 }
 
 interface ProviderLane {
@@ -60,11 +60,9 @@ export class AgentInvocationQueue {
       const entry: QueueEntry = {
         invocationId,
         controller,
-        cancelled: false,
+        reject,
         run: () => {
           lane.inflight = entry;
-          // If cancel happened while waiting, surface as work rejection.
-          if (entry.cancelled) controller.abort();
           Promise.resolve()
             .then(() => work(controller.signal))
             .then(
@@ -95,7 +93,6 @@ export class AgentInvocationQueue {
     for (const provider of providers) {
       const lane = this.lanes[provider];
       if (lane.inflight && lane.inflight.invocationId === invocationId) {
-        lane.inflight.cancelled = true;
         lane.inflight.controller.abort();
         return true;
       }
@@ -104,12 +101,8 @@ export class AgentInvocationQueue {
       );
       if (idx >= 0) {
         const entry = lane.waiting[idx]!;
-        entry.cancelled = true;
-        entry.controller.abort();
         lane.waiting.splice(idx, 1);
-        // Resolve the pending enqueue promise by running it now —
-        // work() should observe `signal.aborted` and reject.
-        Promise.resolve().then(entry.run);
+        entry.reject(harnessError(AGENT_CANCELLED, "invocation cancelled before start"));
         return true;
       }
     }

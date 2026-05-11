@@ -4,6 +4,27 @@
  */
 export type AgentProvider = "claude" | "codex";
 
+export interface CreateAgentInvocationInput {
+  taskRunId: string;
+  provider: AgentProvider;
+  model: string;
+  promptArtifactId: string;
+  stepId?: string;
+}
+
+export interface UpdateAgentInvocationPatch {
+  status?: AgentInvocationStatus;
+  stepId?: string;
+  rawOutputArtifactId?: string | null;
+  parsedPlanArtifactId?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  latencyMs?: number | null;
+  costEstimate?: number | null;
+}
+
 export type AgentInvocationStatus =
   | "queued"
   | "running"
@@ -87,4 +108,5 @@ export type AgentStreamEvent =
       invocationId: string;
       errorCode: string;
       message: string;
-    };
+    }
+  | { type: "cancelled"; invocationId: string };

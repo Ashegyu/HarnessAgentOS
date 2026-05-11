@@ -82,7 +82,7 @@ test("claude and codex run in parallel", async () => {
   assert.equal(await a, "a");
 });
 
-test("cancel queued entry runs the work with already-aborted signal", async () => {
+test("cancel queued entry rejects without invoking the work", async () => {
   const q = new AgentInvocationQueue();
   const block = deferred();
   const p1 = q.enqueue({
@@ -93,13 +93,12 @@ test("cancel queued entry runs the work with already-aborted signal", async () =
       return "one";
     },
   });
-  let observed;
+  let workInvoked = false;
   const p2 = q.enqueue({
     provider: "claude",
     invocationId: "i2",
-    work: async (signal) => {
-      observed = signal.aborted;
-      if (signal.aborted) throw new Error("aborted-before-start");
+    work: async () => {
+      workInvoked = true;
       return "two";
     },
   });
@@ -107,8 +106,8 @@ test("cancel queued entry runs the work with already-aborted signal", async () =
   await Promise.resolve();
   const found = q.cancel("i2");
   assert.equal(found, true);
-  await assert.rejects(() => p2, /aborted-before-start/);
-  assert.equal(observed, true);
+  await assert.rejects(() => p2, (err) => err.code === "AGENT_CANCELLED");
+  assert.equal(workInvoked, false);
   block.resolve();
   assert.equal(await p1, "one");
 });
@@ -149,4 +148,79 @@ test("isBusy reflects queued and in-flight entries", async () => {
   g.resolve();
   await p;
   assert.equal(q.isBusy("x"), false);
+});
+
+// RED: cancel() of a queued (non-inflight) entry must NOT promote that entry
+// to the inflight slot. Doing so corrupts lane.inflight and causes the next
+// waiting entry (i3) to start before the current in-flight entry (i1) finishes,
+// violating the 1-slot-per-provider invariant.
+test("cancel of queued entry preserves 1-slot invariant (i3 must not start until i1 finishes)", async () => {
+  const q = new AgentInvocationQueue();
+  const gate1 = deferred();
+  const gate3 = deferred();
+  const order = [];
+
+  const p1 = q.enqueue({
+    provider: "claude",
+    invocationId: "i1",
+    work: async () => {
+      order.push("i1-start");
+      await gate1.promise;
+      order.push("i1-end");
+      return "one";
+    },
+  });
+
+  const p2 = q.enqueue({
+    provider: "claude",
+    invocationId: "i2",
+    work: async (signal) => {
+      if (signal.aborted) throw new Error("cancelled");
+      return "two";
+    },
+  });
+
+  const p3 = q.enqueue({
+    provider: "claude",
+    invocationId: "i3",
+    work: async () => {
+      order.push("i3-start");
+      await gate3.promise;
+      order.push("i3-end");
+      return "three";
+    },
+  });
+
+  // Let i1 start (it becomes inflight immediately; i2 and i3 go to waiting).
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(order, ["i1-start"]);
+  assert.equal(q.getDepth("claude"), 3);
+
+  // Cancel i2 (queued, not inflight).
+  const found = q.cancel("i2");
+  assert.equal(found, true);
+
+  // Drain the microtask queue enough for any spurious run() to execute.
+  for (let i = 0; i < 6; i++) await Promise.resolve();
+
+  // i3 must NOT have started — i1 is still blocking the lane.
+  assert.deepEqual(order, ["i1-start"], "i3 must not start while i1 is still in-flight");
+  // Depth: i1 inflight (1) + i3 waiting (1) = 2.
+  assert.equal(q.getDepth("claude"), 2);
+
+  // p2 must already be rejected (cancelled before it could run).
+  await assert.rejects(() => p2, (err) => err.code === "AGENT_CANCELLED");
+
+  // Now finish i1 — this should trigger drain and start i3.
+  gate1.resolve();
+  assert.equal(await p1, "one");
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.ok(order.includes("i3-start"), "i3 must start after i1 finishes");
+
+  gate3.resolve();
+  assert.equal(await p3, "three");
+  assert.deepEqual(order, ["i1-start", "i1-end", "i3-start", "i3-end"]);
 });

@@ -12,7 +12,7 @@ source: local-repo-analysis
 
 In any test that exercises `AgentPlanningService` or code that calls a CLI:
 
-1. Import `FakeModelCliAdapter` from `@harness/agent`
+1. Import `FakeModelCliAdapter` from `@harness/agent/testing`
 2. Pass it as `adapter` in the service deps
 3. Inject lower timeouts to prevent hangs:
 

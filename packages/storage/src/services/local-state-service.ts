@@ -7,6 +7,7 @@ import {
   type Capability,
   type Checkpoint,
   type ConversationStateGateway,
+  type CreateAgentInvocationInput,
   type CreateApprovalInput,
   type CreateArtifactInput,
   type CreateCapabilityInput,
@@ -23,6 +24,8 @@ import {
   type TaskRunStatus,
   type Thread,
   type ThreadDetail,
+  type ProposedActionDetails,
+  type UpdateAgentInvocationPatch,
 } from "@harness/core";
 import type { HarnessDb } from "../db";
 import {
@@ -41,13 +44,11 @@ import {
   type ArtifactRepository,
   type CapabilityRepository,
   type CheckpointRepository,
-  type CreateAgentInvocationInput,
   type LearningTraceRepository,
   type QualityGateRepository,
   type StepRepository,
   type TaskRunRepository,
   type ThreadRepository,
-  type UpdateAgentInvocationPatch,
 } from "../repositories";
 
 /**
@@ -191,7 +192,7 @@ export class LocalStateService implements ConversationStateGateway {
 
   async setApprovalProposedAction(
     id: string,
-    details: import("@harness/core").ProposedActionDetails,
+    details: ProposedActionDetails,
   ): Promise<Approval> {
     return this.approvals.setProposedAction(id, details);
   }

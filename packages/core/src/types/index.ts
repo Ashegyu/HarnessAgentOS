@@ -12,3 +12,4 @@ export * from "./learning-trace";
 export * from "./orchestration";
 export * from "./agent-invocation";
 export * from "./agent-plan-output";
+export * from "./agent-planning-gateway";

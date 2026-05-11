@@ -1,12 +1,16 @@
 import {
+  AGENT_CANCELLED,
+  AGENT_INVALID_OUTPUT,
   AGENT_INVOCATION_BUSY,
   AGENT_INVOCATION_NOT_FOUND,
   AGENT_MODE_MISMATCH,
   AGENT_PROPOSED_ACTION_INVALID,
   AGENT_PROVIDER_UNAVAILABLE,
   AGENT_TASK_RUN_NOT_FOUND,
+  isHarnessError,
   validateProposedActionDetails,
   type AgentInvocation,
+  type AgentPlanningStateGateway,
   type AgentPlanOutput,
   type AgentProposedAction,
   type AgentProvider,
@@ -16,7 +20,6 @@ import {
   type Artifact,
   type ProposedActionDetails,
 } from "@harness/core";
-import type { LocalStateService } from "@harness/storage";
 import { redactSecrets } from "@harness/learner";
 import { buildAgentPrompt } from "./agent-prompt-builder";
 import { parseAgentPlan } from "./agent-output-parser";
@@ -40,7 +43,7 @@ export class AgentPlanningError extends Error {
 }
 
 export interface AgentPlanningServiceDeps {
-  state: LocalStateService;
+  state: AgentPlanningStateGateway;
   /** Provider probe results for gating `generatePlan` calls. */
   getProviderStatus: () => AgentProviderStatusMap | null;
   /** Override the CLI adapter for tests / fake runs. */
@@ -140,11 +143,14 @@ export class AgentPlanningService {
         "No agent CLI provider is available; install claude or codex first",
       );
     }
-    if (providers && !providers[provider].available) {
-      throw new AgentPlanningError(
-        AGENT_PROVIDER_UNAVAILABLE,
-        `Provider ${provider} is not available`,
-      );
+    if (providers !== null) {
+      const probedStatus = providers[provider];
+      if (!probedStatus?.available) {
+        throw new AgentPlanningError(
+          AGENT_PROVIDER_UNAVAILABLE,
+          `Provider ${provider} is not available`,
+        );
+      }
     }
     const model = resolveModel(provider, input.model);
 
@@ -238,10 +244,31 @@ export class AgentPlanningService {
       rawStdout = result.stdout;
       latencyMs = result.latencyMs;
     } catch (e) {
-      const code =
-        e instanceof AgentCliError ? e.code : AGENT_PROVIDER_UNAVAILABLE;
-      const message = e instanceof Error ? e.message : String(e);
+      const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
+      const code = isCancelled
+        ? AGENT_CANCELLED
+        : e instanceof AgentCliError
+          ? e.code
+          : AGENT_PROVIDER_UNAVAILABLE;
+      const message = isHarnessError(e)
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : String(e);
       const finishedAt = new Date().toISOString();
+      if (isCancelled) {
+        emit({ type: "cancelled", invocationId: invocation.id });
+        await this.deps.state.updateAgentInvocation(invocation.id, {
+          status: "cancelled",
+          errorCode: AGENT_CANCELLED,
+          errorMessage: redactSecrets(message, 2_000),
+          finishedAt,
+        });
+        await this.deps.state.setStepStatus(planStep.id, "failed", {
+          outputSummary: `cancelled: ${message.slice(0, 200)}`,
+        });
+        throw new AgentPlanningError(AGENT_CANCELLED, message);
+      }
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
         errorCode: code,
@@ -284,7 +311,7 @@ export class AgentPlanningService {
       });
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
-        errorCode: "AGENT_INVALID_OUTPUT",
+        errorCode: AGENT_INVALID_OUTPUT,
         errorMessage: parsed.reason,
         finishedAt,
         parsedPlanArtifactId: errorArtifact.id,
@@ -293,7 +320,7 @@ export class AgentPlanningService {
         outputSummary: `parse error: ${parsed.reason.slice(0, 200)}`,
       });
       await this.deps.state.setTaskRunStatus(taskRun.id, "blocked");
-      throw new AgentPlanningError("AGENT_INVALID_OUTPUT", parsed.reason);
+      throw new AgentPlanningError(AGENT_INVALID_OUTPUT, parsed.reason);
     }
 
     // 7. Validate proposed actions through the same gate renderer-supplied
@@ -408,10 +435,6 @@ export class AgentPlanningService {
         parsedPlanArtifactId: planArtifact.id,
       },
     );
-    if (acceptedActions.length === 0 && policyReport.length === 0) {
-      // pure answer-only path — keep the step in succeeded state already.
-    }
-
     return {
       invocation: finalInvocation,
       planArtifact,
@@ -435,12 +458,12 @@ export class AgentPlanningService {
         `AgentInvocation ${input.invocationId} not found`,
       );
     }
-    if (inv.status === "succeeded" || inv.status === "failed") return inv;
+    if (inv.status === "succeeded" || inv.status === "failed" || inv.status === "cancelled") return inv;
     this.queue.cancel(input.invocationId);
     return this.deps.state.updateAgentInvocation(input.invocationId, {
       status: "cancelled",
       finishedAt: new Date().toISOString(),
-      errorCode: "AGENT_CANCELLED",
+      errorCode: AGENT_CANCELLED,
       errorMessage: "Cancelled by user",
     });
   }
@@ -559,6 +582,9 @@ const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {
   }
   if (e.type === "raw") {
     return { ...e, text: redactSecrets(e.text, 8_000) };
+  }
+  if (e.type === "failed") {
+    return { ...e, message: redactSecrets(e.message, 2_000) };
   }
   return e;
 };

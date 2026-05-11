@@ -2,30 +2,11 @@ import type {
   AgentInvocation,
   AgentInvocationStatus,
   AgentProvider,
+  CreateAgentInvocationInput,
+  UpdateAgentInvocationPatch,
 } from "@harness/core";
 import type { HarnessDb } from "../db";
 import { newId, nowIso } from "../id";
-
-export interface CreateAgentInvocationInput {
-  taskRunId: string;
-  provider: AgentProvider;
-  model: string;
-  promptArtifactId: string;
-  stepId?: string;
-}
-
-export interface UpdateAgentInvocationPatch {
-  status?: AgentInvocationStatus;
-  stepId?: string;
-  rawOutputArtifactId?: string | null;
-  parsedPlanArtifactId?: string | null;
-  errorCode?: string | null;
-  errorMessage?: string | null;
-  startedAt?: string | null;
-  finishedAt?: string | null;
-  latencyMs?: number | null;
-  costEstimate?: number | null;
-}
 
 export interface AgentInvocationRepository {
   create(input: CreateAgentInvocationInput): Promise<AgentInvocation>;
