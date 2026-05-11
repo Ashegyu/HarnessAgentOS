@@ -10,8 +10,9 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase-by-phase additions per docs/contracts/ipc-contracts.md.
   // Phase 0: app, Phase 1: state, Phase 2: conversation, Phase 3: runner,
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
-  // Phase 7: orchestration.
+  // Phase 7: orchestration, Phase 8: agent.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
+    "agent",
     "app",
     "capability",
     "conversation",
@@ -24,11 +25,23 @@ test("declared namespaces match the phases shipped so far", () => {
   ]);
 });
 
-test("events namespace exposes the renderer-bound push channel", () => {
+test("events namespace exposes id-only + scoped chunk push channels", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.events).sort(), [
+    "agentStreamEvent",
     "taskRunChanged",
   ]);
   assert.equal(isAllowedChannel("events:taskRunChanged"), true);
+  assert.equal(isAllowedChannel("events:agentStreamEvent"), true);
+});
+
+test("agent namespace exposes Phase 8 verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.agent).sort(), [
+    "cancelInvocation",
+    "checkProviders",
+    "generatePlan",
+    "retryInvocation",
+    "useTemplateFallback",
+  ]);
 });
 
 test("app namespace exposes runtime + selectDirectory + selectFile", () => {

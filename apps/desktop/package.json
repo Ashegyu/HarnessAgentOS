@@ -12,9 +12,12 @@
     "dev:watch": "electron-vite build --watch",
     "build": "electron-vite build",
     "check": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "smoke:agent-fake": "node --import tsx scripts/smoke-agent-fake.mjs",
+    "smoke:agent-live": "node --import tsx scripts/smoke-agent-live.mjs",
     "e2e": "npm run rebuild:electron && npm run build && playwright test"
   },
   "dependencies": {
+    "@harness/agent": "*",
     "@harness/core": "*",
     "@harness/learner": "*",
     "@harness/orchestration": "*",

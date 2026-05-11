@@ -13,6 +13,8 @@ import type {
 } from "@harness/skillify-adapter";
 import type { LearnerAdvisor, TraceRecorder } from "@harness/learner";
 import type { OrchestrationService } from "@harness/orchestration";
+import type { AgentPlanningService } from "@harness/agent";
+import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAppIpc } from "./app-ipc";
 import { registerStateIpc } from "./state-ipc";
 import { registerConversationIpc } from "./conversation-ipc";
@@ -21,6 +23,7 @@ import { registerQualityIpc } from "./quality-ipc";
 import { registerCapabilityIpc } from "./capability-ipc";
 import { registerLearnerIpc } from "./learner-ipc";
 import { registerOrchestrationIpc } from "./orchestration-ipc";
+import { registerAgentIpc } from "./agent-ipc";
 import { eventBus } from "../event-bus";
 
 export interface IpcContext {
@@ -36,6 +39,8 @@ export interface IpcContext {
   learnerAdvisor: LearnerAdvisor;
   traceRecorder: TraceRecorder;
   orchestrationService: OrchestrationService;
+  agentPlanning: AgentPlanningService;
+  probeAgentProviders: () => Promise<AgentProviderStatusMap>;
 }
 
 /**
@@ -59,4 +64,13 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   );
   registerLearnerIpc(ctx.learnerAdvisor, ctx.traceRecorder);
   registerOrchestrationIpc(ctx.orchestrationService, eventBus);
+  registerAgentIpc(
+    {
+      planning: ctx.agentPlanning,
+      conversation: ctx.conversation,
+      state: ctx.state,
+      probeProviders: ctx.probeAgentProviders,
+    },
+    eventBus,
+  );
 };

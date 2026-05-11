@@ -1,0 +1,23 @@
+{
+  "name": "@harness/agent",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Agent CLI integration: provider detection, CLI adapter, prompt builder, output parser, planning service (Phase 8)",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@harness/core": "*",
+    "@harness/learner": "*",
+    "@harness/storage": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4"
+  }
+}

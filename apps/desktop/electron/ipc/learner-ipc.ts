@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import {
   IPC_CHANNELS,
+  LEARNER_INVALID_DECISION,
   LEARNER_TASK_NOT_FOUND,
   STATE_INVALID_INPUT,
   err,
@@ -10,7 +11,11 @@ import {
   type LearnerRecommendation,
   type LearningTrace,
 } from "@harness/core";
-import { LearnerAdvisor, TraceRecorder } from "@harness/learner";
+import {
+  LearnerAdvisor,
+  LearnerAdvisorError,
+  TraceRecorder,
+} from "@harness/learner";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -19,6 +24,9 @@ const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
 const wrapErr = <T>(e: unknown, code = LEARNER_TASK_NOT_FOUND): HarnessResult<T> => {
+  if (e instanceof LearnerAdvisorError) {
+    return err(harnessError(e.code, e.message));
+  }
   const msg = e instanceof Error ? e.message : String(e);
   return err(harnessError(code, msg));
 };
@@ -155,15 +163,19 @@ export const registerLearnerIpc = (
         decision?: unknown;
         reason?: unknown;
       };
-      if (
-        !isNonEmptyString(cast.taskRunId) ||
-        !isNonEmptyString(cast.recommendationId) ||
-        (cast.decision !== "accepted" && cast.decision !== "rejected")
-      ) {
+      if (!isNonEmptyString(cast.taskRunId) || !isNonEmptyString(cast.recommendationId)) {
         return err(
           harnessError(
             STATE_INVALID_INPUT,
-            "taskRunId/recommendationId/decision required",
+            "taskRunId and recommendationId are required",
+          ),
+        );
+      }
+      if (cast.decision !== "accepted" && cast.decision !== "rejected") {
+        return err(
+          harnessError(
+            LEARNER_INVALID_DECISION,
+            `decision must be 'accepted' or 'rejected' (got ${String(cast.decision)})`,
           ),
         );
       }

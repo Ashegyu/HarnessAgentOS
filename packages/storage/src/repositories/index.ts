@@ -7,3 +7,4 @@ export * from "./artifact-repository";
 export * from "./quality-gate-repository";
 export * from "./capability-repository";
 export * from "./learning-trace-repository";
+export * from "./agent-invocation-repository";

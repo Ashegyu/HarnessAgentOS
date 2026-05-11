@@ -14,6 +14,7 @@ const PREFIXES = {
   qualityGate: "qg_",
   capability: "cap_",
   learningTrace: "lrn_",
+  agentInvocation: "inv_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;

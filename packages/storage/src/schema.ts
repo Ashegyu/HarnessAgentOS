@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -118,10 +118,46 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at TEXT NOT NULL,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id)
   )`,
+  // Phase 8 — agent invocation ledger (one row per CLI run).
+  //
+  // ON DELETE policy (see phase-08-agent-cli-integration.md "데이터 모델"):
+  //   task_run_id          -> CASCADE   (invocation rows are TaskRun-scoped)
+  //   step_id              -> SET NULL  (step may be pruned; metadata survives)
+  //   prompt_artifact_id   -> RESTRICT  (reproducibility evidence — never lose)
+  //   raw_output_artifact_id, parsed_plan_artifact_id -> SET NULL (cost/latency stays)
+  //
+  // Note: SQLite stores the FOREIGN KEY clauses inline at CREATE time;
+  // updating them on an existing table requires a manual migration step.
+  `CREATE TABLE IF NOT EXISTS agent_invocations (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    step_id TEXT,
+    provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
+    model TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),
+    prompt_artifact_id TEXT NOT NULL,
+    raw_output_artifact_id TEXT,
+    parsed_plan_artifact_id TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    latency_ms INTEGER,
+    cost_estimate REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(step_id) REFERENCES steps(id) ON DELETE SET NULL,
+    FOREIGN KEY(prompt_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT,
+    FOREIGN KEY(raw_output_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
+    FOREIGN KEY(parsed_plan_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
+  )`,
+
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checkpoints_task_run_id ON checkpoints(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_artifacts_task_run_id ON artifacts(task_run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
 ];

@@ -59,6 +59,7 @@ export const registerConversationIpc = (
         threadId?: unknown;
         userRequest?: unknown;
         targetDir?: unknown;
+        mode?: unknown;
       };
       if (!isNonEmptyString(cast.userRequest)) {
         return err(
@@ -81,11 +82,25 @@ export const registerConversationIpc = (
           ),
         );
       }
+      if (
+        cast.mode !== undefined &&
+        cast.mode !== "template" &&
+        cast.mode !== "agent"
+      ) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "mode must be 'template' or 'agent' when provided",
+          ),
+        );
+      }
       const payload: CreateConversationTaskInput = {
         userRequest: cast.userRequest,
       };
       if (typeof cast.threadId === "string") payload.threadId = cast.threadId;
       if (typeof cast.targetDir === "string") payload.targetDir = cast.targetDir;
+      if (cast.mode === "template" || cast.mode === "agent")
+        payload.mode = cast.mode;
       try {
         const draft = await conversation.createTask(payload);
         events.taskRunChanged(draft.taskRun.id);
@@ -276,13 +291,22 @@ export const registerConversationIpc = (
             ),
           );
         }
-        const [steps, approvals, artifacts, checkpoints] = await Promise.all([
-          state.listStepsByTaskRun(cast.taskRunId),
-          state.listApprovalsByTaskRun(cast.taskRunId),
-          state.listArtifactsByTaskRun(cast.taskRunId),
-          state.listCheckpointsByTaskRun(cast.taskRunId),
-        ]);
-        return ok({ taskRun, steps, approvals, artifacts, checkpoints });
+        const [steps, approvals, artifacts, checkpoints, agentInvocations] =
+          await Promise.all([
+            state.listStepsByTaskRun(cast.taskRunId),
+            state.listApprovalsByTaskRun(cast.taskRunId),
+            state.listArtifactsByTaskRun(cast.taskRunId),
+            state.listCheckpointsByTaskRun(cast.taskRunId),
+            state.listAgentInvocationsByTaskRun(cast.taskRunId),
+          ]);
+        return ok({
+          taskRun,
+          steps,
+          approvals,
+          artifacts,
+          checkpoints,
+          agentInvocations,
+        });
       } catch (e) {
         return mapServiceError<TaskRunDetail>(e);
       }

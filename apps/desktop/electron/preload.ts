@@ -3,6 +3,9 @@ import {
   IPC_CHANNELS,
   isAllowedChannel,
   isHarnessError,
+  type AgentInvocation,
+  type AgentProviderStatusMap,
+  type AgentStreamEvent,
   type Approval,
   type Artifact,
   type Capability,
@@ -227,6 +230,34 @@ const harnessApi: HarnessDesktopApi = {
         input,
       ),
   },
+  agent: {
+    checkProviders: () =>
+      invokeUnwrapped<AgentProviderStatusMap>(
+        IPC_CHANNELS.agent.checkProviders,
+      ),
+    generatePlan: (input) =>
+      invokeUnwrapped<{
+        invocation: AgentInvocation;
+        planArtifact: Artifact;
+        approvals: Approval[];
+      }>(IPC_CHANNELS.agent.generatePlan, input),
+    cancelInvocation: (input) =>
+      invokeUnwrapped<AgentInvocation>(
+        IPC_CHANNELS.agent.cancelInvocation,
+        input,
+      ),
+    retryInvocation: (input) =>
+      invokeUnwrapped<{
+        invocation: AgentInvocation;
+        planArtifact: Artifact;
+        approvals: Approval[];
+      }>(IPC_CHANNELS.agent.retryInvocation, input),
+    useTemplateFallback: (input) =>
+      invokeUnwrapped<{ planArtifact: Artifact; approvals: Approval[] }>(
+        IPC_CHANNELS.agent.useTemplateFallback,
+        input,
+      ),
+  },
   events: {
     onTaskRunChanged: (listener) => {
       const channel = IPC_CHANNELS.events.taskRunChanged;
@@ -240,6 +271,26 @@ const harnessApi: HarnessDesktopApi = {
           typeof payload.taskRunId === "string"
         ) {
           listener({ taskRunId: payload.taskRunId });
+        }
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.off(channel, handler);
+      };
+    },
+    onAgentStreamEvent: (listener) => {
+      const channel = IPC_CHANNELS.events.agentStreamEvent;
+      const handler = (
+        _e: IpcRendererEvent,
+        payload: AgentStreamEvent,
+      ): void => {
+        if (
+          payload &&
+          typeof payload === "object" &&
+          typeof (payload as { type?: unknown }).type === "string" &&
+          typeof (payload as { invocationId?: unknown }).invocationId === "string"
+        ) {
+          listener(payload);
         }
       };
       ipcRenderer.on(channel, handler);

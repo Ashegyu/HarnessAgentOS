@@ -23,6 +23,8 @@ import type {
   RedirectTaskInput,
   RejectApprovalInput,
   ResumeTaskInput,
+  TemplateFallbackResult,
+  UseTemplateFallbackInput,
 } from "./types";
 
 export class ConversationServiceError extends Error {
@@ -149,6 +151,50 @@ export class ConversationService {
       outputSummary: "Inspect placeholder — Phase 3 runner가 실제 분석을 수행합니다.",
     });
 
+    // Phase 8 — agent mode short-circuit: skip deterministic plan-drafter
+    // so we don't create a placeholder approval that the agent would have
+    // to invalidate. Caller follows up with `agent.generatePlan`.
+    if (input.mode === "agent") {
+      const placeholderStep = await this.deps.state.createStep({
+        taskRunId: taskRun.id,
+        index: 1,
+        kind: "plan",
+        title: "Agent plan 대기",
+        status: "pending",
+        inputSummary: userRequest.slice(0, 200),
+      });
+      const planArtifact = await this.deps.state.createArtifact({
+        taskRunId: taskRun.id,
+        stepId: placeholderStep.id,
+        kind: "plan",
+        title: "Awaiting agent plan",
+        uri: planUri(taskRun.id),
+        summary:
+          "Agent mode TaskRun — call `agent.generatePlan(taskRunId)` to produce a plan and approvals.",
+      });
+      const checkpoint = await this.deps.state.createCheckpoint({
+        taskRunId: taskRun.id,
+        stepId: placeholderStep.id,
+        reason: "before_edit",
+        stateRef: stateRefJson({
+          taskRunStatus: "drafting",
+          currentStepId: placeholderStep.id,
+          artifactIds: [planArtifact.id],
+          targetDir,
+          mode: "agent",
+        }),
+        summary: "agent mode placeholder checkpoint",
+      });
+      await this.deps.state.setTaskRunCurrentStep(taskRun.id, placeholderStep.id);
+      // Status stays `drafting`; `agent.generatePlan` flips it.
+      return {
+        taskRun,
+        planArtifact,
+        checkpoint,
+        approvals: [],
+      };
+    }
+
     // 3. plan Step + plan artifact.
     const planStep = await this.deps.state.createStep({
       taskRunId: taskRun.id,
@@ -234,7 +280,7 @@ export class ConversationService {
     }
     if (details.type !== approval.actionType) {
       throw new ConversationServiceError(
-        "CONVERSATION_INVALID_TARGET_DIR",
+        "CONVERSATION_PROPOSED_ACTION_TYPE_MISMATCH",
         `proposedAction.type (${details.type}) must match approval.actionType (${approval.actionType})`,
       );
     }
@@ -513,6 +559,116 @@ export class ConversationService {
       outputSummary: "cancelled by user",
     });
     return this.deps.state.setTaskRunStatus(taskRun.id, "cancelled");
+  }
+
+  /**
+   * Phase 8 — convert an agent-mode TaskRun back to a deterministic
+   * template plan when the agent CLI is unavailable or its output is
+   * unusable. Reuses the same plan-drafter as `createTask({mode:"template"})`
+   * so the renderer doesn't have to special-case fallback approvals.
+   *
+   * Allowed source states: `drafting` (mode-agent placeholder still in
+   * place) or `blocked` (agent invocation failed). Anything else means
+   * we'd be racing an already-progressing flow.
+   *
+   * The caller (agent-ipc) is responsible for refusing the call when an
+   * agent invocation is still queued or running for this TaskRun.
+   */
+  async useTemplateFallback(
+    input: UseTemplateFallbackInput,
+  ): Promise<TemplateFallbackResult> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new ConversationServiceError(
+        "CONVERSATION_TASK_NOT_FOUND",
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    if (taskRun.status !== "drafting" && taskRun.status !== "blocked") {
+      throw new ConversationServiceError(
+        "CONVERSATION_INVALID_STATE",
+        `Template fallback requires drafting|blocked status (got ${taskRun.status})`,
+      );
+    }
+
+    // Reject any pending approvals from the agent-mode placeholder so the
+    // ledger has a single fresh plan + approval set.
+    const pending = await this.deps.state.listPendingApprovalsForTaskRun(
+      taskRun.id,
+    );
+    for (const a of pending) {
+      await this.deps.state.decideApproval(
+        a.id,
+        "rejected",
+        "Replaced by template fallback",
+      );
+    }
+
+    const stepIndex = await this.nextStepIndex(taskRun.id);
+    const planStep = await this.deps.state.createStep({
+      taskRunId: taskRun.id,
+      index: stepIndex,
+      kind: "plan",
+      title: "Template fallback plan",
+      status: "running",
+      inputSummary: taskRun.userRequest.slice(0, 200),
+    });
+    const drafted = draftPlan({
+      userRequest: taskRun.userRequest,
+      targetDir: taskRun.targetDir,
+    });
+    const planArtifact = await this.deps.state.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: planStep.id,
+      kind: "plan",
+      title: drafted.title,
+      uri: planUri(taskRun.id),
+      summary: drafted.content,
+    });
+    await this.deps.state.setStepStatus(planStep.id, "succeeded", {
+      outputSummary: `template fallback plan artifact ${planArtifact.id}`,
+    });
+
+    const approvalStep = await this.deps.state.createStep({
+      taskRunId: taskRun.id,
+      index: stepIndex + 1,
+      kind: "approval",
+      title: "Template fallback 승인 대기",
+      status: "pending",
+      inputSummary: drafted.proposedActions.map((a) => a.type).join(","),
+    });
+    const checkpoint = await this.deps.state.createCheckpoint({
+      taskRunId: taskRun.id,
+      stepId: approvalStep.id,
+      reason: "before_edit",
+      stateRef: stateRefJson({
+        taskRunStatus: "waiting_for_approval",
+        currentStepId: approvalStep.id,
+        artifactIds: [planArtifact.id],
+        targetDir: taskRun.targetDir,
+        fallbackFrom: "agent",
+      }),
+      summary: "template fallback before_edit checkpoint",
+    });
+    const approvals: Approval[] = [];
+    for (const action of drafted.proposedActions) {
+      approvals.push(
+        await this.deps.state.createApproval({
+          taskRunId: taskRun.id,
+          checkpointId: checkpoint.id,
+          actionType: action.type,
+          actionSummary: action.summary,
+          status: "pending",
+        }),
+      );
+    }
+    await this.deps.state.setTaskRunCurrentStep(taskRun.id, approvalStep.id);
+    await this.deps.state.setTaskRunStatus(
+      taskRun.id,
+      "waiting_for_approval",
+    );
+
+    return { planArtifact, approvals };
   }
 
   private async nextStepIndex(taskRunId: string): Promise<number> {

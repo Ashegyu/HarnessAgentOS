@@ -158,7 +158,7 @@ test("proposeScriptRun creates an Approval row, never executes", async () => {
           taskRunId: taskRun.id,
           scriptName: "doit.sh",
         }),
-      (e) => e.code === "CAPABILITY_UNTRUSTED_SCRIPT",
+      (e) => e.code === "CAPABILITY_UNTRUSTED_SKILL",
     );
   } finally {
     closeDb(db);

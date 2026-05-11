@@ -21,7 +21,14 @@ import {
 } from "@harness/skillify-adapter";
 import { LearnerAdvisor, TraceRecorder } from "@harness/learner";
 import { OrchestrationService } from "@harness/orchestration";
+import {
+  AgentInvocationQueue,
+  AgentPlanningService,
+  checkProviders as probeAgentProviders,
+} from "@harness/agent";
+import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
+import { eventBus } from "./event-bus";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -40,6 +47,8 @@ const initServices = (): {
   learnerAdvisor: LearnerAdvisor;
   traceRecorder: TraceRecorder;
   orchestrationService: OrchestrationService;
+  agentPlanning: AgentPlanningService;
+  probeAgentProviders: () => Promise<AgentProviderStatusMap>;
 } => {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
@@ -108,6 +117,26 @@ const initServices = (): {
     state,
     enabled: orchestrationEnabled,
   });
+
+  // Phase 8 — agent CLI integration. The queue is shared between the
+  // planning service (concurrency control) and the provider probe
+  // (so RuntimeStatusBar can show live queue depth).
+  const agentQueue = new AgentInvocationQueue();
+  let cachedProviders: AgentProviderStatusMap | null = null;
+  const probeProviders = async (): Promise<AgentProviderStatusMap> => {
+    const result = await probeAgentProviders({
+      getQueueDepth: (p) => agentQueue.getDepth(p),
+    });
+    cachedProviders = result;
+    return result;
+  };
+  const agentPlanning = new AgentPlanningService({
+    state,
+    queue: agentQueue,
+    getProviderStatus: () => cachedProviders,
+    emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
+  });
+
   return {
     state,
     conversation,
@@ -121,6 +150,8 @@ const initServices = (): {
     learnerAdvisor,
     traceRecorder,
     orchestrationService,
+    agentPlanning,
+    probeAgentProviders: probeProviders,
   };
 };
 

@@ -1,10 +1,21 @@
 import {
+  LEARNER_TASK_NOT_FOUND,
   type CapabilitySuggestion,
   type EffortHint,
   type LearnerDecisionRecord,
   type LearnerRecommendation,
   type LearningTrace,
 } from "@harness/core";
+
+export class LearnerAdvisorError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "LearnerAdvisorError";
+  }
+}
 import type { LocalStateService } from "@harness/storage";
 import { suggestCapabilities } from "@harness/skillify-adapter";
 import { recommendModel } from "./model-selection-feedback";
@@ -42,7 +53,10 @@ export class LearnerAdvisor {
   }): Promise<LearnerRecommendation> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
-      throw new Error(`TaskRun ${input.taskRunId} not found`);
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
     }
     const [capabilities, traces] = await Promise.all([
       this.deps.state.listCapabilities(),

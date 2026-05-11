@@ -1,7 +1,8 @@
 import {
   CAPABILITY_NOT_FOUND,
+  CAPABILITY_SCRIPT_NOT_FOUND,
   CAPABILITY_SCRIPT_TRAVERSAL,
-  CAPABILITY_UNTRUSTED_SCRIPT,
+  CAPABILITY_UNTRUSTED_SKILL,
   type Approval,
   type Capability,
   type CapabilitySuggestion,
@@ -109,7 +110,7 @@ export class CapabilityService {
       })
     ) {
       throw new CapabilityServiceError(
-        CAPABILITY_UNTRUSTED_SCRIPT,
+        CAPABILITY_UNTRUSTED_SKILL,
         `Skill ${metadata.id} is untrusted; script execution is blocked`,
       );
     }
@@ -125,7 +126,7 @@ export class CapabilityService {
       await fs.access(scriptPath);
     } catch {
       throw new CapabilityServiceError(
-        "CAPABILITY_SCRIPT_NOT_FOUND",
+        CAPABILITY_SCRIPT_NOT_FOUND,
         `Skill script ${scriptName} not found in ${metadata.sourceDir}`,
       );
     }

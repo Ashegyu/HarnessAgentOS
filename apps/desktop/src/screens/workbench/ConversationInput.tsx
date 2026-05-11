@@ -1,14 +1,23 @@
 import { useState, type KeyboardEvent } from "react";
 
+export type ConversationMode = "template" | "agent";
+
 interface ConversationInputProps {
   threadId: string | null;
   threadTargetDir?: string | undefined;
-  onSubmit: (input: { userRequest: string; targetDir?: string }) => Promise<void>;
+  /** Whether at least one agent CLI provider is currently available. */
+  agentAvailable: boolean;
+  onSubmit: (input: {
+    userRequest: string;
+    targetDir?: string;
+    mode: ConversationMode;
+  }) => Promise<void>;
 }
 
 export const ConversationInput = ({
   threadId,
   threadTargetDir,
+  agentAvailable,
   onSubmit,
 }: ConversationInputProps): JSX.Element => {
   const [text, setText] = useState("");
@@ -16,17 +25,29 @@ export const ConversationInput = ({
   const [showDirOverride, setShowDirOverride] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<ConversationMode>("template");
 
   const targetDir = overrideDir.trim() || threadTargetDir || "";
   const canSubmit = !submitting && text.trim().length > 0 && targetDir.length > 0;
+
+  // If agent becomes unavailable, drop back to template so the submit
+  // can't fail with AGENT_PROVIDER_UNAVAILABLE mid-flow.
+  if (mode === "agent" && !agentAvailable) {
+    setMode("template");
+  }
 
   const submit = async (): Promise<void> => {
     if (!canSubmit) return;
     setSubmitting(true);
     setError(null);
     try {
-      const payload: { userRequest: string; targetDir?: string } = {
+      const payload: {
+        userRequest: string;
+        targetDir?: string;
+        mode: ConversationMode;
+      } = {
         userRequest: text.trim(),
+        mode,
       };
       if (overrideDir.trim().length > 0) payload.targetDir = overrideDir.trim();
       else if (!threadTargetDir) payload.targetDir = targetDir;
@@ -95,6 +116,41 @@ export const ConversationInput = ({
           {showDirOverride ? "닫기" : "변경"}
         </button>
       </div>
+      <div
+        className="conversation-input__mode"
+        role="radiogroup"
+        aria-label="Plan mode"
+      >
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === "template"}
+          className={
+            mode === "template"
+              ? "conversation-input__mode-btn conversation-input__mode-btn--active"
+              : "conversation-input__mode-btn"
+          }
+          onClick={() => setMode("template")}
+          disabled={submitting}
+        >
+          Template
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={mode === "agent"}
+          className={
+            mode === "agent"
+              ? "conversation-input__mode-btn conversation-input__mode-btn--active"
+              : "conversation-input__mode-btn"
+          }
+          onClick={() => agentAvailable && setMode("agent")}
+          disabled={submitting || !agentAvailable}
+          title={agentAvailable ? "" : "CLI provider 미설치"}
+        >
+          Agent {agentAvailable ? "" : "(미설치)"}
+        </button>
+      </div>
       <textarea
         className="conversation-input__text"
         placeholder={
@@ -112,8 +168,12 @@ export const ConversationInput = ({
       <div className="conversation-input__footer">
         <span className="conversation-input__hint">
           {submitting
-            ? "계획 생성 중…"
-            : "전송하면 plan / before_edit checkpoint / approval이 생성됩니다."}
+            ? mode === "agent"
+              ? "Agent 호출 중…"
+              : "계획 생성 중…"
+            : mode === "agent"
+              ? "Agent CLI가 plan과 approval을 생성합니다 — 모든 side effect는 승인 후 실행."
+              : "전송하면 plan / before_edit checkpoint / approval이 생성됩니다."}
         </span>
         <button type="button" disabled={!canSubmit} onClick={() => void submit()}>
           {submitting ? "처리 중…" : "전송"}

@@ -42,7 +42,7 @@ test("draftPlan refuses when feature flag is off", async () => {
     await assert.rejects(
       () =>
         service.draftPlan({ taskRunId: taskRun.id, mode: "single_worker" }),
-      (e) => e.code === "ORCH_DIRECT_ACTION_BLOCKED",
+      (e) => e.code === "ORCHESTRATION_DISABLED",
     );
   } finally {
     closeDb(db);
@@ -85,7 +85,7 @@ test("runApproved refuses when approval is not approved", async () => {
     });
     await assert.rejects(
       () => service.runApproved({ approvalId: drafted.approval.id }),
-      (e) => e.code === "ORCH_APPROVAL_NOT_APPROVED",
+      (e) => e.code === "ORCHESTRATION_APPROVAL_REQUIRED",
     );
   } finally {
     closeDb(db);

@@ -1,5 +1,6 @@
 import {
   validateTargetDir,
+  type AgentInvocation,
   type Approval,
   type ApprovalStatus,
   type Artifact,
@@ -25,6 +26,7 @@ import {
 } from "@harness/core";
 import type { HarnessDb } from "../db";
 import {
+  SqliteAgentInvocationRepository,
   SqliteApprovalRepository,
   SqliteArtifactRepository,
   SqliteCapabilityRepository,
@@ -34,15 +36,18 @@ import {
   SqliteStepRepository,
   SqliteTaskRunRepository,
   SqliteThreadRepository,
+  type AgentInvocationRepository,
   type ApprovalRepository,
   type ArtifactRepository,
   type CapabilityRepository,
   type CheckpointRepository,
+  type CreateAgentInvocationInput,
   type LearningTraceRepository,
   type QualityGateRepository,
   type StepRepository,
   type TaskRunRepository,
   type ThreadRepository,
+  type UpdateAgentInvocationPatch,
 } from "../repositories";
 
 /**
@@ -66,6 +71,7 @@ export class LocalStateService implements ConversationStateGateway {
   readonly qualityGates: QualityGateRepository;
   readonly capabilities: CapabilityRepository;
   readonly learningTraces: LearningTraceRepository;
+  readonly agentInvocations: AgentInvocationRepository;
 
   constructor(private readonly db: HarnessDb) {
     this.threads = new SqliteThreadRepository(db);
@@ -77,6 +83,7 @@ export class LocalStateService implements ConversationStateGateway {
     this.qualityGates = new SqliteQualityGateRepository(db);
     this.capabilities = new SqliteCapabilityRepository(db);
     this.learningTraces = new SqliteLearningTraceRepository(db);
+    this.agentInvocations = new SqliteAgentInvocationRepository(db);
   }
 
   // -- Thread / TaskRun --------------------------------------------------
@@ -276,5 +283,36 @@ export class LocalStateService implements ConversationStateGateway {
 
   async listLearningTraces(): Promise<LearningTrace[]> {
     return this.learningTraces.list();
+  }
+
+  // -- AgentInvocation (Phase 8) ----------------------------------------
+
+  async createAgentInvocation(
+    input: CreateAgentInvocationInput,
+  ): Promise<AgentInvocation> {
+    return this.agentInvocations.create(input);
+  }
+
+  async updateAgentInvocation(
+    id: string,
+    patch: UpdateAgentInvocationPatch,
+  ): Promise<AgentInvocation> {
+    return this.agentInvocations.update(id, patch);
+  }
+
+  async getAgentInvocation(id: string): Promise<AgentInvocation | null> {
+    return this.agentInvocations.get(id);
+  }
+
+  async listAgentInvocationsByTaskRun(
+    taskRunId: string,
+  ): Promise<AgentInvocation[]> {
+    return this.agentInvocations.listByTaskRun(taskRunId);
+  }
+
+  async getLatestAgentInvocation(
+    taskRunId: string,
+  ): Promise<AgentInvocation | null> {
+    return this.agentInvocations.getLatestForTaskRun(taskRunId);
   }
 }

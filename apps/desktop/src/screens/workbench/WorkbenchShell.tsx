@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  AgentProviderStatusMap,
   ProposedActionDetails,
   Thread,
   ThreadDetail,
@@ -7,6 +8,7 @@ import type {
 } from "@harness/core";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
+import type { ConversationMode } from "./ConversationInput";
 import { RightPanel } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import "./workbench.css";
@@ -43,6 +45,11 @@ export const WorkbenchShell = (): JSX.Element => {
   const [taskRunDetail, setTaskRunDetail] = useState<TaskRunDetailState>({
     kind: "idle",
   });
+  const [providers, setProviders] =
+    useState<AgentProviderStatusMap | null>(null);
+  const agentAvailable =
+    providers !== null &&
+    (providers.claude.available || providers.codex.available);
 
   const refreshThreads = useCallback(async () => {
     setThreadsState({ kind: "loading" });
@@ -90,6 +97,29 @@ export const WorkbenchShell = (): JSX.Element => {
   useEffect(() => {
     void refreshThreads();
   }, [refreshThreads]);
+
+  const refreshProviders = useCallback(async () => {
+    try {
+      const next = await window.harness.agent.checkProviders();
+      setProviders(next);
+    } catch {
+      setProviders(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshProviders();
+    const off = window.harness.events.onAgentStreamEvent((event) => {
+      if (
+        event.type === "started" ||
+        event.type === "result" ||
+        event.type === "failed"
+      ) {
+        void refreshProviders();
+      }
+    });
+    return off;
+  }, [refreshProviders]);
 
   useEffect(() => {
     if (selectedThreadId === null) {
@@ -142,6 +172,7 @@ export const WorkbenchShell = (): JSX.Element => {
     async (input: {
       userRequest: string;
       targetDir?: string;
+      mode: ConversationMode;
     }): Promise<void> => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
@@ -150,16 +181,71 @@ export const WorkbenchShell = (): JSX.Element => {
         threadId: string;
         userRequest: string;
         targetDir?: string;
+        mode: ConversationMode;
       } = {
         threadId: selectedThreadId,
         userRequest: input.userRequest,
+        mode: input.mode,
       };
       if (input.targetDir !== undefined) payload.targetDir = input.targetDir;
       const draft = await window.harness.conversation.createTask(payload);
-      await refreshThreadDetail(selectedThreadId);
       setSelectedTaskRunId(draft.taskRun.id);
+      // Agent mode: chain into generatePlan immediately so the user sees
+      // streaming output instead of a sitting-still placeholder.
+      if (input.mode === "agent") {
+        try {
+          await window.harness.agent.generatePlan({
+            taskRunId: draft.taskRun.id,
+          });
+        } catch (e) {
+          // Surface but don't unwind — the placeholder TaskRun stays
+          // around so the user can retry or fall back manually.
+          // eslint-disable-next-line no-console
+          console.error("agent.generatePlan failed", e);
+        }
+      }
+      await refreshThreadDetail(selectedThreadId);
+      if (selectedTaskRunId === draft.taskRun.id)
+        await refreshTaskRunDetail(draft.taskRun.id);
     },
-    [refreshThreadDetail, selectedThreadId],
+    [
+      refreshThreadDetail,
+      refreshTaskRunDetail,
+      selectedTaskRunId,
+      selectedThreadId,
+    ],
+  );
+
+  const handleAgentGenerate = useCallback(
+    async (taskRunId: string): Promise<void> => {
+      await window.harness.agent.generatePlan({ taskRunId });
+      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+    },
+    [refreshTaskRunDetail, selectedTaskRunId],
+  );
+
+  const handleAgentRetry = useCallback(
+    async (invocationId: string): Promise<void> => {
+      await window.harness.agent.retryInvocation({ invocationId });
+      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+    },
+    [refreshTaskRunDetail, selectedTaskRunId],
+  );
+
+  const handleAgentCancel = useCallback(
+    async (invocationId: string): Promise<void> => {
+      await window.harness.agent.cancelInvocation({ invocationId });
+      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+    },
+    [refreshTaskRunDetail, selectedTaskRunId],
+  );
+
+  const handleAgentUseFallback = useCallback(
+    async (taskRunId: string): Promise<void> => {
+      await window.harness.agent.useTemplateFallback({ taskRunId });
+      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+    },
+    [refreshTaskRunDetail, selectedTaskRunId],
   );
 
   const handleApprove = useCallback(
@@ -267,6 +353,7 @@ export const WorkbenchShell = (): JSX.Element => {
         onCreateTask={handleCreateTask}
         threadTargetDir={selectedThread?.targetDir}
         threadId={selectedThreadId}
+        agentAvailable={agentAvailable}
       />
       <RightPanel
         state={taskRunDetail}
@@ -277,6 +364,11 @@ export const WorkbenchShell = (): JSX.Element => {
         onExecute={handleExecute}
         onQualityChanged={handleQualityChanged}
         onCapabilityApprovalCreated={handleQualityChanged}
+        onAgentGenerate={handleAgentGenerate}
+        onAgentRetry={handleAgentRetry}
+        onAgentCancel={handleAgentCancel}
+        onAgentUseFallback={handleAgentUseFallback}
+        agentAvailable={agentAvailable}
       />
       <RuntimeStatusBar />
     </div>

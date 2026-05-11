@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ProposedActionDetails, TaskRunDetail } from "@harness/core";
+import { AgentPanel } from "./AgentPanel";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { PlanArtifactView } from "./PlanArtifactView";
 import { TaskRunTimeline } from "./TaskRunTimeline";
@@ -49,6 +50,11 @@ interface RightPanelProps {
   onExecute: (input: { approvalId: string }) => Promise<void>;
   onQualityChanged: () => Promise<void>;
   onCapabilityApprovalCreated: () => Promise<void>;
+  onAgentGenerate: (taskRunId: string) => Promise<void>;
+  onAgentRetry: (invocationId: string) => Promise<void>;
+  onAgentCancel: (invocationId: string) => Promise<void>;
+  onAgentUseFallback: (taskRunId: string) => Promise<void>;
+  agentAvailable: boolean;
 }
 
 export const RightPanel = ({
@@ -60,6 +66,11 @@ export const RightPanel = ({
   onExecute,
   onQualityChanged,
   onCapabilityApprovalCreated,
+  onAgentGenerate,
+  onAgentRetry,
+  onAgentCancel,
+  onAgentUseFallback,
+  agentAvailable,
 }: RightPanelProps): JSX.Element => {
   const [activeTab, setActiveTab] = useState<RightPanelTab>("plan");
 
@@ -138,6 +149,15 @@ export const RightPanel = ({
           >
             {activeTab === "plan" && (
               <div className="right-panel__stack">
+                <AgentPanel
+                  taskRun={state.detail.taskRun}
+                  invocations={state.detail.agentInvocations}
+                  agentAvailable={agentAvailable}
+                  onGenerate={() => onAgentGenerate(state.detail.taskRun.id)}
+                  onRetry={onAgentRetry}
+                  onCancel={onAgentCancel}
+                  onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
+                />
                 <section aria-label="Plan">
                   <header className="panel-header panel-header--inset">
                     <span>Plan</span>

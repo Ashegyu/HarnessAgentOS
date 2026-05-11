@@ -29,7 +29,8 @@ namespace assertions catch drift in the first two.
 | `capability` | [apps/desktop/electron/ipc/capability-ipc.ts](../../apps/desktop/electron/ipc/capability-ipc.ts) | [packages/skillify-adapter/src/capability-service.ts](../../packages/skillify-adapter/src/capability-service.ts) |
 | `learner` | [apps/desktop/electron/ipc/learner-ipc.ts](../../apps/desktop/electron/ipc/learner-ipc.ts) | [packages/learner/src/learner-advisor.ts](../../packages/learner/src/learner-advisor.ts), [packages/learner/src/trace-recorder.ts](../../packages/learner/src/trace-recorder.ts) |
 | `orchestration` | [apps/desktop/electron/ipc/orchestration-ipc.ts](../../apps/desktop/electron/ipc/orchestration-ipc.ts) | [packages/orchestration/src/orchestration-service.ts](../../packages/orchestration/src/orchestration-service.ts) (feature-flag `HARNESS_ORCHESTRATION_ENABLED=1`) |
-| `events` | broadcaster: [apps/desktop/electron/event-bus.ts](../../apps/desktop/electron/event-bus.ts) — subscriber: [apps/desktop/electron/preload.ts](../../apps/desktop/electron/preload.ts) | n/a (one-way main → renderer) |
+| `agent` | [apps/desktop/electron/ipc/agent-ipc.ts](../../apps/desktop/electron/ipc/agent-ipc.ts) | [packages/agent/src/agent-planning-service.ts](../../packages/agent/src/agent-planning-service.ts) + [provider-detection.ts](../../packages/agent/src/provider-detection.ts) + [model-cli-adapter.ts](../../packages/agent/src/model-cli-adapter.ts) |
+| `events` | broadcaster: [apps/desktop/electron/event-bus.ts](../../apps/desktop/electron/event-bus.ts) — subscriber: [apps/desktop/electron/preload.ts](../../apps/desktop/electron/preload.ts) | n/a (one-way main → renderer; two classes: id-only `taskRunChanged` + scoped chunk `agentStreamEvent`) |
 
 ## Wiring entry points
 
@@ -46,6 +47,24 @@ namespace assertions catch drift in the first two.
 refetches whenever a TaskRun row mutates in the canonical store. The
 broadcast is fired from each successful state-changing IPC handler — the
 renderer never has to poll.
+
+## Agent mode flow (Phase 8)
+
+```
+conversation.createTask({mode: "agent"})
+  -> TaskRun status=drafting (no plan artifact, no approval)
+  -> agent.generatePlan({taskRunId})
+       -> [main] spawn `claude --print` or `codex exec`
+       -> stream raw chunks via events:agentStreamEvent (redacted)
+       -> parse fenced JSON block `harness_agent_plan`
+       -> validate each proposedAction via validateProposedActionDetails
+       -> create plan artifact + N approval rows
+       -> TaskRun -> waiting_for_approval (or ready_for_review if 0 actions)
+  -> user approves -> runner.executeApproved (existing RunnerService)
+  -> quality.evaluate -> quality.markDone (LearningTrace auto-stamped)
+```
+
+`mode` is locked at TaskRun creation — to switch, create a new TaskRun.
 
 ## TaskRun state-action surface (Pause/Resume/Retry/Cancel)
 

@@ -1,8 +1,8 @@
 import { ipcMain } from "electron";
 import {
   IPC_CHANNELS,
-  ORCH_INVALID_PLAN,
-  ORCH_PLAN_NOT_FOUND,
+  ORCHESTRATION_INVALID_PLAN,
+  ORCHESTRATION_PLAN_NOT_FOUND,
   STATE_INVALID_INPUT,
   err,
   harnessError,
@@ -27,7 +27,7 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
-const wrapErr = <T>(e: unknown, code = ORCH_PLAN_NOT_FOUND): HarnessResult<T> => {
+const wrapErr = <T>(e: unknown, code = ORCHESTRATION_PLAN_NOT_FOUND): HarnessResult<T> => {
   if (e instanceof OrchestrationError) {
     return err(harnessError(e.code, e.message));
   }
@@ -93,7 +93,9 @@ export const registerOrchestrationIpc = (
         );
       }
       if (!isOrchestrationMode(cast.mode)) {
-        return err(harnessError(ORCH_INVALID_PLAN, "Unknown orchestration mode"));
+        return err(
+          harnessError(ORCHESTRATION_INVALID_PLAN, "Unknown orchestration mode"),
+        );
       }
       const payload: Parameters<typeof service.draftPlan>[0] = {
         taskRunId: cast.taskRunId,

@@ -61,13 +61,27 @@ export const IPC_CHANNELS = {
     runApproved: "orchestration:runApproved",
     getPlan: "orchestration:getPlan",
   },
+  agent: {
+    checkProviders: "agent:checkProviders",
+    generatePlan: "agent:generatePlan",
+    cancelInvocation: "agent:cancelInvocation",
+    retryInvocation: "agent:retryInvocation",
+    useTemplateFallback: "agent:useTemplateFallback",
+  },
   events: {
     /**
-     * One-way main → renderer push. Emitted whenever a TaskRun row
-     * changes in the canonical store so the workbench can refresh
+     * One-way main → renderer push (id-only). Emitted whenever a TaskRun
+     * row changes in the canonical store so the workbench can refresh
      * without the renderer having to poll.
      */
     taskRunChanged: "events:taskRunChanged",
+    /**
+     * One-way main → renderer push (scoped chunk). Emitted while an
+     * `agent.generatePlan` invocation streams output. Each chunk carries
+     * `invocationId`; renderer filters to its own invocation. Payload
+     * passes through secret-redaction before broadcast.
+     */
+    agentStreamEvent: "events:agentStreamEvent",
   },
 } as const;
 

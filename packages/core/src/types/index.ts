@@ -10,3 +10,5 @@ export * from "./repair-plan-draft";
 export * from "./capability";
 export * from "./learning-trace";
 export * from "./orchestration";
+export * from "./agent-invocation";
+export * from "./agent-plan-output";

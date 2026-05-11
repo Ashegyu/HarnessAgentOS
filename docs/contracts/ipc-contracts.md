@@ -245,6 +245,15 @@ interface CreateConversationTaskInput {
   threadId?: string;
   userRequest: string;
   targetDir?: string;
+  /**
+   * Conversation mode:
+   * - "template" (default): deterministic plan-drafter — creates plan / before_edit
+   *   checkpoint / approvals immediately and flips TaskRun to `waiting_for_approval`.
+   * - "agent": Phase 8 CLI-backed planner — creates a placeholder step/checkpoint/
+   *   plan artifact and leaves the TaskRun in `drafting` until `agent.generatePlan`
+   *   produces the real plan and approvals.
+   */
+  mode?: "template" | "agent";
 }
 
 interface ConversationTaskDraft {
@@ -252,6 +261,21 @@ interface ConversationTaskDraft {
   planArtifact: Artifact;
   checkpoint: Checkpoint;
   approvals: Approval[];
+}
+
+interface TaskRunDetail {
+  taskRun: TaskRun;
+  steps: Step[];
+  artifacts: Artifact[];
+  checkpoints: Checkpoint[];
+  approvals: Approval[];
+  thread: Thread;
+  /**
+   * Phase 8 — agent CLI invocations associated with this TaskRun.
+   * Empty for template-mode TaskRuns. The renderer uses the latest entry to
+   * render the inline AgentPanel/AgentStreamView.
+   */
+  agentInvocations: AgentInvocation[];
 }
 ```
 
@@ -370,6 +394,7 @@ capability.proposeScriptRun(input: { capabilityId: string; taskRunId: string; sc
 - `CAPABILITY_UNTRUSTED_SKILL`
 - `CAPABILITY_SCRIPT_NOT_FOUND`
 - `CAPABILITY_SCRIPT_REQUIRES_APPROVAL`
+- `CAPABILITY_SCRIPT_TRAVERSAL` — script 경로가 skill sourceDir 밖으로 escape
 
 ## `window.harness.learner`
 
@@ -386,6 +411,18 @@ interface LearnerRecommendation {
 
 learner.getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
 learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
+learner.recordSelection(input: {
+  taskRunId: string;
+  selectedModel?: string;
+  selectedCapabilities?: string[];
+}): Promise<LearningTrace>;
+learner.recordOutcome(input: {
+  taskRunId: string;
+  latencyMs?: number;
+  costEstimate?: number;
+  success?: boolean;
+  failureReason?: string;
+}): Promise<LearningTrace>;
 learner.recordDecision(input: {
   taskRunId: string;
   recommendationId: string; // LearnerRecommendation.id
@@ -394,8 +431,12 @@ learner.recordDecision(input: {
 }): Promise<void>;
 ```
 
+`recordSelection`은 user/policy가 모델·capability를 골랐을 때 호출되어 LearningTrace의 `selectedModel`/`selectedCapabilities`를 갱신한다.
+`recordOutcome`은 `quality.markDone` 성공 직후 IPC 계층이 자동 호출하므로 renderer가 명시적으로 부르는 일은 드물지만, 외부 통합용으로 노출되어 있다.
+
 오류:
 
+- `LEARNER_TASK_NOT_FOUND`
 - `LEARNER_TRACE_NOT_FOUND`
 - `LEARNER_RECOMMENDATION_NOT_FOUND`
 - `LEARNER_INVALID_DECISION`
@@ -418,24 +459,132 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 
 오류:
 
-- `ORCHESTRATION_DISABLED`
-- `ORCHESTRATION_PLAN_NOT_FOUND`
-- `ORCHESTRATION_APPROVAL_REQUIRED`
+- `ORCHESTRATION_DISABLED` — feature flag off 상태에서 draftPlan/runApproved 호출
+- `ORCHESTRATION_PLAN_NOT_FOUND` — 복구할 orchestration_plan artifact를 찾지 못함
+- `ORCHESTRATION_APPROVAL_REQUIRED` — approval이 존재하지 않거나 approved 상태가 아님
+- `ORCHESTRATION_APPROVAL_TYPE_MISMATCH` — approval.actionType이 `orchestration_plan`이 아님
+- `ORCHESTRATION_INVALID_PLAN` — `mode`가 허용 enum이 아님
+- `ORCHESTRATION_TASK_NOT_FOUND` — taskRunId 미존재
+- `ORCHESTRATION_DIRECT_ACTION_BLOCKED` — worker가 approval 게이트를 우회하려 시도
+
+## `window.harness.agent`
+
+Phase 8 — CLI 기반 agent planner. `conversation.createTask({mode: "agent"})`로 생성된 TaskRun에 대해 `generatePlan`을 호출하면 `claude` 또는 `codex` CLI가 main process에서 실행되어 plan artifact와 0..N approval row를 만든다. agent는 절대 파일을 직접 쓰지 않으며, 모든 side effect는 기존 approval 흐름을 통과한다.
+
+```ts
+agent.checkProviders(): Promise<AgentProviderStatusMap>;
+agent.generatePlan(input: {
+  taskRunId: string; // must be a TaskRun created with mode="agent"
+  provider?: AgentProvider;
+  model?: string;
+  instruction?: string;
+}): Promise<{
+  invocation: AgentInvocation;
+  planArtifact: Artifact;
+  approvals: Approval[]; // 0 allowed for answer-only responses
+}>;
+agent.cancelInvocation(input: { invocationId: string }): Promise<AgentInvocation>;
+agent.retryInvocation(input: { invocationId: string }): Promise<{
+  invocation: AgentInvocation;
+  planArtifact: Artifact;
+  approvals: Approval[];
+}>;
+agent.useTemplateFallback(input: { taskRunId: string }): Promise<{
+  planArtifact: Artifact;
+  approvals: Approval[];
+}>;
+```
+
+```ts
+type AgentProvider = "claude" | "codex";
+
+interface AgentProviderProbe {
+  available: boolean;
+  version?: string;
+  error?: string;
+  /**
+   * In-process FIFO depth for this provider (waiting + in-flight).
+   * Surfaced so RuntimeStatusBar can show queue pressure without a new
+   * push channel. Refreshed every `agent.checkProviders()` call.
+   */
+  queueDepth: number;
+}
+
+interface AgentProviderStatusMap {
+  claude: AgentProviderProbe;
+  codex: AgentProviderProbe;
+}
+
+interface AgentInvocation {
+  id: string;
+  taskRunId: string;
+  stepId?: string;
+  provider: AgentProvider;
+  model: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  promptArtifactId: string;
+  rawOutputArtifactId?: string;
+  parsedPlanArtifactId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  latencyMs?: number;
+  costEstimate?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+`generatePlan` 정책:
+
+- TaskRun이 `drafting` 또는 `blocked`(재시도) 상태일 때만 허용. 다른 상태는 `AGENT_MODE_MISMATCH`.
+- provider 미설치 시 `AGENT_PROVIDER_UNAVAILABLE`. UI는 deterministic template fallback을 권장한다.
+- CLI 출력의 fenced JSON 블록(`harness_agent_plan`)을 파싱한다. 실패 시 `AGENT_INVALID_OUTPUT`.
+- 각 `proposedActions[i]`는 기존 `validateProposedActionDetails` 게이트(절대경로/`..`/NUL 차단)를 통과해야 approval row가 만들어진다. 통과 못 한 항목은 drop되고 `quality_report` artifact에 사유가 기록된다 (filter, not all-or-nothing).
+- `proposedActions.length === 0` → TaskRun을 `ready_for_review`로 (answer-only 경로).
+- `proposedActions.length > 0` → TaskRun을 `waiting_for_approval`로.
+- prompt/raw_output artifact는 저장 직전 `redactSecrets`로 마스킹된다.
+
+오류:
+
+- `AGENT_SPAWN_FAILED` — CLI 바이너리 미설치/권한
+- `AGENT_CANCELLED` — 사용자 cancel
+- `AGENT_STALL` — stallTimeoutMs 동안 출력 없음
+- `AGENT_TIMEOUT` — timeoutMs 초과
+- `AGENT_INVALID_OUTPUT` — JSON 또는 스키마 위반
+- `AGENT_RATE_LIMITED` — provider rate limit
+- `AGENT_PROVIDER_UNAVAILABLE` — provider probe 실패 / 환경 미인증
+- `AGENT_PROPOSED_ACTION_INVALID` — path traversal 등 정책 차단
+- `AGENT_INVOCATION_NOT_FOUND` — invocationId 미존재
+- `AGENT_INVOCATION_BUSY` — 같은 invocation이 큐에 남아있거나 실행 중인 상태에서 retry/fallback 시도 — `cancelInvocation` 먼저 호출 필요
+- `AGENT_TASK_RUN_NOT_FOUND` — taskRunId 미존재
+- `AGENT_MODE_MISMATCH` — TaskRun이 agent mode가 아니거나 적절한 상태가 아님
 
 ## `window.harness.events`
 
-단방향 main → renderer push. `invoke`가 아니라 `ipcRenderer.on` 기반이며, 이 namespace에는 현재 한 채널만 둔다 — 임의 상태/페이로드를 broadcast하지 않는다.
+단방향 main → renderer push. `invoke`가 아니라 `ipcRenderer.on` 기반이며, 두 분류로 운영한다:
+
+| 분류 | 채널 | 페이로드 |
+|---|---|---|
+| id-only push | `events:taskRunChanged` | `{ taskRunId: string }` — renderer가 fresh state를 다시 fetch |
+| scoped chunk push | `events:agentStreamEvent` | `AgentStreamEvent` — invocationId-tagged, secret-redacted |
 
 ```ts
 events.onTaskRunChanged(
   listener: (payload: { taskRunId: string }) => void,
 ): () => void; // unsubscribe
+
+events.onAgentStreamEvent(
+  listener: (event: AgentStreamEvent) => void,
+): () => void; // unsubscribe — renderer filters by invocationId
 ```
 
 발생 조건:
 
-- 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval`, `quality.*`, `orchestration.draftPlan/runApproved`)가 성공 직후 발행한다.
-- 페이로드는 `{ taskRunId }` 한 필드뿐이며, renderer가 `getTaskRunDetail`을 다시 호출해 fresh 상태를 가져온다(채널 자체로 도메인 객체를 전달하지 않음).
+- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다.
+- `events:agentStreamEvent`: `agent.generatePlan` invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
+- 페이로드는 위 표에 명시된 shape만 — 채널 자체로 임의의 도메인 객체를 전달하지 않는다.
 - read-only IPC (예: `quality.getLatest`, `state.listThreads`)는 발행하지 않는다.
 
 규칙:

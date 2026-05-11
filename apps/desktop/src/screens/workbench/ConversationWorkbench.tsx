@@ -1,5 +1,5 @@
 import type { ThreadDetail } from "@harness/core";
-import { ConversationInput } from "./ConversationInput";
+import { ConversationInput, type ConversationMode } from "./ConversationInput";
 import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
 
 type DetailState =
@@ -15,9 +15,11 @@ interface ConversationWorkbenchProps {
   onCreateTask: (input: {
     userRequest: string;
     targetDir?: string;
+    mode: ConversationMode;
   }) => Promise<void>;
   threadTargetDir: string | undefined;
   threadId: string | null;
+  agentAvailable: boolean;
 }
 
 const formatRelative = (iso: string): string => {
@@ -33,6 +35,7 @@ export const ConversationWorkbench = ({
   onCreateTask,
   threadTargetDir,
   threadId,
+  agentAvailable,
 }: ConversationWorkbenchProps): JSX.Element => {
   if (detailState.kind === "idle") {
     return (
@@ -136,6 +139,7 @@ export const ConversationWorkbench = ({
       <ConversationInput
         threadId={threadId}
         threadTargetDir={threadTargetDir}
+        agentAvailable={agentAvailable}
         onSubmit={onCreateTask}
       />
     </main>

@@ -1,6 +1,10 @@
 import type { RuntimeInfo } from "./runtime";
 import type {
   Approval,
+  AgentInvocation,
+  AgentProvider,
+  AgentProviderStatusMap,
+  AgentStreamEvent,
   Artifact,
   Capability,
   CapabilitySuggestion,
@@ -34,6 +38,13 @@ export interface TaskRunDetail {
   approvals: Approval[];
   artifacts: Artifact[];
   checkpoints: Checkpoint[];
+  /**
+   * Phase 8 — non-empty when this TaskRun was created with
+   * `mode: "agent"` and at least one `agent.generatePlan` has run.
+   * Sorted newest-first. Renderer uses presence + status of the head
+   * entry to render the inline AgentPanel/AgentStreamView.
+   */
+  agentInvocations: AgentInvocation[];
 }
 
 export interface RunnerResultPayload {
@@ -174,6 +185,39 @@ export interface HarnessDesktopApi {
       approvalId: string;
     }): Promise<OrchestrationRunResult>;
   };
+  agent: {
+    /**
+     * Probe `claude --version` and `codex --version`. Result is cached
+     * in-memory and not persisted in the DB.
+     */
+    checkProviders(): Promise<AgentProviderStatusMap>;
+    /**
+     * Start a CLI-backed planning run for a TaskRun previously created
+     * with `mode: "agent"`. On success returns the invocation row, the
+     * parsed plan artifact, and 0..N approval rows. 0 approvals is valid
+     * (answer-only response per phase-08 §8).
+     */
+    generatePlan(input: {
+      taskRunId: string;
+      provider?: AgentProvider;
+      model?: string;
+      instruction?: string;
+    }): Promise<{
+      invocation: AgentInvocation;
+      planArtifact: Artifact;
+      approvals: Approval[];
+    }>;
+    cancelInvocation(input: { invocationId: string }): Promise<AgentInvocation>;
+    retryInvocation(input: { invocationId: string }): Promise<{
+      invocation: AgentInvocation;
+      planArtifact: Artifact;
+      approvals: Approval[];
+    }>;
+    useTemplateFallback(input: { taskRunId: string }): Promise<{
+      planArtifact: Artifact;
+      approvals: Approval[];
+    }>;
+  };
   events: {
     /**
      * Subscribe to TaskRun row changes pushed from the main process.
@@ -181,6 +225,13 @@ export interface HarnessDesktopApi {
      */
     onTaskRunChanged(
       listener: (payload: { taskRunId: string }) => void,
+    ): () => void;
+    /**
+     * Subscribe to streaming agent invocation events. Renderer must
+     * filter by `invocationId` since events are broadcast to all windows.
+     */
+    onAgentStreamEvent(
+      listener: (event: AgentStreamEvent) => void,
     ): () => void;
   };
 }

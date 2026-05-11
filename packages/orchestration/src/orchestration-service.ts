@@ -51,13 +51,13 @@ export class OrchestrationService {
     const approval = await this.deps.state.getApproval(input.approvalId);
     if (!approval) {
       throw new OrchestrationError(
-        "ORCH_APPROVAL_NOT_APPROVED",
+        "ORCHESTRATION_APPROVAL_REQUIRED",
         `Approval ${input.approvalId} not found`,
       );
     }
     if (approval.actionType !== "orchestration_plan") {
       throw new OrchestrationError(
-        "ORCH_APPROVAL_TYPE_MISMATCH",
+        "ORCHESTRATION_APPROVAL_TYPE_MISMATCH",
         `Approval ${input.approvalId} is not for an orchestration plan`,
       );
     }
@@ -66,7 +66,7 @@ export class OrchestrationService {
       approval.status !== "always_approved_for_run"
     ) {
       throw new OrchestrationError(
-        "ORCH_APPROVAL_NOT_APPROVED",
+        "ORCHESTRATION_APPROVAL_REQUIRED",
         `Approval ${input.approvalId} is ${approval.status}`,
       );
     }
@@ -125,14 +125,14 @@ export class OrchestrationService {
       ) ?? artifacts.find((a) => a.kind === "orchestration_plan");
     if (!planArtifact) {
       throw new OrchestrationError(
-        "ORCH_PLAN_NOT_FOUND",
+        "ORCHESTRATION_PLAN_NOT_FOUND",
         `Could not locate orchestration_plan artifact for approval ${approval.id}`,
       );
     }
     const parsed = parseEmbeddedPlanJson(planArtifact.summary ?? "");
     if (!parsed) {
       throw new OrchestrationError(
-        "ORCH_PLAN_NOT_FOUND",
+        "ORCHESTRATION_PLAN_NOT_FOUND",
         `Plan artifact ${planArtifact.id} has no embedded JSON`,
       );
     }
@@ -148,7 +148,7 @@ export class OrchestrationService {
   private assertEnabled(): void {
     if (!this.deps.enabled) {
       throw new OrchestrationError(
-        "ORCH_DIRECT_ACTION_BLOCKED",
+        "ORCHESTRATION_DISABLED",
         "Agent orchestration is disabled. Enable the feature flag to use it.",
       );
     }

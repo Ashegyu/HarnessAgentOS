@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { RuntimeInfo } from "@harness/core";
+import { AgentProviderStatus } from "./AgentProviderStatus";
 
 type RuntimeState =
   | { kind: "loading" }
@@ -72,6 +73,8 @@ export const RuntimeStatusBar = (): JSX.Element => {
           <span style={{ color: "var(--status-failed)" }}>{state.message}</span>
         </>
       )}
+      <span className="runtime-status-bar__sep">·</span>
+      <AgentProviderStatus />
     </footer>
   );
 };
