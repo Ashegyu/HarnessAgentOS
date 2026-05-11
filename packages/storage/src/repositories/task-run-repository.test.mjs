@@ -111,3 +111,24 @@ test("Foreign key constraint blocks TaskRun without parent Thread", async () => 
     t.cleanup();
   }
 });
+
+test("TaskRunRepository delete removes the row", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const threads = new SqliteThreadRepository(db);
+    const tr = new SqliteTaskRunRepository(db);
+    const thread = await threads.create({ title: "x" });
+    const created = await tr.create({
+      threadId: thread.id,
+      userRequest: "to delete",
+      targetDir: "/tmp/x",
+    });
+    await tr.delete(created.id);
+    const found = await tr.get(created.id);
+    assert.equal(found, null);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});

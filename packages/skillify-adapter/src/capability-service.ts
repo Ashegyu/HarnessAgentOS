@@ -11,18 +11,20 @@ import {
 import type { LocalStateService } from "@harness/storage";
 import { join, normalize, resolve, sep } from "node:path";
 import { promises as fs } from "node:fs";
-import { CapabilityRegistry } from "./capability-registry";
-import { suggestCapabilities } from "./capability-suggester";
-import { listSkillResources, readSkillInstructions } from "./skill-loader";
-import { isScriptExecutionAllowed } from "./skill-risk-policy";
+import { CapabilityRegistry } from "./capability-registry.ts";
+import { suggestCapabilities } from "./capability-suggester.ts";
+import { listSkillResources, readSkillInstructions } from "./skill-loader.ts";
+import { isScriptExecutionAllowed } from "./skill-risk-policy.ts";
 
 export class CapabilityServiceError extends Error {
+  readonly code: string;
   constructor(
-    public readonly code: string,
+    code: string,
     message: string,
   ) {
     super(message);
     this.name = "CapabilityServiceError";
+    this.code = code;
   }
 }
 
@@ -39,7 +41,10 @@ export interface CapabilityServiceDeps {
  * Source: docs/implementation/phase-05-skillify-capability-adapter.md
  */
 export class CapabilityService {
-  constructor(private readonly deps: CapabilityServiceDeps) {}
+  private readonly deps: CapabilityServiceDeps;
+  constructor(deps: CapabilityServiceDeps) {
+    this.deps = deps;
+  }
 
   async list(): Promise<Capability[]> {
     return this.deps.state.listCapabilities();

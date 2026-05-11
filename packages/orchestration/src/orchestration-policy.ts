@@ -1,5 +1,5 @@
-import type { OrchestrationMode, WorkerStep } from "./orchestration-types";
-import { OrchestrationError } from "./orchestration-types";
+import type { OrchestrationMode, WorkerStep } from "./orchestration-types.ts";
+import { OrchestrationError } from "./orchestration-types.ts";
 
 /**
  * Phase 7 policy. Enforces the security contract:

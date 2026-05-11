@@ -31,6 +31,7 @@ export interface Artifact {
 }
 
 export interface CreateArtifactInput {
+  id?: string;
   taskRunId: string;
   stepId?: string;
   kind: ArtifactKind;

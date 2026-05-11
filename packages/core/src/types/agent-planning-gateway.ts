@@ -1,14 +1,15 @@
-import type { Approval, CreateApprovalInput, ProposedActionDetails } from "./approval";
-import type { Artifact, CreateArtifactInput } from "./artifact";
-import type { Checkpoint, CreateCheckpointInput } from "./checkpoint";
-import type { QualityGateResult } from "./quality-gate-result";
-import type { Step, StepStatus, CreateStepInput } from "./step";
-import type { TaskRun, TaskRunStatus } from "./task-run";
+import type { Approval, CreateApprovalInput, ProposedActionDetails } from "./approval.ts";
+import type { Artifact, CreateArtifactInput } from "./artifact.ts";
+import type { Checkpoint, CreateCheckpointInput } from "./checkpoint.ts";
+import type { QualityGateResult } from "./quality-gate-result.ts";
+import type { Step, StepStatus, CreateStepInput } from "./step.ts";
+import type { TaskRun, TaskRunStatus } from "./task-run.ts";
+import type { Thread } from "./thread.ts";
 import type {
   AgentInvocation,
   CreateAgentInvocationInput,
   UpdateAgentInvocationPatch,
-} from "./agent-invocation";
+} from "./agent-invocation.ts";
 
 /**
  * Narrow persistence interface required by AgentPlanningService.
@@ -32,4 +33,11 @@ export interface AgentPlanningStateGateway {
   setApprovalProposedAction(id: string, details: ProposedActionDetails): Promise<Approval>;
   setTaskRunCurrentStep(id: string, stepId: string | null): Promise<TaskRun>;
   getAgentInvocation(id: string): Promise<AgentInvocation | null>;
+  /** Look up the thread that owns a TaskRun — used to chain agent sessions. */
+  getThread(id: string): Promise<Thread | null>;
+  /** Persist the Claude CLI session id on the thread (null clears it). */
+  setThreadAgentSession(
+    threadId: string,
+    sessionId: string | null,
+  ): Promise<Thread>;
 }

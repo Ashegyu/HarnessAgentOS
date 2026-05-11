@@ -7,7 +7,11 @@ type RuntimeState =
   | { kind: "ready"; info: RuntimeInfo }
   | { kind: "error"; message: string };
 
-export const RuntimeStatusBar = (): JSX.Element => {
+interface Props {
+  onSettingsClick?: () => void;
+}
+
+export const RuntimeStatusBar = ({ onSettingsClick }: Props): JSX.Element => {
   const [state, setState] = useState<RuntimeState>({ kind: "loading" });
 
   useEffect(() => {
@@ -75,6 +79,17 @@ export const RuntimeStatusBar = (): JSX.Element => {
       )}
       <span className="runtime-status-bar__sep">·</span>
       <AgentProviderStatus />
+      {onSettingsClick && (
+        <button
+          type="button"
+          className="runtime-status-bar__settings-btn"
+          onClick={onSettingsClick}
+          aria-label="설정 열기"
+          title="설정"
+        >
+          ⚙
+        </button>
+      )}
     </footer>
   );
 };

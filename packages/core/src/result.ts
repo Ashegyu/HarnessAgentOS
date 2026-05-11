@@ -1,4 +1,4 @@
-import type { HarnessError } from "./error";
+import type { HarnessError } from "./error.ts";
 
 export type HarnessResult<T> =
   | { ok: true; value: T }

@@ -1,7 +1,7 @@
 import type { Artifact, CreateArtifactInput } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
-import { rowToArtifact } from "./row-mappers";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
+import { rowToArtifact } from "./row-mappers.ts";
 
 export interface ArtifactRepository {
   create(input: CreateArtifactInput): Promise<Artifact>;
@@ -10,11 +10,17 @@ export interface ArtifactRepository {
 }
 
 export class SqliteArtifactRepository implements ArtifactRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: CreateArtifactInput): Promise<Artifact> {
     const artifact: Artifact = {
-      id: newId("artifact"),
+      id: input.id ?? newId("artifact"),
       taskRunId: input.taskRunId,
       kind: input.kind,
       title: input.title,

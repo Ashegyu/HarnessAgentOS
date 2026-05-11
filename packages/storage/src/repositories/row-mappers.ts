@@ -26,6 +26,7 @@ interface ThreadRow {
   created_at: string;
   updated_at: string;
   archived_at: string | null;
+  agent_session_id?: string | null;
 }
 
 export const rowToThread = (r: ThreadRow): Thread => {
@@ -37,6 +38,9 @@ export const rowToThread = (r: ThreadRow): Thread => {
   };
   if (r.target_dir !== null) t.targetDir = r.target_dir;
   if (r.archived_at !== null) t.archivedAt = r.archived_at;
+  if (r.agent_session_id !== null && r.agent_session_id !== undefined) {
+    t.agentSessionId = r.agent_session_id;
+  }
   return t;
 };
 

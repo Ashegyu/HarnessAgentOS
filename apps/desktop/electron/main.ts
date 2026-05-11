@@ -135,6 +135,12 @@ const initServices = (): {
     queue: agentQueue,
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
+    // Claude CLI in `--print` mode is non-streaming: stdout stays empty
+    // until the full response is generated and then flushes at once.
+    // The default 30s stall timer therefore mis-fires on any non-trivial
+    // prompt. Use a single overall timeout (5 min) and an equally long
+    // stall budget so the stall check effectively never fires on its own.
+    defaults: { timeoutMs: 5 * 60_000, stallTimeoutMs: 5 * 60_000 },
   });
 
   return {

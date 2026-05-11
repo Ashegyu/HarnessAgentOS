@@ -1,4 +1,4 @@
-import { ShellRunner } from "./shell-runner";
+import { ShellRunner } from "./shell-runner.ts";
 
 export interface GitInspectionResult {
   status: string;
@@ -13,7 +13,10 @@ export interface GitInspectionResult {
  * high-risk approvals (see phase-03 보안/승인 정책).
  */
 export class GitRunner {
-  constructor(private readonly shell: ShellRunner = new ShellRunner()) {}
+  private readonly shell: ShellRunner;
+  constructor(shell: ShellRunner = new ShellRunner()) {
+    this.shell = shell;
+  }
 
   async inspect(targetDir: string): Promise<GitInspectionResult> {
     try {

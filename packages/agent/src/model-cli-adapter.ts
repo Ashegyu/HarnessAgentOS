@@ -7,12 +7,12 @@ import {
   AGENT_TIMEOUT,
   type AgentStreamEvent,
 } from "@harness/core";
-import { AgentCliError } from "./model-cli-errors";
+import { AgentCliError } from "./model-cli-errors.ts";
 import type {
   ModelCliAdapter,
   ModelCliRequest,
   ModelCliResult,
-} from "./model-cli-types";
+} from "./model-cli-types.ts";
 
 /**
  * Phase 8 default ModelCliAdapter.
@@ -37,7 +37,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
   ): Promise<ModelCliResult> {
     const { provider, model, timeoutMs, stallTimeoutMs } = request.modelConfig;
     const startedAt = Date.now();
-    const args = buildArgs(provider, model);
+    const args = buildArgs(provider, model, request.sessionId);
 
     if (signal?.aborted) {
       throw new AgentCliError(
@@ -193,10 +193,17 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     }
 
     const latencyMs = Date.now() - startedAt;
+    // claude --output-format=stream-json emits one JSON object per line —
+    // extract the final assistant text so downstream parsers see the same
+    // shape as the legacy --print buffered output.
+    const { text: finalText, sessionId } =
+      provider === "claude"
+        ? extractClaudeStreamPayload(stdout)
+        : { text: stdout, sessionId: undefined };
     onEvent({
       type: "assistant_text",
       invocationId: request.invocationId,
-      text: stdout,
+      text: finalText,
     });
     onEvent({
       type: "result",
@@ -208,19 +215,87 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       provider,
       model,
       exitCode,
-      stdout,
+      stdout: finalText,
       stderr,
       normalizedEvents: [],
       latencyMs,
+      ...(sessionId !== undefined ? { sessionId } : {}),
     };
   }
 }
 
-const buildArgs = (provider: string, model: string): string[] => {
+const buildArgs = (
+  provider: string,
+  model: string,
+  sessionId?: string,
+): string[] => {
   if (provider === "claude") {
-    // --bare skips full CLI initialization (hooks, LSP, keychain, CLAUDE.md) to prevent AGENT_STALL; requires ANTHROPIC_API_KEY in env
-    return ["--print", "--bare", "--no-session-persistence", "--model", model];
+    // Streaming output: emits one JSON line per chunk so the stall timer
+    // sees regular activity. Without this, `--print` buffers the entire
+    // response and stdout stays empty until completion — any non-trivial
+    // prompt then trips the stall detector.
+    const args = [
+      "--print",
+      "--output-format", "stream-json",
+      "--include-partial-messages",
+      "--verbose",
+      "--model", model,
+    ];
+    // Resume an existing conversation when a session id is provided so
+    // follow-up questions within a thread share prior turns. Otherwise
+    // claude assigns a fresh session id we pick up from the result line.
+    if (sessionId) {
+      args.push("--resume", sessionId);
+    }
+    // --bare disables OAuth/keychain reads; only add it when ANTHROPIC_API_KEY
+    // is present so users who authenticated via browser (OAuth) aren't blocked.
+    if (process.env["ANTHROPIC_API_KEY"]) {
+      args.splice(1, 0, "--bare");
+    }
+    return args;
   }
   // codex
   return ["exec", "--model", model];
+};
+
+/**
+ * Parse claude --output-format=stream-json output and extract the final
+ * assistant text plus the session id. The stream emits one JSON object
+ * per line; the last `type: "result"` line carries `.result` and
+ * `.session_id`. As a fallback we concatenate `text_delta` chunks so
+ * partial output is still recoverable if the run is killed early.
+ */
+const extractClaudeStreamPayload = (
+  rawStdout: string,
+): { text: string; sessionId?: string } => {
+  if (!rawStdout) return { text: "" };
+  let resultText: string | null = null;
+  let sessionId: string | undefined;
+  const deltas: string[] = [];
+  for (const line of rawStdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (obj["type"] === "result" && typeof obj["result"] === "string") {
+        resultText = obj["result"] as string;
+      }
+      if (typeof obj["session_id"] === "string") {
+        sessionId = obj["session_id"] as string;
+      }
+      if (obj["type"] === "stream_event") {
+        const ev = obj["event"] as Record<string, unknown> | undefined;
+        const delta = ev?.["delta"] as Record<string, unknown> | undefined;
+        if (delta && delta["type"] === "text_delta" && typeof delta["text"] === "string") {
+          deltas.push(delta["text"] as string);
+        }
+      }
+    } catch {
+      // non-JSON line — ignore
+    }
+  }
+  return {
+    text: resultText ?? deltas.join(""),
+    ...(sessionId !== undefined ? { sessionId } : {}),
+  };
 };

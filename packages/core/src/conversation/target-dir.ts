@@ -1,4 +1,4 @@
-import { validateTargetDir, type TargetDirValidation } from "../path-policy";
+import { validateTargetDir, type TargetDirValidation } from "../path-policy.ts";
 
 /**
  * Extends path-policy with the Phase 2 contract: targetDir must be a

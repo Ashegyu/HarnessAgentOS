@@ -2,12 +2,12 @@ import type {
   AgentProvider,
   AgentStreamEvent,
 } from "@harness/core";
-import { AgentCliError } from "./model-cli-errors";
+import { AgentCliError } from "./model-cli-errors.ts";
 import type {
   ModelCliAdapter,
   ModelCliRequest,
   ModelCliResult,
-} from "./model-cli-types";
+} from "./model-cli-types.ts";
 
 /**
  * Phase 8 — deterministic adapter for smoke tests, CI, and developer
@@ -181,7 +181,10 @@ const sampleOutput = (scenario: FakeScenario, request: ModelCliRequest): string 
 };
 
 export class FakeModelCliAdapter implements ModelCliAdapter {
-  constructor(private readonly options: FakeModelCliAdapterOptions) {}
+  private readonly options: FakeModelCliAdapterOptions;
+  constructor(options: FakeModelCliAdapterOptions) {
+    this.options = options;
+  }
 
   async invoke(
     request: ModelCliRequest,

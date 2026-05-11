@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
     pauseTask: "conversation:pauseTask",
     resumeTask: "conversation:resumeTask",
     cancelTask: "conversation:cancelTask",
+    deleteTask: "conversation:deleteTask",
   },
   runner: {
     executeApproved: "runner:executeApproved",
@@ -67,6 +68,10 @@ export const IPC_CHANNELS = {
     cancelInvocation: "agent:cancelInvocation",
     retryInvocation: "agent:retryInvocation",
     useTemplateFallback: "agent:useTemplateFallback",
+  },
+  settings: {
+    get: "settings:get",
+    update: "settings:update",
   },
   events: {
     /**

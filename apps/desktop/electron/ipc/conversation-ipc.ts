@@ -395,4 +395,29 @@ export const registerConversationIpc = (
       }
     },
   );
+
+  ipcMain.handle(
+    IPC_CHANNELS.conversation.deleteTask,
+    async (_e, input: unknown): Promise<HarnessResult<void>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { taskRunId?: unknown };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(
+            CONVERSATION_TASK_NOT_FOUND,
+            "taskRunId must be a non-empty string",
+          ),
+        );
+      }
+      try {
+        await state.deleteTaskRun(cast.taskRunId);
+        events.taskRunChanged(cast.taskRunId);
+        return ok(undefined);
+      } catch (e) {
+        return mapServiceError<void>(e);
+      }
+    },
+  );
 };

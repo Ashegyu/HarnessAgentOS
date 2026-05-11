@@ -3,8 +3,8 @@ import type {
   QualityGateResult,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
-import { computeReward } from "./reward-evaluator";
-import { redactSecrets } from "./redact-secrets";
+import { computeReward } from "./reward-evaluator.ts";
+import { redactSecrets } from "./redact-secrets.ts";
 
 /**
  * Phase 6 trace recorder. Wraps LocalStateService so the rest of the
@@ -16,7 +16,10 @@ export interface TraceRecorderDeps {
 }
 
 export class TraceRecorder {
-  constructor(private readonly deps: TraceRecorderDeps) {}
+  private readonly deps: TraceRecorderDeps;
+  constructor(deps: TraceRecorderDeps) {
+    this.deps = deps;
+  }
 
   async ensureTrace(taskRunId: string): Promise<LearningTrace> {
     const existing = await this.deps.state.getLearningTraceByTaskRun(taskRunId);

@@ -24,6 +24,13 @@ export interface ModelCliRequest {
      */
     enforceInPrompt: true;
   };
+  /**
+   * Optional Claude CLI session UUID. When unset, the adapter starts a
+   * new session and the caller MUST read `result.sessionId` to persist
+   * it for follow-ups. When set, the adapter passes `--resume <uuid>`
+   * so the conversation continues with full prior context.
+   */
+  sessionId?: string;
 }
 
 export interface ModelCliResult {
@@ -35,6 +42,8 @@ export interface ModelCliResult {
   normalizedEvents: AgentStreamEvent[];
   latencyMs: number;
   costEstimate?: number;
+  /** Session UUID the CLI used or created. Stable across `--resume`. */
+  sessionId?: string;
 }
 
 /**

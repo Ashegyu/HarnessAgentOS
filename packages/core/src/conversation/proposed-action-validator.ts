@@ -1,5 +1,5 @@
-import { isAbsolutePath } from "../path-policy";
-import type { ProposedActionDetails } from "../types/approval";
+import { isAbsolutePath } from "../path-policy.ts";
+import type { ProposedActionDetails } from "../types/approval.ts";
 
 export interface ProposedActionValidation {
   ok: boolean;

@@ -5,9 +5,9 @@ import {
   type OrchestrationDraftInput,
   type OrchestrationPlan,
   type WorkerStep,
-} from "./orchestration-types";
-import { formatPlanSummary } from "./orchestration-trace";
-import { validatePlanShape } from "./orchestration-policy";
+} from "./orchestration-types.ts";
+import { formatPlanSummary } from "./orchestration-trace.ts";
+import { validatePlanShape } from "./orchestration-policy.ts";
 
 /**
  * Phase 7 planner. Drafts a deterministic OrchestrationPlan and stores
@@ -28,7 +28,13 @@ export interface DraftedOrchestration {
 }
 
 export class OrchestrationPlanner {
-  constructor(private readonly deps: OrchestrationPlannerDeps) {}
+  private readonly deps: OrchestrationPlannerDeps;
+
+  constructor(deps: OrchestrationPlannerDeps) {
+
+    this.deps = deps;
+
+  }
 
   async draftPlan(input: OrchestrationDraftInput): Promise<DraftedOrchestration> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);

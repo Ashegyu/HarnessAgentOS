@@ -5,12 +5,12 @@ import {
   type OrchestrationDraftInput,
   type OrchestrationPlan,
   type OrchestrationRunResult,
-} from "./orchestration-types";
+} from "./orchestration-types.ts";
 import {
   OrchestrationPlanner,
   type DraftedOrchestration,
-} from "./orchestration-planner";
-import { WorkerRunner } from "./worker-runner";
+} from "./orchestration-planner.ts";
+import { WorkerRunner } from "./worker-runner.ts";
 
 /**
  * Phase 7 service. Wraps the planner + runner with plan recovery so the
@@ -30,7 +30,9 @@ export interface OrchestrationServiceDeps {
 export class OrchestrationService {
   private readonly planner: OrchestrationPlanner;
   private readonly worker: WorkerRunner;
-  constructor(private readonly deps: OrchestrationServiceDeps) {
+  private readonly deps: OrchestrationServiceDeps;
+  constructor(deps: OrchestrationServiceDeps) {
+    this.deps = deps;
     this.planner = new OrchestrationPlanner({ state: deps.state });
     this.worker = new WorkerRunner({ state: deps.state });
   }

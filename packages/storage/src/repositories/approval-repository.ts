@@ -4,9 +4,9 @@ import type {
   CreateApprovalInput,
   ProposedActionDetails,
 } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
-import { rowToApproval } from "./row-mappers";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
+import { rowToApproval } from "./row-mappers.ts";
 
 export interface ApprovalRepository {
   create(input: CreateApprovalInput): Promise<Approval>;
@@ -26,7 +26,13 @@ export interface ApprovalRepository {
 const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json`;
 
 export class SqliteApprovalRepository implements ApprovalRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: CreateApprovalInput): Promise<Approval> {
     const approval: Approval = {

@@ -5,8 +5,8 @@ import type {
   CreateAgentInvocationInput,
   UpdateAgentInvocationPatch,
 } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
 
 export interface AgentInvocationRepository {
   create(input: CreateAgentInvocationInput): Promise<AgentInvocation>;
@@ -67,7 +67,10 @@ const rowToInvocation = (r: AgentInvocationRow): AgentInvocation => {
 export class SqliteAgentInvocationRepository
   implements AgentInvocationRepository
 {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+  constructor(db: HarnessDb) {
+    this.db = db;
+  }
 
   async create(input: CreateAgentInvocationInput): Promise<AgentInvocation> {
     const now = nowIso();

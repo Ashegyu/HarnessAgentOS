@@ -1,2 +1,2 @@
-export * from "./artifact-store";
-export * from "./diff-artifact";
+export * from "./artifact-store.ts";
+export * from "./diff-artifact.ts";

@@ -1,5 +1,5 @@
-import type { ApprovalActionType } from "../types";
-import type { ProposedAction } from "./types";
+import type { ApprovalActionType } from "../types/index.ts";
+import type { ProposedAction } from "./types.ts";
 
 /**
  * Phase 2 approval policy. Per

@@ -7,16 +7,16 @@ import {
   AGENT_STALL,
   AGENT_TIMEOUT,
 } from "@harness/core";
-import type { AgentErrorKind } from "./model-cli-types";
+import type { AgentErrorKind } from "./model-cli-types.ts";
 
 export class AgentCliError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly kind: AgentErrorKind,
-    message: string,
-  ) {
+  readonly code: string;
+  readonly kind: AgentErrorKind;
+  constructor(code: string, kind: AgentErrorKind, message: string) {
     super(message);
     this.name = "AgentCliError";
+    this.code = code;
+    this.kind = kind;
   }
 }
 

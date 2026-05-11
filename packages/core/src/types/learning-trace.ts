@@ -1,4 +1,4 @@
-import type { CapabilitySuggestion } from "./capability";
+import type { CapabilitySuggestion } from "./capability.ts";
 
 export interface LearningTrace {
   id: string;

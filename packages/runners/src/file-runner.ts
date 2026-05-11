@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { isWithin } from "./runner-policy";
-import type { ProposedFilePatch } from "./runner-types";
+import { isWithin } from "./runner-policy.ts";
+import type { ProposedFilePatch } from "./runner-types.ts";
 
 export interface FileRunResult {
   path: string;
@@ -11,9 +11,11 @@ export interface FileRunResult {
 }
 
 export class FileRunnerError extends Error {
-  constructor(public readonly code: string, message: string) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
     this.name = "FileRunnerError";
+    this.code = code;
   }
 }
 

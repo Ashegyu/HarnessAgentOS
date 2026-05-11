@@ -1,7 +1,7 @@
 import type { Checkpoint, CreateCheckpointInput } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
-import { rowToCheckpoint } from "./row-mappers";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
+import { rowToCheckpoint } from "./row-mappers.ts";
 
 export interface CheckpointRepository {
   create(input: CreateCheckpointInput): Promise<Checkpoint>;
@@ -10,7 +10,13 @@ export interface CheckpointRepository {
 }
 
 export class SqliteCheckpointRepository implements CheckpointRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: CreateCheckpointInput): Promise<Checkpoint> {
     const checkpoint: Checkpoint = {

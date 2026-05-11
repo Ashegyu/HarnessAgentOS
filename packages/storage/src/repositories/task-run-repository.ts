@@ -3,9 +3,9 @@ import type {
   TaskRun,
   TaskRunStatus,
 } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
-import { rowToTaskRun } from "./row-mappers";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
+import { rowToTaskRun } from "./row-mappers.ts";
 
 export interface TaskRunRepository {
   create(input: CreateTaskRunInput): Promise<TaskRun>;
@@ -13,10 +13,17 @@ export interface TaskRunRepository {
   get(id: string): Promise<TaskRun | null>;
   updateStatus(id: string, status: TaskRunStatus): Promise<TaskRun>;
   setCurrentStep(id: string, stepId: string | null): Promise<TaskRun>;
+  delete(id: string): Promise<void>;
 }
 
 export class SqliteTaskRunRepository implements TaskRunRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: CreateTaskRunInput): Promise<TaskRun> {
     const now = nowIso();
@@ -101,5 +108,21 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
         updatedAt: next.updatedAt,
       });
     return next;
+  }
+
+  async delete(id: string): Promise<void> {
+    // Deletion order respects FK constraints with PRAGMA foreign_keys=ON.
+    // agent_invocations must precede artifacts (prompt_artifact_id RESTRICT).
+    // approvals must precede checkpoints; checkpoints/artifacts must precede steps.
+    this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM agent_invocations WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM quality_gate_results WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM learning_traces WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM approvals WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM checkpoints WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM artifacts WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM steps WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM task_runs WHERE id = ?`).run(id);
+    })();
   }
 }

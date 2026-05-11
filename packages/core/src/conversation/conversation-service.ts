@@ -6,14 +6,14 @@ import type {
   Step,
   TaskRun,
   Thread,
-} from "../types";
+} from "../types/index.ts";
 import {
   validateAbsoluteTargetDir,
   type PathExistsFn,
-} from "./target-dir";
-import { draftPlan } from "./plan-drafter";
-import { toProposedAction } from "./approval-policy";
-import type { ConversationStateGateway } from "./state-gateway";
+} from "./target-dir.ts";
+import { draftPlan } from "./plan-drafter.ts";
+import { toProposedAction } from "./approval-policy.ts";
+import type { ConversationStateGateway } from "./state-gateway.ts";
 import type {
   ApproveInput,
   CancelTaskInput,
@@ -25,14 +25,13 @@ import type {
   ResumeTaskInput,
   TemplateFallbackResult,
   UseTemplateFallbackInput,
-} from "./types";
+} from "./types.ts";
 
 export class ConversationServiceError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
+    this.code = code;
     this.name = "ConversationServiceError";
   }
 }
@@ -55,7 +54,10 @@ export interface ConversationServiceDeps {
  * waiting_for_approval). Phase 3 may refactor to strict atomicity.
  */
 export class ConversationService {
-  constructor(private readonly deps: ConversationServiceDeps) {}
+  private readonly deps: ConversationServiceDeps;
+  constructor(deps: ConversationServiceDeps) {
+    this.deps = deps;
+  }
 
   async createTask(
     input: CreateConversationTaskInput,

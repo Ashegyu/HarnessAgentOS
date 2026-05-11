@@ -22,6 +22,13 @@ const makeGateway = (overrides = {}) => ({
   setApprovalProposedAction: async (_id, _details) => { throw new Error("not implemented"); },
   setTaskRunCurrentStep: async (_id, _stepId) => { throw new Error("not implemented"); },
   getAgentInvocation: async () => null,
+  getThread: async () => null,
+  setThreadAgentSession: async (_threadId, _sessionId) => ({
+    id: _threadId,
+    title: "t",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  }),
   ...overrides,
 });
 

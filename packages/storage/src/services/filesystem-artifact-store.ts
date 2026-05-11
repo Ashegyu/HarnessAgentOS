@@ -20,7 +20,13 @@ const artifactPath = (
 ): string => join(rootDir, taskRunId, `${artifactId}.${EXT_BY_KIND[kind]}`);
 
 export class FilesystemArtifactStore implements ArtifactStore {
-  constructor(private readonly options: FilesystemArtifactStoreOptions) {}
+  private readonly options: FilesystemArtifactStoreOptions;
+
+  constructor(options: FilesystemArtifactStoreOptions) {
+
+    this.options = options;
+
+  }
 
   async write(input: {
     taskRunId: string;

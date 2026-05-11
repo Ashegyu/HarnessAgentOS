@@ -29,11 +29,13 @@ export interface OrchestrationRunInput {
 }
 
 export class OrchestrationError extends Error {
+  readonly code: string;
   constructor(
-    public readonly code: string,
+    code: string,
     message: string,
   ) {
     super(message);
     this.name = "OrchestrationError";
+    this.code = code;
   }
 }

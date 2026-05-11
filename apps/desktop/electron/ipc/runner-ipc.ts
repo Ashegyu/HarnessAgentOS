@@ -125,6 +125,17 @@ export const registerRunnerIpc = (
             ),
           );
         }
+        // Only artifacts written through artifactStore.write have a real
+        // disk file — those use the canonical `artifact://` URI scheme via
+        // buildArtifactUri. Plan/log/quality_report rows created directly
+        // through state.createArtifact (e.g. agent-planning-service,
+        // conversation-service, orchestration-planner) use a placeholder
+        // `harness:*` URI and keep their full content in the `summary`
+        // column. Reading these from disk would always ENOENT.
+        const onDisk = artifact.uri.startsWith("artifact://");
+        if (!onDisk) {
+          return ok({ artifact, content: artifact.summary ?? "" });
+        }
         const content = await artifactStore.read({
           taskRunId: artifact.taskRunId,
           artifactId: artifact.id,

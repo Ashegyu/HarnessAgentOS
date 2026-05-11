@@ -15,6 +15,7 @@ import {
   type CreateStepInput,
   type CreateTaskRunInput,
   type CreateThreadInput,
+  type HarnessSettings,
   type LearningTrace,
   type LearningTracePatch,
   type QualityGateResult,
@@ -27,7 +28,7 @@ import {
   type ProposedActionDetails,
   type UpdateAgentInvocationPatch,
 } from "@harness/core";
-import type { HarnessDb } from "../db";
+import type { HarnessDb } from "../db.ts";
 import {
   SqliteAgentInvocationRepository,
   SqliteApprovalRepository,
@@ -36,6 +37,7 @@ import {
   SqliteCheckpointRepository,
   SqliteLearningTraceRepository,
   SqliteQualityGateRepository,
+  SqliteSettingsRepository,
   SqliteStepRepository,
   SqliteTaskRunRepository,
   SqliteThreadRepository,
@@ -46,10 +48,11 @@ import {
   type CheckpointRepository,
   type LearningTraceRepository,
   type QualityGateRepository,
+  type SettingsRepository,
   type StepRepository,
   type TaskRunRepository,
   type ThreadRepository,
-} from "../repositories";
+} from "../repositories/index.ts";
 
 /**
  * LocalStateService is the single business-logic gateway over the
@@ -73,8 +76,11 @@ export class LocalStateService implements ConversationStateGateway {
   readonly capabilities: CapabilityRepository;
   readonly learningTraces: LearningTraceRepository;
   readonly agentInvocations: AgentInvocationRepository;
+  readonly settings: SettingsRepository;
 
-  constructor(private readonly db: HarnessDb) {
+  private readonly db: HarnessDb;
+  constructor(db: HarnessDb) {
+    this.db = db;
     this.threads = new SqliteThreadRepository(db);
     this.taskRuns = new SqliteTaskRunRepository(db);
     this.steps = new SqliteStepRepository(db);
@@ -85,6 +91,7 @@ export class LocalStateService implements ConversationStateGateway {
     this.capabilities = new SqliteCapabilityRepository(db);
     this.learningTraces = new SqliteLearningTraceRepository(db);
     this.agentInvocations = new SqliteAgentInvocationRepository(db);
+    this.settings = new SqliteSettingsRepository(db);
   }
 
   // -- Thread / TaskRun --------------------------------------------------
@@ -116,7 +123,49 @@ export class LocalStateService implements ConversationStateGateway {
     const thread = await this.threads.get(threadId);
     if (!thread) return null;
     const taskRuns = await this.taskRuns.listByThread(threadId);
-    return { thread, taskRuns };
+
+    // Attach the most recent `plan` artifact summary for each TaskRun so
+    // the conversation workbench can render an agent reply bubble in
+    // a single fetch. Plan artifacts live in `summary` (URI scheme is
+    // a placeholder, see runner-ipc.readArtifact for the read path).
+    const agentAnswers: Record<string, string> = {};
+    if (taskRuns.length > 0) {
+      const placeholders = taskRuns.map(() => "?").join(",");
+      const rows = this.db
+        .prepare(
+          `SELECT a.task_run_id AS taskRunId, a.summary AS summary
+           FROM artifacts a
+           INNER JOIN (
+             SELECT task_run_id, MAX(datetime(created_at)) AS max_at
+             FROM artifacts
+             WHERE kind = 'plan' AND task_run_id IN (${placeholders})
+             GROUP BY task_run_id
+           ) latest
+             ON latest.task_run_id = a.task_run_id
+            AND datetime(a.created_at) = latest.max_at
+           WHERE a.kind = 'plan'`,
+        )
+        .all(...taskRuns.map((t) => t.id)) as Array<{
+        taskRunId: string;
+        summary: string | null;
+      }>;
+      for (const r of rows) {
+        if (r.summary !== null) agentAnswers[r.taskRunId] = r.summary;
+      }
+    }
+    return { thread, taskRuns, agentAnswers };
+  }
+
+  /**
+   * Persist (or clear) the Claude CLI session id for a thread. Used by
+   * the agent planner to chain `--resume` invocations within a single
+   * conversation thread.
+   */
+  async setThreadAgentSession(
+    threadId: string,
+    sessionId: string | null,
+  ): Promise<Thread> {
+    return this.threads.update(threadId, { agentSessionId: sessionId });
   }
 
   async createTaskRun(input: CreateTaskRunInput): Promise<TaskRun> {
@@ -148,6 +197,10 @@ export class LocalStateService implements ConversationStateGateway {
     stepId: string | null,
   ): Promise<TaskRun> {
     return this.taskRuns.setCurrentStep(id, stepId);
+  }
+
+  async deleteTaskRun(id: string): Promise<void> {
+    return this.taskRuns.delete(id);
   }
 
   // -- Step ---------------------------------------------------------------
@@ -315,5 +368,15 @@ export class LocalStateService implements ConversationStateGateway {
     taskRunId: string,
   ): Promise<AgentInvocation | null> {
     return this.agentInvocations.getLatestForTaskRun(taskRunId);
+  }
+
+  // -- Settings (Phase 9) -----------------------------------------------
+
+  async getSettings(): Promise<HarnessSettings> {
+    return this.settings.get();
+  }
+
+  async updateSettings(settings: HarnessSettings): Promise<HarnessSettings> {
+    return this.settings.update(settings);
   }
 }

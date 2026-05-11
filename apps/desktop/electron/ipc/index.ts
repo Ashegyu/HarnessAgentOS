@@ -24,6 +24,7 @@ import { registerCapabilityIpc } from "./capability-ipc";
 import { registerLearnerIpc } from "./learner-ipc";
 import { registerOrchestrationIpc } from "./orchestration-ipc";
 import { registerAgentIpc } from "./agent-ipc";
+import { registerSettingsIpc } from "./settings-ipc";
 import { eventBus } from "../event-bus";
 
 export interface IpcContext {
@@ -73,4 +74,5 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     },
     eventBus,
   );
+  registerSettingsIpc(ctx.state);
 };

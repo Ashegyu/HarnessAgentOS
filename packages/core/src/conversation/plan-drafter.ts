@@ -1,5 +1,5 @@
-import type { ProposedAction } from "./types";
-import { toProposedAction } from "./approval-policy";
+import type { ProposedAction } from "./types.ts";
+import { toProposedAction } from "./approval-policy.ts";
 
 export interface DraftPlanInput {
   userRequest: string;

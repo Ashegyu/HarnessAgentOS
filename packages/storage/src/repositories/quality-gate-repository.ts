@@ -1,5 +1,5 @@
 import type { QualityGateResult, QualityGateStatus } from "@harness/core";
-import type { HarnessDb } from "../db";
+import type { HarnessDb } from "../db.ts";
 
 export interface QualityGateRepository {
   create(result: QualityGateResult): Promise<QualityGateResult>;
@@ -60,7 +60,13 @@ const rowToQualityGate = (r: QualityGateRow): QualityGateResult => {
 };
 
 export class SqliteQualityGateRepository implements QualityGateRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(result: QualityGateResult): Promise<QualityGateResult> {
     this.db

@@ -1,7 +1,7 @@
 import type { Capability, CreateCapabilityInput } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
-import { loadSkills } from "./skill-loader";
-import type { SkillMetadata } from "./skill-metadata";
+import { loadSkills } from "./skill-loader.ts";
+import type { SkillMetadata } from "./skill-metadata.ts";
 
 /**
  * Phase 5 capability registry. Bridges SkillMetadata (filesystem) into
@@ -29,7 +29,10 @@ export interface CapabilityRegistryDeps {
 export class CapabilityRegistry {
   private readonly metadataCache = new Map<string, SkillMetadata>();
 
-  constructor(private readonly deps: CapabilityRegistryDeps) {}
+  private readonly deps: CapabilityRegistryDeps;
+  constructor(deps: CapabilityRegistryDeps) {
+    this.deps = deps;
+  }
 
   /**
    * Load skills from the given trusted directories and upsert their

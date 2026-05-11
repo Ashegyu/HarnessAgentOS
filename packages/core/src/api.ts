@@ -1,4 +1,4 @@
-import type { RuntimeInfo } from "./runtime";
+import type { RuntimeInfo } from "./runtime.ts";
 import type {
   Approval,
   AgentInvocation,
@@ -8,6 +8,7 @@ import type {
   Artifact,
   Capability,
   CapabilitySuggestion,
+  HarnessSettings,
   SkillResources,
   LearnerRecommendation,
   LearningTrace,
@@ -23,14 +24,14 @@ import type {
   Thread,
   ThreadDetail,
   Checkpoint,
-} from "./types";
+} from "./types/index.ts";
 import type {
   ApproveInput,
   ConversationTaskDraft,
   CreateConversationTaskInput,
   RedirectTaskInput,
   RejectApprovalInput,
-} from "./conversation";
+} from "./conversation/index.ts";
 
 export interface TaskRunDetail {
   taskRun: ThreadDetail["taskRuns"][number];
@@ -100,6 +101,7 @@ export interface HarnessDesktopApi {
     pauseTask(input: { taskRunId: string }): Promise<TaskRun>;
     resumeTask(input: { taskRunId: string }): Promise<TaskRun>;
     cancelTask(input: { taskRunId: string; reason: string }): Promise<TaskRun>;
+    deleteTask(input: { taskRunId: string }): Promise<void>;
   };
   runner: {
     executeApproved(input: { approvalId: string }): Promise<RunnerResultPayload>;
@@ -217,6 +219,10 @@ export interface HarnessDesktopApi {
       planArtifact: Artifact;
       approvals: Approval[];
     }>;
+  };
+  settings: {
+    get(): Promise<HarnessSettings>;
+    update(input: HarnessSettings): Promise<HarnessSettings>;
   };
   events: {
     /**

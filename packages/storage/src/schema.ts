@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 5;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -151,6 +151,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     FOREIGN KEY(prompt_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT,
     FOREIGN KEY(raw_output_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
     FOREIGN KEY(parsed_plan_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
+  )`,
+
+  // Phase 9 — user-configurable harness settings (single JSON row).
+  // key is always 'harness_settings'; value is a JSON-encoded HarnessSettings.
+  `CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
   )`,
 
   // Helpful indices for common lookups. Idempotent.

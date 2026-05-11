@@ -21,24 +21,23 @@ import {
   type ProposedActionDetails,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
-import { buildAgentPrompt } from "./agent-prompt-builder";
-import { parseAgentPlan } from "./agent-output-parser";
-import { AgentCliError } from "./model-cli-errors";
-import { DefaultModelCliAdapter } from "./model-cli-adapter";
-import { defaultModelFor, providerForModel } from "./provider-detection";
-import { AgentInvocationQueue } from "./agent-invocation-queue";
+import { buildAgentPrompt } from "./agent-prompt-builder.ts";
+import { parseAgentPlan } from "./agent-output-parser.ts";
+import { AgentCliError } from "./model-cli-errors.ts";
+import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
+import { defaultModelFor, providerForModel } from "./provider-detection.ts";
+import { AgentInvocationQueue } from "./agent-invocation-queue.ts";
 import type {
   ModelCliAdapter,
   ModelCliRequest,
-} from "./model-cli-types";
+} from "./model-cli-types.ts";
 
 export class AgentPlanningError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
     this.name = "AgentPlanningError";
+    this.code = code;
   }
 }
 
@@ -72,6 +71,10 @@ export interface GeneratePlanInput {
   provider?: AgentProvider;
   model?: string;
   instruction?: string;
+  /** Override service-level default; injected from HarnessSettings at the IPC layer. */
+  timeoutMs?: number;
+  /** Override service-level default; injected from HarnessSettings at the IPC layer. */
+  stallTimeoutMs?: number;
 }
 
 export interface GeneratePlanResult {
@@ -91,16 +94,18 @@ export interface GeneratePlanResult {
  * queue is deferred to a follow-up.
  */
 export class AgentPlanningService {
+  private readonly deps: AgentPlanningServiceDeps;
   private readonly adapter: ModelCliAdapter;
   private readonly queue: AgentInvocationQueue;
   private readonly defaults: { timeoutMs: number; stallTimeoutMs: number };
 
-  constructor(private readonly deps: AgentPlanningServiceDeps) {
+  constructor(deps: AgentPlanningServiceDeps) {
+    this.deps = deps;
     this.adapter = deps.adapter ?? new DefaultModelCliAdapter();
     this.queue = deps.queue ?? new AgentInvocationQueue();
     this.defaults = {
-      timeoutMs: deps.defaults?.timeoutMs ?? 120_000,
-      stallTimeoutMs: deps.defaults?.stallTimeoutMs ?? 30_000,
+      timeoutMs: deps.defaults?.timeoutMs ?? 300_000,
+      stallTimeoutMs: deps.defaults?.stallTimeoutMs ?? 60_000,
     };
   }
 
@@ -209,6 +214,11 @@ export class AgentPlanningService {
     // 4. invoke CLI through the per-provider queue. The queue serializes
     // claude/codex work and exposes an AbortSignal so cancel/retry can
     // tear down the child process cleanly.
+    // Resume the thread's prior claude session if we have one — follow-up
+    // questions within a thread share conversation memory that way.
+    const thread = await this.deps.state.getThread(taskRun.threadId);
+    const existingSessionId =
+      provider === "claude" ? thread?.agentSessionId : undefined;
     const request: ModelCliRequest = {
       invocationId: invocation.id,
       taskRunId: taskRun.id,
@@ -217,17 +227,19 @@ export class AgentPlanningService {
       modelConfig: {
         provider,
         model,
-        timeoutMs: this.defaults.timeoutMs,
-        stallTimeoutMs: this.defaults.stallTimeoutMs,
+        timeoutMs: input.timeoutMs ?? this.defaults.timeoutMs,
+        stallTimeoutMs: input.stallTimeoutMs ?? this.defaults.stallTimeoutMs,
       },
       sandbox: {
         primaryDir: taskRun.targetDir,
         enforceInPrompt: true,
       },
+      ...(existingSessionId ? { sessionId: existingSessionId } : {}),
     };
     const emit = this.deps.emitStreamEvent ?? (() => {});
     let rawStdout = "";
     let latencyMs = 0;
+    let resultSessionId: string | undefined;
     try {
       const result = await this.queue.enqueue({
         provider,
@@ -243,6 +255,7 @@ export class AgentPlanningService {
       });
       rawStdout = result.stdout;
       latencyMs = result.latencyMs;
+      resultSessionId = result.sessionId;
     } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
       const code = isCancelled
@@ -297,6 +310,24 @@ export class AgentPlanningService {
       rawOutputArtifactId: rawOutputArtifact.id,
       latencyMs,
     });
+
+    // Persist the claude session id on the thread so subsequent
+    // TaskRuns within this conversation can `--resume` it.
+    if (
+      provider === "claude" &&
+      resultSessionId &&
+      resultSessionId !== existingSessionId
+    ) {
+      try {
+        await this.deps.state.setThreadAgentSession(
+          taskRun.threadId,
+          resultSessionId,
+        );
+      } catch {
+        // best effort — failing to record the session id should not
+        // tear down a successful invocation.
+      }
+    }
 
     // 6. parse
     const parsed = parseAgentPlan(redactedOutput);
@@ -471,6 +502,8 @@ export class AgentPlanningService {
 
   async retryInvocation(input: {
     invocationId: string;
+    timeoutMs?: number;
+    stallTimeoutMs?: number;
   }): Promise<GeneratePlanResult> {
     const previous = await this.deps.state.getAgentInvocation(
       input.invocationId,
@@ -491,6 +524,8 @@ export class AgentPlanningService {
       taskRunId: previous.taskRunId,
       provider: previous.provider,
       model: previous.model,
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.stallTimeoutMs !== undefined ? { stallTimeoutMs: input.stallTimeoutMs } : {}),
     });
   }
 }

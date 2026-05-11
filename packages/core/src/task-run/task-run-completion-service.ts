@@ -3,17 +3,19 @@ import type {
   QualityGateResult,
   RepairPlanDraft,
   TaskRun,
-} from "../types";
-import { toProposedAction } from "../conversation/approval-policy";
-import type { TaskRunCompletionGateway } from "./completion-gateway";
+} from "../types/index.ts";
+import { toProposedAction } from "../conversation/approval-policy.ts";
+import type { TaskRunCompletionGateway } from "./completion-gateway.ts";
 
 export class TaskRunCompletionError extends Error {
+  readonly code: string;
   constructor(
-    public readonly code: string,
+    code: string,
     message: string,
   ) {
     super(message);
     this.name = "TaskRunCompletionError";
+    this.code = code;
   }
 }
 
@@ -49,7 +51,13 @@ export interface ApproveKnownRisksInput {
  *    renderer는 TaskRun status를 직접 done으로 바꿀 수 없다."
  */
 export class TaskRunCompletionService {
-  constructor(private readonly deps: TaskRunCompletionDeps) {}
+  private readonly deps: TaskRunCompletionDeps;
+
+  constructor(deps: TaskRunCompletionDeps) {
+
+    this.deps = deps;
+
+  }
 
   /** Reflects a freshly-evaluated QualityGateResult into TaskRun status. */
   async applyQualityGateResult(

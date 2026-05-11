@@ -11,22 +11,24 @@ import type {
 import { formatSimpleDiff } from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
-import { FileRunner } from "./file-runner";
-import { ShellRunner } from "./shell-runner";
-import { GitRunner } from "./git-runner";
-import { TestRunner } from "./test-runner";
+import { FileRunner } from "./file-runner.ts";
+import { ShellRunner } from "./shell-runner.ts";
+import { GitRunner } from "./git-runner.ts";
+import { TestRunner } from "./test-runner.ts";
 import {
   isWithin,
   classifyShellCommand,
   isTestCommand,
   maskSecrets,
-} from "./runner-policy";
-import type { RunnerResult } from "./runner-types";
+} from "./runner-policy.ts";
+import type { RunnerResult } from "./runner-types.ts";
 
 export class RunnerError extends Error {
-  constructor(public readonly code: string, message: string) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
     this.name = "RunnerError";
+    this.code = code;
   }
 }
 
@@ -52,8 +54,10 @@ export class RunnerService {
   private readonly shell: ShellRunner;
   private readonly git: GitRunner;
   private readonly test: TestRunner;
+  private readonly deps: RunnerServiceDeps;
 
-  constructor(private readonly deps: RunnerServiceDeps) {
+  constructor(deps: RunnerServiceDeps) {
+    this.deps = deps;
     this.file = deps.fileRunner ?? new FileRunner();
     this.shell = deps.shellRunner ?? new ShellRunner();
     this.git = deps.gitRunner ?? new GitRunner(this.shell);
@@ -360,6 +364,7 @@ export class RunnerService {
       content: input.content,
     });
     const dbInput: CreateArtifactInput = {
+      id: artifactId,
       taskRunId: input.taskRunId,
       stepId: input.stepId,
       kind: input.kind,

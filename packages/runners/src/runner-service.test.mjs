@@ -278,6 +278,43 @@ test("shell + recognised test command surfaces as a 'test' step", async () => {
   }
 });
 
+test("artifact DB id matches file id so readArtifact does not ENOENT", async () => {
+  const t = tmp();
+  try {
+    const { db, state, artifactStore, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "check.txt", after: "content\n" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await runner.executeApproved(approval.id);
+
+      const artifacts = await state.listArtifactsByTaskRun(approval.taskRunId);
+      const diffArtifact = artifacts.find((a) => a.kind === "diff");
+      assert.ok(diffArtifact, "diff artifact must exist in DB");
+
+      // The artifact's DB id must match the file written to disk.
+      // Before the fix, these were different ids → ENOENT.
+      const content = await artifactStore.read({
+        taskRunId: approval.taskRunId,
+        artifactId: diffArtifact.id,
+        kind: "diff",
+      });
+      assert.ok(content.length > 0, "artifact file must be readable via DB id");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("retryApproval succeeds when TaskRun is blocked", async () => {
   const t = tmp();
   try {

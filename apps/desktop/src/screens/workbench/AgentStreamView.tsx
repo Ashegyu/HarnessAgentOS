@@ -1,62 +1,93 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentInvocationStatus,
   AgentStreamEvent,
 } from "@harness/core";
+import {
+  feedStreamChunk,
+  flushStreamParser,
+  initStreamParserState,
+  setFinalAssistantText,
+  type ParsedStream,
+  type StreamParserState,
+} from "./agent-stream-parser";
 
 interface AgentStreamViewProps {
   invocationId: string;
-  /** Current persisted status — used to decide between live / terminal. */
   status: AgentInvocationStatus;
 }
 
 /**
- * Phase 8 — subscribes to `window.harness.events.onAgentStreamEvent`,
- * filters by invocationId, accumulates raw chunks, and replaces with
- * the final assistant_text when the stream reports `result`. Cleans
- * up its subscription when invocationId changes.
+ * Renders structured views over claude --output-format=stream-json.
+ * - Live text  : text_delta tokens accumulated as they arrive
+ * - Final text : `type:"result"` once produced (replaces live)
+ * - Tool uses  : list of content_block_start of type tool_use
+ * - Metadata   : turn summary, rate limit, cost/tokens (collapsible)
+ * - Raw view   : opt-in fallback so unparsed lines stay debuggable
  */
 export const AgentStreamView = ({
   invocationId,
   status,
 }: AgentStreamViewProps): JSX.Element => {
-  const [chunks, setChunks] = useState<string>("");
-  const [final, setFinal] = useState<string | null>(null);
+  const [parsed, setParsed] = useState<ParsedStream>(() =>
+    initStreamParserState().parsed,
+  );
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
-  const bottomRef = useRef<HTMLPreElement | null>(null);
+  const [showRaw, setShowRaw] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
+  const stateRef = useRef<StreamParserState>(initStreamParserState());
+  const liveBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    setChunks("");
-    setFinal(null);
+    stateRef.current = initStreamParserState();
+    setParsed(stateRef.current.parsed);
     setError(null);
+    setShowRaw(false);
+    setShowMeta(false);
+
     const off = window.harness.events.onAgentStreamEvent(
       (event: AgentStreamEvent) => {
         if (event.invocationId !== invocationId) return;
         if (event.type === "raw") {
-          setChunks((prev) => prev + event.text);
+          feedStreamChunk(stateRef.current, event.text);
+          // Trigger a render with a fresh object so React picks it up.
+          setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
-          setFinal(event.text);
+          setFinalAssistantText(stateRef.current, event.text);
+          setParsed({ ...stateRef.current.parsed });
+        } else if (event.type === "result") {
+          flushStreamParser(stateRef.current);
+          setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "failed") {
           setError({ code: event.errorCode, message: event.message });
         }
       },
     );
-    return off;
+    return () => {
+      flushStreamParser(stateRef.current);
+      off();
+    };
   }, [invocationId]);
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollTop = bottomRef.current.scrollHeight;
+    if (liveBoxRef.current) {
+      liveBoxRef.current.scrollTop = liveBoxRef.current.scrollHeight;
     }
-  }, [chunks, final]);
+  }, [parsed.liveText, parsed.finalText]);
 
   const isTerminal =
     status === "succeeded" ||
     status === "failed" ||
     status === "cancelled";
-  const display = final ?? chunks;
+  const hasAnyOutput =
+    parsed.finalText !== null ||
+    parsed.liveText.length > 0 ||
+    parsed.toolUses.length > 0 ||
+    parsed.unknown.length > 0;
+
+  const metaItems = useMemo(() => buildMetaItems(parsed), [parsed]);
 
   return (
     <div className="agent-stream-view" aria-label="Agent stream">
@@ -67,30 +98,160 @@ export const AgentStreamView = ({
         <span className="agent-stream-view__id" title={invocationId}>
           {invocationId.slice(0, 16)}…
         </span>
-      </div>
-      <pre
-        ref={bottomRef}
-        className="agent-stream-view__body"
-        aria-live={isTerminal ? "off" : "polite"}
-      >
-        {display.length === 0 && !error ? (
-          <span className="agent-stream-view__placeholder">
-            {status === "queued"
-              ? "큐에 대기 중…"
-              : status === "running"
-                ? "스트리밍 대기 중…"
-                : "출력 없음"}
-          </span>
-        ) : (
-          display
+        <span className="agent-stream-view__spacer" />
+        {hasAnyOutput && (
+          <button
+            type="button"
+            className="agent-stream-view__toggle"
+            onClick={() => setShowRaw((v) => !v)}
+          >
+            {showRaw ? "정리됨 보기" : "원본 보기"}
+          </button>
         )}
-      </pre>
+      </div>
+
       {error && (
         <div className="agent-stream-view__error">
           <strong>{error.code}</strong>
           <span>{error.message}</span>
         </div>
       )}
+
+      {showRaw ? (
+        <pre className="agent-stream-view__body">
+          {[
+            parsed.finalText ? `# result\n${parsed.finalText}` : null,
+            parsed.liveText ? `# live\n${parsed.liveText}` : null,
+            parsed.unknown.length > 0
+              ? `# unknown\n${parsed.unknown.join("\n")}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join("\n\n") || "출력 없음"}
+        </pre>
+      ) : (
+        <>
+          {parsed.finalText !== null ? (
+            <section className="agent-stream-section">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">최종 답변</span>
+              </header>
+              <pre className="agent-stream-section__final">{parsed.finalText}</pre>
+            </section>
+          ) : parsed.liveText.length > 0 ? (
+            <section className="agent-stream-section">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">응답 중…</span>
+              </header>
+              <div ref={liveBoxRef} className="agent-stream-section__live">
+                {parsed.liveText}
+              </div>
+            </section>
+          ) : (
+            <section className="agent-stream-section">
+              <div className="agent-stream-section__placeholder">
+                {status === "queued"
+                  ? "큐에 대기 중…"
+                  : status === "running"
+                    ? "스트리밍 대기 중…"
+                    : "출력 없음"}
+              </div>
+            </section>
+          )}
+
+          {parsed.toolUses.length > 0 && (
+            <section className="agent-stream-section">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">
+                  도구 호출 ({parsed.toolUses.length})
+                </span>
+              </header>
+              <ul className="agent-stream-section__tools">
+                {parsed.toolUses.map((t, i) => (
+                  <li key={`${t.name}-${i}`}>
+                    <code>{t.name}</code>
+                    {t.input ? (
+                      <span className="agent-stream-section__tool-input">
+                        {JSON.stringify(t.input).slice(0, 120)}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {metaItems.length > 0 && (
+            <section className="agent-stream-section">
+              <header
+                className="agent-stream-section__head agent-stream-section__head--clickable"
+                onClick={() => setShowMeta((v) => !v)}
+              >
+                <span className="agent-stream-section__title">
+                  메타데이터 {showMeta ? "▾" : "▸"}
+                </span>
+              </header>
+              {showMeta && (
+                <dl className="agent-stream-section__meta">
+                  {metaItems.map(([label, value]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </section>
+          )}
+        </>
+      )}
+
+      {isTerminal && parsed.resultMeta && (
+        <div className="agent-stream-view__footer">
+          <span>
+            응답 시간 {Math.round(parsed.resultMeta.durationMs / 100) / 10}s · 도구 {parsed.toolUses.length}개
+            {parsed.resultMeta.costUsd !== undefined
+              ? ` · $${parsed.resultMeta.costUsd.toFixed(4)}`
+              : ""}
+          </span>
+        </div>
+      )}
     </div>
   );
+};
+
+const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
+  const out: Array<[string, string]> = [];
+  if (p.turnSummary) {
+    out.push([
+      "Turn",
+      `${p.turnSummary.status}${p.turnSummary.detail ? ` — ${p.turnSummary.detail}` : ""}`,
+    ]);
+  }
+  if (p.resultMeta) {
+    out.push(["Duration", `${p.resultMeta.durationMs}ms (api ${p.resultMeta.durationApiMs}ms)`]);
+    if (p.resultMeta.stopReason) out.push(["Stop", p.resultMeta.stopReason]);
+    if (p.resultMeta.costUsd !== undefined) out.push(["Cost", `$${p.resultMeta.costUsd.toFixed(4)}`]);
+    if (p.resultMeta.usage) {
+      const u = p.resultMeta.usage;
+      const parts: string[] = [];
+      if (typeof u["input_tokens"] === "number") parts.push(`in=${u["input_tokens"]}`);
+      if (typeof u["output_tokens"] === "number") parts.push(`out=${u["output_tokens"]}`);
+      if (typeof u["cache_read_input_tokens"] === "number")
+        parts.push(`cache_read=${u["cache_read_input_tokens"]}`);
+      if (parts.length > 0) out.push(["Tokens", parts.join(" ")]);
+    }
+    if (p.resultMeta.sessionId) out.push(["Session", p.resultMeta.sessionId]);
+  }
+  if (p.rateLimit) {
+    out.push([
+      "Rate limit",
+      `${p.rateLimit.status}${p.rateLimit.overage ? ` (${p.rateLimit.overage})` : ""}`,
+    ]);
+  }
+  if (p.hooks.length > 0) {
+    const distinct = new Set(p.hooks.map((h) => h.name));
+    out.push(["Hooks", `${distinct.size}개 (${p.hooks.length} 이벤트)`]);
+  }
+  return out;
 };

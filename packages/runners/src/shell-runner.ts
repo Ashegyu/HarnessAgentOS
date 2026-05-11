@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { classifyShellCommand } from "./runner-policy";
+import { classifyShellCommand } from "./runner-policy.ts";
 
 export interface ShellRunResult {
   exitCode: number;
@@ -11,9 +11,11 @@ export interface ShellRunResult {
 }
 
 export class ShellRunnerError extends Error {
-  constructor(public readonly code: string, message: string) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
     this.name = "ShellRunnerError";
+    this.code = code;
   }
 }
 

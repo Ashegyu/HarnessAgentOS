@@ -107,8 +107,11 @@ export const registerAgentIpc = (
           harnessError(STATE_INVALID_INPUT, "instruction must be a string"),
         );
       }
+      const settings = await ctx.state.getSettings();
       const payload: Parameters<typeof ctx.planning.generatePlan>[0] = {
         taskRunId: cast.taskRunId,
+        timeoutMs: settings.agent.timeoutMs,
+        stallTimeoutMs: settings.agent.stallTimeoutMs,
       };
       if (isProvider(cast.provider)) payload.provider = cast.provider;
       if (typeof cast.model === "string") payload.model = cast.model;
@@ -179,9 +182,12 @@ export const registerAgentIpc = (
           ),
         );
       }
+      const settings = await ctx.state.getSettings();
       try {
         const result = await ctx.planning.retryInvocation({
           invocationId: cast.invocationId,
+          timeoutMs: settings.agent.timeoutMs,
+          stallTimeoutMs: settings.agent.stallTimeoutMs,
         });
         events.taskRunChanged(result.invocation.taskRunId);
         return ok(result);

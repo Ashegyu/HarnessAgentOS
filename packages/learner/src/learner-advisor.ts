@@ -8,23 +8,22 @@ import {
 } from "@harness/core";
 
 export class LearnerAdvisorError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
+  readonly code: string;
+  constructor(code: string, message: string) {
     super(message);
     this.name = "LearnerAdvisorError";
+    this.code = code;
   }
 }
 import type { LocalStateService } from "@harness/storage";
 import { suggestCapabilities } from "@harness/skillify-adapter";
-import { recommendModel } from "./model-selection-feedback";
-import { aggregateReward } from "./reward-evaluator";
-import { traceSimilarity } from "./learning-trace";
+import { recommendModel } from "./model-selection-feedback.ts";
+import { aggregateReward } from "./reward-evaluator.ts";
+import { traceSimilarity } from "./learning-trace.ts";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { newId } from "@harness/storage";
-import { redactSecrets } from "./redact-secrets";
+import { redactSecrets } from "./redact-secrets.ts";
 
 /**
  * Phase 6 advisor. Composes capability suggestions (Phase 5) with
@@ -46,7 +45,10 @@ export interface LearnerAdvisorDeps {
 }
 
 export class LearnerAdvisor {
-  constructor(private readonly deps: LearnerAdvisorDeps) {}
+  private readonly deps: LearnerAdvisorDeps;
+  constructor(deps: LearnerAdvisorDeps) {
+    this.deps = deps;
+  }
 
   async recommend(input: {
     taskRunId: string;

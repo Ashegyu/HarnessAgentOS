@@ -12,6 +12,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
  * by Vite which handles TS natively, so this only matters for main/preload.
  */
 const HARNESS_WORKSPACE_PACKAGES = [
+  "@harness/agent",
   "@harness/core",
   "@harness/storage",
   "@harness/runners",

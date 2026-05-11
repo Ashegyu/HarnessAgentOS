@@ -1,7 +1,7 @@
-import type { Approval } from "./approval";
-import type { Artifact } from "./artifact";
-import type { Checkpoint } from "./checkpoint";
-import type { TaskRun } from "./task-run";
+import type { Approval } from "./approval.ts";
+import type { Artifact } from "./artifact.ts";
+import type { Checkpoint } from "./checkpoint.ts";
+import type { TaskRun } from "./task-run.ts";
 
 export interface RepairPlanDraft {
   taskRun: TaskRun;

@@ -10,6 +10,7 @@ import {
   type Artifact,
   type Capability,
   type CapabilitySuggestion,
+  type HarnessSettings,
   type SkillResources,
   type ConversationTaskDraft,
   type HarnessDesktopApi,
@@ -116,6 +117,9 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<TaskRun>(IPC_CHANNELS.conversation.resumeTask, input),
     cancelTask: (input) =>
       invokeUnwrapped<TaskRun>(IPC_CHANNELS.conversation.cancelTask, input),
+    deleteTask: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.conversation.deleteTask, input);
+    },
   },
   runner: {
     executeApproved: (input) =>
@@ -257,6 +261,11 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.agent.useTemplateFallback,
         input,
       ),
+  },
+  settings: {
+    get: () => invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.get),
+    update: (input) =>
+      invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.update, input),
   },
   events: {
     onTaskRunChanged: (listener) => {

@@ -232,6 +232,7 @@ conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDeta
 conversation.pauseTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.resumeTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.cancelTask(input: { taskRunId: string; reason: string }): Promise<TaskRun>;
+conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 ```
 
 상태 전이 규칙:

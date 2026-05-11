@@ -6,9 +6,9 @@ import {
   type OrchestrationRunResult,
   type WorkerRole,
   type WorkerStep,
-} from "./orchestration-types";
-import { assertActionTypeAllowed } from "./orchestration-policy";
-import { formatWorkerStepArtifact } from "./orchestration-trace";
+} from "./orchestration-types.ts";
+import { assertActionTypeAllowed } from "./orchestration-policy.ts";
+import { formatWorkerStepArtifact } from "./orchestration-trace.ts";
 
 /**
  * Phase 7 worker runner. Executes the worker steps of an approved
@@ -31,7 +31,13 @@ export interface WorkerRunInput {
 }
 
 export class WorkerRunner {
-  constructor(private readonly deps: WorkerRunnerDeps) {}
+  private readonly deps: WorkerRunnerDeps;
+
+  constructor(deps: WorkerRunnerDeps) {
+
+    this.deps = deps;
+
+  }
 
   async runApproved(input: WorkerRunInput): Promise<OrchestrationRunResult> {
     if (input.approval.actionType !== "orchestration_plan") {

@@ -4,7 +4,7 @@ import {
   IPC_CHANNELS,
   ALLOWED_IPC_CHANNELS,
   isAllowedChannel,
-} from "./index.ts";
+} from "./ipc-channels.ts";
 
 test("declared namespaces match the phases shipped so far", () => {
   // Phase-by-phase additions per docs/contracts/ipc-contracts.md.
@@ -21,6 +21,7 @@ test("declared namespaces match the phases shipped so far", () => {
     "orchestration",
     "quality",
     "runner",
+    "settings",
     "state",
   ]);
 });
@@ -66,6 +67,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
     "approve",
     "cancelTask",
     "createTask",
+    "deleteTask",
     "getTaskRunDetail",
     "pauseTask",
     "redirectTask",
@@ -121,6 +123,15 @@ test("orchestration namespace exposes Phase 7 verbs", () => {
     "getPlan",
     "runApproved",
   ]);
+});
+
+test("settings namespace exposes get + update verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.settings).sort(), [
+    "get",
+    "update",
+  ]);
+  assert.equal(isAllowedChannel("settings:get"), true);
+  assert.equal(isAllowedChannel("settings:update"), true);
 });
 
 test("channel strings use namespace:verb format", () => {

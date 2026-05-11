@@ -11,6 +11,7 @@ import { ConversationWorkbench } from "./ConversationWorkbench";
 import type { ConversationMode } from "./ConversationInput";
 import { RightPanel } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
+import { SettingsPanel } from "./SettingsPanel";
 import "./workbench.css";
 
 type ThreadsState =
@@ -47,6 +48,7 @@ export const WorkbenchShell = (): JSX.Element => {
   });
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const agentAvailable =
     providers !== null &&
     (providers.claude.available || providers.codex.available);
@@ -248,6 +250,15 @@ export const WorkbenchShell = (): JSX.Element => {
     [refreshTaskRunDetail, selectedTaskRunId],
   );
 
+  const handleDeleteTask = useCallback(
+    async (id: string): Promise<void> => {
+      await window.harness.conversation.deleteTask({ taskRunId: id });
+      if (selectedTaskRunId === id) setSelectedTaskRunId(null);
+      if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
+    },
+    [refreshThreadDetail, selectedTaskRunId, selectedThreadId],
+  );
+
   const handleApprove = useCallback(
     async (input: {
       approvalId: string;
@@ -350,6 +361,7 @@ export const WorkbenchShell = (): JSX.Element => {
         detailState={detailState}
         selectedTaskRunId={selectedTaskRunId}
         onSelectTaskRun={setSelectedTaskRunId}
+        onDeleteTask={handleDeleteTask}
         onCreateTask={handleCreateTask}
         threadTargetDir={selectedThread?.targetDir}
         threadId={selectedThreadId}
@@ -370,7 +382,8 @@ export const WorkbenchShell = (): JSX.Element => {
         onAgentUseFallback={handleAgentUseFallback}
         agentAvailable={agentAvailable}
       />
-      <RuntimeStatusBar />
+      <RuntimeStatusBar onSettingsClick={() => setSettingsOpen(true)} />
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 };

@@ -11,7 +11,7 @@ import type {
   StepStatus,
   TaskRun,
   TaskRunStatus,
-} from "../types";
+} from "../types/index.ts";
 
 /**
  * Storage gateway used by the task-run completion service. Mirrors the

@@ -3,8 +3,8 @@ import type {
   QualityGateResult,
   QualityGateStatus,
 } from "@harness/core";
-import { collectEvidence } from "./evidence-reader";
-import { collectRisks } from "./risk-policy";
+import { collectEvidence } from "./evidence-reader.ts";
+import { collectRisks } from "./risk-policy.ts";
 import type { LocalStateService } from "@harness/storage";
 import { newId, nowIso } from "@harness/storage";
 
@@ -22,7 +22,13 @@ export interface QualityEvaluatorDeps {
  * task-run-completion-service's job.
  */
 export class QualityEvaluator {
-  constructor(private readonly deps: QualityEvaluatorDeps) {}
+  private readonly deps: QualityEvaluatorDeps;
+
+  constructor(deps: QualityEvaluatorDeps) {
+
+    this.deps = deps;
+
+  }
 
   async evaluate(input: QualityGateInput): Promise<QualityGateResult> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);

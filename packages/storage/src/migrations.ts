@@ -1,5 +1,5 @@
 import type { Database as DatabaseType } from "better-sqlite3";
-import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema";
+import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
@@ -17,6 +17,13 @@ export const applyMigrations = (db: DatabaseType): void => {
     // Phase 3 — proposed_action_json on approvals.
     if (!hasColumn(db, "approvals", "proposed_action_json")) {
       db.exec(`ALTER TABLE approvals ADD COLUMN proposed_action_json TEXT`);
+    }
+
+    // v5 — agent_session_id on threads. Stores the Claude CLI session
+    // UUID so subsequent TaskRuns in the same thread can `--resume` the
+    // conversation instead of starting cold.
+    if (!hasColumn(db, "threads", "agent_session_id")) {
+      db.exec(`ALTER TABLE threads ADD COLUMN agent_session_id TEXT`);
     }
 
     db.prepare(

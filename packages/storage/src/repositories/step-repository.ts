@@ -1,7 +1,7 @@
 import type { CreateStepInput, Step, StepStatus } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
-import { rowToStep } from "./row-mappers";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
+import { rowToStep } from "./row-mappers.ts";
 
 export interface StepRepository {
   create(input: CreateStepInput): Promise<Step>;
@@ -15,7 +15,13 @@ export interface StepRepository {
 }
 
 export class SqliteStepRepository implements StepRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: CreateStepInput): Promise<Step> {
     const step: Step = {

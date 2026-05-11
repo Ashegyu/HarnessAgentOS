@@ -7,8 +7,8 @@ import {
   type ParsedSkillFrontmatter,
   type SkillFile,
   type SkillMetadata,
-} from "./skill-metadata";
-import { classifySkillRisk } from "./skill-risk-policy";
+} from "./skill-metadata.ts";
+import { classifySkillRisk } from "./skill-risk-policy.ts";
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\s*\r?\n?/;
 

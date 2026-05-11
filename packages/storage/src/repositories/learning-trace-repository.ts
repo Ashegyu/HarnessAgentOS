@@ -1,6 +1,6 @@
 import type { LearningTrace, LearningTracePatch } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId, nowIso } from "../id";
+import type { HarnessDb } from "../db.ts";
+import { newId, nowIso } from "../id.ts";
 
 export interface LearningTraceRepository {
   /** Create a fresh trace row keyed by taskRunId. */
@@ -49,7 +49,13 @@ const rowToTrace = (r: LearningTraceRow): LearningTrace => {
 };
 
 export class SqliteLearningTraceRepository implements LearningTraceRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async create(input: { taskRunId: string }): Promise<LearningTrace> {
     const trace: LearningTrace = {

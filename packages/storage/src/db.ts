@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
-import { applyMigrations } from "./migrations";
+import { applyMigrations } from "./migrations.ts";
 
 export type HarnessDb = DatabaseType;
 

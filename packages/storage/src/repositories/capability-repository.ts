@@ -3,8 +3,8 @@ import type {
   CapabilityRiskLevel,
   CreateCapabilityInput,
 } from "@harness/core";
-import type { HarnessDb } from "../db";
-import { newId } from "../id";
+import type { HarnessDb } from "../db.ts";
+import { newId } from "../id.ts";
 
 export interface CapabilityRepository {
   upsert(input: CreateCapabilityInput): Promise<Capability>;
@@ -42,7 +42,13 @@ const rowToCapability = (r: CapabilityRow): Capability => {
 };
 
 export class SqliteCapabilityRepository implements CapabilityRepository {
-  constructor(private readonly db: HarnessDb) {}
+  private readonly db: HarnessDb;
+
+  constructor(db: HarnessDb) {
+
+    this.db = db;
+
+  }
 
   async upsert(input: CreateCapabilityInput): Promise<Capability> {
     const id = input.id ?? newId("capability");
