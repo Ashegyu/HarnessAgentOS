@@ -5,6 +5,7 @@ import { stat } from "node:fs/promises";
 import {
   ConversationService,
   TaskRunCompletionService,
+  type HarnessSettings,
 } from "@harness/core";
 import {
   FilesystemArtifactStore,
@@ -49,6 +50,7 @@ const initServices = (): {
   orchestrationService: OrchestrationService;
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
+  onSettingsUpdate: (s: HarnessSettings) => void;
 } => {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
@@ -111,12 +113,17 @@ const initServices = (): {
     decisionLogDir: join(userData, "learner-decisions"),
   });
   // Phase 7 feature flag — defaults off per phase-07 spec.
-  const orchestrationEnabled =
-    process.env.HARNESS_ORCHESTRATION_ENABLED === "1";
+  // Mutable ref is seeded from persisted settings in app.whenReady()
+  // before IPC is registered; env var acts as OR override for devs.
+  let orchEnabledBySettings = false;
   const orchestrationService = new OrchestrationService({
     state,
-    enabled: orchestrationEnabled,
+    enabled: () =>
+      process.env.HARNESS_ORCHESTRATION_ENABLED === "1" || orchEnabledBySettings,
   });
+  const onSettingsUpdate = (s: HarnessSettings): void => {
+    orchEnabledBySettings = s.orchestration?.enabled ?? false;
+  };
 
   // Phase 8 — agent CLI integration. The queue is shared between the
   // planning service (concurrency control) and the provider probe
@@ -158,6 +165,7 @@ const initServices = (): {
     orchestrationService,
     agentPlanning,
     probeAgentProviders: probeProviders,
+    onSettingsUpdate,
   };
 };
 
@@ -201,6 +209,13 @@ const createMainWindow = (): BrowserWindow => {
 
 app.whenReady().then(async () => {
   const services = initServices();
+  // Seed orchestration flag from persisted settings before IPC goes live.
+  try {
+    const s = await services.state.getSettings();
+    services.onSettingsUpdate(s);
+  } catch {
+    // non-fatal; mutable ref stays false
+  }
   // Best-effort initial capability scan; missing skill directories are
   // non-fatal so first-run still succeeds.
   try {

@@ -14,7 +14,10 @@ interface ThreadSidebarProps {
     title: string;
     targetDir?: string;
   }) => Promise<void>;
+  onDeleteThread: (id: string) => Promise<void>;
   onRetry: () => void;
+  onOpenAgents: () => void;
+  agentsActive: boolean;
 }
 
 const formatRelative = (iso: string): string => {
@@ -28,9 +31,13 @@ export const ThreadSidebar = ({
   selectedThreadId,
   onSelectThread,
   onCreateThread,
+  onDeleteThread,
   onRetry,
+  onOpenAgents,
+  agentsActive,
 }: ThreadSidebarProps): JSX.Element => {
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [targetDir, setTargetDir] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -156,7 +163,7 @@ export const ThreadSidebar = ({
         {state.kind === "ready" && state.threads.length > 0 && (
           <ul className="thread-list">
             {state.threads.map((t) => (
-              <li key={t.id}>
+              <li key={t.id} className="thread-list__row">
                 <button
                   type="button"
                   className={`thread-list__item${
@@ -175,10 +182,38 @@ export const ThreadSidebar = ({
                     </span>
                   )}
                 </button>
+                <button
+                  type="button"
+                  className="thread-list__delete"
+                  disabled={deletingId === t.id}
+                  title="스레드 삭제"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!window.confirm(`"${t.title}" 스레드를 삭제하시겠습니까?\n\n포함된 모든 작업이 함께 삭제됩니다.`)) return;
+                    setDeletingId(t.id);
+                    try {
+                      await onDeleteThread(t.id);
+                    } finally {
+                      setDeletingId(null);
+                    }
+                  }}
+                >
+                  {deletingId === t.id ? "…" : "×"}
+                </button>
               </li>
             ))}
           </ul>
         )}
+      </div>
+      <div className="sidebar-nav">
+        <button
+          type="button"
+          className={`sidebar-nav__btn${agentsActive ? " sidebar-nav__btn--active" : ""}`}
+          onClick={onOpenAgents}
+          title="Agents & Orchestration"
+        >
+          ⚙ Agents
+        </button>
       </div>
     </aside>
   );

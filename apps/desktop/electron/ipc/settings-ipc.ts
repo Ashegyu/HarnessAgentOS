@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import {
   IPC_CHANNELS,
+  ORCHESTRATION_MODES,
   STATE_INVALID_INPUT,
   err,
   harnessError,
@@ -8,6 +9,8 @@ import {
   type AgentProvider,
   type HarnessResult,
   type HarnessSettings,
+  type OrchestrationMode,
+  type WorkerProfile,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 
@@ -55,6 +58,22 @@ const validateSettingsInput = (
       reason: "agent.contextDepth must be a positive integer",
     };
   }
+  const orch =
+    s.orchestration !== null && typeof s.orchestration === "object"
+      ? (s.orchestration as Record<string, unknown>)
+      : {};
+  const orchestrationEnabled =
+    typeof orch.enabled === "boolean" ? orch.enabled : false;
+  const orchestrationMode: OrchestrationMode =
+    typeof orch.defaultMode === "string" &&
+    (ORCHESTRATION_MODES as readonly string[]).includes(orch.defaultMode)
+      ? (orch.defaultMode as OrchestrationMode)
+      : "single_worker";
+  const orchestrationInstructions =
+    typeof orch.defaultInstructions === "string" ? orch.defaultInstructions : "";
+  const workerProfiles: WorkerProfile[] = Array.isArray(orch.workerProfiles)
+    ? (orch.workerProfiles as WorkerProfile[])
+    : [];
   return {
     ok: true,
     value: {
@@ -65,11 +84,20 @@ const validateSettingsInput = (
         stallTimeoutMs: a.stallTimeoutMs,
         contextDepth: a.contextDepth,
       },
+      orchestration: {
+        enabled: orchestrationEnabled,
+        defaultMode: orchestrationMode,
+        defaultInstructions: orchestrationInstructions,
+        workerProfiles,
+      },
     },
   };
 };
 
-export const registerSettingsIpc = (state: LocalStateService): void => {
+export const registerSettingsIpc = (
+  state: LocalStateService,
+  onUpdate?: (s: HarnessSettings) => void,
+): void => {
   ipcMain.handle(
     IPC_CHANNELS.settings.get,
     async (): Promise<HarnessResult<HarnessSettings>> => {
@@ -90,7 +118,9 @@ export const registerSettingsIpc = (state: LocalStateService): void => {
         return err(harnessError(STATE_INVALID_INPUT, v.reason));
       }
       try {
-        return ok(await state.updateSettings(v.value));
+        const saved = await state.updateSettings(v.value);
+        try { onUpdate?.(saved); } catch { /* non-fatal */ }
+        return ok(saved);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         return err(harnessError(STATE_INVALID_INPUT, msg));

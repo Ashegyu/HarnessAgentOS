@@ -21,7 +21,7 @@ import {
   type ProposedActionDetails,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
-import { buildAgentPrompt } from "./agent-prompt-builder.ts";
+import { buildSplitAgentPrompt } from "./agent-prompt-builder.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
@@ -135,8 +135,12 @@ export class AgentPlanningService {
     }
 
     const providers = this.deps.getProviderStatus();
-    const provider =
-      input.provider ??
+    const providerHint =
+      input.provider === "auto" || input.provider === undefined
+        ? undefined
+        : input.provider;
+    const provider: "claude" | "codex" | null =
+      providerHint ??
       (providers?.claude?.available
         ? "claude"
         : providers?.codex?.available
@@ -178,7 +182,7 @@ export class AgentPlanningService {
     const qualityRisks = await this.deps.state.getLatestQualityGateResult(
       taskRun.id,
     );
-    const rawPrompt = buildAgentPrompt({
+    const splitPrompt = buildSplitAgentPrompt({
       taskRun,
       recentArtifacts,
       qualityRisks,
@@ -186,14 +190,15 @@ export class AgentPlanningService {
         ? { instruction: input.instruction }
         : {}),
     });
-    const redactedPrompt = redactSecrets(rawPrompt, 80_000);
+    const redactedSystemPrompt = redactSecrets(splitPrompt.systemPrompt, 80_000);
+    const redactedUserPrompt = redactSecrets(splitPrompt.userPrompt, 80_000);
     const promptArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
       stepId: planStep.id,
       kind: "log",
       title: "Agent prompt",
       uri: `harness:agent-prompt/${taskRun.id}/${Date.now()}`,
-      summary: redactedPrompt,
+      summary: `[system]\n${redactedSystemPrompt}\n\n[user]\n${redactedUserPrompt}`,
     });
 
     // 3. invocation row
@@ -223,7 +228,8 @@ export class AgentPlanningService {
       invocationId: invocation.id,
       taskRunId: taskRun.id,
       cwd: taskRun.targetDir,
-      prompt: redactedPrompt,
+      prompt: redactedUserPrompt,
+      systemPrompt: redactedSystemPrompt,
       modelConfig: {
         provider,
         model,
@@ -341,10 +347,14 @@ export class AgentPlanningService {
         uri: `harness:agent-parse-error/${taskRun.id}/${Date.now()}`,
         summary: `# Parse error\n\n${parsed.reason}\n\nSee raw output artifact ${rawOutputArtifact.id}.`,
       });
+      const snippet = redactedOutput.slice(0, 300).replace(/\n/g, " ");
+      const errorMessage = snippet.length > 0
+        ? `${parsed.reason} | Output preview: ${snippet}…`
+        : parsed.reason;
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
         errorCode: AGENT_INVALID_OUTPUT,
-        errorMessage: parsed.reason,
+        errorMessage,
         finishedAt,
         parsedPlanArtifactId: errorArtifact.id,
       });
@@ -352,7 +362,7 @@ export class AgentPlanningService {
         outputSummary: `parse error: ${parsed.reason.slice(0, 200)}`,
       });
       await this.deps.state.setTaskRunStatus(taskRun.id, "blocked");
-      throw new AgentPlanningError(AGENT_INVALID_OUTPUT, parsed.reason);
+      throw new AgentPlanningError(AGENT_INVALID_OUTPUT, errorMessage);
     }
 
     // 7. Validate proposed actions through the same gate renderer-supplied

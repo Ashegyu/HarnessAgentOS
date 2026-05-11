@@ -38,7 +38,7 @@ test("draftPlan refuses when feature flag is off", async () => {
   const state = new LocalStateService(db);
   try {
     const taskRun = await seedTaskRun(state);
-    const service = new OrchestrationService({ state, enabled: false });
+    const service = new OrchestrationService({ state, enabled: () => false });
     await assert.rejects(
       () =>
         service.draftPlan({ taskRunId: taskRun.id, mode: "single_worker" }),
@@ -56,7 +56,7 @@ test("draftPlan creates artifact + checkpoint + approval (orchestration_plan)", 
   const state = new LocalStateService(db);
   try {
     const taskRun = await seedTaskRun(state);
-    const service = new OrchestrationService({ state, enabled: true });
+    const service = new OrchestrationService({ state, enabled: () => true });
     const drafted = await service.draftPlan({
       taskRunId: taskRun.id,
       mode: "planner_worker",
@@ -78,7 +78,7 @@ test("runApproved refuses when approval is not approved", async () => {
   const state = new LocalStateService(db);
   try {
     const taskRun = await seedTaskRun(state);
-    const service = new OrchestrationService({ state, enabled: true });
+    const service = new OrchestrationService({ state, enabled: () => true });
     const drafted = await service.draftPlan({
       taskRunId: taskRun.id,
       mode: "single_worker",
@@ -99,7 +99,7 @@ test("runApproved produces worker artifacts after approval", async () => {
   const state = new LocalStateService(db);
   try {
     const taskRun = await seedTaskRun(state);
-    const service = new OrchestrationService({ state, enabled: true });
+    const service = new OrchestrationService({ state, enabled: () => true });
     const drafted = await service.draftPlan({
       taskRunId: taskRun.id,
       mode: "single_worker",
@@ -122,13 +122,34 @@ test("runApproved produces worker artifacts after approval", async () => {
   }
 });
 
+test("enabled getter is evaluated per call (live flag changes)", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    let flagValue = false;
+    const service = new OrchestrationService({ state, enabled: () => flagValue });
+    const taskRun = await seedTaskRun(state);
+    await assert.rejects(
+      () => service.draftPlan({ taskRunId: taskRun.id, mode: "single_worker" }),
+      (e) => e.code === "ORCHESTRATION_DISABLED",
+    );
+    flagValue = true;
+    const drafted = await service.draftPlan({ taskRunId: taskRun.id, mode: "single_worker" });
+    assert.ok(drafted.plan.id);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("getLatestPlan recovers plan JSON from artifact summary", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
     const taskRun = await seedTaskRun(state);
-    const service = new OrchestrationService({ state, enabled: true });
+    const service = new OrchestrationService({ state, enabled: () => true });
     const drafted = await service.draftPlan({
       taskRunId: taskRun.id,
       mode: "multi_worker",

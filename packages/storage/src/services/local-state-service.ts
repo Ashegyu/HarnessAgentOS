@@ -199,6 +199,10 @@ export class LocalStateService implements ConversationStateGateway {
     return this.taskRuns.setCurrentStep(id, stepId);
   }
 
+  async deleteThread(id: string): Promise<void> {
+    return this.threads.delete(id);
+  }
+
   async deleteTaskRun(id: string): Promise<void> {
     return this.taskRuns.delete(id);
   }

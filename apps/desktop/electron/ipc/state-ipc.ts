@@ -59,6 +59,28 @@ export const registerStateIpc = (service: LocalStateService): void => {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.state.deleteThread,
+    async (_event, input: unknown): Promise<HarnessResult<void>> => {
+      if (
+        typeof input !== "object" ||
+        input === null ||
+        !isNonEmptyString((input as { threadId?: unknown }).threadId)
+      ) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "threadId must be a non-empty string"),
+        );
+      }
+      const threadId = (input as { threadId: string }).threadId;
+      try {
+        await service.deleteThread(threadId);
+        return ok(undefined);
+      } catch (e) {
+        return wrapDbError(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.state.createThread,
     async (_event, input: unknown): Promise<HarnessResult<Thread>> => {
       if (typeof input !== "object" || input === null) {

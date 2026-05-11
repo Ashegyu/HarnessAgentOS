@@ -87,6 +87,7 @@ export interface HarnessDesktopApi {
       title: string;
       targetDir?: string;
     }): Promise<Thread>;
+    deleteThread(input: { threadId: string }): Promise<void>;
   };
   conversation: {
     createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;

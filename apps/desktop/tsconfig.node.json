@@ -4,7 +4,8 @@
     "lib": ["ES2022"],
     "types": ["node", "electron"],
     "paths": {
-      "@harness/core": ["../../packages/core/src/index.ts"]
+      "@harness/core": ["../../packages/core/src/index.ts"],
+      "@harness/agent": ["../../packages/agent/src/index.ts"]
     }
   },
   "include": ["electron/**/*", "electron.vite.config.ts"],

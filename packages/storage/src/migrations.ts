@@ -26,6 +26,27 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE threads ADD COLUMN agent_session_id TEXT`);
     }
 
+    // v6 — expand approvals.status CHECK to include 'executed'.
+    // SQLite doesn't support ALTER CONSTRAINT; the table must be rebuilt.
+    if (!approvalStatusAllows(db, "executed")) {
+      db.exec(`ALTER TABLE approvals RENAME TO approvals_v5`);
+      db.exec(`CREATE TABLE approvals (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL,
+        checkpoint_id TEXT NOT NULL,
+        action_type TEXT NOT NULL CHECK(action_type IN ('file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan')),
+        action_summary TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
+        decision_message TEXT,
+        decided_at TEXT,
+        proposed_action_json TEXT,
+        FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
+        FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
+      )`);
+      db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json FROM approvals_v5`);
+      db.exec(`DROP TABLE approvals_v5`);
+    }
+
     db.prepare(
       `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)`,
     ).run(String(SCHEMA_VERSION));
@@ -42,6 +63,13 @@ const hasColumn = (
     name: string;
   }>;
   return rows.some((r) => r.name === column);
+};
+
+const approvalStatusAllows = (db: DatabaseType, status: string): boolean => {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'`)
+    .get() as { sql: string } | undefined;
+  return row?.sql?.includes(`'${status}'`) ?? false;
 };
 
 export const readSchemaVersion = (db: DatabaseType): number | null => {

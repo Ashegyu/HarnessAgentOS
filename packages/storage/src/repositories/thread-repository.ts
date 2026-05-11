@@ -12,6 +12,7 @@ export interface ThreadRepository {
   list(): Promise<Thread[]>;
   get(id: string): Promise<Thread | null>;
   update(id: string, patch: UpdateThreadInput): Promise<Thread>;
+  delete(id: string): Promise<void>;
 }
 
 export class SqliteThreadRepository implements ThreadRepository {
@@ -67,6 +68,21 @@ export class SqliteThreadRepository implements ThreadRepository {
       )
       .get(id) as Parameters<typeof rowToThread>[0] | undefined;
     return row ? rowToThread(row) : null;
+  }
+
+  async delete(id: string): Promise<void> {
+    this.db.transaction(() => {
+      const sub = `(SELECT id FROM task_runs WHERE thread_id = ?)`;
+      this.db.prepare(`DELETE FROM agent_invocations WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM quality_gate_results WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM learning_traces WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM approvals WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM checkpoints WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM artifacts WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM steps WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM task_runs WHERE thread_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM threads WHERE id = ?`).run(id);
+    })();
   }
 
   async update(id: string, patch: UpdateThreadInput): Promise<Thread> {

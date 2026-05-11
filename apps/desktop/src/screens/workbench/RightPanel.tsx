@@ -19,6 +19,7 @@ type TaskRunDetailState =
 
 type RightPanelTab =
   | "plan"
+  | "agent"
   | "timeline"
   | "artifacts"
   | "quality"
@@ -27,6 +28,7 @@ type RightPanelTab =
 
 const TABS: ReadonlyArray<{ id: RightPanelTab; label: string }> = [
   { id: "plan", label: "Plan" },
+  { id: "agent", label: "Agent" },
   { id: "timeline", label: "Timeline" },
   { id: "artifacts", label: "Artifacts" },
   { id: "quality", label: "Quality" },
@@ -149,15 +151,6 @@ export const RightPanel = ({
           >
             {activeTab === "plan" && (
               <div className="right-panel__stack">
-                <AgentPanel
-                  taskRun={state.detail.taskRun}
-                  invocations={state.detail.agentInvocations}
-                  agentAvailable={agentAvailable}
-                  onGenerate={() => onAgentGenerate(state.detail.taskRun.id)}
-                  onRetry={onAgentRetry}
-                  onCancel={onAgentCancel}
-                  onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
-                />
                 <section aria-label="Plan">
                   <header className="panel-header panel-header--inset">
                     <span>Plan</span>
@@ -179,6 +172,18 @@ export const RightPanel = ({
                   />
                 </section>
               </div>
+            )}
+
+            {activeTab === "agent" && (
+              <AgentPanel
+                taskRun={state.detail.taskRun}
+                invocations={state.detail.agentInvocations}
+                agentAvailable={agentAvailable}
+                onGenerate={() => onAgentGenerate(state.detail.taskRun.id)}
+                onRetry={onAgentRetry}
+                onCancel={onAgentCancel}
+                onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
+              />
             )}
 
             {activeTab === "timeline" && (

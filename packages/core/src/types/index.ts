@@ -10,7 +10,16 @@ export * from "./repair-plan-draft.ts";
 export * from "./capability.ts";
 export * from "./learning-trace.ts";
 export * from "./orchestration.ts";
-export * from "./agent-invocation.ts";
+export type {
+  CreateAgentInvocationInput,
+  UpdateAgentInvocationPatch,
+  AgentInvocationStatus,
+  AgentModelConfig,
+  AgentInvocation,
+  AgentProviderProbe,
+  AgentProviderStatusMap,
+  AgentStreamEvent,
+} from "./agent-invocation.ts";
 export * from "./agent-plan-output.ts";
 export * from "./agent-planning-gateway.ts";
 export * from "./settings.ts";

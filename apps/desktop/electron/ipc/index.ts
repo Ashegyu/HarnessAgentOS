@@ -1,6 +1,7 @@
 import type {
   ArtifactStore,
   ConversationService,
+  HarnessSettings,
   TaskRunCompletionService,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
@@ -42,6 +43,7 @@ export interface IpcContext {
   orchestrationService: OrchestrationService;
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
+  onSettingsUpdate?: (s: HarnessSettings) => void;
 }
 
 /**
@@ -74,5 +76,5 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     },
     eventBus,
   );
-  registerSettingsIpc(ctx.state);
+  registerSettingsIpc(ctx.state, ctx.onSettingsUpdate);
 };

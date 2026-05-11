@@ -1,7 +1,6 @@
 import type {
   AgentInvocation,
   AgentInvocationStatus,
-  AgentProvider,
   CreateAgentInvocationInput,
   UpdateAgentInvocationPatch,
 } from "@harness/core";
@@ -23,7 +22,7 @@ interface AgentInvocationRow {
   id: string;
   task_run_id: string;
   step_id: string | null;
-  provider: AgentProvider;
+  provider: "claude" | "codex";
   model: string;
   status: AgentInvocationStatus;
   prompt_artifact_id: string;

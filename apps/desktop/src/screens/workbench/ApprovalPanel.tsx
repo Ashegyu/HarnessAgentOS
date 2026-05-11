@@ -142,6 +142,7 @@ export const ApprovalPanel = ({
     (a) => a.status === "approved" || a.status === "always_approved_for_run",
   );
   const rejected = approvals.filter((a) => a.status === "rejected");
+  const executed = approvals.filter((a) => a.status === "executed");
 
   const renderCard = (
     a: Approval,
@@ -264,7 +265,8 @@ export const ApprovalPanel = ({
     <section className="approval-panel" aria-label="Approval panel">
       {pending.length === 0 &&
         approved.length === 0 &&
-        rejected.length === 0 && (
+        rejected.length === 0 &&
+        executed.length === 0 && (
           <div className="empty-state">승인 대기 없음</div>
         )}
 
@@ -321,6 +323,13 @@ export const ApprovalPanel = ({
         <div className="approval-panel__decided">
           <header className="panel-header">승인됨 (실행 가능)</header>
           {approved.map((a) => renderCard(a, "approved"))}
+        </div>
+      )}
+
+      {executed.length > 0 && (
+        <div className="approval-panel__decided">
+          <header className="panel-header">실행 완료</header>
+          {executed.map((a) => renderCard(a, "decided"))}
         </div>
       )}
 

@@ -37,7 +37,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
   ): Promise<ModelCliResult> {
     const { provider, model, timeoutMs, stallTimeoutMs } = request.modelConfig;
     const startedAt = Date.now();
-    const args = buildArgs(provider, model, request.sessionId);
+    const args = buildArgs(provider, model, request.sessionId, request.systemPrompt);
 
     if (signal?.aborted) {
       throw new AgentCliError(
@@ -228,6 +228,7 @@ const buildArgs = (
   provider: string,
   model: string,
   sessionId?: string,
+  systemPrompt?: string,
 ): string[] => {
   if (provider === "claude") {
     // Streaming output: emits one JSON line per chunk so the stall timer
@@ -241,6 +242,11 @@ const buildArgs = (
       "--verbose",
       "--model", model,
     ];
+    // Passing SYSTEM + OUTPUT CONTRACT via --system-prompt ensures Claude
+    // treats the format instruction as authoritative even in --resume sessions.
+    if (systemPrompt) {
+      args.push("--system-prompt", systemPrompt);
+    }
     // Resume an existing conversation when a session id is provided so
     // follow-up questions within a thread share prior turns. Otherwise
     // claude assigns a fresh session id we pick up from the result line.
@@ -262,14 +268,21 @@ const buildArgs = (
  * Parse claude --output-format=stream-json output and extract the final
  * assistant text plus the session id. The stream emits one JSON object
  * per line; the last `type: "result"` line carries `.result` and
- * `.session_id`. As a fallback we concatenate `text_delta` chunks so
- * partial output is still recoverable if the run is killed early.
+ * `.session_id`.
+ *
+ * Fallback priority (needed when the result line has a null result field,
+ * e.g. on content-policy errors):
+ *   1. `type: "result"` → `.result` string
+ *   2. Last `type: "assistant"` → `.message.content[].text` concatenated
+ *      (emitted by --include-partial-messages; last line is the final state)
+ *   3. Concatenated `stream_event` `text_delta` chunks (--verbose mode)
  */
 const extractClaudeStreamPayload = (
   rawStdout: string,
 ): { text: string; sessionId?: string } => {
   if (!rawStdout) return { text: "" };
   let resultText: string | null = null;
+  let lastAssistantText: string | null = null;
   let sessionId: string | undefined;
   const deltas: string[] = [];
   for (const line of rawStdout.split("\n")) {
@@ -283,6 +296,26 @@ const extractClaudeStreamPayload = (
       if (typeof obj["session_id"] === "string") {
         sessionId = obj["session_id"] as string;
       }
+      if (obj["type"] === "assistant") {
+        const msg = obj["message"] as Record<string, unknown> | undefined;
+        const content = msg?.["content"];
+        if (Array.isArray(content)) {
+          const parts: string[] = [];
+          for (const block of content) {
+            if (
+              typeof block === "object" &&
+              block !== null &&
+              (block as Record<string, unknown>)["type"] === "text" &&
+              typeof (block as Record<string, unknown>)["text"] === "string"
+            ) {
+              parts.push((block as Record<string, unknown>)["text"] as string);
+            }
+          }
+          if (parts.length > 0) {
+            lastAssistantText = parts.join("");
+          }
+        }
+      }
       if (obj["type"] === "stream_event") {
         const ev = obj["event"] as Record<string, unknown> | undefined;
         const delta = ev?.["delta"] as Record<string, unknown> | undefined;
@@ -295,7 +328,7 @@ const extractClaudeStreamPayload = (
     }
   }
   return {
-    text: resultText ?? deltas.join(""),
+    text: resultText ?? lastAssistantText ?? deltas.join(""),
     ...(sessionId !== undefined ? { sessionId } : {}),
   };
 };

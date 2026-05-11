@@ -13,4 +13,9 @@ test("DEFAULT_HARNESS_SETTINGS has expected agent defaults", () => {
 test("DEFAULT_HARNESS_SETTINGS is frozen (immutable)", () => {
   assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS));
   assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS.agent));
+  assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS.orchestration));
+});
+
+test("DEFAULT_HARNESS_SETTINGS has expected orchestration defaults", () => {
+  assert.equal(DEFAULT_HARNESS_SETTINGS.orchestration.enabled, false);
 });

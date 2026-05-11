@@ -1,5 +1,4 @@
 import { harnessError, AGENT_CANCELLED } from "@harness/core";
-import type { AgentProvider } from "@harness/core";
 
 /**
  * Phase 8 — per-provider FIFO queue with single in-flight slot.
@@ -37,7 +36,7 @@ interface ProviderLane {
 }
 
 export class AgentInvocationQueue {
-  private readonly lanes: Record<AgentProvider, ProviderLane> = {
+  private readonly lanes: Record<"claude" | "codex", ProviderLane> = {
     claude: { inflight: null, waiting: [] },
     codex: { inflight: null, waiting: [] },
   };
@@ -49,7 +48,7 @@ export class AgentInvocationQueue {
    * itself (work observes `signal.aborted` synchronously on entry).
    */
   enqueue<T>(input: {
-    provider: AgentProvider;
+    provider: "claude" | "codex";
     invocationId: string;
     work: AgentInvocationWork<T>;
   }): Promise<T> {
@@ -110,7 +109,7 @@ export class AgentInvocationQueue {
   }
 
   /** Depth = waiting + (1 if in-flight). Read by RuntimeStatusBar. */
-  getDepth(provider: AgentProvider): number {
+  getDepth(provider: "claude" | "codex"): number {
     const lane = this.lanes[provider];
     return lane.waiting.length + (lane.inflight !== null ? 1 : 0);
   }
@@ -125,7 +124,7 @@ export class AgentInvocationQueue {
     return false;
   }
 
-  private drain(provider: AgentProvider): void {
+  private drain(provider: "claude" | "codex"): void {
     const lane = this.lanes[provider];
     if (lane.inflight !== null) return;
     const next = lane.waiting.shift();
@@ -134,4 +133,4 @@ export class AgentInvocationQueue {
   }
 }
 
-const providers: readonly AgentProvider[] = ["claude", "codex"];
+const providers: ReadonlyArray<"claude" | "codex"> = ["claude", "codex"];

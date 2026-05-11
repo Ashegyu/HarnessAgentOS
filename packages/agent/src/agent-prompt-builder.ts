@@ -52,6 +52,71 @@ interface AgentPlanOutput {
   skill_script / orchestration_plan; the runner will reject those.
 `;
 
+export interface SplitAgentPrompt {
+  /** Passed via `--system-prompt`: SYSTEM + OUTPUT CONTRACT (constant per-run instructions). */
+  systemPrompt: string;
+  /** Passed via stdin: TARGET + USER REQUEST + optional context sections. */
+  userPrompt: string;
+}
+
+/**
+ * Build the agent prompt split into a system portion (for `--system-prompt`)
+ * and a user portion (piped via stdin). Keeps format instructions in the
+ * authoritative system channel so Claude reliably produces the JSON block.
+ */
+export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt => {
+  const systemPrompt = [SYSTEM_PROMPT.trim(), OUTPUT_CONTRACT.trim()].join("\n\n");
+  const userSections: string[] = [];
+  userSections.push(
+    [
+      "TARGET",
+      `- targetDir: ${input.taskRun.targetDir}`,
+      `- platform: ${process.platform}`,
+      `- node: ${process.version}`,
+    ].join("\n"),
+  );
+  userSections.push(
+    ["USER REQUEST", `- ${input.taskRun.userRequest.trim()}`].join("\n"),
+  );
+  if (input.instruction && input.instruction.trim().length > 0) {
+    userSections.push(
+      ["REDIRECT INSTRUCTION", `- ${input.instruction.trim()}`].join("\n"),
+    );
+  }
+  if (input.qualityRisks) {
+    const risks = input.qualityRisks.knownRisks.slice(0, 12);
+    userSections.push(
+      [
+        "QUALITY RISKS TO ADDRESS",
+        `- status: ${input.qualityRisks.status}`,
+        ...risks.map((r) => `- ${r}`),
+      ].join("\n"),
+    );
+  }
+  if (input.recentArtifacts && input.recentArtifacts.length > 0) {
+    const top = input.recentArtifacts.slice(0, 6);
+    userSections.push(
+      [
+        "RECENT ARTIFACTS",
+        ...top.map((a) => `- ${a.kind} ${a.title}: ${(a.summary ?? "").slice(0, 240)}`),
+      ].join("\n"),
+    );
+  }
+  let userPrompt = userSections.join("\n\n");
+  // Hard cap: trim middle context sections if combined size exceeds budget.
+  const combined = systemPrompt + "\n\n" + userPrompt;
+  if (Buffer.byteLength(combined, "utf8") > PROMPT_HARD_CAP_BYTES) {
+    const head = userSections.slice(0, 2).join("\n\n");
+    const room =
+      PROMPT_HARD_CAP_BYTES -
+      Buffer.byteLength(systemPrompt + "\n\n" + head, "utf8") -
+      64;
+    const middle = userSections.slice(2).join("\n\n");
+    userPrompt = [head, middle.slice(0, Math.max(0, room)), "[...truncated]"].join("\n\n");
+  }
+  return { systemPrompt, userPrompt };
+};
+
 export const buildAgentPrompt = (input: PromptBuildInput): string => {
   const sections: string[] = [];
   sections.push(SYSTEM_PROMPT.trim());

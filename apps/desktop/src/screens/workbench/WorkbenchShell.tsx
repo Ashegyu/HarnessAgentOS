@@ -12,6 +12,7 @@ import type { ConversationMode } from "./ConversationInput";
 import { RightPanel } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import { SettingsPanel } from "./SettingsPanel";
+import { AgentsPanel } from "./AgentsPanel";
 import "./workbench.css";
 
 type ThreadsState =
@@ -49,6 +50,7 @@ export const WorkbenchShell = (): JSX.Element => {
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"workbench" | "agents">("workbench");
   const agentAvailable =
     providers !== null &&
     (providers.claude.available || providers.codex.available);
@@ -250,6 +252,19 @@ export const WorkbenchShell = (): JSX.Element => {
     [refreshTaskRunDetail, selectedTaskRunId],
   );
 
+  const handleDeleteThread = useCallback(
+    async (id: string): Promise<void> => {
+      await window.harness.state.deleteThread({ threadId: id });
+      if (selectedThreadId === id) {
+        setSelectedThreadId(null);
+        setSelectedTaskRunId(null);
+        setDetailState({ kind: "idle" });
+      }
+      await refreshThreads();
+    },
+    [refreshThreads, selectedThreadId],
+  );
+
   const handleDeleteTask = useCallback(
     async (id: string): Promise<void> => {
       await window.harness.conversation.deleteTask({ taskRunId: id });
@@ -353,35 +368,45 @@ export const WorkbenchShell = (): JSX.Element => {
         onSelectThread={(id) => {
           setSelectedThreadId(id);
           setSelectedTaskRunId(null);
+          setViewMode("workbench");
         }}
         onCreateThread={handleCreateThread}
+        onDeleteThread={handleDeleteThread}
         onRetry={() => void refreshThreads()}
+        onOpenAgents={() => setViewMode((v) => v === "agents" ? "workbench" : "agents")}
+        agentsActive={viewMode === "agents"}
       />
-      <ConversationWorkbench
-        detailState={detailState}
-        selectedTaskRunId={selectedTaskRunId}
-        onSelectTaskRun={setSelectedTaskRunId}
-        onDeleteTask={handleDeleteTask}
-        onCreateTask={handleCreateTask}
-        threadTargetDir={selectedThread?.targetDir}
-        threadId={selectedThreadId}
-        agentAvailable={agentAvailable}
-      />
-      <RightPanel
-        state={taskRunDetail}
-        onApprove={handleApprove}
-        onReject={handleReject}
-        onRedirect={handleRedirect}
-        onConfigure={handleConfigure}
-        onExecute={handleExecute}
-        onQualityChanged={handleQualityChanged}
-        onCapabilityApprovalCreated={handleQualityChanged}
-        onAgentGenerate={handleAgentGenerate}
-        onAgentRetry={handleAgentRetry}
-        onAgentCancel={handleAgentCancel}
-        onAgentUseFallback={handleAgentUseFallback}
-        agentAvailable={agentAvailable}
-      />
+      {viewMode === "agents" ? (
+        <AgentsPanel onClose={() => setViewMode("workbench")} />
+      ) : (
+        <>
+          <ConversationWorkbench
+            detailState={detailState}
+            selectedTaskRunId={selectedTaskRunId}
+            onSelectTaskRun={setSelectedTaskRunId}
+            onDeleteTask={handleDeleteTask}
+            onCreateTask={handleCreateTask}
+            threadTargetDir={selectedThread?.targetDir}
+            threadId={selectedThreadId}
+            agentAvailable={agentAvailable}
+          />
+          <RightPanel
+            state={taskRunDetail}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onRedirect={handleRedirect}
+            onConfigure={handleConfigure}
+            onExecute={handleExecute}
+            onQualityChanged={handleQualityChanged}
+            onCapabilityApprovalCreated={handleQualityChanged}
+            onAgentGenerate={handleAgentGenerate}
+            onAgentRetry={handleAgentRetry}
+            onAgentCancel={handleAgentCancel}
+            onAgentUseFallback={handleAgentUseFallback}
+            agentAvailable={agentAvailable}
+          />
+        </>
+      )}
       <RuntimeStatusBar onSettingsClick={() => setSettingsOpen(true)} />
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>

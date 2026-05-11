@@ -22,9 +22,10 @@ export interface OrchestrationServiceDeps {
   state: LocalStateService;
   /**
    * Feature flag. Defaults to false at MVP per phase-07 spec
-   * ("Phase 7에서도 feature flag 기본값은 off다").
+   * ("Phase 7에서도 feature flag 기본값은 off다"). Sync getter so
+   * live settings changes propagate without service recreation.
    */
-  enabled: boolean;
+  enabled: () => boolean;
 }
 
 export class OrchestrationService {
@@ -38,7 +39,7 @@ export class OrchestrationService {
   }
 
   isEnabled(): boolean {
-    return this.deps.enabled;
+    return this.deps.enabled();
   }
 
   async draftPlan(input: OrchestrationDraftInput): Promise<DraftedOrchestration> {
@@ -73,7 +74,17 @@ export class OrchestrationService {
       );
     }
     const plan = await this.recoverPlan(approval);
-    return this.worker.runApproved({ approval, plan });
+    const result = await this.worker.runApproved({ approval, plan });
+    try {
+      await this.deps.state.decideApproval(
+        input.approvalId,
+        "executed",
+        `Worker ${result.workerSteps.length}개 완료 — Artifacts 탭에서 결과 확인`,
+      );
+    } catch {
+      // non-fatal: status update is best-effort
+    }
+    return result;
   }
 
   /**
@@ -148,7 +159,7 @@ export class OrchestrationService {
   }
 
   private assertEnabled(): void {
-    if (!this.deps.enabled) {
+    if (!this.deps.enabled()) {
       throw new OrchestrationError(
         "ORCHESTRATION_DISABLED",
         "Agent orchestration is disabled. Enable the feature flag to use it.",

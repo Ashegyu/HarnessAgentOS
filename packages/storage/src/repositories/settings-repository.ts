@@ -1,6 +1,7 @@
 import {
   DEFAULT_HARNESS_SETTINGS,
   type HarnessSettings,
+  type OrchestrationSettings,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 
@@ -19,7 +20,7 @@ export class SqliteSettingsRepository implements SettingsRepository {
 
   async get(): Promise<HarnessSettings> {
     const row = this.db
-      .prepare<[], { value: string }>(
+      .prepare<[string], { value: string }>(
         "SELECT value FROM settings WHERE key = ?",
       )
       .get(SETTINGS_KEY);
@@ -60,5 +61,13 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
   if (!agent.stallTimeoutMs || agent.stallTimeoutMs < d.stallTimeoutMs) {
     agent.stallTimeoutMs = d.stallTimeoutMs;
   }
-  return { ...s, agent };
+  const so = s.orchestration as Partial<OrchestrationSettings> | null | undefined;
+  const od = DEFAULT_HARNESS_SETTINGS.orchestration;
+  const orchestration: OrchestrationSettings = {
+    enabled: typeof so?.enabled === "boolean" ? so.enabled : false,
+    defaultMode: so?.defaultMode ?? od.defaultMode,
+    defaultInstructions: so?.defaultInstructions ?? "",
+    workerProfiles: Array.isArray(so?.workerProfiles) ? so.workerProfiles : [],
+  };
+  return { ...s, agent, orchestration };
 };

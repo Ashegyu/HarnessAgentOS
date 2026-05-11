@@ -42,6 +42,7 @@ export const OrchestrationPanel = ({
   onRefreshTaskRun,
 }: OrchestrationPanelProps): JSX.Element => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [orchEnabled, setOrchEnabled] = useState<boolean | null>(null);
   const [planState, setPlanState] = useState<PlanState>({ kind: "idle" });
   const [mode, setMode] = useState<OrchestrationMode>("single_worker");
   const [instruction, setInstruction] = useState("");
@@ -58,6 +59,15 @@ export const OrchestrationPanel = ({
     () => approvals.find(isPendingPlanApproval) ?? null,
     [approvals],
   );
+
+  const refreshOrchEnabled = useCallback(async (): Promise<void> => {
+    try {
+      const s = await window.harness.settings.get();
+      setOrchEnabled(s.orchestration.enabled);
+    } catch {
+      setOrchEnabled(false);
+    }
+  }, []);
 
   const fetchPlan = useCallback(async (): Promise<void> => {
     if (!taskRun) {
@@ -76,7 +86,23 @@ export const OrchestrationPanel = ({
   }, [taskRun]);
 
   useEffect(() => {
-    if (advancedOpen) void fetchPlan();
+    void (async () => {
+      try {
+        const s = await window.harness.settings.get();
+        setOrchEnabled(s.orchestration.enabled);
+        setMode(s.orchestration.defaultMode);
+        if (s.orchestration.defaultInstructions) {
+          setInstruction(s.orchestration.defaultInstructions);
+        }
+      } catch {
+        setOrchEnabled(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!advancedOpen) return;
+    void fetchPlan();
   }, [advancedOpen, fetchPlan]);
 
   const handleDraft = useCallback(async (): Promise<void> => {
@@ -143,6 +169,20 @@ export const OrchestrationPanel = ({
       ) : null}
       {advancedOpen ? (
         <>
+          {orchEnabled === false && (
+            <div className="orchestration-panel__disabled-notice">
+              Orchestration이 비활성화되어 있습니다.{" "}
+              <strong>설정 &gt; Orchestration 활성화</strong>를 켠 후 저장한 다음{" "}
+              <button
+                type="button"
+                className="orchestration-panel__refresh-btn"
+                onClick={() => void refreshOrchEnabled()}
+              >
+                새로고침
+              </button>
+              하세요.
+            </div>
+          )}
           <div className="orchestration-panel__form">
             <label className="form-field">
               <span>Mode</span>
@@ -175,7 +215,7 @@ export const OrchestrationPanel = ({
                 type="button"
                 className="btn"
                 onClick={() => void handleDraft()}
-                disabled={busy}
+                disabled={busy || orchEnabled === false}
               >
                 {busy ? "처리 중…" : "Plan 초안 작성 (approval 생성)"}
               </button>

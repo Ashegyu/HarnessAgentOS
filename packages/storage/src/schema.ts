@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -65,7 +65,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     checkpoint_id TEXT NOT NULL,
     action_type TEXT NOT NULL CHECK(action_type IN ('file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan')),
     action_summary TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run')),
+    status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
     decision_message TEXT,
     decided_at TEXT,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id),

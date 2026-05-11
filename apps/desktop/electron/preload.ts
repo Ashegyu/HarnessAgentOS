@@ -82,6 +82,9 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<ThreadDetail>(IPC_CHANNELS.state.getThread, input),
     createThread: (input) =>
       invokeUnwrapped<Thread>(IPC_CHANNELS.state.createThread, input),
+    deleteThread: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.state.deleteThread, input);
+    },
   },
   conversation: {
     createTask: (input) =>

@@ -72,11 +72,14 @@ export interface StreamParserState {
   pending: string;
   /** Parsed accumulator. */
   parsed: ParsedStream;
+  /** Tracks in-progress tool_use input JSON: blockIndex → { toolUseIndex, accumulated partial_json } */
+  pendingToolInputs: Map<number, { toolUseIndex: number; json: string }>;
 }
 
 export const initStreamParserState = (): StreamParserState => ({
   pending: "",
   parsed: emptyParsedStream(),
+  pendingToolInputs: new Map(),
 });
 
 /**
@@ -92,7 +95,7 @@ export const feedStreamChunk = (
   while (nl >= 0) {
     const line = state.pending.slice(0, nl).trim();
     state.pending = state.pending.slice(nl + 1);
-    if (line.length > 0) ingestLine(state.parsed, line);
+    if (line.length > 0) ingestLine(state, line);
     nl = state.pending.indexOf("\n");
   }
   return state;
@@ -105,7 +108,7 @@ export const feedStreamChunk = (
 export const flushStreamParser = (state: StreamParserState): StreamParserState => {
   const tail = state.pending.trim();
   state.pending = "";
-  if (tail.length > 0) ingestLine(state.parsed, tail);
+  if (tail.length > 0) ingestLine(state, tail);
   return state;
 };
 
@@ -122,7 +125,8 @@ export const setFinalAssistantText = (
   return state;
 };
 
-const ingestLine = (parsed: ParsedStream, line: string): void => {
+const ingestLine = (state: StreamParserState, line: string): void => {
+  const parsed = state.parsed;
   let obj: Record<string, unknown>;
   try {
     obj = JSON.parse(line) as Record<string, unknown>;
@@ -149,18 +153,38 @@ const ingestLine = (parsed: ParsedStream, line: string): void => {
   if (type === "stream_event") {
     const ev = obj["event"] as Record<string, unknown> | undefined;
     const evType = ev?.["type"];
-    if (evType === "content_block_delta") {
+    const blockIndex = typeof ev?.["index"] === "number" ? (ev["index"] as number) : -1;
+    if (evType === "content_block_start") {
+      const block = ev?.["content_block"] as Record<string, unknown> | undefined;
+      if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
+        const toolUseIndex = parsed.toolUses.length;
+        parsed.toolUses.push({ name: block["name"] as string, input: null });
+        if (blockIndex >= 0) {
+          state.pendingToolInputs.set(blockIndex, { toolUseIndex, json: "" });
+        }
+      }
+    } else if (evType === "content_block_delta") {
       const delta = ev?.["delta"] as Record<string, unknown> | undefined;
       if (delta && delta["type"] === "text_delta" && typeof delta["text"] === "string") {
         parsed.liveText += delta["text"] as string;
+      } else if (delta && delta["type"] === "input_json_delta" && typeof delta["partial_json"] === "string") {
+        const pending = state.pendingToolInputs.get(blockIndex);
+        if (pending) pending.json += delta["partial_json"] as string;
       }
-    } else if (evType === "content_block_start") {
-      const block = ev?.["content_block"] as Record<string, unknown> | undefined;
-      if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
-        parsed.toolUses.push({
-          name: block["name"] as string,
-          input: block["input"] ?? null,
-        });
+    } else if (evType === "content_block_stop") {
+      const pending = state.pendingToolInputs.get(blockIndex);
+      if (pending) {
+        state.pendingToolInputs.delete(blockIndex);
+        if (pending.json.length > 0) {
+          const toolEntry = parsed.toolUses[pending.toolUseIndex];
+          if (toolEntry) {
+            try {
+              toolEntry.input = JSON.parse(pending.json);
+            } catch {
+              // keep input as null if JSON is malformed
+            }
+          }
+        }
       }
     }
     return;

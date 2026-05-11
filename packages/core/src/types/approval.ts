@@ -2,13 +2,15 @@ export type ApprovalStatus =
   | "pending"
   | "approved"
   | "rejected"
-  | "always_approved_for_run";
+  | "always_approved_for_run"
+  | "executed";
 
 export const APPROVAL_STATUSES: readonly ApprovalStatus[] = [
   "pending",
   "approved",
   "rejected",
   "always_approved_for_run",
+  "executed",
 ];
 
 export type ApprovalScope = "once" | "run_action_class";

@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
     listThreads: "state:listThreads",
     getThread: "state:getThread",
     createThread: "state:createThread",
+    deleteThread: "state:deleteThread",
   },
   conversation: {
     createTask: "conversation:createTask",

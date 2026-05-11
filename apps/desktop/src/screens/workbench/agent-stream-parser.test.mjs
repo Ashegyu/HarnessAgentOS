@@ -61,7 +61,7 @@ test("result line populates finalText and resultMeta", () => {
   });
 });
 
-test("tool_use blocks are captured", () => {
+test("tool_use name captured on content_block_start", () => {
   const s = initStreamParserState();
   feedStreamChunk(
     s,
@@ -70,9 +70,47 @@ test("tool_use blocks are captured", () => {
       event: {
         type: "content_block_start",
         index: 0,
-        content_block: { type: "tool_use", name: "Read", input: { path: "/x.md" } },
+        content_block: { type: "tool_use", name: "Read", input: {} },
       },
     }),
+  );
+  assert.equal(s.parsed.toolUses.length, 1);
+  assert.equal(s.parsed.toolUses[0].name, "Read");
+  assert.equal(s.parsed.toolUses[0].input, null);
+});
+
+test("tool_use input assembled from input_json_delta and finalised on content_block_stop", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "tool_use", name: "Read", input: {} },
+      },
+    }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '{"path":' },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json: '"/x.md"}' },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: { type: "content_block_stop", index: 0 },
+      }),
   );
   assert.deepEqual(s.parsed.toolUses, [{ name: "Read", input: { path: "/x.md" } }]);
 });
