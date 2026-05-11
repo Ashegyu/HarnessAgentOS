@@ -1,5 +1,12 @@
 import { spawn } from "node:child_process";
-import type { AgentStreamEvent } from "@harness/core";
+import {
+  AGENT_CANCELLED,
+  AGENT_PROVIDER_UNAVAILABLE,
+  AGENT_SPAWN_FAILED,
+  AGENT_STALL,
+  AGENT_TIMEOUT,
+  type AgentStreamEvent,
+} from "@harness/core";
 import { AgentCliError } from "./model-cli-errors";
 import type {
   ModelCliAdapter,
@@ -34,7 +41,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     if (signal?.aborted) {
       throw new AgentCliError(
-        "AGENT_CANCELLED",
+        AGENT_CANCELLED,
         "aborted",
         "Invocation cancelled before spawn",
       );
@@ -53,10 +60,11 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         cwd: request.cwd,
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
+        env: { ...process.env },
       });
     } catch (e) {
       throw new AgentCliError(
-        "AGENT_SPAWN_FAILED",
+        AGENT_SPAWN_FAILED,
         "spawn_failed",
         e instanceof Error ? e.message : String(e),
       );
@@ -134,7 +142,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       clearTimeout(overallTimer);
       clearInterval(stallTimer);
       throw new AgentCliError(
-        "AGENT_SPAWN_FAILED",
+        AGENT_SPAWN_FAILED,
         "spawn_failed",
         e instanceof Error ? e.message : String(e),
       );
@@ -143,7 +151,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.on("error", (err) => {
         reject(
-          new AgentCliError("AGENT_SPAWN_FAILED", "spawn_failed", err.message),
+          new AgentCliError(AGENT_SPAWN_FAILED, "spawn_failed", err.message),
         );
       });
       child.on("close", (code) => {
@@ -156,21 +164,21 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     if (killedByUs && killReason === "timeout") {
       throw new AgentCliError(
-        "AGENT_TIMEOUT",
+        AGENT_TIMEOUT,
         "timeout",
         `CLI exceeded ${timeoutMs}ms total timeout`,
       );
     }
     if (killedByUs && killReason === "stall") {
       throw new AgentCliError(
-        "AGENT_STALL",
+        AGENT_STALL,
         "stall",
         `CLI produced no output for ${stallTimeoutMs}ms`,
       );
     }
     if (killedByUs && killReason === "aborted") {
       throw new AgentCliError(
-        "AGENT_CANCELLED",
+        AGENT_CANCELLED,
         "aborted",
         "Invocation cancelled by user",
       );
@@ -178,7 +186,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     if (exitCode !== 0) {
       throw new AgentCliError(
-        "AGENT_PROVIDER_UNAVAILABLE",
+        AGENT_PROVIDER_UNAVAILABLE,
         "fatal",
         `${provider} exited with code ${exitCode}: ${stderr.trim().slice(0, 400)}`,
       );
@@ -210,7 +218,8 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
 const buildArgs = (provider: string, model: string): string[] => {
   if (provider === "claude") {
-    return ["--print", "--model", model];
+    // --bare skips full CLI initialization (hooks, LSP, keychain, CLAUDE.md) to prevent AGENT_STALL; requires ANTHROPIC_API_KEY in env
+    return ["--print", "--bare", "--no-session-persistence", "--model", model];
   }
   // codex
   return ["exec", "--model", model];

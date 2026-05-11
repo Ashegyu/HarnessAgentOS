@@ -132,9 +132,9 @@ export class AgentPlanningService {
     const providers = this.deps.getProviderStatus();
     const provider =
       input.provider ??
-      (providers?.claude.available
+      (providers?.claude?.available
         ? "claude"
-        : providers?.codex.available
+        : providers?.codex?.available
           ? "codex"
           : null);
     if (!provider) {
@@ -269,6 +269,7 @@ export class AgentPlanningService {
         });
         throw new AgentPlanningError(AGENT_CANCELLED, message);
       }
+      emit({ type: "failed", invocationId: invocation.id, errorCode: code, message });
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
         errorCode: code,
