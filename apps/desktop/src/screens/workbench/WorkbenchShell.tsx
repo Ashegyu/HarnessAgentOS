@@ -59,6 +59,20 @@ export const WorkbenchShell = (): JSX.Element => {
   // before the row's status flips out of "pending".
   const autoInFlightRef = useRef<Set<string>>(new Set());
 
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("workbench-theme");
+    return saved === "light" ? "light" : "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("workbench-theme", theme);
+  }, [theme]);
+
+  const handleToggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
+
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("workbench-sidebar-width");
     return saved ? Math.max(180, Math.min(400, Number(saved))) : 240;
@@ -569,7 +583,11 @@ export const WorkbenchShell = (): JSX.Element => {
           />
         </>
       )}
-      <RuntimeStatusBar onSettingsClick={() => setSettingsOpen(true)} />
+      <RuntimeStatusBar
+        onSettingsClick={() => setSettingsOpen(true)}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+      />
       {settingsOpen && (
         <SettingsPanel
           onClose={() => {

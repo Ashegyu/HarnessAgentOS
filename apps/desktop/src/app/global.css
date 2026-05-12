@@ -18,6 +18,21 @@
   --status-failed: #f85149;
   --status-blocked: #db6d28;
 
+  --status-pending-fill: rgba(210, 153, 34, 0.12);
+  --status-running-fill: rgba(88, 166, 255, 0.12);
+  --status-success-fill: rgba(63, 185, 80, 0.12);
+  --status-failed-fill: rgba(248, 81, 73, 0.12);
+  --status-blocked-fill: rgba(219, 109, 40, 0.12);
+
+  --status-pending-edge: rgba(210, 153, 34, 0.32);
+  --status-running-edge: rgba(88, 166, 255, 0.32);
+  --status-success-edge: rgba(63, 185, 80, 0.32);
+  --status-failed-edge: rgba(248, 81, 73, 0.32);
+  --status-blocked-edge: rgba(219, 109, 40, 0.32);
+
+  --bg-bubble-user: rgba(88, 166, 255, 0.15);
+  --bg-surface-hover: rgba(255, 255, 255, 0.02);
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
     "Noto Sans KR", Roboto, sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas,
@@ -35,6 +50,45 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+}
+
+[data-theme="light"] {
+  --bg-app: #ffffff;
+  --bg-panel: #f7f8fa;
+  --bg-panel-elev: #eef1f5;
+  --bg-input: #fbfcfd;
+
+  --border-subtle: #e4e7eb;
+  --border-strong: #d0d6dc;
+
+  --text-primary: #1c2128;
+  --text-secondary: #4a5260;
+  --text-muted: #6c7681;
+  --text-accent: #0969da;
+
+  --status-pending: #9a6700;
+  --status-running: #0969da;
+  --status-success: #1a7f37;
+  --status-failed: #cf222e;
+  --status-blocked: #b35900;
+
+  --status-pending-fill: rgba(154, 103, 0, 0.12);
+  --status-running-fill: rgba(9, 105, 218, 0.12);
+  --status-success-fill: rgba(26, 127, 55, 0.12);
+  --status-failed-fill: rgba(207, 34, 46, 0.12);
+  --status-blocked-fill: rgba(179, 89, 0, 0.12);
+
+  --status-pending-edge: rgba(154, 103, 0, 0.32);
+  --status-running-edge: rgba(9, 105, 218, 0.32);
+  --status-success-edge: rgba(26, 127, 55, 0.32);
+  --status-failed-edge: rgba(207, 34, 46, 0.32);
+  --status-blocked-edge: rgba(179, 89, 0, 0.32);
+
+  --bg-bubble-user: rgba(9, 105, 218, 0.12);
+  --bg-surface-hover: rgba(0, 0, 0, 0.04);
+
+  --shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.04) inset,
+    0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 *,

@@ -430,32 +430,32 @@
 
 .status-badge--pending {
   color: var(--status-pending);
-  background: rgba(210, 153, 34, 0.12);
-  border-color: rgba(210, 153, 34, 0.32);
+  background: var(--status-pending-fill);
+  border-color: var(--status-pending-edge);
 }
 
 .status-badge--running {
   color: var(--status-running);
-  background: rgba(88, 166, 255, 0.12);
-  border-color: rgba(88, 166, 255, 0.32);
+  background: var(--status-running-fill);
+  border-color: var(--status-running-edge);
 }
 
 .status-badge--success {
   color: var(--status-success);
-  background: rgba(63, 185, 80, 0.12);
-  border-color: rgba(63, 185, 80, 0.32);
+  background: var(--status-success-fill);
+  border-color: var(--status-success-edge);
 }
 
 .status-badge--failed {
   color: var(--status-failed);
-  background: rgba(248, 81, 73, 0.12);
-  border-color: rgba(248, 81, 73, 0.32);
+  background: var(--status-failed-fill);
+  border-color: var(--status-failed-edge);
 }
 
 .status-badge--blocked {
   color: var(--status-blocked);
-  background: rgba(219, 109, 40, 0.12);
-  border-color: rgba(219, 109, 40, 0.32);
+  background: var(--status-blocked-fill);
+  border-color: var(--status-blocked-edge);
 }
 
 /* -------- Phase 2: Conversation input -------- */
@@ -1249,7 +1249,7 @@
 
 .btn--primary {
   background: var(--status-success);
-  color: #0e1116;
+  color: var(--bg-app);
   border-color: var(--status-success);
 }
 
@@ -2131,11 +2131,11 @@
   transition: background 120ms ease;
 }
 .chat-turn:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-surface-hover);
 }
 .chat-turn--selected {
-  background: rgba(99, 102, 241, 0.08);
-  outline: 1px solid rgba(99, 102, 241, 0.35);
+  background: var(--status-running-fill);
+  outline: 1px solid var(--status-running-edge);
 }
 
 .chat-bubble {
@@ -2152,8 +2152,8 @@
 
 .chat-bubble--user {
   align-self: flex-end;
-  background: var(--bg-bubble-user, rgba(99, 102, 241, 0.18));
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: var(--bg-bubble-user);
+  border: 1px solid var(--status-running-edge);
   color: var(--text-primary);
   border-bottom-right-radius: 4px;
 }
@@ -2396,6 +2396,27 @@
 /* ──────────────────────────────────────────────────────────────
  * Settings panel
  * ────────────────────────────────────────────────────────────── */
+
+.runtime-status-bar__theme-btn {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  width: 20px;
+  height: 20px;
+  line-height: 1;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.runtime-status-bar__theme-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
 
 .runtime-status-bar__settings-btn {
   margin-left: auto;
@@ -2746,7 +2767,7 @@
   left: 3px;
   width: 16px;
   height: 16px;
-  background: #fff;
+  background: var(--text-primary);
   border-radius: 50%;
   transition: transform 150ms;
 }
