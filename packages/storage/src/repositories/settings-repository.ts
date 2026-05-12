@@ -1,5 +1,6 @@
 import {
   DEFAULT_HARNESS_SETTINGS,
+  type ApprovalSettings,
   type HarnessSettings,
   type OrchestrationSettings,
 } from "@harness/core";
@@ -69,5 +70,9 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
     defaultInstructions: so?.defaultInstructions ?? "",
     workerProfiles: Array.isArray(so?.workerProfiles) ? so.workerProfiles : [],
   };
-  return { ...s, agent, orchestration };
+  const ap = s.approval as Partial<ApprovalSettings> | null | undefined;
+  const approval: ApprovalSettings = {
+    autoApprove: typeof ap?.autoApprove === "boolean" ? ap.autoApprove : false,
+  };
+  return { ...s, agent, orchestration, approval };
 };

@@ -25,6 +25,7 @@ type Action =
   | { type: "addWorkerProfile" }
   | { type: "removeWorkerProfile"; id: string }
   | { type: "updateWorkerProfile"; profile: WorkerProfile }
+  | { type: "setAutoApprove"; value: boolean }
   | { type: "saving" }
   | { type: "saved"; settings: HarnessSettings }
   | { type: "saveError"; message: string };
@@ -76,6 +77,9 @@ const reducer = (state: FormState, action: Action): FormState => {
   }
   if (action.type === "updateWorkerProfile") {
     return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, workerProfiles: state.draft.orchestration.workerProfiles.map((p) => p.id === action.profile.id ? action.profile : p) } } };
+  }
+  if (action.type === "setAutoApprove") {
+    return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoApprove: action.value } } };
   }
   if (action.type === "saving") {
     return { ...state, saving: true, error: null };
@@ -349,6 +353,27 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
                   </ul>
                 )}
               </div>
+            </fieldset>
+
+            <fieldset className="settings-fieldset">
+              <legend>Approval 자동화</legend>
+
+              <label className="settings-field settings-field--checkbox">
+                <input
+                  type="checkbox"
+                  checked={state.draft.approval.autoApprove}
+                  disabled={state.saving}
+                  onChange={(e) =>
+                    dispatch({ type: "setAutoApprove", value: e.target.checked })
+                  }
+                />
+                <span className="settings-field__label">
+                  모든 approval 자동 승인 및 실행
+                </span>
+              </label>
+              <p className="settings-field__hint" style={{ color: "var(--status-failed)" }}>
+                ⚠ 켜면 file_write·shell뿐 아니라 dependency_install·git_commit·skill_script·network·orchestration_plan까지 사람의 확인 없이 자동 실행됩니다. orchestration_plan을 자동 승인하면 worker가 만드는 후속 approval도 연쇄적으로 자동 처리됩니다.
+              </p>
             </fieldset>
 
             {state.error && (

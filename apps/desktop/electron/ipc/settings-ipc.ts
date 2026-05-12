@@ -74,6 +74,12 @@ const validateSettingsInput = (
   const workerProfiles: WorkerProfile[] = Array.isArray(orch.workerProfiles)
     ? (orch.workerProfiles as WorkerProfile[])
     : [];
+  const ap =
+    s.approval !== null && typeof s.approval === "object"
+      ? (s.approval as Record<string, unknown>)
+      : {};
+  const autoApprove =
+    typeof ap.autoApprove === "boolean" ? ap.autoApprove : false;
   return {
     ok: true,
     value: {
@@ -89,6 +95,9 @@ const validateSettingsInput = (
         defaultMode: orchestrationMode,
         defaultInstructions: orchestrationInstructions,
         workerProfiles,
+      },
+      approval: {
+        autoApprove,
       },
     },
   };

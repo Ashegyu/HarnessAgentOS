@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgentProviderStatusMap,
+  Approval,
   OrchestrationMode,
   ProposedActionDetails,
   Thread,
@@ -52,6 +53,11 @@ export const WorkbenchShell = (): JSX.Element => {
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"workbench" | "agents">("workbench");
+  const [autoApprove, setAutoApprove] = useState(false);
+  // Tracks approval IDs that the auto-approver has already kicked off so
+  // the effect doesn't double-fire on the eventual taskRunChanged event
+  // before the row's status flips out of "pending".
+  const autoInFlightRef = useRef<Set<string>>(new Set());
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("workbench-sidebar-width");
@@ -175,6 +181,19 @@ export const WorkbenchShell = (): JSX.Element => {
     }
   }, []);
 
+  const refreshAutoApprove = useCallback(async () => {
+    try {
+      const s = await window.harness.settings.get();
+      setAutoApprove(s.approval.autoApprove);
+    } catch {
+      setAutoApprove(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAutoApprove();
+  }, [refreshAutoApprove]);
+
   useEffect(() => {
     void refreshProviders();
     const off = window.harness.events.onAgentStreamEvent((event) => {
@@ -220,6 +239,55 @@ export const WorkbenchShell = (): JSX.Element => {
     });
     return off;
   }, [
+    selectedTaskRunId,
+    selectedThreadId,
+    refreshTaskRunDetail,
+    refreshThreadDetail,
+  ]);
+
+  // Auto-approve + auto-execute. When the user opts in via settings, the
+  // renderer transparently approves every pending approval and runs it,
+  // including high-risk action types and orchestration plans. The
+  // service-layer security gate is untouched — this is UI-level only.
+  useEffect(() => {
+    if (!autoApprove) return;
+    if (taskRunDetail.kind !== "ready") return;
+    const inFlight = autoInFlightRef.current;
+    const pending = taskRunDetail.detail.approvals.filter(
+      (a: Approval): boolean => a.status === "pending" && !inFlight.has(a.id),
+    );
+    if (pending.length === 0) return;
+    void (async () => {
+      for (const approval of pending) {
+        inFlight.add(approval.id);
+        try {
+          await window.harness.conversation.approve({
+            approvalId: approval.id,
+            message: "auto-approved (settings.approval.autoApprove)",
+          });
+          if (approval.actionType === "orchestration_plan") {
+            await window.harness.orchestration.runApproved({
+              approvalId: approval.id,
+            });
+          } else {
+            await window.harness.runner.executeApproved({
+              approvalId: approval.id,
+            });
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("auto-approve failed", approval.id, e);
+          // Drop from in-flight so a future refresh can retry rather than
+          // silently leaving the approval stuck in "approved but not run".
+          inFlight.delete(approval.id);
+        }
+      }
+      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+      if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
+    })();
+  }, [
+    autoApprove,
+    taskRunDetail,
     selectedTaskRunId,
     selectedThreadId,
     refreshTaskRunDetail,
@@ -502,7 +570,14 @@ export const WorkbenchShell = (): JSX.Element => {
         </>
       )}
       <RuntimeStatusBar onSettingsClick={() => setSettingsOpen(true)} />
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsPanel
+          onClose={() => {
+            setSettingsOpen(false);
+            void refreshAutoApprove();
+          }}
+        />
+      )}
     </div>
   );
 };

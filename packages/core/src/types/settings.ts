@@ -25,9 +25,22 @@ export interface OrchestrationSettings {
   workerProfiles: WorkerProfile[];
 }
 
+/**
+ * Approval automation. When `autoApprove` is true, the renderer
+ * auto-approves and executes every pending approval — including
+ * high-risk action types (dependency_install, git_commit, skill_script,
+ * network) and orchestration_plan. The service-layer security model is
+ * unchanged: this is a UI-level convenience that bypasses the human-in-
+ * the-loop step, so the user has explicitly opted out of confirmation.
+ */
+export interface ApprovalSettings {
+  autoApprove: boolean;
+}
+
 export interface HarnessSettings {
   agent: AgentSettings;
   orchestration: OrchestrationSettings;
+  approval: ApprovalSettings;
 }
 
 export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
@@ -44,5 +57,8 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
       defaultMode: "single_worker" as OrchestrationMode,
       defaultInstructions: "",
       workerProfiles: [] as WorkerProfile[],
+    }),
+    approval: Object.freeze({
+      autoApprove: false,
     }),
   });
