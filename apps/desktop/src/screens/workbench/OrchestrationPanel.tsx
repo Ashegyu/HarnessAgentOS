@@ -64,6 +64,7 @@ export const OrchestrationPanel = ({
     try {
       const s = await window.harness.settings.get();
       setOrchEnabled(s.orchestration.enabled);
+      if (s.orchestration.enabled) setAdvancedOpen(true);
     } catch {
       setOrchEnabled(false);
     }
@@ -94,6 +95,7 @@ export const OrchestrationPanel = ({
         if (s.orchestration.defaultInstructions) {
           setInstruction(s.orchestration.defaultInstructions);
         }
+        if (s.orchestration.enabled) setAdvancedOpen(true);
       } catch {
         setOrchEnabled(false);
       }
@@ -159,12 +161,13 @@ export const OrchestrationPanel = ({
           checked={advancedOpen}
           onChange={(e) => setAdvancedOpen(e.target.checked)}
         />
-        <span>고급: agent orchestration</span>
+        <span>Orchestration 패널 펼치기</span>
       </label>
       {!advancedOpen ? (
         <p className="muted">
-          기본 경로에서는 비활성화되어 있습니다. 활성화 시 plan/checkpoint/quality gate를
-          그대로 따릅니다.
+          {orchEnabled
+            ? "패널이 접혀 있습니다. 펼쳐서 plan을 확인하거나 Worker를 실행하세요."
+            : "설정에서 Orchestration이 비활성화되어 있습니다."}
         </p>
       ) : null}
       {advancedOpen ? (
