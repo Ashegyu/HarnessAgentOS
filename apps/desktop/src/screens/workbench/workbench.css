@@ -1,6 +1,5 @@
 .workbench {
   display: grid;
-  grid-template-columns: 240px 1fr 360px;
   grid-template-rows: 1fr 28px;
   grid-template-areas:
     "sidebar workbench rightpanel"
@@ -8,6 +7,24 @@
   height: 100vh;
   width: 100vw;
   overflow: hidden;
+  position: relative;
+}
+
+.workbench-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 28px;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 120ms;
+}
+
+.workbench-resizer:hover,
+.workbench-resizer--dragging {
+  background: var(--border-strong);
 }
 
 .thread-sidebar {

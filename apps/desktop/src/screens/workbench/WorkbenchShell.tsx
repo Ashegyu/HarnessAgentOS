@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgentProviderStatusMap,
   ProposedActionDetails,
@@ -51,6 +51,69 @@ export const WorkbenchShell = (): JSX.Element => {
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"workbench" | "agents">("workbench");
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem("workbench-sidebar-width");
+    return saved ? Math.max(180, Math.min(400, Number(saved))) : 240;
+  });
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = localStorage.getItem("workbench-right-width");
+    return saved ? Math.max(280, Math.min(600, Number(saved))) : 360;
+  });
+  const [dragging, setDragging] = useState<"sidebar" | "right" | null>(null);
+
+  const dragRef = useRef<{
+    type: "sidebar" | "right";
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const rightPanelWidthRef = useRef(rightPanelWidth);
+  sidebarWidthRef.current = sidebarWidth;
+  rightPanelWidthRef.current = rightPanelWidth;
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const delta = e.clientX - drag.startX;
+      if (drag.type === "sidebar") {
+        setSidebarWidth(Math.max(180, Math.min(400, drag.startWidth + delta)));
+      } else {
+        setRightPanelWidth(Math.max(280, Math.min(600, drag.startWidth - delta)));
+      }
+    };
+    const onUp = () => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (drag.type === "sidebar") {
+        localStorage.setItem("workbench-sidebar-width", String(sidebarWidthRef.current));
+      } else {
+        localStorage.setItem("workbench-right-width", String(rightPanelWidthRef.current));
+      }
+      dragRef.current = null;
+      setDragging(null);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const handleSidebarResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { type: "sidebar", startX: e.clientX, startWidth: sidebarWidthRef.current };
+    setDragging("sidebar");
+  }, []);
+
+  const handleRightResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragRef.current = { type: "right", startX: e.clientX, startWidth: rightPanelWidthRef.current };
+    setDragging("right");
+  }, []);
+
   const agentAvailable =
     providers !== null &&
     (providers.claude.available || providers.codex.available);
@@ -361,7 +424,22 @@ export const WorkbenchShell = (): JSX.Element => {
     detailState.kind === "ready" ? detailState.detail.thread : null;
 
   return (
-    <div className="workbench">
+    <div
+      className="workbench"
+      style={{ gridTemplateColumns: `${sidebarWidth}px 1fr ${rightPanelWidth}px` }}
+    >
+      <div
+        className={`workbench-resizer${dragging === "sidebar" ? " workbench-resizer--dragging" : ""}`}
+        style={{ left: sidebarWidth }}
+        onMouseDown={handleSidebarResizerMouseDown}
+      />
+      {viewMode !== "agents" && (
+        <div
+          className={`workbench-resizer${dragging === "right" ? " workbench-resizer--dragging" : ""}`}
+          style={{ right: rightPanelWidth }}
+          onMouseDown={handleRightResizerMouseDown}
+        />
+      )}
       <ThreadSidebar
         state={threadsState}
         selectedThreadId={selectedThreadId}

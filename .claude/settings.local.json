@@ -1,30 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(Get-ChildItem \"C:\\\\Users\\\\FORYOUCOM\\\\Desktop\\\\Code\\\\HarnessAgentOS\" -Name)",
-      "Bash(rtk git *)",
-      "Bash(ls .claude/)",
-      "Bash(ls .claude/instincts/)",
-      "Bash(ls \"C:\\\\Users\\\\GC\\\\.claude\\\\instincts\\\\\" 2>/dev/null || echo \"global instincts dir not found\")",
-      "PowerShell(ls \"C:\\\\Users\\\\GC\\\\.claude\\\\instincts\\\\\" -ErrorAction SilentlyContinue; if \\(-not \\(Test-Path \"C:\\\\Users\\\\GC\\\\.claude\\\\instincts\"\\)\\) { \"global instincts dir not found\" })",
-      "Bash(find \"C:\\\\Users\\\\GC\\\\.claude\" -name \"instincts.md\" -o -name \"INSTINCTS.md\" 2>/dev/null | head -5; find \"C:\\\\Users\\\\GC\\\\Desktop\\\\Works\\\\Personal\\\\Study\\\\HarnessAgentOS\" -name \"instincts.md\" 2>/dev/null | head -5)",
-      "Bash(python3 ~/.claude/skills/continuous-learning-v2/scripts/instinct-cli.py evolve)",
-      "Bash(python3 -c ' *)",
-      "Bash(python3 ~/.claude/skills/continuous-learning-v2/scripts/instinct-cli.py evolve --generate)",
-      "Bash(git add *)",
-      "Bash(git commit -m ' *)",
-      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); hooks=d.get\\('hooks',{}\\); [print\\(k,'->',v\\) for k,v in hooks.items\\(\\)]\")",
-      "Bash(python3 ~/.claude/skills/continuous-learning-v2/scripts/instinct-cli.py status)",
-      "Bash(node --import tsx --test --test-force-exit \"packages/agent/src/agent-invocation-queue.test.mjs\")",
-      "Bash(node --import tsx --test --test-force-exit \"packages/agent/src/agent-planning-service.test.mjs\")",
-      "Bash(npx tsc *)",
-      "Bash(node --import tsx/esm packages/agent/src/agent-planning-service.test.mjs)",
-      "Bash(node --import tsx/esm --test packages/*/src/**/*.test.mjs packages/*/src/*.test.mjs)",
-      "Bash(rtk tsc *)",
-      "Bash(rtk npx *)",
-      "Bash(node --import tsx --test packages/agent/src/agent-planning-service.test.mjs packages/agent/src/agent-invocation-queue.test.mjs)",
-      "Bash(rtk npm *)",
-      "Bash(node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\")"
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Edit(*)",
+      "Write(*)",
+      "Bash(*)",
+      "PowerShell(*)",
+      "Agent(*)",
+      "TodoWrite(*)",
+      "mcp__ccd_session__mark_chapter(*)",
+      "mcp__ccd_session__spawn_task(*)"
     ]
   }
 }
