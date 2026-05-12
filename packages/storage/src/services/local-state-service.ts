@@ -41,14 +41,20 @@ import {
   SqliteStepRepository,
   SqliteTaskRunRepository,
   SqliteThreadRepository,
+  SqliteAgentProfileRepository,
+  SqliteMcpServerRepository,
+  SqliteSkillSourceRepository,
   type AgentInvocationRepository,
+  type AgentProfileRepository,
   type ApprovalRepository,
   type ArtifactRepository,
   type CapabilityRepository,
   type CheckpointRepository,
   type LearningTraceRepository,
+  type McpServerRepository,
   type QualityGateRepository,
   type SettingsRepository,
+  type SkillSourceRepository,
   type StepRepository,
   type TaskRunRepository,
   type ThreadRepository,
@@ -77,6 +83,9 @@ export class LocalStateService implements ConversationStateGateway {
   readonly learningTraces: LearningTraceRepository;
   readonly agentInvocations: AgentInvocationRepository;
   readonly settings: SettingsRepository;
+  readonly agentProfiles: AgentProfileRepository;
+  readonly mcpServers: McpServerRepository;
+  readonly skillSources: SkillSourceRepository;
 
   private readonly db: HarnessDb;
   constructor(db: HarnessDb) {
@@ -92,6 +101,9 @@ export class LocalStateService implements ConversationStateGateway {
     this.learningTraces = new SqliteLearningTraceRepository(db);
     this.agentInvocations = new SqliteAgentInvocationRepository(db);
     this.settings = new SqliteSettingsRepository(db);
+    this.agentProfiles = new SqliteAgentProfileRepository(db);
+    this.mcpServers = new SqliteMcpServerRepository(db);
+    this.skillSources = new SqliteSkillSourceRepository(db);
   }
 
   // -- Thread / TaskRun --------------------------------------------------
@@ -382,5 +394,11 @@ export class LocalStateService implements ConversationStateGateway {
 
   async updateSettings(settings: HarnessSettings): Promise<HarnessSettings> {
     return this.settings.update(settings);
+  }
+
+  // -- AgentPlanningStateGateway addition (Phase 4) ----------------------
+
+  async listAgentProfiles() {
+    return this.agentProfiles.list();
   }
 }

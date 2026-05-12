@@ -7,3 +7,5 @@ export * from "./model-cli-adapter";
 export * from "./fake-model-cli-adapter";
 export * from "./agent-invocation-queue";
 export * from "./agent-planning-service";
+export * from "./agent-profile-resolver";
+export * from "./mcp-config-builder";

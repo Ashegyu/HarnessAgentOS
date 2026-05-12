@@ -5,3 +5,5 @@ export * from "./id.ts";
 export * from "./repositories/index.ts";
 export * from "./services/local-state-service.ts";
 export * from "./services/filesystem-artifact-store.ts";
+export * from "./services/secret-vault.ts";
+export * from "./services/profile-migrator.ts";

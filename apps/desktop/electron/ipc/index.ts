@@ -2,9 +2,14 @@ import type {
   ArtifactStore,
   ConversationService,
   HarnessSettings,
+  McpServerConfig,
+  McpServerHealth,
   TaskRunCompletionService,
 } from "@harness/core";
-import type { LocalStateService } from "@harness/storage";
+import type {
+  LocalStateService,
+  SecretVaultService,
+} from "@harness/storage";
 import type { RunnerService } from "@harness/runners";
 import type { QualityEvaluator } from "@harness/quality";
 import type {
@@ -26,6 +31,11 @@ import { registerLearnerIpc } from "./learner-ipc";
 import { registerOrchestrationIpc } from "./orchestration-ipc";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerSettingsIpc } from "./settings-ipc";
+import { registerAgentsIpc } from "./agents-ipc-register";
+import { registerMcpIpc } from "./mcp-ipc-register";
+import { registerSkillSourceIpc } from "./skill-source-ipc-register";
+import { registerSecretIpc } from "./secret-ipc-register";
+import type { SkillRootPolicy } from "./skill-source-ipc";
 import { eventBus } from "../event-bus";
 
 export interface IpcContext {
@@ -44,6 +54,12 @@ export interface IpcContext {
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
   onSettingsUpdate?: (s: HarnessSettings) => void;
+  /** SecretVault wired with the Electron safeStorage backend at boot. */
+  secretVault: SecretVaultService;
+  /** Hook used by the skillSource IPC to keep path-policy in sync. */
+  skillRootPolicy: SkillRootPolicy;
+  /** Phase 4 will plug a real http/stdio prober here. */
+  mcpProbe: (server: McpServerConfig) => Promise<McpServerHealth>;
 }
 
 /**
@@ -77,4 +93,28 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     eventBus,
   );
   registerSettingsIpc(ctx.state, ctx.onSettingsUpdate);
+  registerAgentsIpc({
+    state: {
+      profiles: ctx.state.agentProfiles,
+      getSettings: () => ctx.state.getSettings(),
+      updateSettings: (next) => ctx.state.updateSettings(next),
+    },
+  });
+  registerMcpIpc({
+    mcp: ctx.state.mcpServers,
+    probe: ctx.mcpProbe,
+  });
+  registerSkillSourceIpc({
+    skillSources: ctx.state.skillSources,
+    pathPolicy: ctx.skillRootPolicy,
+    capabilityRegistry: {
+      refresh: async () => {
+        // CapabilityRegistry.refresh takes the configured skill source
+        // list and returns capabilities; surface a count for the UI.
+        const caps = await ctx.capabilityRegistry.refresh(ctx.skillSources);
+        return { skillCount: caps.length };
+      },
+    },
+  });
+  registerSecretIpc({ vault: ctx.secretVault });
 };

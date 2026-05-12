@@ -7,13 +7,7 @@ type RuntimeState =
   | { kind: "ready"; info: RuntimeInfo }
   | { kind: "error"; message: string };
 
-interface Props {
-  onSettingsClick?: () => void;
-  theme?: "dark" | "light";
-  onToggleTheme?: () => void;
-}
-
-export const RuntimeStatusBar = ({ onSettingsClick, theme, onToggleTheme }: Props): JSX.Element => {
+export const RuntimeStatusBar = (): JSX.Element => {
   const [state, setState] = useState<RuntimeState>({ kind: "loading" });
 
   useEffect(() => {
@@ -81,28 +75,6 @@ export const RuntimeStatusBar = ({ onSettingsClick, theme, onToggleTheme }: Prop
       )}
       <span className="runtime-status-bar__sep">·</span>
       <AgentProviderStatus />
-      {onToggleTheme && (
-        <button
-          type="button"
-          className="runtime-status-bar__theme-btn"
-          onClick={onToggleTheme}
-          aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
-          title={theme === "dark" ? "라이트 모드" : "다크 모드"}
-        >
-          {theme === "dark" ? "☀" : "☾"}
-        </button>
-      )}
-      {onSettingsClick && (
-        <button
-          type="button"
-          className="runtime-status-bar__settings-btn"
-          onClick={onSettingsClick}
-          aria-label="설정 열기"
-          title="설정"
-        >
-          ⚙
-        </button>
-      )}
     </footer>
   );
 };

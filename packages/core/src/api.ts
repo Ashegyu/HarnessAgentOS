@@ -2,6 +2,7 @@ import type { RuntimeInfo } from "./runtime.ts";
 import type {
   Approval,
   AgentInvocation,
+  AgentProfile,
   AgentProvider,
   AgentProviderStatusMap,
   AgentStreamEvent,
@@ -9,7 +10,10 @@ import type {
   Capability,
   CapabilitySuggestion,
   HarnessSettings,
+  McpServerConfig,
+  McpServerHealth,
   SkillResources,
+  SkillSource,
   LearnerRecommendation,
   LearningTrace,
   OrchestrationMode,
@@ -224,6 +228,46 @@ export interface HarnessDesktopApi {
   settings: {
     get(): Promise<HarnessSettings>;
     update(input: HarnessSettings): Promise<HarnessSettings>;
+  };
+  /**
+   * AgentProfile CRUD. The renderer never touches plaintext secrets here —
+   * cli.envSecretRefs / mcp env secrets flow through the `secret` namespace.
+   */
+  agents: {
+    list(): Promise<AgentProfile[]>;
+    get(input: { profileId: string }): Promise<AgentProfile>;
+    create(input: { profile: Omit<AgentProfile, "id" | "createdAt" | "updatedAt"> }): Promise<AgentProfile>;
+    update(input: { profile: AgentProfile }): Promise<AgentProfile>;
+    delete(input: { profileId: string }): Promise<void>;
+    setDefault(input: { profileId: string }): Promise<AgentProfile>;
+    setActive(input: { profileId: string | null }): Promise<HarnessSettings>;
+  };
+  mcp: {
+    list(): Promise<McpServerConfig[]>;
+    /** Create when input.server.id is empty/unknown; otherwise update in place. */
+    upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
+    delete(input: { serverId: string }): Promise<void>;
+    toggle(input: { serverId: string; enabled: boolean }): Promise<McpServerConfig>;
+    healthCheck(input: { serverId: string }): Promise<McpServerHealth>;
+  };
+  skillSource: {
+    list(): Promise<SkillSource[]>;
+    add(input: { name: string; rootDir: string }): Promise<SkillSource>;
+    update(input: { source: SkillSource }): Promise<SkillSource>;
+    remove(input: { sourceId: string }): Promise<void>;
+    /** Re-scan the directory and refresh CapabilityRegistry. */
+    refresh(input: { sourceId: string }): Promise<{ skillCount: number }>;
+  };
+  /**
+   * Secret vault. Plaintext values flow renderer → main one-way; the main
+   * process never returns decrypted values to the renderer. `listKeys`
+   * exposes only the key names so the UI can render a "stored / cleared"
+   * state without ever seeing the secret.
+   */
+  secret: {
+    write(input: { key: string; value: string }): Promise<void>;
+    clear(input: { key: string }): Promise<void>;
+    listKeys(): Promise<string[]>;
   };
   events: {
     /**

@@ -1,10 +1,29 @@
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { AgentProvider, HarnessSettings, OrchestrationMode, WorkerProfile } from "@harness/core";
 import { DEFAULT_HARNESS_SETTINGS } from "@harness/core";
+import { AgentProfilesTab } from "./AgentProfilesTab";
+import { McpServersTab } from "./McpServersTab";
+import { SecretsTab } from "./SecretsTab";
+import { SkillSourcesTab } from "./SkillSourcesTab";
 
 interface Props {
   onClose: () => void;
 }
+
+type SettingsTabId = "general" | "agents" | "mcp" | "skills" | "secrets";
+
+interface SettingsTabDef {
+  id: SettingsTabId;
+  label: string;
+}
+
+const TABS: readonly SettingsTabDef[] = [
+  { id: "general", label: "General" },
+  { id: "agents", label: "Agents" },
+  { id: "mcp", label: "MCP" },
+  { id: "skills", label: "Skills" },
+  { id: "secrets", label: "Secrets" },
+];
 
 type FormState =
   | { kind: "loading" }
@@ -95,6 +114,7 @@ const reducer = (state: FormState, action: Action): FormState => {
 
 export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
   const [state, dispatch] = useReducer(reducer, { kind: "loading" });
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
 
   useEffect(() => {
     let cancelled = false;
@@ -139,17 +159,62 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
           </button>
         </header>
 
-        {state.kind === "loading" && (
+        <nav
+          className="settings-dialog__tabs"
+          role="tablist"
+          aria-label="설정 카테고리"
+        >
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t.id}
+              className={`settings-dialog__tab${
+                activeTab === t.id ? " settings-dialog__tab--active" : ""
+              }`}
+              onClick={() => setActiveTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        {activeTab === "agents" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <AgentProfilesTab />
+          </div>
+        )}
+
+        {activeTab === "mcp" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <McpServersTab />
+          </div>
+        )}
+
+        {activeTab === "skills" && (
+          <div className="settings-dialog__body">
+            <SkillSourcesTab />
+          </div>
+        )}
+
+        {activeTab === "secrets" && (
+          <div className="settings-dialog__body">
+            <SecretsTab />
+          </div>
+        )}
+
+        {activeTab === "general" && state.kind === "loading" && (
           <div className="settings-dialog__body empty-state">설정 불러오는 중…</div>
         )}
 
-        {state.kind === "error" && (
+        {activeTab === "general" && state.kind === "error" && (
           <div className="settings-dialog__body empty-state" style={{ color: "var(--status-failed)" }}>
             {state.message}
           </div>
         )}
 
-        {state.kind === "ready" && (
+        {activeTab === "general" && state.kind === "ready" && (
           <div className="settings-dialog__body">
             <fieldset className="settings-fieldset">
               <legend>에이전트</legend>
@@ -384,7 +449,7 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
           </div>
         )}
 
-        {state.kind === "ready" && (
+        {activeTab === "general" && state.kind === "ready" && (
           <footer className="settings-dialog__footer">
             <button
               type="button"

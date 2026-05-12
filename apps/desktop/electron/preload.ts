@@ -270,6 +270,51 @@ const harnessApi: HarnessDesktopApi = {
     update: (input) =>
       invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.update, input),
   },
+  // Phase 1 stubs — main-process handlers land in Phase 3. The renderer
+  // shouldn't call these yet; if it does, the channel allowlist rejects
+  // the invocation and the user sees a clear "not implemented" error.
+  agents: {
+    list: () => invokeUnwrapped(IPC_CHANNELS.agents.list),
+    get: (input) => invokeUnwrapped(IPC_CHANNELS.agents.get, input),
+    create: (input) => invokeUnwrapped(IPC_CHANNELS.agents.create, input),
+    update: (input) => invokeUnwrapped(IPC_CHANNELS.agents.update, input),
+    delete: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.agents.delete, input);
+    },
+    setDefault: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.agents.setDefault, input),
+    setActive: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.agents.setActive, input),
+  },
+  mcp: {
+    list: () => invokeUnwrapped(IPC_CHANNELS.mcp.list),
+    upsert: (input) => invokeUnwrapped(IPC_CHANNELS.mcp.upsert, input),
+    delete: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.mcp.delete, input);
+    },
+    toggle: (input) => invokeUnwrapped(IPC_CHANNELS.mcp.toggle, input),
+    healthCheck: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.mcp.healthCheck, input),
+  },
+  skillSource: {
+    list: () => invokeUnwrapped(IPC_CHANNELS.skillSource.list),
+    add: (input) => invokeUnwrapped(IPC_CHANNELS.skillSource.add, input),
+    update: (input) => invokeUnwrapped(IPC_CHANNELS.skillSource.update, input),
+    remove: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.skillSource.remove, input);
+    },
+    refresh: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.skillSource.refresh, input),
+  },
+  secret: {
+    write: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.secret.write, input);
+    },
+    clear: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.secret.clear, input);
+    },
+    listKeys: () => invokeUnwrapped(IPC_CHANNELS.secret.listKeys),
+  },
   events: {
     onTaskRunChanged: (listener) => {
       const channel = IPC_CHANNELS.events.taskRunChanged;

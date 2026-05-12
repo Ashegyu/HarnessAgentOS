@@ -14,7 +14,42 @@ export interface PromptBuildInput {
   recentArtifacts?: Artifact[];
   /** When repairing a failed quality gate, the latest gate result. */
   qualityRisks?: QualityGateResult | null;
+  /**
+   * AgentProfile-derived overrides — see docs/design/agent-detailed-settings.md §4.1.
+   * The resolver in AgentPlanningService passes these from the active
+   * profile (or empty strings when falling back to legacy settings).
+   *
+   * Layering rule: PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX.
+   * Prefix carries org-wide policy (above the per-role persona); suffix
+   * carries trailing reminders that should win the recency battle.
+   */
+  persona?: string;
+  systemPromptPrefix?: string;
+  systemPromptSuffix?: string;
 }
+
+const trimmedOrNull = (s: string | undefined): string | null => {
+  if (!s) return null;
+  const trimmed = s.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const buildSystemBlock = (
+  persona: string | undefined,
+  prefix: string | undefined,
+  suffix: string | undefined,
+): string => {
+  const parts: string[] = [];
+  const trimmedPrefix = trimmedOrNull(prefix);
+  if (trimmedPrefix) parts.push(trimmedPrefix);
+  const trimmedPersona = trimmedOrNull(persona);
+  if (trimmedPersona) parts.push(`ROLE\n${trimmedPersona}`);
+  parts.push(SYSTEM_PROMPT.trim());
+  parts.push(OUTPUT_CONTRACT.trim());
+  const trimmedSuffix = trimmedOrNull(suffix);
+  if (trimmedSuffix) parts.push(trimmedSuffix);
+  return parts.join("\n\n");
+};
 
 const SYSTEM_PROMPT = `\
 SYSTEM
@@ -65,7 +100,11 @@ export interface SplitAgentPrompt {
  * authoritative system channel so Claude reliably produces the JSON block.
  */
 export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt => {
-  const systemPrompt = [SYSTEM_PROMPT.trim(), OUTPUT_CONTRACT.trim()].join("\n\n");
+  const systemPrompt = buildSystemBlock(
+    input.persona,
+    input.systemPromptPrefix,
+    input.systemPromptSuffix,
+  );
   const userSections: string[] = [];
   userSections.push(
     [

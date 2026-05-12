@@ -37,7 +37,13 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
   ): Promise<ModelCliResult> {
     const { provider, model, timeoutMs, stallTimeoutMs } = request.modelConfig;
     const startedAt = Date.now();
-    const args = buildArgs(provider, model, request.sessionId, request.systemPrompt);
+    const args = buildArgs(
+      provider,
+      model,
+      request.sessionId,
+      request.systemPrompt,
+      request.mcpConfigPath,
+    );
 
     if (signal?.aborted) {
       throw new AgentCliError(
@@ -229,6 +235,7 @@ const buildArgs = (
   model: string,
   sessionId?: string,
   systemPrompt?: string,
+  mcpConfigPath?: string,
 ): string[] => {
   if (provider === "claude") {
     // Streaming output: emits one JSON line per chunk so the stall timer
@@ -242,25 +249,24 @@ const buildArgs = (
       "--verbose",
       "--model", model,
     ];
-    // Passing SYSTEM + OUTPUT CONTRACT via --system-prompt ensures Claude
-    // treats the format instruction as authoritative even in --resume sessions.
     if (systemPrompt) {
       args.push("--system-prompt", systemPrompt);
     }
-    // Resume an existing conversation when a session id is provided so
-    // follow-up questions within a thread share prior turns. Otherwise
-    // claude assigns a fresh session id we pick up from the result line.
     if (sessionId) {
       args.push("--resume", sessionId);
     }
-    // --bare disables OAuth/keychain reads; only add it when ANTHROPIC_API_KEY
-    // is present so users who authenticated via browser (OAuth) aren't blocked.
+    if (mcpConfigPath) {
+      args.push("--mcp-config", mcpConfigPath);
+    }
     if (process.env["ANTHROPIC_API_KEY"]) {
       args.splice(1, 0, "--bare");
     }
     return args;
   }
-  // codex
+  // codex — MCP support is gated on V2 verification of the `codex exec`
+  // arg format. We accept the path here without wiring it through so
+  // upstream callers can be uniform.
+  void mcpConfigPath;
   return ["exec", "--model", model];
 };
 

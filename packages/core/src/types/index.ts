@@ -23,3 +23,6 @@ export type {
 export * from "./agent-plan-output.ts";
 export * from "./agent-planning-gateway.ts";
 export * from "./settings.ts";
+export * from "./agent-profile.ts";
+export * from "./mcp.ts";
+export * from "./skill-source.ts";

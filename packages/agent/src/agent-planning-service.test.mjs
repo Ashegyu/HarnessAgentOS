@@ -29,6 +29,25 @@ const makeGateway = (overrides = {}) => ({
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   }),
+  // Phase 4 gateway additions — empty profiles + default settings keep
+  // existing tests on the legacy fallback path so behavior is unchanged.
+  listAgentProfiles: async () => [],
+  getSettings: async () => ({
+    agent: {
+      provider: "auto",
+      model: "",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+    },
+    orchestration: {
+      enabled: false,
+      defaultMode: "single_worker",
+      defaultInstructions: "",
+      workerProfiles: [],
+    },
+    approval: { autoApprove: false },
+  }),
   ...overrides,
 });
 

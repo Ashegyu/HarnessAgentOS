@@ -111,6 +111,57 @@ test("buildSplitAgentPrompt truncates optional context when combined size overfl
   assert.ok(userPrompt.includes("USER REQUEST"), "USER REQUEST section must survive truncation");
 });
 
+test("buildSplitAgentPrompt injects persona above SYSTEM block", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    persona: "You are a security-focused reviewer. Flag OWASP issues.",
+  });
+  // Persona must precede SYSTEM so the model reads role before rules.
+  const personaIdx = systemPrompt.indexOf("security-focused reviewer");
+  const systemIdx = systemPrompt.indexOf("SYSTEM");
+  assert.ok(personaIdx >= 0, "persona must appear in systemPrompt");
+  assert.ok(
+    personaIdx < systemIdx,
+    "persona must appear before SYSTEM block so role precedes rules",
+  );
+});
+
+test("buildSplitAgentPrompt injects systemPromptPrefix above persona", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    persona: "Reviewer persona",
+    systemPromptPrefix: "GLOBAL ORG POLICY: never touch /etc.",
+  });
+  const prefixIdx = systemPrompt.indexOf("GLOBAL ORG POLICY");
+  const personaIdx = systemPrompt.indexOf("Reviewer persona");
+  assert.ok(prefixIdx >= 0);
+  assert.ok(prefixIdx < personaIdx, "prefix must precede persona");
+});
+
+test("buildSplitAgentPrompt appends systemPromptSuffix at end of system block", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    systemPromptSuffix: "TRAILING NOTE: always respond in Korean.",
+  });
+  const noteIdx = systemPrompt.indexOf("TRAILING NOTE");
+  const contractIdx = systemPrompt.indexOf("OUTPUT CONTRACT");
+  assert.ok(noteIdx >= 0);
+  assert.ok(noteIdx > contractIdx, "suffix must appear after OUTPUT CONTRACT");
+});
+
+test("buildSplitAgentPrompt strips persona/prefix/suffix when blank", () => {
+  // Empty/whitespace strings should produce no extra section — common case
+  // when AgentProfile has the default empty fields.
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    persona: "  ",
+    systemPromptPrefix: "",
+    systemPromptSuffix: "\n\n",
+  });
+  // SYSTEM must be the first non-whitespace block.
+  assert.ok(systemPrompt.trimStart().startsWith("SYSTEM"));
+});
+
 test("buildAgentPrompt still works (backwards compat)", () => {
   const prompt = buildAgentPrompt({ taskRun: baseTaskRun });
   assert.ok(prompt.includes("SYSTEM"));

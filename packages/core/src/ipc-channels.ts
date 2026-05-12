@@ -74,6 +74,42 @@ export const IPC_CHANNELS = {
     get: "settings:get",
     update: "settings:update",
   },
+  /** Agent profile CRUD — see docs/design/agent-detailed-settings.md §5 Phase 3. */
+  agents: {
+    list: "agents:list",
+    get: "agents:get",
+    create: "agents:create",
+    update: "agents:update",
+    delete: "agents:delete",
+    setDefault: "agents:setDefault",
+    setActive: "agents:setActive",
+  },
+  /** MCP server registry — upsert merges create+update. */
+  mcp: {
+    list: "mcp:list",
+    upsert: "mcp:upsert",
+    delete: "mcp:delete",
+    toggle: "mcp:toggle",
+    healthCheck: "mcp:healthCheck",
+  },
+  /** Skill source registry (trusted directories for SKILL.md). */
+  skillSource: {
+    list: "skillSource:list",
+    add: "skillSource:add",
+    update: "skillSource:update",
+    remove: "skillSource:remove",
+    refresh: "skillSource:refresh",
+  },
+  /**
+   * SecretVault management. Write/clear/listKeys only — there is no read
+   * channel. Plaintext decryption happens in the main process at spawn
+   * time and is never returned to the renderer.
+   */
+  secret: {
+    write: "secret:write",
+    clear: "secret:clear",
+    listKeys: "secret:listKeys",
+  },
   events: {
     /**
      * One-way main → renderer push (id-only). Emitted whenever a TaskRun

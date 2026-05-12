@@ -9,3 +9,6 @@ export * from "./capability-repository.ts";
 export * from "./learning-trace-repository.ts";
 export * from "./agent-invocation-repository.ts";
 export * from "./settings-repository.ts";
+export * from "./agent-profile-repository.ts";
+export * from "./mcp-server-repository.ts";
+export * from "./skill-source-repository.ts";

@@ -1,7 +1,8 @@
-import { app, BrowserWindow, shell } from "electron";
+import { app, BrowserWindow, safeStorage, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { stat } from "node:fs/promises";
+import { stat, writeFile, mkdir, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import {
   ConversationService,
   TaskRunCompletionService,
@@ -10,9 +11,16 @@ import {
 import {
   FilesystemArtifactStore,
   LocalStateService,
+  SecretVaultService,
   openDb,
   type HarnessDb,
 } from "@harness/storage";
+import type {
+  AgentProvider,
+  McpServerConfig,
+  McpServerHealth,
+} from "@harness/core";
+import type { SkillRootPolicy } from "./ipc/skill-source-ipc";
 import { RunnerService } from "@harness/runners";
 import { QualityEvaluator } from "@harness/quality";
 import {
@@ -25,6 +33,7 @@ import { OrchestrationService } from "@harness/orchestration";
 import {
   AgentInvocationQueue,
   AgentPlanningService,
+  buildClaudeMcpConfig,
   checkProviders as probeAgentProviders,
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
@@ -51,6 +60,9 @@ const initServices = (): {
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
   onSettingsUpdate: (s: HarnessSettings) => void;
+  secretVault: SecretVaultService;
+  skillRootPolicy: SkillRootPolicy;
+  mcpProbe: (server: McpServerConfig) => Promise<McpServerHealth>;
 } => {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
@@ -137,11 +149,75 @@ const initServices = (): {
     cachedProviders = result;
     return result;
   };
+  // Phase 3 — secret vault wired to Electron's safeStorage. On Linux
+  // environments where the backend is unavailable, write() throws
+  // SecretVaultUnavailableError; the renderer surfaces a banner.
+  const secretVault = new SecretVaultService(mainDb, safeStorage);
+
+  // Phase 4b — temp dir for per-invocation MCP config files. We never
+  // reuse a file across invocations so a process crash can't leak old
+  // secret material; cleanup removes the file when generatePlan returns.
+  const mcpTmpDir = join(userData, "mcp-tmp");
+
+  const prepareMcpInvocation = async ({
+    profileId,
+    provider,
+  }: {
+    profileId: string | null;
+    provider: AgentProvider;
+  }): Promise<{
+    mcpConfigPath: string | null;
+    cleanup: () => Promise<void>;
+  }> => {
+    // Codex CLI MCP arg format is not yet verified (V2 pending) — skip the
+    // file write for codex so we don't pass an unrecognized flag.
+    if (provider !== "claude") {
+      return { mcpConfigPath: null, cleanup: async () => {} };
+    }
+    const all = await state.mcpServers.list();
+    let active = all.filter((s) => s.enabled && s.scope === "global");
+    if (profileId !== null) {
+      const profile = await state.agentProfiles.get(profileId).catch(() => null);
+      if (profile) {
+        const perAgent = all.filter(
+          (s) =>
+            s.enabled &&
+            s.scope === "per-agent" &&
+            profile.mcpServerIds.includes(s.id),
+        );
+        active = [...active, ...perAgent];
+      }
+    }
+    if (active.length === 0) {
+      return { mcpConfigPath: null, cleanup: async () => {} };
+    }
+    const config = await buildClaudeMcpConfig(active, async (k) =>
+      secretVault.read(k),
+    );
+    await mkdir(mcpTmpDir, { recursive: true });
+    const file = join(mcpTmpDir, `mcp-${randomUUID()}.json`);
+    await writeFile(file, JSON.stringify(config), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    return {
+      mcpConfigPath: file,
+      cleanup: async () => {
+        try {
+          await unlink(file);
+        } catch {
+          // file already gone or never written — fine.
+        }
+      },
+    };
+  };
+
   const agentPlanning = new AgentPlanningService({
     state,
     queue: agentQueue,
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
+    prepareMcpInvocation,
     // Claude CLI in `--print` mode is non-streaming: stdout stays empty
     // until the full response is generated and then flushes at once.
     // The default 30s stall timer therefore mis-fires on any non-trivial
@@ -149,6 +225,135 @@ const initServices = (): {
     // stall budget so the stall check effectively never fires on its own.
     defaults: { timeoutMs: 5 * 60_000, stallTimeoutMs: 5 * 60_000 },
   });
+
+  // Phase 3 — path-policy registry hook. The skillSource IPC pushes
+  // user-registered roots through this so invocations see them without
+  // a restart. Phase 4 will replace the in-memory mutable list with a
+  // real call into the path-policy module.
+  const dynamicSourceDirs = new Set<string>();
+  const skillRootPolicy: SkillRootPolicy = {
+    registerSourceDir: (dir) => {
+      dynamicSourceDirs.add(dir);
+    },
+    unregisterSourceDir: (dir) => {
+      dynamicSourceDirs.delete(dir);
+    },
+  };
+
+  // Phase 4b — real MCP probe.
+  //   stdio  → spawn the command, send a JSON-RPC `initialize` request, wait
+  //            ≤3s for a response line. Any successful JSON reply counts as
+  //            healthy; non-zero exit / timeout / parse error counts as fail.
+  //   http   → fetch the URL with method HEAD, 3s AbortController timeout.
+  //   sse    → same as http; we just probe reachability, not the event stream.
+  const mcpProbe = async (
+    server: McpServerConfig,
+  ): Promise<McpServerHealth> => {
+    const checkedAt = new Date().toISOString();
+    const okResult = (): McpServerHealth => ({ okAt: checkedAt, checkedAt });
+    const failResult = (msg: string): McpServerHealth => ({
+      error: msg.slice(0, 400),
+      checkedAt,
+    });
+
+    if (server.transport === "stdio") {
+      const { spawn } = await import("node:child_process");
+      const command = server.command ?? "";
+      const args = server.args ? [...server.args] : [];
+      if (command.length === 0) return failResult("missing command");
+      try {
+        const child = spawn(command, args, {
+          stdio: ["pipe", "pipe", "pipe"],
+          shell: false,
+        });
+        const probe = new Promise<McpServerHealth>((resolve) => {
+          let resolved = false;
+          const finish = (h: McpServerHealth): void => {
+            if (resolved) return;
+            resolved = true;
+            try {
+              child.kill("SIGTERM");
+            } catch {
+              // ignore
+            }
+            resolve(h);
+          };
+          const timer = setTimeout(
+            () => finish(failResult("probe timeout (3s)")),
+            3000,
+          );
+          child.on("error", (e) => {
+            clearTimeout(timer);
+            finish(failResult(e.message));
+          });
+          child.on("exit", (code) => {
+            clearTimeout(timer);
+            if (!resolved) {
+              finish(
+                code === 0 ? okResult() : failResult(`exit ${code ?? "?"}`),
+              );
+            }
+          });
+          child.stdout?.on("data", (b: Buffer) => {
+            const text = b.toString("utf8");
+            for (const line of text.split("\n")) {
+              const trimmed = line.trim();
+              if (trimmed.length === 0) continue;
+              try {
+                const obj = JSON.parse(trimmed);
+                if (obj && typeof obj === "object") {
+                  clearTimeout(timer);
+                  finish(okResult());
+                  return;
+                }
+              } catch {
+                // not JSON — keep waiting for the next chunk
+              }
+            }
+          });
+          const initialize = JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2024-11-05",
+              capabilities: {},
+              clientInfo: { name: "HarnessAgentOS-probe", version: "0" },
+            },
+          });
+          try {
+            child.stdin?.write(`${initialize}\n`);
+          } catch (e) {
+            clearTimeout(timer);
+            finish(failResult(e instanceof Error ? e.message : String(e)));
+          }
+        });
+        return await probe;
+      } catch (e) {
+        return failResult(e instanceof Error ? e.message : String(e));
+      }
+    }
+
+    // http / sse — light reachability check.
+    const url = server.url ?? "";
+    if (url.length === 0) return failResult("missing url");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(url, {
+        method: "HEAD",
+        signal: controller.signal,
+      });
+      // Any HTTP status — even 4xx — means we reached the server, which is
+      // enough for a transport-level probe. Network errors are the only fail.
+      void res.status;
+      return okResult();
+    } catch (e) {
+      return failResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 
   return {
     state,
@@ -166,6 +371,9 @@ const initServices = (): {
     agentPlanning,
     probeAgentProviders: probeProviders,
     onSettingsUpdate,
+    secretVault,
+    skillRootPolicy,
+    mcpProbe,
   };
 };
 
@@ -215,6 +423,25 @@ app.whenReady().then(async () => {
     services.onSettingsUpdate(s);
   } catch {
     // non-fatal; mutable ref stays false
+  }
+  // Phase 5a — seed the project/user skill-source sentinels so the new
+  // Settings → Skills tab shows them on first launch. Idempotent: pre-
+  // existing rows (including user-renamed sentinels) are left untouched.
+  try {
+    const project = services.skillSources.find(
+      (s) => s.source === "skillify:project",
+    );
+    const user = services.skillSources.find(
+      (s) => s.source === "skillify:user",
+    );
+    if (project && user) {
+      await services.state.skillSources.ensureSeed({
+        projectRootDir: project.rootDir,
+        userRootDir: user.rootDir,
+      });
+    }
+  } catch {
+    // non-fatal — UI just won't pre-populate the sentinels.
   }
   // Best-effort initial capability scan; missing skill directories are
   // non-fatal so first-run still succeeds.

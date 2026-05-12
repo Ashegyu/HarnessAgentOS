@@ -9,6 +9,13 @@ interface ConversationInputProps {
   threadTargetDir?: string | undefined;
   /** Whether at least one agent CLI provider is currently available. */
   agentAvailable: boolean;
+  /**
+   * Optional seed payload to inject text into the composer (e.g. when a
+   * suggestion chip is clicked). The object reference change triggers
+   * the effect, so callers should pass a new object each time even if the
+   * text is identical.
+   */
+  composerSeed?: { text: string; key: number } | null;
   onSubmit: (input: {
     userRequest: string;
     targetDir?: string;
@@ -22,6 +29,7 @@ export const ConversationInput = ({
   threadId,
   threadTargetDir,
   agentAvailable,
+  composerSeed,
   onSubmit,
 }: ConversationInputProps): JSX.Element => {
   const [text, setText] = useState("");
@@ -52,6 +60,15 @@ export const ConversationInput = ({
       }
     })();
   }, []);
+
+  // Suggestion chip → composer text injection. Parent updates the seed
+  // object reference (key changes) each time, so re-clicking the same
+  // chip still triggers the effect.
+  useEffect(() => {
+    if (composerSeed && composerSeed.text.length > 0) {
+      setText(composerSeed.text);
+    }
+  }, [composerSeed]);
 
   const targetDir = overrideDir.trim() || threadTargetDir || "";
   const canSubmit = !submitting && text.trim().length > 0 && targetDir.length > 0;

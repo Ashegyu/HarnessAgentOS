@@ -19,3 +19,10 @@ test("DEFAULT_HARNESS_SETTINGS is frozen (immutable)", () => {
 test("DEFAULT_HARNESS_SETTINGS has expected orchestration defaults", () => {
   assert.equal(DEFAULT_HARNESS_SETTINGS.orchestration.enabled, false);
 });
+
+test("DEFAULT_HARNESS_SETTINGS leaves activeAgentProfileId undefined", () => {
+  // No profile is "active" by default — the resolver falls back to
+  // the row marked isDefault, or the legacy agent settings when no
+  // AgentProfile rows exist yet.
+  assert.equal(DEFAULT_HARNESS_SETTINGS.activeAgentProfileId, undefined);
+});

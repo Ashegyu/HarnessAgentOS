@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  AgentProfile,
   AgentProviderStatusMap,
   Approval,
   OrchestrationMode,
@@ -8,13 +9,15 @@ import type {
   ThreadDetail,
   TaskRunDetail,
 } from "@harness/core";
+import { shouldAutoApprove } from "@harness/core";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
 import type { ConversationMode } from "./ConversationInput";
 import { RightPanel } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import { SettingsPanel } from "./SettingsPanel";
-import { AgentsPanel } from "./AgentsPanel";
+import { SlimRail } from "./SlimRail";
+import { HeroEmpty } from "./HeroEmpty";
 import "./workbench.css";
 
 type ThreadsState =
@@ -52,12 +55,22 @@ export const WorkbenchShell = (): JSX.Element => {
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"workbench" | "agents">("workbench");
   const [autoApprove, setAutoApprove] = useState(false);
+  const [activeAgentProfile, setActiveAgentProfile] =
+    useState<AgentProfile | null>(null);
   // Tracks approval IDs that the auto-approver has already kicked off so
   // the effect doesn't double-fire on the eventual taskRunChanged event
   // before the row's status flips out of "pending".
   const autoInFlightRef = useRef<Set<string>>(new Set());
+
+  // V1 → V2 migration flag. Width keys (sidebarWidth/rightPanelWidth) carry
+  // over with compatible semantics, so no value translation is needed; this
+  // flag just records that the user has booted v2 at least once, in case a
+  // future migration needs an anchor point.
+  useEffect(() => {
+    if (localStorage.getItem("workbench-v2-migrated") === "true") return;
+    localStorage.setItem("workbench-v2-migrated", "true");
+  }, []);
 
   const [theme, setTheme] = useState<"dark" | "light">(() => {
     const saved = localStorage.getItem("workbench-theme");
@@ -75,13 +88,88 @@ export const WorkbenchShell = (): JSX.Element => {
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem("workbench-sidebar-width");
-    return saved ? Math.max(180, Math.min(400, Number(saved))) : 240;
+    return saved ? Math.max(180, Math.min(400, Number(saved))) : 280;
   });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
     const saved = localStorage.getItem("workbench-right-width");
-    return saved ? Math.max(280, Math.min(600, Number(saved))) : 360;
+    return saved ? Math.max(280, Math.min(600, Number(saved))) : 400;
   });
   const [dragging, setDragging] = useState<"sidebar" | "right" | null>(null);
+
+  const [threadDrawerOpen, setThreadDrawerOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem("workbench-thread-drawer-open");
+    return saved === null ? true : saved === "true";
+  });
+  const [contextDrawerOpen, setContextDrawerOpen] = useState<boolean>(() => {
+    const saved = localStorage.getItem("workbench-context-drawer-open");
+    return saved === null ? false : saved === "true";
+  });
+  const [threadCreateRequest, setThreadCreateRequest] = useState(0);
+
+  useEffect(() => {
+    localStorage.setItem("workbench-thread-drawer-open", String(threadDrawerOpen));
+  }, [threadDrawerOpen]);
+  useEffect(() => {
+    localStorage.setItem("workbench-context-drawer-open", String(contextDrawerOpen));
+  }, [contextDrawerOpen]);
+
+  // Keyboard shortcuts. Ctrl+B/J overlap with text-editing reflexes (bold,
+  // line break) so skip when focus is in an editable element. Esc still
+  // applies everywhere — it has no text-input meaning.
+  useEffect(() => {
+    const isEditableTarget = (el: EventTarget | null): boolean => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const mod = e.ctrlKey || e.metaKey;
+      const editable = isEditableTarget(e.target);
+      if (mod && !e.shiftKey && !e.altKey && !editable) {
+        const key = e.key.toLowerCase();
+        if (key === "b") {
+          e.preventDefault();
+          setThreadDrawerOpen((v) => !v);
+          return;
+        }
+        if (key === "j") {
+          e.preventDefault();
+          setContextDrawerOpen((v) => !v);
+          return;
+        }
+        if (key === ",") {
+          e.preventDefault();
+          setSettingsOpen(true);
+          return;
+        }
+        if (key === "n") {
+          e.preventDefault();
+          setThreadDrawerOpen(true);
+          setThreadCreateRequest((n) => n + 1);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        // Priority: settings modal > rightmost drawer
+        if (settingsOpen) {
+          setSettingsOpen(false);
+          return;
+        }
+        if (contextDrawerOpen) {
+          setContextDrawerOpen(false);
+          return;
+        }
+        if (threadDrawerOpen) {
+          setThreadDrawerOpen(false);
+          return;
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [settingsOpen, contextDrawerOpen, threadDrawerOpen]);
 
   const dragRef = useRef<{
     type: "sidebar" | "right";
@@ -199,8 +287,18 @@ export const WorkbenchShell = (): JSX.Element => {
     try {
       const s = await window.harness.settings.get();
       setAutoApprove(s.approval.autoApprove);
+      // Also resolve which AgentProfile is active so the auto-approve
+      // policy can layer per-profile permissions on top of the global flag.
+      const profiles = await window.harness.agents.list();
+      const activeId = s.activeAgentProfileId;
+      const next =
+        (activeId ? profiles.find((p) => p.id === activeId) : null) ??
+        profiles.find((p) => p.isDefault) ??
+        null;
+      setActiveAgentProfile(next);
     } catch {
       setAutoApprove(false);
+      setActiveAgentProfile(null);
     }
   }, []);
 
@@ -259,16 +357,22 @@ export const WorkbenchShell = (): JSX.Element => {
     refreshThreadDetail,
   ]);
 
-  // Auto-approve + auto-execute. When the user opts in via settings, the
-  // renderer transparently approves every pending approval and runs it,
-  // including high-risk action types and orchestration plans. The
-  // service-layer security gate is untouched — this is UI-level only.
+  // Auto-approve + auto-execute. Combines the global `approval.autoApprove`
+  // toggle with the active AgentProfile's per-action permissions. Block
+  // list on the profile wins over the global flag (see
+  // packages/core/src/conversation/auto-approve-policy.ts).
   useEffect(() => {
-    if (!autoApprove) return;
     if (taskRunDetail.kind !== "ready") return;
     const inFlight = autoInFlightRef.current;
     const pending = taskRunDetail.detail.approvals.filter(
-      (a: Approval): boolean => a.status === "pending" && !inFlight.has(a.id),
+      (a: Approval): boolean =>
+        a.status === "pending" &&
+        !inFlight.has(a.id) &&
+        shouldAutoApprove({
+          approval: a,
+          globalAutoApprove: autoApprove,
+          activeProfile: activeAgentProfile,
+        }),
     );
     if (pending.length === 0) return;
     void (async () => {
@@ -301,6 +405,7 @@ export const WorkbenchShell = (): JSX.Element => {
     })();
   }, [
     autoApprove,
+    activeAgentProfile,
     taskRunDetail,
     selectedTaskRunId,
     selectedThreadId,
@@ -521,73 +626,172 @@ export const WorkbenchShell = (): JSX.Element => {
   const selectedThread =
     detailState.kind === "ready" ? detailState.detail.thread : null;
 
+  const threadCount =
+    threadsState.kind === "ready" ? threadsState.threads.length : 0;
+  const hasSelectedTaskRun = selectedTaskRunId !== null;
+  const pendingApprovalCount =
+    taskRunDetail.kind === "ready"
+      ? taskRunDetail.detail.approvals.filter((a) => a.status === "pending").length
+      : 0;
+
+  // SlimRail intents
+  const openThreadDrawer = useCallback(() => setThreadDrawerOpen(true), []);
+  const toggleThreadDrawer = useCallback(
+    () => setThreadDrawerOpen((v) => !v),
+    [],
+  );
+  const toggleContextDrawer = useCallback(
+    () => setContextDrawerOpen((v) => !v),
+    [],
+  );
+  const handleNewThreadFromRail = useCallback(() => {
+    setThreadDrawerOpen(true);
+    // Bump a counter so ThreadSidebar receives a fresh "start create" signal
+    // each click, even when the drawer was already open.
+    setThreadCreateRequest((n) => n + 1);
+  }, []);
+
+  // When a TaskRun gets selected, auto-open the context drawer so approvals
+  // and plan output are immediately visible. Don't auto-close on deselect —
+  // leave the user's choice intact.
+  const prevSelectedTaskRunIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      selectedTaskRunId !== null &&
+      prevSelectedTaskRunIdRef.current === null &&
+      !contextDrawerOpen
+    ) {
+      setContextDrawerOpen(true);
+    }
+    prevSelectedTaskRunIdRef.current = selectedTaskRunId;
+  }, [selectedTaskRunId, contextDrawerOpen]);
+
+  // Pending approval should pull the user's attention to the context drawer —
+  // but only the FIRST time a given TaskRun has pending approvals. If the
+  // user explicitly closes the drawer during an active run, subsequent
+  // approval events shouldn't keep re-opening it. Also skip entirely when
+  // auto-approve is on — the user opted out of manual approval, so don't
+  // disrupt their flow.
+  const autoOpenedForTaskRunRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (autoApprove) return;
+    if (!selectedTaskRunId) return;
+    if (pendingApprovalCount === 0) return;
+    if (autoOpenedForTaskRunRef.current.has(selectedTaskRunId)) return;
+    autoOpenedForTaskRunRef.current.add(selectedTaskRunId);
+    if (!contextDrawerOpen) setContextDrawerOpen(true);
+  }, [pendingApprovalCount, contextDrawerOpen, selectedTaskRunId, autoApprove]);
+
   return (
     <div
-      className="workbench"
-      style={{ gridTemplateColumns: `${sidebarWidth}px 1fr ${rightPanelWidth}px` }}
+      className={`workbench${threadDrawerOpen ? " workbench--thread-open" : ""}${contextDrawerOpen ? " workbench--context-open" : ""}`}
+      style={{
+        // Grid columns: rail | thread drawer | main | context drawer
+        gridTemplateColumns: `64px ${threadDrawerOpen ? `${sidebarWidth}px` : "0px"} 1fr ${contextDrawerOpen ? `${rightPanelWidth}px` : "0px"}`,
+      }}
     >
-      <div
-        className={`workbench-resizer${dragging === "sidebar" ? " workbench-resizer--dragging" : ""}`}
-        style={{ left: sidebarWidth }}
-        onMouseDown={handleSidebarResizerMouseDown}
+      <SlimRail
+        threadCount={threadCount}
+        threadDrawerOpen={threadDrawerOpen}
+        contextDrawerOpen={contextDrawerOpen}
+        hasSelectedTaskRun={hasSelectedTaskRun}
+        theme={theme}
+        onToggleThreadDrawer={toggleThreadDrawer}
+        onToggleContextDrawer={toggleContextDrawer}
+        onNewThread={handleNewThreadFromRail}
+        onToggleTheme={handleToggleTheme}
+        onOpenSettings={() => setSettingsOpen(true)}
       />
-      {viewMode !== "agents" && (
+
+      {threadDrawerOpen && (
+        <div
+          className={`workbench-resizer${dragging === "sidebar" ? " workbench-resizer--dragging" : ""}`}
+          style={{ left: 64 + sidebarWidth }}
+          onMouseDown={handleSidebarResizerMouseDown}
+        />
+      )}
+      {contextDrawerOpen && (
         <div
           className={`workbench-resizer${dragging === "right" ? " workbench-resizer--dragging" : ""}`}
           style={{ right: rightPanelWidth }}
           onMouseDown={handleRightResizerMouseDown}
         />
       )}
-      <ThreadSidebar
-        state={threadsState}
-        selectedThreadId={selectedThreadId}
-        onSelectThread={(id) => {
-          setSelectedThreadId(id);
-          setSelectedTaskRunId(null);
-          setViewMode("workbench");
-        }}
-        onCreateThread={handleCreateThread}
-        onDeleteThread={handleDeleteThread}
-        onRetry={() => void refreshThreads()}
-        onOpenAgents={() => setViewMode((v) => v === "agents" ? "workbench" : "agents")}
-        agentsActive={viewMode === "agents"}
-      />
-      {viewMode === "agents" ? (
-        <AgentsPanel onClose={() => setViewMode("workbench")} />
-      ) : (
-        <>
-          <ConversationWorkbench
-            detailState={detailState}
-            selectedTaskRunId={selectedTaskRunId}
-            onSelectTaskRun={setSelectedTaskRunId}
-            onDeleteTask={handleDeleteTask}
-            onCreateTask={handleCreateTask}
-            threadTargetDir={selectedThread?.targetDir}
-            threadId={selectedThreadId}
-            agentAvailable={agentAvailable}
-          />
-          <RightPanel
-            state={taskRunDetail}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            onRedirect={handleRedirect}
-            onConfigure={handleConfigure}
-            onExecute={handleExecute}
-            onQualityChanged={handleQualityChanged}
-            onCapabilityApprovalCreated={handleQualityChanged}
-            onAgentGenerate={handleAgentGenerate}
-            onAgentRetry={handleAgentRetry}
-            onAgentCancel={handleAgentCancel}
-            onAgentUseFallback={handleAgentUseFallback}
-            agentAvailable={agentAvailable}
-          />
+
+      <aside
+        className={`thread-drawer${threadDrawerOpen ? " thread-drawer--open" : ""}`}
+        aria-hidden={!threadDrawerOpen}
+      >
+        <ThreadSidebar
+          state={threadsState}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={(id) => {
+            setSelectedThreadId(id);
+            setSelectedTaskRunId(null);
+          }}
+          onCreateThread={handleCreateThread}
+          onDeleteThread={handleDeleteThread}
+          onRetry={() => void refreshThreads()}
+          startCreateSignal={threadCreateRequest}
+        />
+      </aside>
+
+      <>
+          {selectedThreadId === null && threadCount === 0 ? (
+            <main
+              className="conversation-workbench"
+              aria-label="Conversation workbench"
+            >
+              <HeroEmpty
+                variant="no-thread"
+                onCreateThread={handleNewThreadFromRail}
+              />
+            </main>
+          ) : (
+            <ConversationWorkbench
+              detailState={detailState}
+              selectedTaskRunId={selectedTaskRunId}
+              onSelectTaskRun={setSelectedTaskRunId}
+              onDeleteTask={handleDeleteTask}
+              onCreateTask={handleCreateTask}
+              threadTargetDir={selectedThread?.targetDir}
+              threadId={selectedThreadId}
+              agentAvailable={agentAvailable}
+              contextDrawerOpen={contextDrawerOpen}
+              onToggleContextDrawer={toggleContextDrawer}
+              pendingApprovalCount={pendingApprovalCount}
+              autoApprove={autoApprove}
+              onOpenThreadDrawer={openThreadDrawer}
+              activeTaskRunId={selectedTaskRunId}
+              activeTaskRunApprovals={
+                taskRunDetail.kind === "ready"
+                  ? taskRunDetail.detail.approvals
+                  : []
+              }
+            />
+          )}
+          <aside
+            className={`context-drawer${contextDrawerOpen ? " context-drawer--open" : ""}`}
+            aria-hidden={!contextDrawerOpen}
+          >
+            <RightPanel
+              state={taskRunDetail}
+              onApprove={handleApprove}
+              onReject={handleReject}
+              onRedirect={handleRedirect}
+              onConfigure={handleConfigure}
+              onExecute={handleExecute}
+              onQualityChanged={handleQualityChanged}
+              onCapabilityApprovalCreated={handleQualityChanged}
+              onAgentGenerate={handleAgentGenerate}
+              onAgentRetry={handleAgentRetry}
+              onAgentCancel={handleAgentCancel}
+              onAgentUseFallback={handleAgentUseFallback}
+              agentAvailable={agentAvailable}
+            />
+          </aside>
         </>
-      )}
-      <RuntimeStatusBar
-        onSettingsClick={() => setSettingsOpen(true)}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-      />
+      <RuntimeStatusBar />
       {settingsOpen && (
         <SettingsPanel
           onClose={() => {

@@ -1,7 +1,9 @@
-import { useEffect, useRef } from "react";
-import type { TaskRun, ThreadDetail } from "@harness/core";
+import { useEffect, useRef, useState } from "react";
+import type { Approval, TaskRun, ThreadDetail } from "@harness/core";
 import { ConversationInput, type ConversationMode } from "./ConversationInput";
 import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
+import { HeroEmpty } from "./HeroEmpty";
+import { InlineApprovalCard } from "./InlineApprovalCard";
 
 type DetailState =
   | { kind: "idle" }
@@ -22,6 +24,13 @@ interface ConversationWorkbenchProps {
   threadTargetDir: string | undefined;
   threadId: string | null;
   agentAvailable: boolean;
+  contextDrawerOpen: boolean;
+  onToggleContextDrawer: () => void;
+  pendingApprovalCount: number;
+  autoApprove: boolean;
+  onOpenThreadDrawer?: () => void;
+  activeTaskRunApprovals: Approval[];
+  activeTaskRunId: string | null;
 }
 
 const formatTime = (iso: string): string => {
@@ -39,20 +48,28 @@ export const ConversationWorkbench = ({
   threadTargetDir,
   threadId,
   agentAvailable,
+  contextDrawerOpen,
+  onToggleContextDrawer,
+  pendingApprovalCount,
+  autoApprove,
+  onOpenThreadDrawer,
+  activeTaskRunApprovals,
+  activeTaskRunId,
 }: ConversationWorkbenchProps): JSX.Element => {
+  const [composerSeed, setComposerSeed] = useState<
+    { text: string; key: number } | null
+  >(null);
+  const seedFromChip = (text: string): void => {
+    setComposerSeed({ text, key: Date.now() });
+  };
+
   if (detailState.kind === "idle") {
     return (
       <main className="conversation-workbench" aria-label="Conversation workbench">
-        <header className="panel-header">
-          <span>Workbench</span>
-          <span style={{ color: "var(--text-muted)" }}>스레드 미선택</span>
-        </header>
-        <div className="conversation-workbench__greeting">
-          <h1>HarnessAgentOS</h1>
-          <p>
-            왼쪽에서 스레드를 선택하거나 <strong>+ 새 작업</strong>으로 시작하세요.
-          </p>
-        </div>
+        <HeroEmpty
+          variant="no-thread-selected"
+          {...(onOpenThreadDrawer ? { onOpenDrawer: onOpenThreadDrawer } : {})}
+        />
       </main>
     );
   }
@@ -90,32 +107,81 @@ export const ConversationWorkbench = ({
 
   return (
     <main className="conversation-workbench" aria-label="Conversation workbench">
-      <ChatHeader thread={detailState.detail.thread} />
+      <ChatHeader
+        thread={detailState.detail.thread}
+        contextDrawerOpen={contextDrawerOpen}
+        onToggleContextDrawer={onToggleContextDrawer}
+        pendingApprovalCount={pendingApprovalCount}
+        autoApprove={autoApprove}
+      />
       <ChatTranscript
         detail={detailState.detail}
         selectedTaskRunId={selectedTaskRunId}
         onSelectTaskRun={onSelectTaskRun}
         onDeleteTask={onDeleteTask}
+        onSuggest={seedFromChip}
+        activeTaskRunId={activeTaskRunId}
+        activeTaskRunApprovals={activeTaskRunApprovals}
+        autoApprove={autoApprove}
+        contextDrawerOpen={contextDrawerOpen}
+        onOpenContextDrawer={() => {
+          if (!contextDrawerOpen) onToggleContextDrawer();
+        }}
       />
       <ConversationInput
         threadId={threadId}
         threadTargetDir={threadTargetDir}
         agentAvailable={agentAvailable}
+        composerSeed={composerSeed}
         onSubmit={onCreateTask}
       />
     </main>
   );
 };
 
-const ChatHeader = ({ thread }: { thread: ThreadDetail["thread"] }) => (
-  <header className="panel-header">
-    <span>{thread.title}</span>
+const ChatHeader = ({
+  thread,
+  contextDrawerOpen,
+  onToggleContextDrawer,
+  pendingApprovalCount,
+  autoApprove,
+}: {
+  thread: ThreadDetail["thread"];
+  contextDrawerOpen: boolean;
+  onToggleContextDrawer: () => void;
+  pendingApprovalCount: number;
+  autoApprove: boolean;
+}) => (
+  <header className="panel-header chat-header">
+    <span className="chat-header__title">{thread.title}</span>
     <span
-      style={{ color: "var(--text-muted)" }}
+      className="chat-header__targetdir"
       title={thread.targetDir ?? "대상 폴더 미선택"}
     >
       {thread.targetDir ?? "대상 폴더 미선택"}
     </span>
+    <button
+      type="button"
+      className={`chat-header__drawer-btn${contextDrawerOpen ? " chat-header__drawer-btn--active" : ""}`}
+      onClick={onToggleContextDrawer}
+      aria-pressed={contextDrawerOpen}
+      aria-label={contextDrawerOpen ? "컨텍스트 패널 닫기" : "컨텍스트 패널 열기"}
+      title={contextDrawerOpen ? "컨텍스트 닫기 (Ctrl+J)" : "컨텍스트 열기 (Ctrl+J)"}
+    >
+      <span aria-hidden>▦</span>
+      {pendingApprovalCount > 0 && (
+        <span
+          className={`chat-header__badge${autoApprove ? " chat-header__badge--auto" : ""}`}
+          aria-label={
+            autoApprove
+              ? `${pendingApprovalCount}건 자동 승인 처리 중`
+              : `${pendingApprovalCount}건의 승인 대기`
+          }
+        >
+          {pendingApprovalCount}
+        </span>
+      )}
+    </button>
   </header>
 );
 
@@ -124,11 +190,23 @@ const ChatTranscript = ({
   selectedTaskRunId,
   onSelectTaskRun,
   onDeleteTask,
+  onSuggest,
+  activeTaskRunId,
+  activeTaskRunApprovals,
+  autoApprove,
+  contextDrawerOpen,
+  onOpenContextDrawer,
 }: {
   detail: ThreadDetail;
   selectedTaskRunId: string | null;
   onSelectTaskRun: (id: string) => void;
   onDeleteTask: (id: string) => Promise<void>;
+  onSuggest: (text: string) => void;
+  activeTaskRunId: string | null;
+  activeTaskRunApprovals: Approval[];
+  autoApprove: boolean;
+  contextDrawerOpen: boolean;
+  onOpenContextDrawer: () => void;
 }): JSX.Element => {
   const { taskRuns, agentAnswers } = detail;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -148,9 +226,7 @@ const ChatTranscript = ({
   if (ordered.length === 0) {
     return (
       <div className="chat-transcript" ref={scrollRef}>
-        <div className="empty-state">
-          아직 대화가 없습니다. 아래에 메시지를 입력해 시작하세요.
-        </div>
+        <HeroEmpty variant="no-tasks" onSuggest={onSuggest} />
       </div>
     );
   }
@@ -165,6 +241,16 @@ const ChatTranscript = ({
           isSelected={selectedTaskRunId === tr.id}
           onSelect={() => onSelectTaskRun(tr.id)}
           onDelete={() => void onDeleteTask(tr.id)}
+          inlineApprovalCard={
+            activeTaskRunId === tr.id ? (
+              <InlineApprovalCard
+                approvals={activeTaskRunApprovals}
+                autoApprove={autoApprove}
+                contextDrawerOpen={contextDrawerOpen}
+                onOpenDrawer={onOpenContextDrawer}
+              />
+            ) : null
+          }
         />
       ))}
     </div>
@@ -177,12 +263,14 @@ const ChatTurn = ({
   isSelected,
   onSelect,
   onDelete,
+  inlineApprovalCard,
 }: {
   taskRun: TaskRun;
   answer: string | undefined;
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
   return (
     <div
@@ -223,6 +311,7 @@ const ChatTurn = ({
           <span title={taskRun.targetDir}>{shortPath(taskRun.targetDir)}</span>
         </div>
       </div>
+      {inlineApprovalCard}
     </div>
   );
 };

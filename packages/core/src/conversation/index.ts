@@ -5,3 +5,4 @@ export * from "./approval-policy.ts";
 export * from "./state-gateway.ts";
 export * from "./conversation-service.ts";
 export * from "./proposed-action-validator.ts";
+export * from "./auto-approve-policy.ts";

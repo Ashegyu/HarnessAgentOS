@@ -1,13 +1,27 @@
+/* ──────────────────────────────────────────────────────────────
+ * Workbench v2 layout
+ *   rail | thread-drawer | main | context-drawer
+ *   ──────────────────  status bar ──────────────────
+ * Drawer columns collapse to 0px when closed (controlled inline).
+ * ────────────────────────────────────────────────────────────── */
+
 .workbench {
   display: grid;
   grid-template-rows: 1fr 28px;
   grid-template-areas:
-    "sidebar workbench rightpanel"
-    "statusbar statusbar statusbar";
+    "rail thread main context"
+    "statusbar statusbar statusbar statusbar";
   height: 100vh;
   width: 100vw;
   overflow: hidden;
   position: relative;
+  /* v2 Phase 3: smooth drawer open/close (modern Chromium supports grid template transition) */
+  transition: grid-template-columns 220ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Suppress transition while user drags a resizer — drag should be 1:1 */
+.workbench:has(.workbench-resizer--dragging) {
+  transition: none;
 }
 
 .workbench-resizer {
@@ -27,30 +41,466 @@
   background: var(--border-strong);
 }
 
-.thread-sidebar {
-  grid-area: sidebar;
+/* ── Slim rail ─────────────────────────────────────────────── */
+
+.slim-rail {
+  grid-area: rail;
+  background: var(--bg-panel-elev);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  gap: 6px;
+  min-height: 0;
+}
+
+.slim-rail__brand {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.slim-rail__brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--text-accent);
+  color: var(--bg-app);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  font-family: var(--font-sans);
+}
+
+.slim-rail__btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  padding: 0;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.slim-rail__btn:hover:not(:disabled) {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+}
+
+.slim-rail__btn--active {
+  background: var(--status-running-fill);
+  color: var(--text-accent);
+  border-color: var(--status-running-edge);
+}
+
+.slim-rail__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.slim-rail__badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--text-accent);
+  color: var(--bg-app);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+
+.slim-rail__spacer {
+  flex: 1;
+}
+
+.slim-rail__fab {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--text-accent);
+  color: var(--bg-app);
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-top: 6px;
+  transition: filter 120ms;
+}
+
+.slim-rail__fab:hover {
+  filter: brightness(1.1);
+}
+
+/* ── Thread drawer (replaces v1 sidebar grid area) ─────────── */
+
+.thread-drawer {
+  grid-area: thread;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+  /* Inner content gets a fixed min-width so the column shrinking to 0 wipes
+     the content from the right edge rather than reflowing it. */
+  min-width: 0;
+}
+
+.thread-drawer[aria-hidden="true"] {
+  /* Keep in flow so the column transition can play; visually clipped by overflow */
+  border-right-color: transparent;
+  pointer-events: none;
+}
+
+.thread-drawer > * {
+  /* Matches resizer floor (sidebarWidth range 180–400). When the user drags
+     to minimum, content fits the column exactly. When the column collapses
+     below this during close animation, overflow: hidden clips it from the
+     right edge for the wipe-out feel. */
+  min-width: 180px;
+}
+
+.thread-sidebar {
+  /* v1 grid-area removed; v2 takes its own column via .thread-drawer */
+  background: transparent;
+  border-right: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  /* Enable container queries so children (panel header button, list items)
+     can adapt to the drawer's actual rendered width, not the viewport. */
+  container-type: inline-size;
+  container-name: thread-sidebar;
 }
 
 .conversation-workbench {
-  grid-area: workbench;
+  grid-area: main;
   background: var(--bg-app);
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.right-panel {
-  grid-area: rightpanel;
+/* ── Context drawer (replaces v1 right-panel grid area) ────── */
+
+.context-drawer {
+  grid-area: context;
   background: var(--bg-panel);
   border-left: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.context-drawer[aria-hidden="true"] {
+  border-left-color: transparent;
+  pointer-events: none;
+}
+
+.context-drawer > * {
+  /* Matches resizer floor (rightPanelWidth range 280–600). Same reasoning
+     as thread-drawer: content fits column at user-minimum, then clips
+     during the wipe-out close animation. */
+  min-width: 280px;
+}
+
+.right-panel {
+  /* v1 grid-area removed; v2 places it inside .context-drawer */
+  background: transparent;
+  border-left: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+/* ── Chat header (with drawer toggle + badge) ──────────────── */
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* v2: center the header to match transcript canvas */
+  width: 100%;
+  max-width: 792px;
+  margin: 0 auto;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.chat-header__title {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.chat-header__targetdir {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-header__drawer-btn {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.chat-header__drawer-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.chat-header__drawer-btn--active {
+  background: var(--status-running-fill);
+  color: var(--text-accent);
+  border-color: var(--status-running-edge);
+}
+
+.chat-header__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--status-pending);
+  color: var(--bg-app);
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Hero empty states ─────────────────────────────────────── */
+
+.hero-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  text-align: center;
+  gap: var(--space-3);
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.hero-empty__title {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.hero-empty__subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+  max-width: 480px;
+}
+
+.hero-empty__cta {
+  margin-top: var(--space-3);
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: var(--text-accent);
+  color: var(--bg-app);
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms;
+}
+
+.hero-empty__cta:hover {
+  filter: brightness(1.1);
+}
+
+.hero-empty__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: center;
+  margin-top: var(--space-3);
+}
+
+.suggestion-chip {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+
+.suggestion-chip:hover {
+  background: var(--bg-panel-elev);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ── Inline approval card (transcript) ─────────────────────── */
+
+.inline-approval-card {
+  align-self: flex-start;
+  max-width: 78%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--status-pending-fill);
+  border: 1px solid var(--status-pending-edge);
+  color: var(--text-primary);
+  margin-top: 4px;
+  animation: inline-approval-pop 200ms ease-out;
+}
+
+/* Auto-approve variant — the user opted out of manual gating, so this card
+   is a status indicator (not a call-to-action). Cooler tone, no CTA button. */
+.inline-approval-card--auto {
+  background: var(--bg-panel-elev);
+  border-color: var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.inline-approval-card--auto .inline-approval-card__icon {
+  color: var(--accent, var(--text-secondary));
+  animation: inline-approval-spin 1.4s linear infinite;
+  display: inline-block;
+}
+
+.inline-approval-card--auto .inline-approval-card__title {
+  color: var(--text-secondary);
+}
+
+@keyframes inline-approval-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chat-header__badge--auto {
+  background: var(--bg-panel-elev);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+}
+
+@keyframes inline-approval-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.inline-approval-card__body {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.inline-approval-card__icon {
+  font-size: 16px;
+  color: var(--status-pending);
+  flex-shrink: 0;
+}
+
+.inline-approval-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.inline-approval-card__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.inline-approval-card__detail {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-approval-card__action {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--status-pending);
+  color: var(--bg-app);
+  border: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 120ms;
+}
+
+.inline-approval-card__action:hover {
+  filter: brightness(1.1);
 }
 
 .runtime-status-bar {
@@ -70,6 +520,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border-subtle);
   text-transform: uppercase;
@@ -77,6 +528,111 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
+  min-width: 0;
+}
+
+.panel-header__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.panel-header__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-elev);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  font-weight: 500;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.panel-header__action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.panel-header__action-icon {
+  font-weight: 700;
+  line-height: 1;
+}
+
+.panel-header__action-label {
+  line-height: 1;
+}
+
+/* Drawer is narrow → drop the label, leave just "+". The tooltip still
+   surfaces the full action name on hover. Threshold matches the smallest
+   useful drawer width before resizers fully collapse. */
+@container thread-sidebar (max-width: 220px) {
+  .panel-header__action-label {
+    display: none;
+  }
+}
+
+/* ── Custom hover tooltip ───────────────────────────────────
+   Any element with [data-tooltip="..."] gets a floating bubble on hover.
+   Pure CSS — no JS state. Uses ::after so the host doesn't lose its own
+   pseudo-element ordering. Suppressed while dragging the workbench resizer
+   so the tooltip doesn't flicker mid-drag. */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]:hover::after,
+[data-tooltip]:focus-visible::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  z-index: 50;
+  left: 0;
+  top: calc(100% + 6px);
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--bg-panel-elev);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-panel);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+  word-break: break-all;
+  max-width: 320px;
+  pointer-events: none;
+  /* Subtle entrance so it reads as a deliberate UI, not a redraw flash. */
+  animation: tooltip-pop 120ms ease-out;
+}
+
+@keyframes tooltip-pop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.workbench:has(.workbench-resizer--dragging) [data-tooltip]::after {
+  display: none;
+}
+
+/* Vertical-rail tabs sit on the left of the right panel; default below-anchor
+   would cover the tab body. Float the bubble to the right instead. */
+.right-panel__tabs--vertical [data-tooltip]:hover::after,
+.right-panel__tabs--vertical [data-tooltip]:focus-visible::after {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .panel-body {
@@ -114,35 +670,6 @@
   border-bottom: none;
 }
 
-.conversation-workbench__greeting {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: var(--space-6);
-  color: var(--text-secondary);
-}
-
-.conversation-workbench__greeting h1 {
-  font-size: 20px;
-  font-weight: 600;
-  margin: 0 0 var(--space-2);
-  color: var(--text-primary);
-}
-
-.conversation-workbench__greeting p {
-  margin: 0;
-  max-width: 540px;
-  line-height: 1.6;
-}
-
-.conversation-workbench__input {
-  border-top: 1px solid var(--border-subtle);
-  padding: var(--space-4);
-  background: var(--bg-panel);
-}
 
 .conversation-workbench__input textarea {
   width: 100%;
@@ -467,6 +994,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  /* v2: align with centered transcript (max-width 760px + side padding) */
+  width: 100%;
+  max-width: 792px;
+  margin: 0 auto;
+  border-left: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  border-radius: 12px 12px 0 0;
 }
 
 .conversation-input__targetdir {
@@ -1770,6 +2304,70 @@
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border-subtle);
   background: var(--bg-panel-elev);
+  /* v2: pinned actions stay visible while user switches tabs */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+/* v2: vertical tab strip + body in two columns */
+.right-panel__split {
+  flex: 1;
+  display: grid;
+  /* Tab rail widened from 64px → 72px so labels like "Time"/"Files" don't
+     kiss the rail edge at Korean system fonts that render slightly wider. */
+  grid-template-columns: 72px 1fr;
+  min-height: 0;
+}
+
+.right-panel__tabs--vertical {
+  flex-direction: column;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border-subtle);
+  border-bottom: none;
+  background: var(--bg-panel-elev);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+  gap: 2px;
+}
+
+.right-panel__tabs--vertical .right-panel__tab {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 4px;
+  border-bottom: none;
+  border-left: 2px solid transparent;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  /* Tabs are vertical-column buttons; clip overflow so long labels fall back
+     to the tooltip instead of wrapping into a second line and breaking the
+     uniform tab height. */
+  overflow: hidden;
+}
+
+.right-panel__tabs--vertical .right-panel__tab--active {
+  border-left-color: var(--status-running);
+  background: var(--status-running-fill);
+}
+
+.right-panel__tab-icon {
+  font-size: 16px;
+  line-height: 1;
+  color: inherit;
+}
+
+.right-panel__tab-label {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel-body--compact {
@@ -2119,6 +2717,10 @@
   flex-direction: column;
   gap: var(--space-3, 16px);
   scroll-behavior: smooth;
+  /* v2: centered conversation canvas (max-width 760px) */
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
 }
 
 .chat-turn {
@@ -2397,49 +2999,6 @@
  * Settings panel
  * ────────────────────────────────────────────────────────────── */
 
-.runtime-status-bar__theme-btn {
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  width: 20px;
-  height: 20px;
-  line-height: 1;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.runtime-status-bar__theme-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
-.runtime-status-bar__settings-btn {
-  margin-left: auto;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  width: 20px;
-  height: 20px;
-  line-height: 1;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.runtime-status-bar__settings-btn:hover {
-  color: var(--text-primary);
-  border-color: var(--border-strong);
-}
-
 .settings-overlay {
   position: fixed;
   inset: 0;
@@ -2507,6 +3066,349 @@
   flex: 0 0 auto;
 }
 
+/* ── Settings tab strip (Phase 5a) ─────────────────────────── */
+
+.settings-dialog__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-app);
+  flex: 0 0 auto;
+}
+
+.settings-dialog__tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.settings-dialog__tab:hover {
+  color: var(--text-primary);
+}
+
+.settings-dialog__tab--active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent, var(--status-success));
+}
+
+.settings-dialog__body--flush {
+  padding: 0;
+  /* AgentProfilesTab manages its own padding via the split layout. */
+}
+
+/* ── AgentProfilesTab layout (Phase 5a) ────────────────────── */
+
+.agent-profiles-tab {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+}
+
+.agent-profiles-tab__list {
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agent-profiles-tab__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.agent-profiles-tab__items {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agent-profiles-tab__item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.agent-profiles-tab__item:hover {
+  background: var(--bg-panel-elev);
+}
+
+.agent-profiles-tab__item--selected {
+  background: var(--bg-panel-elev);
+  border-color: var(--border-strong);
+}
+
+.agent-profiles-tab__item-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.agent-profiles-tab__item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.agent-profiles-tab__editor {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.agent-profiles-tab__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.agent-profiles-tab__heading {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.agent-profiles-tab__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.agent-profiles-tab__errors ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+/* Migration banner (Phase 5b — legacy WorkerProfile → AgentProfile) */
+.agent-profiles-tab__migrate {
+  margin: var(--space-2);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-pending-fill);
+  border: 1px solid var(--status-pending-edge);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+}
+
+.agent-profiles-tab__migrate-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.agent-profiles-tab__migrate-body strong {
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.agent-profiles-tab__migrate-body p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+/* ── Permissions matrix ────────────────────────────────────── */
+
+.permissions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.permissions-table th,
+.permissions-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.permissions-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.permissions-table th:nth-child(n + 2) {
+  text-align: center;
+  width: 90px;
+}
+
+.permissions-table td {
+  color: var(--text-primary);
+}
+
+/* ── SkillSourcesTab (Phase 5a) ───────────────────────────── */
+
+.skill-sources-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.skill-sources-tab__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.skill-sources-tab__heading {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.skill-sources-tab__notice {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.skill-sources-tab__add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+}
+
+.skill-sources-tab__add-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.skill-sources-tab__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skill-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 12px;
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.skill-source-row__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.skill-source-row__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.skill-source-row__origin {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.skill-source-row__status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.skill-source-row__status--ready {
+  background: var(--status-success-fill, rgba(46, 204, 113, 0.15));
+  color: var(--status-success, #2ecc71);
+  border: 1px solid var(--status-success);
+}
+
+.skill-source-row__status--blocked {
+  background: var(--status-pending-fill);
+  color: var(--status-pending);
+  border: 1px solid var(--status-pending-edge);
+}
+
+.skill-source-row__path {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-source-row__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn--accent {
+  border-color: var(--accent, var(--status-pending)) !important;
+  color: var(--accent, var(--status-pending)) !important;
+}
+
 .settings-fieldset {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -2570,391 +3472,264 @@
   border-color: var(--border-strong);
 }
 
-/* ── Sidebar nav (Agents button) ─────────────────────────── */
-
-.thread-sidebar {
-  display: flex;
-  flex-direction: column;
-}
-
 .thread-sidebar .panel-body {
   flex: 1;
   overflow-y: auto;
 }
 
-.sidebar-nav {
-  padding: 8px;
-  border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
 
-.sidebar-nav__btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 7px 10px;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm, 4px);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 100ms, color 100ms, border-color 100ms;
-  text-align: left;
-}
+/* ── McpServersTab (Phase 5b) ──────────────────────────────── */
 
-.sidebar-nav__btn:hover {
-  background: var(--bg-panel-elev, #1e1e1e);
-  color: var(--text-primary);
-  border-color: var(--border-subtle);
-}
-
-.sidebar-nav__btn--active {
-  background: color-mix(in srgb, var(--text-accent, #7c8cf8) 12%, transparent);
-  color: var(--text-accent, #7c8cf8);
-  border-color: color-mix(in srgb, var(--text-accent, #7c8cf8) 30%, transparent);
-}
-
-/* ── Agents panel ────────────────────────────────────────── */
-
-.agents-panel {
-  grid-column: 2 / 4;
+.mcp-servers-tab {
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
-  overflow: hidden;
-}
-
-.agents-panel__header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  height: 44px;
-  border-bottom: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.agents-panel__back {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: var(--radius-sm, 4px);
-  line-height: 1;
-}
-
-.agents-panel__back:hover {
-  color: var(--text-primary);
-  background: var(--bg-panel-elev);
-}
-
-.agents-panel__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.agents-panel__body {
+  min-height: 0;
+  height: 100%;
   flex: 1;
-  overflow-y: auto;
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
 }
 
-.agents-panel__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 24px;
-  border-top: 1px solid var(--border-subtle);
-  flex-shrink: 0;
-}
-
-.agents-panel__error {
-  padding: 8px 10px;
-  background: color-mix(in srgb, var(--status-failed) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-failed) 30%, transparent);
-  border-radius: var(--radius-sm, 4px);
-  color: var(--status-failed);
-  font-size: 12px;
-}
-
-/* ── Agents sections ─────────────────────────────────────── */
-
-.agents-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.agents-section__title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
-.agents-section__desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: -4px;
-}
-
-.agents-section__enable-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px;
-  background: var(--bg-panel-elev, #1e1e1e);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 6px);
-}
-
-.agents-section__header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.agents-empty-hint {
-  font-size: 13px;
-  color: var(--text-muted);
-  padding: 16px;
-  text-align: center;
-  border: 1px dashed var(--border-subtle);
-  border-radius: var(--radius-sm, 6px);
-}
-
-/* ── Toggle switch ───────────────────────────────────────── */
-
-.toggle-switch {
-  position: relative;
-  display: inline-flex;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.toggle-switch input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-switch__track {
-  display: block;
-  width: 40px;
-  height: 22px;
-  background: var(--border-strong, #444);
-  border-radius: 11px;
-  transition: background 150ms;
-  position: relative;
-}
-
-.toggle-switch__track::after {
-  content: "";
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 16px;
-  height: 16px;
-  background: var(--text-primary);
-  border-radius: 50%;
-  transition: transform 150ms;
-}
-
-.toggle-switch input:checked + .toggle-switch__track {
-  background: var(--text-accent, #7c8cf8);
-}
-
-.toggle-switch input:checked + .toggle-switch__track::after {
-  transform: translateX(18px);
-}
-
-/* ── Mode cards ──────────────────────────────────────────── */
-
-.mode-cards {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-
-.mode-card {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 14px;
-  background: var(--bg-panel-elev, #1e1e1e);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 6px);
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  transition: border-color 120ms, background 120ms;
-}
-
-.mode-card:hover:not(:disabled) {
-  border-color: var(--border-strong);
-}
-
-.mode-card--active {
-  border-color: var(--text-accent, #7c8cf8);
-  background: color-mix(in srgb, var(--text-accent, #7c8cf8) 10%, var(--bg-panel-elev, #1e1e1e));
-}
-
-.mode-card__label {
-  font-size: 13px;
-  font-weight: 600;
+.mcp-servers-tab__banner {
+  margin: var(--space-2) var(--space-2) 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-pending-fill);
+  border: 1px solid var(--status-pending-edge);
   color: var(--text-primary);
-}
-
-.mode-card--active .mode-card__label {
-  color: var(--text-accent, #7c8cf8);
-}
-
-.mode-card__desc {
   font-size: 12px;
-  color: var(--text-secondary);
-  line-height: 1.4;
-}
-
-/* ── Worker cards ────────────────────────────────────────── */
-
-.worker-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
-}
-
-.worker-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  background: var(--bg-panel-elev, #1e1e1e);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 6px);
-}
-
-.worker-card__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.worker-card__name {
-  flex: 1;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  background: transparent;
-  border: none;
-  border-bottom: 1px solid var(--border-subtle);
-  padding: 2px 0;
-  outline: none;
-}
-
-.worker-card__name:focus {
-  border-bottom-color: var(--text-accent, #7c8cf8);
-}
-
-.worker-card__delete {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.worker-card__delete:hover:not(:disabled) {
-  color: var(--status-failed);
-  background: color-mix(in srgb, var(--status-failed) 10%, transparent);
-}
-
-.worker-card__fields {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.worker-card__field {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 90px;
-}
-
-.worker-card__field--model {
-  flex: 1;
-  min-width: 120px;
-}
-
-.worker-card__field > span {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.worker-card__field select,
-.worker-card__field input {
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-primary);
-  background: var(--bg-input, #2a2a2a);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm, 4px);
-  padding: 4px 6px;
-}
-
-.worker-card__field select:focus,
-.worker-card__field input:focus {
-  outline: none;
-  border-color: var(--text-accent, #7c8cf8);
-}
-
-.worker-card__field select:disabled,
-.worker-card__field input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ── Agents instructions textarea ───────────────────────── */
-
-.agents-instructions {
-  width: 100%;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-input, #2a2a2a);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm, 4px);
-  padding: 8px 10px;
-  resize: vertical;
-  box-sizing: border-box;
   line-height: 1.5;
 }
 
-.agents-instructions:focus {
-  outline: none;
-  border-color: var(--text-accent, #7c8cf8);
+.mcp-servers-tab__banner strong {
+  color: var(--text-primary);
 }
 
-.agents-instructions:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.mcp-servers-tab__split {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 0;
+  flex: 1;
+  margin-top: var(--space-2);
+}
+
+.mcp-servers-tab__list {
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mcp-servers-tab__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.mcp-servers-tab__items {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mcp-servers-tab__item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.mcp-servers-tab__item:hover {
+  background: var(--bg-panel-elev);
+}
+
+.mcp-servers-tab__item--selected {
+  background: var(--bg-panel-elev);
+  border-color: var(--border-strong);
+}
+
+.mcp-servers-tab__item-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-servers-tab__item-disabled {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.mcp-servers-tab__item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-servers-tab__item-health {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-servers-tab__editor {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.mcp-servers-tab__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.mcp-servers-tab__heading {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.mcp-servers-tab__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mcp-servers-tab__errors ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+/* ── SecretsTab (Phase 5c) ─────────────────────────────────── */
+
+.secrets-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.secrets-tab__notice {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-pending-fill);
+  border: 1px solid var(--status-pending-edge);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.secrets-tab__notice strong {
+  color: var(--text-primary);
+}
+
+.secrets-tab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.secrets-tab__heading {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.secrets-tab__add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+}
+
+.secrets-tab__value-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.secrets-tab__value-row > input {
+  flex: 1;
+  font-family: var(--font-mono);
+}
+
+.secrets-tab__add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.secrets-tab__errors ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+.secrets-tab__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.secrets-tab__item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.secrets-tab__key {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secrets-tab__status {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
 }

@@ -41,6 +41,13 @@ export interface HarnessSettings {
   agent: AgentSettings;
   orchestration: OrchestrationSettings;
   approval: ApprovalSettings;
+  /**
+   * AgentProfile.id of the profile currently active for new TaskRuns.
+   * When undefined, the resolver falls back to the row with isDefault=true,
+   * and ultimately to legacy `agent` when no profile rows exist.
+   * See docs/design/agent-detailed-settings.md §4.4.
+   */
+  activeAgentProfileId?: string;
 }
 
 export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =

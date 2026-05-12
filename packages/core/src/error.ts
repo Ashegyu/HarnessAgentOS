@@ -135,3 +135,9 @@ export const AGENT_INVOCATION_NOT_FOUND =
 export const AGENT_TASK_RUN_NOT_FOUND = "AGENT_TASK_RUN_NOT_FOUND" as const;
 export const AGENT_MODE_MISMATCH = "AGENT_MODE_MISMATCH" as const;
 export const AGENT_INVOCATION_BUSY = "AGENT_INVOCATION_BUSY" as const;
+
+// Detailed-settings (Phase 3) — see docs/design/agent-detailed-settings.md.
+export const AGENT_PROFILE_NOT_FOUND = "AGENT_PROFILE_NOT_FOUND" as const;
+export const MCP_SERVER_NOT_FOUND = "MCP_SERVER_NOT_FOUND" as const;
+export const SKILL_SOURCE_NOT_FOUND = "SKILL_SOURCE_NOT_FOUND" as const;
+export const SECRET_VAULT_UNAVAILABLE = "SECRET_VAULT_UNAVAILABLE" as const;

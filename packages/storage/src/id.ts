@@ -15,6 +15,9 @@ const PREFIXES = {
   capability: "cap_",
   learningTrace: "lrn_",
   agentInvocation: "inv_",
+  agentProfile: "ap_",
+  mcpServer: "mcp_",
+  skillSource: "ss_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;

@@ -11,19 +11,73 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 0: app, Phase 1: state, Phase 2: conversation, Phase 3: runner,
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
   // Phase 7: orchestration, Phase 8: agent.
+  // Detailed-settings: agents, mcp, skillSource, secret.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
     "agent",
+    "agents",
     "app",
     "capability",
     "conversation",
     "events",
     "learner",
+    "mcp",
     "orchestration",
     "quality",
     "runner",
+    "secret",
     "settings",
+    "skillSource",
     "state",
   ]);
+});
+
+test("agents namespace exposes profile CRUD verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.agents).sort(), [
+    "create",
+    "delete",
+    "get",
+    "list",
+    "setActive",
+    "setDefault",
+    "update",
+  ]);
+  assert.equal(isAllowedChannel("agents:list"), true);
+  assert.equal(isAllowedChannel("agents:setDefault"), true);
+});
+
+test("mcp namespace exposes server management verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.mcp).sort(), [
+    "delete",
+    "healthCheck",
+    "list",
+    "toggle",
+    "upsert",
+  ]);
+  assert.equal(isAllowedChannel("mcp:healthCheck"), true);
+  assert.equal(isAllowedChannel("mcp:upsert"), true);
+});
+
+test("skillSource namespace exposes registration verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.skillSource).sort(), [
+    "add",
+    "list",
+    "refresh",
+    "remove",
+    "update",
+  ]);
+  assert.equal(isAllowedChannel("skillSource:add"), true);
+});
+
+test("secret namespace exposes write/clear/listKeys only (no read)", () => {
+  // The renderer must never receive plaintext secrets, so the read verb
+  // is deliberately absent. Decryption lives in the main process only.
+  assert.deepEqual(Object.keys(IPC_CHANNELS.secret).sort(), [
+    "clear",
+    "listKeys",
+    "write",
+  ]);
+  assert.equal(isAllowedChannel("secret:write"), true);
+  assert.equal(isAllowedChannel("secret:read"), false);
 });
 
 test("events namespace exposes id-only + scoped chunk push channels", () => {
@@ -57,6 +111,7 @@ test("app namespace exposes runtime + selectDirectory + selectFile", () => {
 test("state namespace exposes Phase 1 verbs only", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.state).sort(), [
     "createThread",
+    "deleteThread",
     "getThread",
     "listThreads",
   ]);
@@ -138,7 +193,7 @@ test("channel strings use namespace:verb format", () => {
   for (const channel of ALLOWED_IPC_CHANNELS) {
     assert.match(
       channel,
-      /^[a-z]+:[a-zA-Z]+$/,
+      /^[a-zA-Z]+:[a-zA-Z]+$/,
       `channel "${channel}" violates namespace:verb format`,
     );
   }

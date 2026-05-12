@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Thread } from "@harness/core";
 
 type ThreadsState =
@@ -16,8 +16,8 @@ interface ThreadSidebarProps {
   }) => Promise<void>;
   onDeleteThread: (id: string) => Promise<void>;
   onRetry: () => void;
-  onOpenAgents: () => void;
-  agentsActive: boolean;
+  /** Counter from parent; when value changes, the create form opens. */
+  startCreateSignal?: number;
 }
 
 const formatRelative = (iso: string): string => {
@@ -33,8 +33,7 @@ export const ThreadSidebar = ({
   onCreateThread,
   onDeleteThread,
   onRetry,
-  onOpenAgents,
-  agentsActive,
+  startCreateSignal,
 }: ThreadSidebarProps): JSX.Element => {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -47,6 +46,16 @@ export const ThreadSidebar = ({
     setCreating(true);
     setError(null);
   };
+
+  // Parent (SlimRail FAB) can request the create form by bumping the signal.
+  // Skip the initial mount (signal undefined or 0) to avoid auto-opening
+  // when the user only mounted the drawer.
+  useEffect(() => {
+    if (startCreateSignal !== undefined && startCreateSignal > 0) {
+      setCreating(true);
+      setError(null);
+    }
+  }, [startCreateSignal]);
   const cancelCreate = (): void => {
     setCreating(false);
     setTitle("");
@@ -79,10 +88,19 @@ export const ThreadSidebar = ({
   return (
     <aside className="thread-sidebar" aria-label="Thread sidebar">
       <header className="panel-header">
-        <span>Threads</span>
+        <span className="panel-header__title">Threads</span>
         {!creating && (
-          <button type="button" onClick={startCreate}>
-            + 새 작업
+          <button
+            type="button"
+            className="panel-header__action"
+            onClick={startCreate}
+            aria-label="새 작업"
+            data-tooltip="새 작업"
+          >
+            <span className="panel-header__action-icon" aria-hidden>
+              +
+            </span>
+            <span className="panel-header__action-label">새 작업</span>
           </button>
         )}
       </header>
@@ -170,14 +188,23 @@ export const ThreadSidebar = ({
                     selectedThreadId === t.id ? " thread-list__item--active" : ""
                   }`}
                   onClick={() => onSelectThread(t.id)}
-                  title={t.targetDir ?? "대상 폴더 미지정"}
                 >
-                  <span className="thread-list__title">{t.title}</span>
+                  <span
+                    className="thread-list__title"
+                    data-tooltip={t.title}
+                    title={t.title}
+                  >
+                    {t.title}
+                  </span>
                   <span className="thread-list__meta">
                     {formatRelative(t.updatedAt)}
                   </span>
                   {t.targetDir && (
-                    <span className="thread-list__target" title={t.targetDir}>
+                    <span
+                      className="thread-list__target"
+                      data-tooltip={t.targetDir}
+                      title={t.targetDir}
+                    >
                       {t.targetDir}
                     </span>
                   )}
@@ -204,16 +231,6 @@ export const ThreadSidebar = ({
             ))}
           </ul>
         )}
-      </div>
-      <div className="sidebar-nav">
-        <button
-          type="button"
-          className={`sidebar-nav__btn${agentsActive ? " sidebar-nav__btn--active" : ""}`}
-          onClick={onOpenAgents}
-          title="Agents & Orchestration"
-        >
-          ⚙ Agents
-        </button>
       </div>
     </aside>
   );

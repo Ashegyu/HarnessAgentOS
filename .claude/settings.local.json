@@ -10,8 +10,7 @@
       "PowerShell(*)",
       "Agent(*)",
       "TodoWrite(*)",
-      "mcp__ccd_session__mark_chapter(*)",
-      "mcp__ccd_session__spawn_task(*)"
+      "WebFetch(domain:api.anthropic.com)"
     ]
   }
 }

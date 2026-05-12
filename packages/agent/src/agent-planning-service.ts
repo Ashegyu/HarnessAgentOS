@@ -22,6 +22,7 @@ import {
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
 import { buildSplitAgentPrompt } from "./agent-prompt-builder.ts";
+import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
@@ -64,6 +65,20 @@ export interface AgentPlanningServiceDeps {
     timeoutMs?: number;
     stallTimeoutMs?: number;
   };
+  /**
+   * Phase 4b — Main process hook that materializes the active MCP config
+   * for one CLI invocation. Returns `null` when no enabled MCP servers
+   * apply (the request omits `--mcp-config`). The service guarantees
+   * `cleanup()` runs whether the invocation succeeded, failed, or threw.
+   * Renderer never sees this surface; only the main process implements it.
+   */
+  prepareMcpInvocation?: (input: {
+    profileId: string | null;
+    provider: AgentProvider;
+  }) => Promise<{
+    mcpConfigPath: string | null;
+    cleanup: () => Promise<void>;
+  }>;
 }
 
 export interface GeneratePlanInput {
@@ -182,10 +197,25 @@ export class AgentPlanningService {
     const qualityRisks = await this.deps.state.getLatestQualityGateResult(
       taskRun.id,
     );
+
+    // Phase 4: resolve the active AgentProfile so persona / prefix /
+    // suffix flow into the prompt. Falls through to legacy settings when
+    // no profile rows exist — see agent-profile-resolver.ts.
+    const profiles = await this.deps.state.listAgentProfiles();
+    const settings = await this.deps.state.getSettings();
+    const resolved = resolveAgentProfile({
+      profiles,
+      activeAgentProfileId: settings.activeAgentProfileId,
+      legacyAgent: settings.agent,
+    });
+
     const splitPrompt = buildSplitAgentPrompt({
       taskRun,
       recentArtifacts,
       qualityRisks,
+      persona: resolved.persona,
+      systemPromptPrefix: resolved.systemPromptPrefix,
+      systemPromptSuffix: resolved.systemPromptSuffix,
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
         : {}),
@@ -224,6 +254,20 @@ export class AgentPlanningService {
     const thread = await this.deps.state.getThread(taskRun.threadId);
     const existingSessionId =
       provider === "claude" ? thread?.agentSessionId : undefined;
+    // Phase 4b — synthesize a temporary MCP config file when enabled
+    // servers exist for the resolved profile. `null` => omit --mcp-config.
+    let mcpConfigPath: string | null = null;
+    let mcpCleanup: () => Promise<void> = async () => {};
+    if (this.deps.prepareMcpInvocation) {
+      const prep = await this.deps.prepareMcpInvocation({
+        profileId: resolved.profile?.id ?? null,
+        provider,
+      });
+      mcpConfigPath = prep.mcpConfigPath;
+      mcpCleanup = prep.cleanup;
+    }
+
+    try {
     const request: ModelCliRequest = {
       invocationId: invocation.id,
       taskRunId: taskRun.id,
@@ -233,14 +277,23 @@ export class AgentPlanningService {
       modelConfig: {
         provider,
         model,
-        timeoutMs: input.timeoutMs ?? this.defaults.timeoutMs,
-        stallTimeoutMs: input.stallTimeoutMs ?? this.defaults.stallTimeoutMs,
+        // Priority: explicit input.timeout > active profile tuning > service defaults.
+        // Resolver always provides a tuning block (legacy fallback synthesizes
+        // one from HarnessSettings.agent), so `resolved.tuning.timeoutMs` is
+        // safe to read directly.
+        timeoutMs:
+          input.timeoutMs ?? resolved.tuning.timeoutMs ?? this.defaults.timeoutMs,
+        stallTimeoutMs:
+          input.stallTimeoutMs ??
+          resolved.tuning.stallTimeoutMs ??
+          this.defaults.stallTimeoutMs,
       },
       sandbox: {
         primaryDir: taskRun.targetDir,
         enforceInPrompt: true,
       },
       ...(existingSessionId ? { sessionId: existingSessionId } : {}),
+      ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
     const emit = this.deps.emitStreamEvent ?? (() => {});
     let rawStdout = "";
@@ -482,6 +535,15 @@ export class AgentPlanningService {
       planArtifact,
       approvals,
     };
+    } finally {
+      // Best-effort cleanup of the per-invocation MCP config file.
+      // Errors here never override the main outcome (success or failure).
+      try {
+        await mcpCleanup();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   /**

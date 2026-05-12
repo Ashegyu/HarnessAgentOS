@@ -10,6 +10,8 @@ import type {
   CreateAgentInvocationInput,
   UpdateAgentInvocationPatch,
 } from "./agent-invocation.ts";
+import type { AgentProfile } from "./agent-profile.ts";
+import type { HarnessSettings } from "./settings.ts";
 
 /**
  * Narrow persistence interface required by AgentPlanningService.
@@ -40,4 +42,12 @@ export interface AgentPlanningStateGateway {
     threadId: string,
     sessionId: string | null,
   ): Promise<Thread>;
+  /**
+   * Detailed-settings (Phase 4) — list all AgentProfile rows and read
+   * the current HarnessSettings so the resolver can pick the active
+   * profile. Gateway returns empty array + DEFAULT_HARNESS_SETTINGS when
+   * the legacy DB has no profile rows yet.
+   */
+  listAgentProfiles(): Promise<AgentProfile[]>;
+  getSettings(): Promise<HarnessSettings>;
 }

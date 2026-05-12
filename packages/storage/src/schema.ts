@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 10;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -158,6 +158,72 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+  )`,
+
+  // v7 — detailed agent profiles. Each row bundles persona, model tuning,
+  // CLI environment, permissions, and references to MCP servers + skill
+  // sources. See docs/design/agent-detailed-settings.md §4.1.
+  `CREATE TABLE IF NOT EXISTS agent_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL CHECK(provider IN ('auto','claude','codex')),
+    role TEXT NOT NULL CHECK(role IN ('planner','coder','reviewer','tester')),
+    persona TEXT NOT NULL DEFAULT '',
+    tuning_json TEXT NOT NULL,
+    cli_json TEXT NOT NULL,
+    permissions_json TEXT NOT NULL,
+    mcp_server_ids_json TEXT NOT NULL DEFAULT '[]',
+    skill_source_ids_json TEXT NOT NULL DEFAULT '[]',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  // Partial unique index — at most one profile carries is_default=1.
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_default
+    ON agent_profiles(is_default) WHERE is_default = 1`,
+
+  // v8 — MCP server registry. See docs/design/agent-detailed-settings.md §4.2.
+  `CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL CHECK(transport IN ('stdio','http','sse')),
+    command TEXT,
+    args_json TEXT,
+    url TEXT,
+    env_json TEXT NOT NULL DEFAULT '{}',
+    env_secret_refs_json TEXT NOT NULL DEFAULT '{}',
+    scope TEXT NOT NULL CHECK(scope IN ('global','per-agent')),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_health_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
+  // v9 — trusted skill source registry. See agent-detailed-settings.md §4.3.
+  `CREATE TABLE IF NOT EXISTS skill_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('project','user','custom')),
+    root_dir TEXT NOT NULL,
+    trusted INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    registered_in_path_policy INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(root_dir)
+  )`,
+
+  // v10 — encrypted secret vault. Each row holds an opaque BLOB produced
+  // by Electron's safeStorage; plaintext lives only in the main process
+  // at spawn time. Renderer is allowed to write/clear/listKeys but never
+  // to read decrypted values.
+  `CREATE TABLE IF NOT EXISTS secrets (
+    key TEXT PRIMARY KEY,
+    encrypted_blob BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
   )`,
 
   // Helpful indices for common lookups. Idempotent.

@@ -26,14 +26,21 @@ type RightPanelTab =
   | "capabilities"
   | "orchestration";
 
-const TABS: ReadonlyArray<{ id: RightPanelTab; label: string }> = [
-  { id: "plan", label: "Plan" },
-  { id: "agent", label: "Agent" },
-  { id: "timeline", label: "Timeline" },
-  { id: "artifacts", label: "Artifacts" },
-  { id: "quality", label: "Quality" },
-  { id: "capabilities", label: "Capabilities" },
-  { id: "orchestration", label: "Orchestration" },
+// `label` is the short string baked into the icon column; `tooltip` carries
+// the full meaning for the hover bubble (and for screen readers via title).
+const TABS: ReadonlyArray<{
+  id: RightPanelTab;
+  label: string;
+  tooltip: string;
+  icon: string;
+}> = [
+  { id: "plan", label: "Plan", tooltip: "Plan", icon: "◧" },
+  { id: "agent", label: "Agent", tooltip: "Agent", icon: "✦" },
+  { id: "timeline", label: "Time", tooltip: "Timeline", icon: "⌛" },
+  { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "▤" },
+  { id: "quality", label: "QA", tooltip: "Quality", icon: "✓" },
+  { id: "capabilities", label: "Caps", tooltip: "Capabilities", icon: "⚙" },
+  { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "⌥" },
 ];
 
 interface RightPanelProps {
@@ -116,10 +123,11 @@ export const RightPanel = ({
           )}
         </div>
       ) : (
-        <>
+        <div className="right-panel__split">
           <nav
-            className="right-panel__tabs"
+            className="right-panel__tabs right-panel__tabs--vertical"
             role="tablist"
+            aria-orientation="vertical"
             aria-label="TaskRun detail tabs"
           >
             {TABS.map((tab) => (
@@ -137,8 +145,13 @@ export const RightPanel = ({
                     : "right-panel__tab"
                 }
                 onClick={() => setActiveTab(tab.id)}
+                title={tab.tooltip}
+                data-tooltip={tab.tooltip}
               >
-                {tab.label}
+                <span className="right-panel__tab-icon" aria-hidden>
+                  {tab.icon}
+                </span>
+                <span className="right-panel__tab-label">{tab.label}</span>
               </button>
             ))}
           </nav>
@@ -244,7 +257,7 @@ export const RightPanel = ({
               />
             )}
           </div>
-        </>
+        </div>
       )}
     </aside>
   );
