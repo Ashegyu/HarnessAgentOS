@@ -1,5 +1,11 @@
 import { newId, type LocalStateService } from "@harness/storage";
-import type { Approval, Artifact } from "@harness/core";
+import type {
+  AgentPipeline,
+  AgentProfile,
+  Approval,
+  Artifact,
+  WorkerRole,
+} from "@harness/core";
 import {
   OrchestrationError,
   type OrchestrationDraftInput,
@@ -7,7 +13,10 @@ import {
   type WorkerStep,
 } from "./orchestration-types.ts";
 import { formatPlanSummary } from "./orchestration-trace.ts";
-import { validatePlanShape } from "./orchestration-policy.ts";
+import {
+  validatePlanShape,
+  validateWorkerStep,
+} from "./orchestration-policy.ts";
 
 /**
  * Phase 7 planner. Drafts a deterministic OrchestrationPlan and stores
@@ -45,8 +54,18 @@ export class OrchestrationPlanner {
       );
     }
 
-    const workerSteps = synthesizeWorkerSteps(input.mode, taskRun.userRequest);
-    validatePlanShape({ mode: input.mode, workerSteps });
+    // pipelineId path takes precedence; otherwise fall back to the
+    // hardcoded mode-driven synthesizer. When pipelineId is set, the
+    // mode-vs-step-count constraints don't apply (the pipeline author
+    // chose the step count); each step's shape is still validated.
+    let workerSteps: WorkerStep[];
+    if (input.pipelineId) {
+      workerSteps = await this.synthesizeFromPipeline(input.pipelineId);
+      for (const step of workerSteps) validateWorkerStep(step);
+    } else {
+      workerSteps = synthesizeWorkerSteps(input.mode, taskRun.userRequest);
+      validatePlanShape({ mode: input.mode, workerSteps });
+    }
 
     const planId = newId("learningTrace");
     const stepIndex = (
@@ -71,6 +90,9 @@ export class OrchestrationPlanner {
       id: planId,
       mode: input.mode,
       workerSteps,
+      ...(input.pipelineId !== undefined
+        ? { sourcePipelineId: input.pipelineId }
+        : {}),
     });
     // Summary embeds both the human-readable markdown AND a fenced JSON
     // block so the worker-runner can recover the exact plan (including
@@ -123,8 +145,52 @@ export class OrchestrationPlanner {
       mode: input.mode,
       workerSteps,
       requiresApproval: true,
+      ...(input.pipelineId !== undefined
+        ? { sourcePipelineId: input.pipelineId }
+        : {}),
     };
     return { plan, artifact, approval };
+  }
+
+  /**
+   * Expand an AgentPipeline into WorkerStep[]. Fails fast if the
+   * pipeline is unknown or any step references a profile that was
+   * deleted since the pipeline was authored — orchestration must never
+   * silently fall back, since the missing persona/permissions would
+   * change the run's behavior.
+   */
+  private async synthesizeFromPipeline(
+    pipelineId: string,
+  ): Promise<WorkerStep[]> {
+    const pipeline: AgentPipeline | null =
+      await this.deps.state.agentPipelines.get(pipelineId);
+    if (!pipeline) {
+      throw new OrchestrationError(
+        "PIPELINE_NOT_FOUND",
+        `AgentPipeline ${pipelineId} not found`,
+      );
+    }
+    const out: WorkerStep[] = [];
+    for (const step of pipeline.steps) {
+      const profile: AgentProfile | null =
+        await this.deps.state.agentProfiles.get(step.agentProfileId);
+      if (!profile) {
+        throw new OrchestrationError(
+          "PIPELINE_REFERENCED_PROFILE_MISSING",
+          `AgentPipeline ${pipeline.name} step "${step.title}" references missing profile ${step.agentProfileId}`,
+        );
+      }
+      out.push({
+        id: newId("step"),
+        title: step.title,
+        role: profile.role as WorkerRole,
+        inputSummary: step.instruction.slice(0, 120),
+        expectedArtifactKinds: [...step.expectedArtifactKinds],
+        status: "pending",
+        agentProfileId: step.agentProfileId,
+      });
+    }
+    return out;
   }
 }
 

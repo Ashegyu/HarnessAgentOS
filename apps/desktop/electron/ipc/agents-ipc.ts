@@ -1,5 +1,6 @@
 import {
   AGENT_PROFILE_NOT_FOUND,
+  PIPELINE_IN_USE_BY_PROFILE_DELETE,
   STATE_INVALID_INPUT,
   err,
   harnessError,
@@ -10,6 +11,7 @@ import {
   type HarnessSettings,
 } from "@harness/core";
 import type {
+  AgentPipelineRepository,
   AgentProfileRepository,
   CreateAgentProfileInput,
 } from "@harness/storage";
@@ -20,6 +22,14 @@ import type {
  */
 export interface AgentsIpcState {
   readonly profiles: AgentProfileRepository;
+  /**
+   * Optional — when present, `delete` performs a reverse-reference check
+   * against pipelines and rejects with PIPELINE_IN_USE_BY_PROFILE_DELETE
+   * if any pipeline still references the profile being removed. Kept
+   * optional so legacy callers / tests that don't care about pipelines
+   * can omit it without scaffolding.
+   */
+  readonly pipelines?: AgentPipelineRepository;
   getSettings(): Promise<HarnessSettings>;
   updateSettings(input: HarnessSettings): Promise<HarnessSettings>;
 }
@@ -129,6 +139,21 @@ export const buildAgentsHandlers = (ctx: AgentsIpcContext) => {
     }): Promise<HarnessResult<void>> => {
       if (typeof input?.profileId !== "string" || input.profileId.length === 0) {
         return err(harnessError(STATE_INVALID_INPUT, "profileId is required"));
+      }
+      if (state.pipelines) {
+        const refs = await state.pipelines.findByReferencedAgentProfileId(
+          input.profileId,
+        );
+        if (refs.length > 0) {
+          const names = refs.map((p) => p.name).join(", ");
+          return err(
+            harnessError(
+              PIPELINE_IN_USE_BY_PROFILE_DELETE,
+              `Profile is referenced by pipeline(s): ${names}. Remove the pipeline(s) or replace the profile reference first.`,
+              { pipelineIds: refs.map((p) => p.id) },
+            ),
+          );
+        }
       }
       return wrap(async () => {
         await state.profiles.delete(input.profileId);

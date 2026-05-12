@@ -1,5 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import type { OrchestrationMode } from "@harness/core";
+import type { AgentPipeline, OrchestrationMode } from "@harness/core";
 import { ORCHESTRATION_MODES } from "@harness/core";
 
 export type ConversationMode = "template" | "agent";
@@ -22,6 +22,11 @@ interface ConversationInputProps {
     mode: ConversationMode;
     orchMode?: OrchestrationMode;
     orchInstruction?: string;
+    /**
+     * When set, the orchestration plan is synthesized from this
+     * AgentPipeline instead of the hardcoded `orchMode` synthesizer.
+     */
+    orchPipelineId?: string;
   }) => Promise<void>;
 }
 
@@ -43,6 +48,9 @@ export const ConversationInput = ({
   const [orchExpanded, setOrchExpanded] = useState(false);
   const [orchMode, setOrchMode] = useState<OrchestrationMode>("single_worker");
   const [orchInstruction, setOrchInstruction] = useState("");
+  const [orchPipelineId, setOrchPipelineId] = useState<string>("");
+  const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
+  const [showLegacyMode, setShowLegacyMode] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -57,6 +65,18 @@ export const ConversationInput = ({
         }
       } catch {
         // settings unavailable — orch stays hidden
+      }
+      try {
+        const list = await window.harness.pipeline.list();
+        setPipelines(list);
+        // If user has at least one pipeline, default to picking the
+        // first one rather than the legacy mode — pipelines are the
+        // current-gen path; legacy mode stays available via expander.
+        if (list.length > 0) setOrchPipelineId(list[0]!.id);
+        else setShowLegacyMode(true);
+      } catch {
+        // pipeline namespace unavailable — keep legacy-only behavior
+        setShowLegacyMode(true);
       }
     })();
   }, []);
@@ -90,6 +110,7 @@ export const ConversationInput = ({
         mode: ConversationMode;
         orchMode?: OrchestrationMode;
         orchInstruction?: string;
+        orchPipelineId?: string;
       } = {
         userRequest: text.trim(),
         mode,
@@ -100,6 +121,9 @@ export const ConversationInput = ({
         payload.orchMode = orchMode;
         if (orchInstruction.trim().length > 0)
           payload.orchInstruction = orchInstruction.trim();
+        // Pipeline takes precedence over mode when one is selected.
+        if (orchPipelineId.length > 0)
+          payload.orchPipelineId = orchPipelineId;
       }
       await onSubmit(payload);
       setText("");
@@ -213,20 +237,52 @@ export const ConversationInput = ({
           </button>
           {orchExpanded && (
             <div className="conversation-input__orch-form">
-              <label className="conversation-input__orch-field">
-                <span>Mode</span>
-                <select
-                  value={orchMode}
-                  onChange={(e) => setOrchMode(e.target.value as OrchestrationMode)}
+              {pipelines.length > 0 && (
+                <label className="conversation-input__orch-field">
+                  <span>Pipeline</span>
+                  <select
+                    value={orchPipelineId}
+                    onChange={(e) => setOrchPipelineId(e.target.value)}
+                    disabled={submitting}
+                  >
+                    {pipelines.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.steps.length} steps)
+                      </option>
+                    ))}
+                    <option value="">(없음 — Legacy mode 사용)</option>
+                  </select>
+                </label>
+              )}
+              {(showLegacyMode || orchPipelineId.length === 0) && (
+                <label className="conversation-input__orch-field">
+                  <span>Legacy Mode</span>
+                  <select
+                    value={orchMode}
+                    onChange={(e) =>
+                      setOrchMode(e.target.value as OrchestrationMode)
+                    }
+                    disabled={submitting || orchPipelineId.length > 0}
+                  >
+                    {ORCHESTRATION_MODES.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {pipelines.length > 0 && !showLegacyMode && (
+                <button
+                  type="button"
+                  className="conversation-input__orch-toggle"
+                  onClick={() => setShowLegacyMode(true)}
                   disabled={submitting}
+                  style={{ alignSelf: "flex-start" }}
                 >
-                  {ORCHESTRATION_MODES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  Legacy mode 보기
+                </button>
+              )}
               <label className="conversation-input__orch-field">
                 <span>Instruction (선택)</span>
                 <input

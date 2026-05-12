@@ -315,6 +315,15 @@ const harnessApi: HarnessDesktopApi = {
     },
     listKeys: () => invokeUnwrapped(IPC_CHANNELS.secret.listKeys),
   },
+  pipeline: {
+    list: () => invokeUnwrapped(IPC_CHANNELS.pipeline.list),
+    get: (input) => invokeUnwrapped(IPC_CHANNELS.pipeline.get, input),
+    create: (input) => invokeUnwrapped(IPC_CHANNELS.pipeline.create, input),
+    update: (input) => invokeUnwrapped(IPC_CHANNELS.pipeline.update, input),
+    delete: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.pipeline.delete, input);
+    },
+  },
   events: {
     onTaskRunChanged: (listener) => {
       const channel = IPC_CHANNELS.events.taskRunChanged;

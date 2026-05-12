@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, closeDb, SqliteAgentProfileRepository } from "@harness/storage";
+import {
+  openDb,
+  closeDb,
+  SqliteAgentProfileRepository,
+  SqliteAgentPipelineRepository,
+} from "@harness/storage";
 import { buildAgentsHandlers } from "./agents-ipc.ts";
 
 const tmp = () => {
@@ -172,6 +177,61 @@ test("agents.delete removes the row", async () => {
     assert.equal(result.ok, true);
     const list = (await h.list()).value;
     assert.equal(list.length, 0);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("agents.delete is blocked when a pipeline references the profile", async () => {
+  const t = tmp();
+  const { db, state } = setupCtx(t.file);
+  try {
+    const profiles = state.profiles;
+    const pipelines = new SqliteAgentPipelineRepository(db, profiles);
+    // Inject pipelines so delete picks up the cross-table check.
+    const ctxWithPipes = { state: { ...state, pipelines } };
+    const h = buildAgentsHandlers(ctxWithPipes);
+
+    const a = (await h.create({ profile: makeProfileInput({ name: "Referenced" }) })).value;
+    await pipelines.create({
+      name: "Flow A",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: a.id,
+          title: "Plan",
+          instruction: "",
+          expectedArtifactKinds: ["plan"],
+        },
+      ],
+    });
+    const result = await h.delete({ profileId: a.id });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "PIPELINE_IN_USE_BY_PROFILE_DELETE");
+    assert.match(result.error.message, /Flow A/);
+    // Profile must still exist
+    const stillThere = await h.get({ profileId: a.id });
+    assert.equal(stillThere.ok, true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("agents.delete proceeds when no pipelines reference the profile", async () => {
+  const t = tmp();
+  const { db, state } = setupCtx(t.file);
+  try {
+    const profiles = state.profiles;
+    const pipelines = new SqliteAgentPipelineRepository(db, profiles);
+    const ctxWithPipes = { state: { ...state, pipelines } };
+    const h = buildAgentsHandlers(ctxWithPipes);
+
+    const a = (await h.create({ profile: makeProfileInput({ name: "Unused" }) })).value;
+    const result = await h.delete({ profileId: a.id });
+    assert.equal(result.ok, true);
   } finally {
     closeDb(db);
     t.cleanup();

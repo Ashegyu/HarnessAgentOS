@@ -110,6 +110,18 @@ export const IPC_CHANNELS = {
     clear: "secret:clear",
     listKeys: "secret:listKeys",
   },
+  /**
+   * AgentPipeline templates — linear sequence of AgentProfile references
+   * used by OrchestrationPlanner when supplied with `pipelineId`. CRUD only;
+   * execution is owned by orchestration.
+   */
+  pipeline: {
+    list: "pipeline:list",
+    get: "pipeline:get",
+    create: "pipeline:create",
+    update: "pipeline:update",
+    delete: "pipeline:delete",
+  },
   events: {
     /**
      * One-way main → renderer push (id-only). Emitted whenever a TaskRun

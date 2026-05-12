@@ -11,7 +11,7 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 0: app, Phase 1: state, Phase 2: conversation, Phase 3: runner,
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
   // Phase 7: orchestration, Phase 8: agent.
-  // Detailed-settings: agents, mcp, skillSource, secret.
+  // Detailed-settings: agents, mcp, skillSource, secret, pipeline.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
     "agent",
     "agents",
@@ -22,6 +22,7 @@ test("declared namespaces match the phases shipped so far", () => {
     "learner",
     "mcp",
     "orchestration",
+    "pipeline",
     "quality",
     "runner",
     "secret",
@@ -29,6 +30,19 @@ test("declared namespaces match the phases shipped so far", () => {
     "skillSource",
     "state",
   ]);
+});
+
+test("pipeline namespace exposes CRUD verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.pipeline).sort(), [
+    "create",
+    "delete",
+    "get",
+    "list",
+    "update",
+  ]);
+  assert.equal(isAllowedChannel("pipeline:list"), true);
+  assert.equal(isAllowedChannel("pipeline:create"), true);
+  assert.equal(isAllowedChannel("pipeline:run"), false);
 });
 
 test("agents namespace exposes profile CRUD verbs", () => {

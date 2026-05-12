@@ -430,6 +430,7 @@ export const WorkbenchShell = (): JSX.Element => {
       mode: ConversationMode;
       orchMode?: OrchestrationMode;
       orchInstruction?: string;
+      orchPipelineId?: string;
     }): Promise<void> => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
@@ -468,6 +469,9 @@ export const WorkbenchShell = (): JSX.Element => {
             taskRunId: draft.taskRun.id,
             mode: input.orchMode,
             ...(input.orchInstruction ? { instruction: input.orchInstruction } : {}),
+            ...(input.orchPipelineId
+              ? { pipelineId: input.orchPipelineId }
+              : {}),
           });
         } catch (e) {
           // eslint-disable-next-line no-console

@@ -3733,3 +3733,181 @@
   color: var(--text-muted);
   letter-spacing: 1px;
 }
+
+/* ── PipelinesTab (AgentPipeline templates) ────────────────── */
+
+.pipelines-tab {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+}
+
+.pipelines-tab__banner {
+  margin: var(--space-2) var(--space-2) 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--status-pending-fill);
+  border: 1px solid var(--status-pending-edge);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.pipelines-tab__split {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: 0;
+  flex: 1;
+  margin-top: var(--space-2);
+}
+
+.pipelines-tab__list {
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pipelines-tab__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.pipelines-tab__items {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pipelines-tab__item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.pipelines-tab__item:hover {
+  background: var(--bg-panel-elev);
+}
+
+.pipelines-tab__item--selected {
+  background: var(--bg-panel-elev);
+  border-color: var(--border-strong);
+}
+
+.pipelines-tab__item-name {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipelines-tab__item-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pipelines-tab__editor {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.pipelines-tab__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.pipelines-tab__heading {
+  margin: 0 0 var(--space-2) 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.pipelines-tab__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pipelines-tab__errors ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
+.pipeline-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.pipeline-step__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pipeline-step__header .settings-field__input {
+  flex: 1;
+}
+
+.pipeline-step__index {
+  flex: 0 0 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pipeline-step__controls {
+  display: flex;
+  gap: 2px;
+}

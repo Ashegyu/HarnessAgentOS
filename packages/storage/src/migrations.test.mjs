@@ -294,7 +294,7 @@ test("readSchemaVersion reflects the new SCHEMA_VERSION after v10", () => {
   const db = openDb({ filePath: t.file });
   try {
     const v = readSchemaVersion(db);
-    assert.equal(v, 10);
+    assert.equal(v, 11);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -310,7 +310,7 @@ test("applyMigrations is idempotent across two opens", () => {
   try {
     applyMigrations(db); // explicit third pass — must be no-op
     const v = readSchemaVersion(db);
-    assert.equal(v, 10);
+    assert.equal(v, 11);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -334,7 +334,7 @@ test("applyMigrations upgrades a pre-v7 DB without losing existing rows", () => 
 
   try {
     applyMigrations(db);
-    assert.equal(readSchemaVersion(db), 10);
+    assert.equal(readSchemaVersion(db), 11);
     const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("harness_settings");
     assert.ok(row, "legacy settings row should survive the upgrade");
     assert.match(row.value, /"agent"/);

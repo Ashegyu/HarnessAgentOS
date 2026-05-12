@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -222,6 +222,20 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS secrets (
     key TEXT PRIMARY KEY,
     encrypted_blob BLOB NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
+  // v11 — AgentPipeline templates. Linear sequences of AgentProfile
+  // references; OrchestrationPlanner expands these into WorkerStep arrays
+  // when `pipelineId` is supplied. The steps JSON column carries an array
+  // of AgentPipelineStep — FK strictness against agent_profiles is enforced
+  // at the repository level, not the schema (JSON columns can't carry FK).
+  `CREATE TABLE IF NOT EXISTS agent_pipelines (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    steps_json TEXT NOT NULL CHECK(json_array_length(steps_json) >= 1),
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,

@@ -86,6 +86,7 @@ export const registerOrchestrationIpc = (
         taskRunId?: unknown;
         mode?: unknown;
         instruction?: unknown;
+        pipelineId?: unknown;
       };
       if (!isNonEmptyString(cast.taskRunId)) {
         return err(
@@ -103,6 +104,8 @@ export const registerOrchestrationIpc = (
       };
       if (typeof cast.instruction === "string")
         payload.instruction = cast.instruction;
+      if (typeof cast.pipelineId === "string" && cast.pipelineId.length > 0)
+        payload.pipelineId = cast.pipelineId;
       try {
         const drafted = await service.draftPlan(payload);
         events.taskRunChanged(drafted.plan.taskRunId);

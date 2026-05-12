@@ -32,6 +32,12 @@ export interface WorkerStep {
   inputSummary: string;
   expectedArtifactKinds: string[];
   status: WorkerStepStatus;
+  /**
+   * When set, the worker-runner invokes this specific AgentProfile
+   * instead of resolving the active/default by role. Synthesized from
+   * pipeline steps; legacy `mode`-driven plans omit it.
+   */
+  agentProfileId?: string;
 }
 
 export interface OrchestrationPlan {
@@ -40,6 +46,13 @@ export interface OrchestrationPlan {
   mode: OrchestrationMode;
   workerSteps: WorkerStep[];
   requiresApproval: true;
+  /**
+   * If the plan was synthesized from an AgentPipeline template, the
+   * pipeline's id is preserved here for audit/replay. The plan itself
+   * is still the immutable snapshot — later edits to the pipeline do
+   * NOT affect already-synthesized plans.
+   */
+  sourcePipelineId?: string;
 }
 
 export interface OrchestrationRunResult {

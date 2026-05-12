@@ -1,5 +1,5 @@
 import type { LocalStateService } from "@harness/storage";
-import type { Approval } from "@harness/core";
+import type { AgentProfile, Approval } from "@harness/core";
 import {
   OrchestrationError,
   type OrchestrationPlan,
@@ -64,18 +64,36 @@ export class WorkerRunner {
 
     for (let i = 0; i < input.plan.workerSteps.length; i += 1) {
       const planStep = input.plan.workerSteps[i]!;
+      // When the step references a specific AgentProfile (pipeline-driven
+      // plans), fail-fast if that profile has been deleted since draft.
+      // Falling back to a default profile would silently change the
+      // persona/permissions the user approved, so we refuse to run.
+      let profile = null;
+      if (planStep.agentProfileId) {
+        profile = await this.deps.state.agentProfiles.get(
+          planStep.agentProfileId,
+        );
+        if (!profile) {
+          throw new OrchestrationError(
+            "PIPELINE_REFERENCED_PROFILE_MISSING",
+            `Worker step "${planStep.title}" references missing profile ${planStep.agentProfileId}`,
+          );
+        }
+      }
       const dbStep = await this.deps.state.createStep({
         taskRunId: input.plan.taskRunId,
         index: baseStepIndex + i,
         kind: "summarize",
-        title: `Worker[${planStep.role}] ${planStep.title}`,
+        title: profile
+          ? `Worker[${profile.name}] ${planStep.title}`
+          : `Worker[${planStep.role}] ${planStep.title}`,
         status: "running",
         inputSummary: planStep.inputSummary,
       });
       let body: string;
       let status: WorkerStep["status"] = "succeeded";
       try {
-        body = runWorkerStepBody(planStep);
+        body = runWorkerStepBody(planStep, profile);
       } catch (e) {
         body = e instanceof Error ? e.message : String(e);
         status = "failed";
@@ -89,6 +107,7 @@ export class WorkerRunner {
         summary: formatWorkerStepArtifact({
           step: { ...planStep, status },
           output: body,
+          ...(profile ? { profileName: profile.name } : {}),
         }),
       });
       stepArtifactIds.push(artifact.id);
@@ -109,13 +128,28 @@ export class WorkerRunner {
   }
 }
 
-const runWorkerStepBody = (step: WorkerStep): string => {
+const runWorkerStepBody = (
+  step: WorkerStep,
+  profile: AgentProfile | null,
+): string => {
   // Phase 7 deterministic worker. If a worker were to "propose" a
   // side-effecting action, the runner must reject it — that's the
   // policy boundary. Here we hard-fail any forbidden role intent so
   // tests can verify policy enforcement.
+  //
+  // When the step came from a pipeline (profile is set), prefix the
+  // body with the profile's persona snippet so the artifact reflects
+  // who produced it. Full CLI invocation is a follow-up phase; for now
+  // the deterministic body is enriched, not replaced.
   assertActionTypeAllowed(roleToActionIntent(step.role));
-  switch (step.role) {
+  const personaLine = profile && profile.persona.length > 0
+    ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
+    : "";
+  return personaLine + roleBody(step.role);
+};
+
+const roleBody = (role: WorkerRole): string => {
+  switch (role) {
     case "planner":
       return [
         "Planner produced an outline:",

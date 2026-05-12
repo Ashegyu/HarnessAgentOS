@@ -18,6 +18,13 @@ export interface OrchestrationDraftInput {
   taskRunId: string;
   mode: import("@harness/core").OrchestrationMode;
   instruction?: string;
+  /**
+   * When set, the planner expands this AgentPipeline's steps into
+   * `workerSteps` instead of using the hardcoded `mode` synthesizer.
+   * The `mode` field is preserved in the plan for audit but does not
+   * affect step generation when `pipelineId` is supplied.
+   */
+  pipelineId?: string;
 }
 
 export interface OrchestrationApprovalInput {

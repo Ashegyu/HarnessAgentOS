@@ -35,6 +35,7 @@ import { registerAgentsIpc } from "./agents-ipc-register";
 import { registerMcpIpc } from "./mcp-ipc-register";
 import { registerSkillSourceIpc } from "./skill-source-ipc-register";
 import { registerSecretIpc } from "./secret-ipc-register";
+import { registerPipelineIpc } from "./pipeline-ipc-register";
 import type { SkillRootPolicy } from "./skill-source-ipc";
 import { eventBus } from "../event-bus";
 
@@ -96,10 +97,12 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   registerAgentsIpc({
     state: {
       profiles: ctx.state.agentProfiles,
+      pipelines: ctx.state.agentPipelines,
       getSettings: () => ctx.state.getSettings(),
       updateSettings: (next) => ctx.state.updateSettings(next),
     },
   });
+  registerPipelineIpc({ pipelines: ctx.state.agentPipelines });
   registerMcpIpc({
     mcp: ctx.state.mcpServers,
     probe: ctx.mcpProbe,

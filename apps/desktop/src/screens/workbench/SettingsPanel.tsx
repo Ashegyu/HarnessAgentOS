@@ -3,6 +3,7 @@ import type { AgentProvider, HarnessSettings, OrchestrationMode, WorkerProfile }
 import { DEFAULT_HARNESS_SETTINGS } from "@harness/core";
 import { AgentProfilesTab } from "./AgentProfilesTab";
 import { McpServersTab } from "./McpServersTab";
+import { PipelinesTab } from "./PipelinesTab";
 import { SecretsTab } from "./SecretsTab";
 import { SkillSourcesTab } from "./SkillSourcesTab";
 
@@ -10,7 +11,13 @@ interface Props {
   onClose: () => void;
 }
 
-type SettingsTabId = "general" | "agents" | "mcp" | "skills" | "secrets";
+type SettingsTabId =
+  | "general"
+  | "agents"
+  | "pipelines"
+  | "mcp"
+  | "skills"
+  | "secrets";
 
 interface SettingsTabDef {
   id: SettingsTabId;
@@ -20,6 +27,7 @@ interface SettingsTabDef {
 const TABS: readonly SettingsTabDef[] = [
   { id: "general", label: "General" },
   { id: "agents", label: "Agents" },
+  { id: "pipelines", label: "Pipelines" },
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
   { id: "secrets", label: "Secrets" },
@@ -183,6 +191,12 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
         {activeTab === "agents" && (
           <div className="settings-dialog__body settings-dialog__body--flush">
             <AgentProfilesTab />
+          </div>
+        )}
+
+        {activeTab === "pipelines" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <PipelinesTab />
           </div>
         )}
 

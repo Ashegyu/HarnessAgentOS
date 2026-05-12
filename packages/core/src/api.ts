@@ -2,6 +2,7 @@ import type { RuntimeInfo } from "./runtime.ts";
 import type {
   Approval,
   AgentInvocation,
+  AgentPipeline,
   AgentProfile,
   AgentProvider,
   AgentProviderStatusMap,
@@ -9,6 +10,7 @@ import type {
   Artifact,
   Capability,
   CapabilitySuggestion,
+  CreateAgentPipelineInput,
   HarnessSettings,
   McpServerConfig,
   McpServerHealth,
@@ -183,6 +185,12 @@ export interface HarnessDesktopApi {
       taskRunId: string;
       mode: OrchestrationMode;
       instruction?: string;
+      /**
+       * Optional AgentPipeline.id. When supplied, planner expands the
+       * pipeline's steps and ignores `mode` for step synthesis (mode is
+       * still stored on the plan row for audit).
+       */
+      pipelineId?: string;
     }): Promise<{
       plan: OrchestrationPlan;
       artifact: Artifact;
@@ -268,6 +276,20 @@ export interface HarnessDesktopApi {
     write(input: { key: string; value: string }): Promise<void>;
     clear(input: { key: string }): Promise<void>;
     listKeys(): Promise<string[]>;
+  };
+  /**
+   * AgentPipeline templates. Plain CRUD; orchestration owns execution.
+   * Steps reference AgentProfile rows by id, and main process enforces
+   * that each `agentProfileId` exists at write time and at run time.
+   */
+  pipeline: {
+    list(): Promise<AgentPipeline[]>;
+    get(input: { pipelineId: string }): Promise<AgentPipeline>;
+    create(input: {
+      pipeline: CreateAgentPipelineInput;
+    }): Promise<AgentPipeline>;
+    update(input: { pipeline: AgentPipeline }): Promise<AgentPipeline>;
+    delete(input: { pipelineId: string }): Promise<void>;
   };
   events: {
     /**

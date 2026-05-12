@@ -18,6 +18,7 @@ const PREFIXES = {
   agentProfile: "ap_",
   mcpServer: "mcp_",
   skillSource: "ss_",
+  agentPipeline: "pipe_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;

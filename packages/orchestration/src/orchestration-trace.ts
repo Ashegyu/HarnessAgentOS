@@ -34,17 +34,25 @@ export const formatPlanSummary = (input: {
 export const formatWorkerStepArtifact = (input: {
   step: WorkerStep;
   output: string;
+  /** Display name of the AgentProfile (when pipeline-driven). */
+  profileName?: string;
 }): string => {
-  return [
+  const lines = [
     `# Worker step: ${input.step.title}`,
     "",
     `**Role**: ${input.step.role}`,
     `**Status**: ${input.step.status}`,
+  ];
+  if (input.profileName) {
+    lines.push(`**Profile**: ${input.profileName}`);
+  }
+  lines.push(
     "",
     `## Output (advisory only — no side effects)`,
     "",
     input.output.trim().length > 0 ? input.output : "(empty)",
     "",
     `> 이 출력은 제안일 뿐, file/shell 변경이 필요하면 approval을 별도로 생성해야 합니다.`,
-  ].join("\n");
+  );
+  return lines.join("\n");
 };
