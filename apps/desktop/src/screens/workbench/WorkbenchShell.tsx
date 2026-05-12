@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgentProviderStatusMap,
+  OrchestrationMode,
   ProposedActionDetails,
   Thread,
   ThreadDetail,
@@ -240,6 +241,8 @@ export const WorkbenchShell = (): JSX.Element => {
       userRequest: string;
       targetDir?: string;
       mode: ConversationMode;
+      orchMode?: OrchestrationMode;
+      orchInstruction?: string;
     }): Promise<void> => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
@@ -269,6 +272,19 @@ export const WorkbenchShell = (): JSX.Element => {
           // around so the user can retry or fall back manually.
           // eslint-disable-next-line no-console
           console.error("agent.generatePlan failed", e);
+        }
+      }
+      // Auto-draft orchestration plan when the user configured it upfront.
+      if (input.orchMode) {
+        try {
+          await window.harness.orchestration.draftPlan({
+            taskRunId: draft.taskRun.id,
+            mode: input.orchMode,
+            ...(input.orchInstruction ? { instruction: input.orchInstruction } : {}),
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error("orchestration.draftPlan failed", e);
         }
       }
       await refreshThreadDetail(selectedThreadId);

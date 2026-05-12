@@ -1,4 +1,6 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import type { OrchestrationMode } from "@harness/core";
+import { ORCHESTRATION_MODES } from "@harness/core";
 
 export type ConversationMode = "template" | "agent";
 
@@ -11,6 +13,8 @@ interface ConversationInputProps {
     userRequest: string;
     targetDir?: string;
     mode: ConversationMode;
+    orchMode?: OrchestrationMode;
+    orchInstruction?: string;
   }) => Promise<void>;
 }
 
@@ -26,6 +30,28 @@ export const ConversationInput = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationMode>("template");
+
+  const [orchEnabled, setOrchEnabled] = useState(false);
+  const [orchExpanded, setOrchExpanded] = useState(false);
+  const [orchMode, setOrchMode] = useState<OrchestrationMode>("single_worker");
+  const [orchInstruction, setOrchInstruction] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = await window.harness.settings.get();
+        if (s.orchestration.enabled) {
+          setOrchEnabled(true);
+          setOrchMode(s.orchestration.defaultMode);
+          if (s.orchestration.defaultInstructions) {
+            setOrchInstruction(s.orchestration.defaultInstructions);
+          }
+        }
+      } catch {
+        // settings unavailable — orch stays hidden
+      }
+    })();
+  }, []);
 
   const targetDir = overrideDir.trim() || threadTargetDir || "";
   const canSubmit = !submitting && text.trim().length > 0 && targetDir.length > 0;
@@ -45,12 +71,19 @@ export const ConversationInput = ({
         userRequest: string;
         targetDir?: string;
         mode: ConversationMode;
+        orchMode?: OrchestrationMode;
+        orchInstruction?: string;
       } = {
         userRequest: text.trim(),
         mode,
       };
       if (overrideDir.trim().length > 0) payload.targetDir = overrideDir.trim();
       else if (!threadTargetDir) payload.targetDir = targetDir;
+      if (orchEnabled && orchExpanded) {
+        payload.orchMode = orchMode;
+        if (orchInstruction.trim().length > 0)
+          payload.orchInstruction = orchInstruction.trim();
+      }
       await onSubmit(payload);
       setText("");
       setOverrideDir("");
@@ -151,6 +184,46 @@ export const ConversationInput = ({
           Agent {agentAvailable ? "" : "(미설치)"}
         </button>
       </div>
+      {orchEnabled && (
+        <div className="conversation-input__orch">
+          <button
+            type="button"
+            className="conversation-input__orch-toggle"
+            onClick={() => setOrchExpanded((v) => !v)}
+            disabled={submitting}
+          >
+            {orchExpanded ? "▾" : "▸"} Orchestration
+          </button>
+          {orchExpanded && (
+            <div className="conversation-input__orch-form">
+              <label className="conversation-input__orch-field">
+                <span>Mode</span>
+                <select
+                  value={orchMode}
+                  onChange={(e) => setOrchMode(e.target.value as OrchestrationMode)}
+                  disabled={submitting}
+                >
+                  {ORCHESTRATION_MODES.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="conversation-input__orch-field">
+                <span>Instruction (선택)</span>
+                <input
+                  type="text"
+                  value={orchInstruction}
+                  onChange={(e) => setOrchInstruction(e.target.value)}
+                  placeholder="planner에게 전달할 지시"
+                  disabled={submitting}
+                />
+              </label>
+            </div>
+          )}
+        </div>
+      )}
       <textarea
         className="conversation-input__text"
         placeholder={

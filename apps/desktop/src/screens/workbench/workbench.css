@@ -1935,6 +1935,58 @@
   opacity: 0.5;
 }
 
+.conversation-input__orch {
+  margin-bottom: var(--space-2);
+}
+
+.conversation-input__orch-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.conversation-input__orch-toggle:hover {
+  color: var(--text-primary);
+}
+
+.conversation-input__orch-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  margin-top: var(--space-1);
+}
+
+.conversation-input__orch-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+}
+
+.conversation-input__orch-field span {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.conversation-input__orch-field select,
+.conversation-input__orch-field input {
+  flex: 1;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
 .agent-panel {
   display: flex;
   flex-direction: column;
