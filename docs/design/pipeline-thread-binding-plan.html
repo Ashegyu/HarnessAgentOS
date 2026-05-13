@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Pipeline × Thread Binding 실행 계획</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --fg: #1d1f24;
+    --muted: #5b6370;
+    --accent: #2b6cb0;
+    --border: #d9dde2;
+    --code-bg: #f1f3f6;
+    --warn-bg: #fff5e6;
+    --warn-bd: #e2a93d;
+    --block-bg: #fff;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.6; }
+  main { max-width: 920px; margin: 0 auto; padding: 48px 32px 96px; }
+  h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; margin: 48px 0 12px; padding-top: 16px; border-top: 1px solid var(--border); letter-spacing: -0.01em; }
+  h3 { font-size: 17px; margin: 32px 0 8px; }
+  h4 { font-size: 15px; margin: 20px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  p { margin: 8px 0; }
+  .lede { color: var(--muted); font-size: 16px; margin-bottom: 32px; }
+  code { font-family: var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; font-size: 13px; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #eef1f5; font-weight: 600; }
+  td code { font-size: 12.5px; }
+  .block { background: var(--block-bg); border: 1px solid var(--border); border-radius: 6px; padding: 16px 20px; margin: 16px 0; box-shadow: var(--shadow); }
+  .blocker { background: var(--warn-bg); border: 1px solid var(--warn-bd); border-radius: 6px; padding: 16px 20px; margin: 16px 0; }
+  .blocker h3 { margin-top: 0; color: #8c5800; }
+  .toc { background: var(--block-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 20px; margin-bottom: 24px; }
+  .toc ol { margin: 4px 0; padding-left: 22px; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 32px; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #e9eef5; color: #2b3848; font-size: 12px; font-weight: 600; margin-right: 6px; }
+  .pill--phase1 { background: #e2f0fb; color: #1d4d7a; }
+  .pill--phase2 { background: #fbe9e3; color: #7a3c1f; }
+  ul { margin: 6px 0; padding-left: 22px; }
+  ul li { margin: 4px 0; }
+  .diagram { font-family: var(--mono); font-size: 12.5px; line-height: 1.45; white-space: pre; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Pipeline × Thread Binding 실행 계획</h1>
+<p class="lede">
+  파이프라인은 사용자가 명시적으로 원할 때만 거치도록 하고, 그 선택을 스레드 생성 시점에 한 번만 받는다.
+  본 문서는 그 변경에 필요한 모든 파일·필드·테스트를 두 페이즈로 나누어 기술한다.
+</p>
+<p class="meta">Path: <code>docs/design/pipeline-thread-binding-plan.html</code> · 작성일: 2026-05-13 · 기준 커밋: <code>fbb9859</code></p>
+
+<div class="toc">
+  <strong>목차</strong>
+  <ol>
+    <li><a href="#current">현재 아키텍처 요약</a></li>
+    <li><a href="#phase1">Phase 1 — 스레드 단위 파이프라인 바인딩 (UX)</a></li>
+    <li><a href="#phase2">Phase 2 — Worker가 실제 에이전트를 호출</a></li>
+    <li><a href="#sequence">실행 순서 및 백워드 호환성</a></li>
+  </ol>
+</div>
+
+<h2 id="current">1. 현재 아키텍처 요약</h2>
+
+<p>채팅 입력은 두 갈래로 흐른다:</p>
+<div class="diagram">ConversationInput.submit()
+   │
+   ├──▶ orchExpanded == false ─▶ agent.generatePlan(taskRunId)
+   │                              └─ settings.activeAgentProfileId 1개의
+   │                                 AgentProfile.persona/tuning 사용
+   │                                 (파이프라인 무관)
+   │
+   └──▶ orchExpanded == true ──▶ orchestration.draftPlan({taskRunId, mode, pipelineId})
+                                  └─ pipeline.steps → WorkerStep[] 생성
+                                     사용자가 plan approval 승인 후
+                                     WorkerRunner.runApproved()
+                                     └─ 결정적 stub 텍스트 반환 (실제 에이전트 호출 없음)
+</div>
+
+<p>
+  결과적으로 사용자가 "이 스레드는 X 파이프라인으로 처리되었으면 좋겠다"고 표현할 단일 지점이 없다.
+  매 메시지마다 <code>▸ Orchestration</code> 토글을 켜야 하고, 켜도 출력은 하드코딩된 stub이다.
+</p>
+
+<h2 id="phase1">2. Phase 1 — 스레드 단위 파이프라인 바인딩</h2>
+<p><span class="pill pill--phase1">Phase 1</span> 스레드에 <code>pipelineId</code>를 부여하고 채팅 라우팅을 자동화한다. 출력 품질은 다루지 않는다.</p>
+
+<h3>2.1 데이터 모델</h3>
+
+<div class="block">
+<p><code>packages/core/src/types/thread.ts</code></p>
+<pre><code>export interface Thread {
+  id: string;
+  title: string;
+  targetDir?: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string;
+  agentSessionId?: string;
+  pipelineId?: string;  // ⬅ 신규: 비어 있으면 일반 채팅
+}
+
+export interface CreateThreadInput {
+  title: string;
+  targetDir?: string;
+  pipelineId?: string;  // ⬅ 신규
+}
+
+export interface UpdateThreadInput {
+  title?: string;
+  targetDir?: string;
+  archivedAt?: string | null;
+  agentSessionId?: string | null;
+  pipelineId?: string | null;  // ⬅ 신규: null로 해제 가능
+}
+</code></pre>
+</div>
+
+<h3>2.2 DB 스키마 마이그레이션</h3>
+
+<table>
+<tr><th>항목</th><th>값</th></tr>
+<tr><td>SCHEMA_VERSION</td><td><code>11</code> → <code>12</code></td></tr>
+<tr><td>대상 테이블</td><td><code>threads</code></td></tr>
+<tr><td>마이그레이션 SQL</td><td><code>ALTER TABLE threads ADD COLUMN pipeline_id TEXT NULL</code></td></tr>
+<tr><td>레거시 행</td><td><code>pipeline_id IS NULL</code> → 일반 채팅 흐름</td></tr>
+<tr><td>외래키 정책</td><td>FK 제약 추가하지 않음. 파이프라인이 삭제되면 UI에서 silently "(파이프라인 없음 — 일반 채팅)"으로 표시</td></tr>
+</table>
+
+<p>수정 파일: <code>packages/storage/src/schema.ts</code>, <code>packages/storage/src/migrations.ts</code></p>
+
+<h3>2.3 9-Layer IPC 변경 목록</h3>
+
+<table>
+<tr><th>#</th><th>레이어</th><th>파일</th><th>변경 내용</th></tr>
+<tr><td>1</td><td>Schema</td><td><code>packages/storage/src/schema.ts</code></td><td>SCHEMA_VERSION 12, threads.pipeline_id 컬럼</td></tr>
+<tr><td>2</td><td>Repository</td><td><code>packages/storage/src/repositories/thread-repository.ts</code></td><td>INSERT/UPDATE/SELECT에 pipeline_id 매핑, row mapper 업데이트</td></tr>
+<tr><td>3</td><td>Service</td><td><code>packages/storage/src/services/local-state-service.ts</code></td><td><code>createThread</code> payload에 <code>pipelineId</code> 전달</td></tr>
+<tr><td>4</td><td>IPC handler</td><td><code>apps/desktop/electron/ipc/state-ipc.ts</code></td><td><code>state:createThread</code> 입력에 <code>pipelineId</code> 허용</td></tr>
+<tr><td>5</td><td>IPC register</td><td><code>apps/desktop/electron/ipc/state-ipc-register.ts</code></td><td>변경 없음 (시그니처가 입력 객체)</td></tr>
+<tr><td>6</td><td>IPC index</td><td><code>apps/desktop/electron/ipc/index.ts</code></td><td>변경 없음</td></tr>
+<tr><td>7</td><td>Preload</td><td><code>apps/desktop/electron/preload.ts</code></td><td><code>state.createThread</code> input 타입 갱신</td></tr>
+<tr><td>8</td><td>API surface</td><td><code>packages/core/src/api.ts</code></td><td><code>createThread</code> 입력 타입에 <code>pipelineId?: string</code> 추가</td></tr>
+<tr><td>9</td><td>Renderer</td><td><code>apps/desktop/src/screens/workbench/*</code></td><td>아래 §2.4 참조</td></tr>
+</table>
+
+<h3>2.4 UI 변경</h3>
+
+<h4>2.4.1 "+ 새 스레드" 다이얼로그</h4>
+<p>현재 <code>WorkbenchShell.handleCreateThread</code>가 호출되는 곳(<code>ThreadSidebar</code> / <code>HeroEmpty</code>)을 모두 다이얼로그 기반으로 통일하거나, 기존 인라인 입력에 Pipeline 드롭다운을 추가한다.</p>
+
+<div class="diagram">┌─ 새 스레드 ─────────────────────────────┐
+│ 제목     [_________________________]   │
+│ 대상 폴더 [_____________] [찾아보기]    │
+│ Pipeline  [▼ (없음 — 일반 채팅)      ]  │
+│           ├─ Code Review (3 steps)      │
+│           ├─ Refactor (4 steps)         │
+│           └─ Doc Gen (2 steps)          │
+│                                         │
+│              [취소]  [생성]             │
+└─────────────────────────────────────────┘
+</div>
+
+<p>마운트 시 <code>window.harness.pipeline.list()</code>로 목록 로드. 기본값은 <code>settings.orchestration.defaultPipelineId</code> (이미 직전 커밋에서 추가됨).</p>
+
+<h4>2.4.2 ConversationInput 단순화</h4>
+<ul>
+  <li><code>▸ Orchestration</code> 토글 <strong>제거</strong></li>
+  <li><code>orchExpanded</code> / <code>orchMode</code> / <code>showLegacyMode</code> state 제거</li>
+  <li>제출 시 <code>thread.pipelineId</code>가 있으면 항상 <code>payload.orchPipelineId</code>로 자동 채움</li>
+  <li>없으면 일반 채팅 흐름(<code>agent.generatePlan</code>)</li>
+</ul>
+
+<h4>2.4.3 스레드 헤더 배지</h4>
+<p>스레드가 파이프라인에 묶여 있으면 <code>WorkbenchShell</code> 상단에 시각적 표시:</p>
+<div class="diagram">┌──────────────────────────────────────────┐
+│ My Refactor Thread  [Pipeline: Refactor] │
+│                                          │
+└──────────────────────────────────────────┘
+</div>
+<p>클릭하면 파이프라인 정의를 보여주는 작은 팝오버(선택적, P1 범위에선 정적 배지로 충분).</p>
+
+<h3>2.5 라우팅 로직</h3>
+
+<div class="block">
+<p><code>apps/desktop/src/screens/workbench/WorkbenchShell.tsx</code> <code>handleCreateTask</code></p>
+<pre><code>// Before
+const orchPipelineId = userPickedFromOrchToggle;  // 매번 사용자 토글
+
+// After
+const thread = threads.find(t => t.id === selectedThreadId);
+const orchPipelineId = thread?.pipelineId;  // 스레드 바인딩만 봄
+
+if (orchPipelineId) {
+  await window.harness.orchestration.draftPlan({
+    taskRunId, mode: "single_worker", pipelineId: orchPipelineId,
+  });
+} else {
+  await window.harness.agent.generatePlan({ taskRunId });
+}
+</code></pre>
+</div>
+
+<h3>2.6 변경/추가될 테스트 파일</h3>
+
+<table>
+<tr><th>파일</th><th>변경</th></tr>
+<tr><td><code>packages/storage/src/repositories/thread-repository.test.mjs</code></td><td>pipelineId 라운드트립 / null 처리 / update로 해제</td></tr>
+<tr><td><code>packages/storage/src/services/local-state-service.test.mjs</code></td><td><code>createThread</code>에 pipelineId 전달 시 저장 확인</td></tr>
+<tr><td><code>packages/storage/src/migrations.test.mjs</code> (있다면)</td><td>SCHEMA_VERSION 11 → 12 업그레이드 시 컬럼 추가 / 기존 행 NULL 유지</td></tr>
+<tr><td><code>packages/core/src/ipc-channels.test.mjs</code></td><td>변경 없음 (채널명 동일)</td></tr>
+</table>
+
+<h3>2.7 Phase 1의 한계 (명시적)</h3>
+<p>이 페이즈만 적용하면 사용자가 파이프라인 바인딩된 스레드에서 메시지를 보내도 <strong>worker-runner는 여전히 결정적 stub 텍스트를 반환</strong>한다. UX 경로만 정리되고, 출력 품질 개선은 Phase 2의 몫이다.</p>
+
+<h2 id="phase2">3. Phase 2 — Worker가 실제 에이전트를 호출</h2>
+<p><span class="pill pill--phase2">Phase 2</span> <code>WorkerRunner</code>의 결정적 stub을 제거하고 각 step에서 <code>AgentProfile</code>의 persona/tuning으로 실제 CLI를 호출한다.</p>
+
+<div class="blocker">
+  <h3>3.1 (선결) Approval 정책 결정</h3>
+  <p>현재 <code>worker-runner.ts</code> 헤더 주석은:</p>
+  <blockquote style="margin-left:0;padding-left:12px;border-left:3px solid #e2a93d;color:#5b4f00;">
+    "if the worker suggests a side-effecting action it MUST be persisted as a separate approval — never executed directly here."
+  </blockquote>
+  <p>Phase 2에서 worker가 진짜 에이전트를 호출하면 그 에이전트는 file_write/shell 같은 side-effect를 제안할 수 있다. 다음 중 하나를 <strong>코딩 시작 전에</strong> 정해야 한다:</p>
+  <ul>
+    <li><strong>(a) Side-effect-free worker.</strong> worker는 텍스트 결과(log artifact)만 생성. 제안된 액션이 있으면 별도 approval로 큐잉. 일반 채팅과 동등한 안전 모델.</li>
+    <li><strong>(b) Plan approval이 worker 액션까지 위임.</strong> orchestration_plan approval을 승인하면 그 안의 worker가 만드는 모든 후속 approval이 자동 승인된다. <code>settings.approval.autoApprove</code>의 캐스케이드 동작과 일관됨.</li>
+  </ul>
+  <p>(a)가 보수적 기본값. (b)를 원하면 <code>autoApprove</code> 플래그처럼 명시적 opt-in으로 둘 것.</p>
+</div>
+
+<h3>3.2 데이터 모델 변경</h3>
+
+<div class="block">
+<p><code>packages/core/src/types/orchestration.ts</code></p>
+<pre><code>export interface WorkerStep {
+  id: string;
+  title: string;
+  role: WorkerRole;
+  inputSummary: string;       // 표시용(120자 truncated) — 기존 유지
+  instruction: string;        // ⬅ 신규: 전체 instruction (Phase 2에서 CLI userRequest로 사용)
+  expectedArtifactKinds: string[];
+  status: WorkerStepStatus;
+  agentProfileId?: string;
+}
+</code></pre>
+</div>
+
+<p>레거시 plan(<code>instruction</code> 없는 행)은 worker-runner에서 <code>inputSummary</code>로 폴백한다.</p>
+
+<h3>3.3 OrchestrationPlanner 변경</h3>
+
+<div class="block">
+<p><code>packages/orchestration/src/orchestration-planner.ts</code> <code>synthesizeFromPipeline</code></p>
+<pre><code>out.push({
+  id: newId("step"),
+  title: step.title,
+  role: profile.role as WorkerRole,
+  inputSummary: step.instruction.slice(0, 120),  // 표시용
+  instruction: step.instruction,                  // ⬅ 신규: 원문 보존
+  expectedArtifactKinds: [...step.expectedArtifactKinds],
+  status: "pending",
+  agentProfileId: step.agentProfileId,
+});
+</code></pre>
+</div>
+
+<p>레거시 <code>synthesizeWorkerSteps</code>(mode 기반)는 instruction을 <code>taskRun.userRequest</code>로 채운다.</p>
+
+<h3>3.4 WorkerRunner 의존성 주입</h3>
+
+<div class="block">
+<p><code>packages/orchestration/src/worker-runner.ts</code></p>
+<pre><code>export interface WorkerRunnerDeps {
+  state: LocalStateService;
+  agentPlanning: AgentPlanningService;  // ⬅ 신규
+}
+
+// runWorkerStepBody (이전: 동기, 하드코딩 텍스트)
+// 이후: async, 실제 CLI 호출
+private async runWorkerStepBody(
+  step: WorkerStep,
+  profile: AgentProfile | null,
+  taskRunId: string,
+): Promise<string> {
+  if (!profile) {
+    // 레거시 mode-driven plan: 결정적 텍스트 유지 (백워드 호환)
+    return roleBody(step.role);
+  }
+  const result = await this.deps.agentPlanning.invokeForWorker({
+    taskRunId,
+    profile,
+    userRequest: step.instruction,
+    // profile.tuning, profile.cli, profile.mcpServerIds 모두 사용
+  });
+  return result.outputText;
+}
+</code></pre>
+</div>
+
+<p>
+  <code>AgentPlanningService</code>는 이미 <code>generatePlan</code>으로 활성 프로필 기반 CLI 호출을 한다.
+  Phase 2는 동일 로직을 "특정 프로필 + 명시적 instruction"으로 호출하는 진입점(<code>invokeForWorker</code> 또는 동등)을 추가하는 일.
+</p>
+
+<h3>3.5 변경/폐기될 테스트</h3>
+
+<table>
+<tr><th>파일</th><th>현재 검증</th><th>Phase 2 후</th></tr>
+<tr><td><code>packages/orchestration/src/worker-runner.test.mjs</code></td><td>각 role의 <strong>하드코딩 텍스트</strong>가 artifact body에 포함됨</td><td>그 단언 폐기. 대신 mock <code>AgentPlanningService</code>로 호출 인자(profile.id, instruction)가 정확한지 검증</td></tr>
+<tr><td><code>packages/orchestration/src/orchestration-planner.test.mjs</code></td><td>pipelineId로 step 합성 시 <code>inputSummary</code>가 120자 truncated</td><td><code>instruction</code> 필드가 원문 보존되는지 추가 단언</td></tr>
+<tr><td><code>packages/orchestration/src/orchestration-service.test.mjs</code></td><td>runApproved 전체 플로우</td><td>mock agentPlanning 주입 + side-effect 정책(a vs b) 결정에 따라 분기</td></tr>
+</table>
+
+<h3>3.6 추가로 영향 받는 곳</h3>
+
+<ul>
+  <li><code>apps/desktop/electron/main.ts</code> — <code>OrchestrationService</code>(또는 <code>WorkerRunner</code>) 인스턴스 생성 시 <code>agentPlanning</code> 주입</li>
+  <li><code>packages/orchestration/src/orchestration-service.ts</code> — <code>WorkerRunner</code>로 deps pass-through</li>
+</ul>
+
+<h2 id="sequence">4. 실행 순서 및 백워드 호환성</h2>
+
+<h3>4.1 권장 순서</h3>
+<ol>
+  <li><strong>Phase 1 먼저.</strong> 스레드 옵션 + 라우팅 단순화. 출력은 stub 그대로지만 UX는 완성됨. 이 시점에 PR 단위로 끊고 사용자가 실제 동작을 검증.</li>
+  <li><strong>Approval 정책 결정.</strong> §3.1의 (a) vs (b)를 사용자가 선택 — 코드 작성 전에 명시적으로 확정.</li>
+  <li><strong>Phase 2 구현.</strong> WorkerStep.instruction 추가 → planner 갱신 → WorkerRunner 리팩터 → 테스트 교체.</li>
+  <li><strong>Phase 2 검증.</strong> Phase 1에서 만든 파이프라인 바인딩 스레드에 메시지 보냈을 때 실제 페르소나가 반영되는지 확인.</li>
+</ol>
+
+<h3>4.2 백워드 호환성</h3>
+
+<table>
+<tr><th>대상</th><th>호환 처리</th></tr>
+<tr><td>기존 스레드 행 (pipeline_id NULL)</td><td>"파이프라인 없음" → 일반 채팅. 영향 없음.</td></tr>
+<tr><td>기존 orchestration plan artifact (instruction 필드 없음)</td><td>runApproved에서 <code>step.instruction ?? step.inputSummary</code>로 폴백.</td></tr>
+<tr><td>기존 worker artifact (하드코딩 텍스트)</td><td>읽기 전용. 새 worker 호출이 새 artifact를 생성하므로 영향 없음.</td></tr>
+<tr><td>레거시 mode-driven plan (agentProfileId 없는 step)</td><td>Phase 2에서도 결정적 텍스트 유지 (profile == null 분기).</td></tr>
+<tr><td>참조하던 pipeline이 삭제된 thread</td><td>UI에서 "(파이프라인 없음)"으로 표시, 실제 라우팅은 일반 채팅으로 폴백.</td></tr>
+</table>
+
+<h3>4.3 마이그레이션 안전성</h3>
+<ul>
+  <li>스키마 변경은 <code>ALTER TABLE ... ADD COLUMN ... NULL</code> 한 줄. 기존 데이터 손실 없음.</li>
+  <li>SCHEMA_VERSION bump가 멱등 — 재실행해도 NOOP.</li>
+  <li>Phase 1 / Phase 2 사이에 사용자가 앱을 빌드해도 깨지지 않음 — Phase 1은 stub을 그대로 호출.</li>
+</ul>
+
+<hr />
+
+<p class="meta">
+  본 문서는 advisor 리뷰를 반영해 작성되었다. 실제 코드 작업은 Phase 1부터 시작하되,
+  §3.1의 approval 정책 결정 없이 Phase 2를 시작하지 않는다.
+</p>
+
+</main>
+</body>
+</html>
