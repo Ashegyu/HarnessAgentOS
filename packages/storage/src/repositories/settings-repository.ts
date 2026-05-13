@@ -69,6 +69,8 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
     defaultMode: so?.defaultMode ?? od.defaultMode,
     defaultInstructions: so?.defaultInstructions ?? "",
     workerProfiles: Array.isArray(so?.workerProfiles) ? so.workerProfiles : [],
+    defaultPipelineId:
+      typeof so?.defaultPipelineId === "string" ? so.defaultPipelineId : "",
   };
   const ap = s.approval as Partial<ApprovalSettings> | null | undefined;
   const approval: ApprovalSettings = {

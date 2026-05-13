@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  AgentPipeline,
   Approval,
   OrchestrationMode,
   OrchestrationPlan,
@@ -50,6 +51,9 @@ export const OrchestrationPanel = ({
   const [runningId, setRunningId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<OrchestrationRunResult | null>(null);
+  const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
+  const [pipelineId, setPipelineId] = useState<string>("");
+  const [showLegacyMode, setShowLegacyMode] = useState(false);
 
   const runnableApprovals = useMemo(
     () => approvals.filter(isRunnable),
@@ -70,6 +74,32 @@ export const OrchestrationPanel = ({
     }
   }, []);
 
+  const refreshPipelines = useCallback(
+    async (preferredId?: string): Promise<void> => {
+      try {
+        const list = await window.harness.pipeline.list();
+        setPipelines(list);
+        if (list.length > 0) {
+          // Priority: explicit preferred (from settings.defaultPipelineId) →
+          // current selection → first available.
+          setPipelineId((prev) => {
+            if (preferredId && list.some((p) => p.id === preferredId)) {
+              return preferredId;
+            }
+            return list.some((p) => p.id === prev) ? prev : list[0]!.id;
+          });
+          setShowLegacyMode(false);
+        } else {
+          setShowLegacyMode(true);
+        }
+      } catch {
+        // pipeline namespace unavailable — fall back to legacy-only.
+        setShowLegacyMode(true);
+      }
+    },
+    [],
+  );
+
   const fetchPlan = useCallback(async (): Promise<void> => {
     if (!taskRun) {
       setPlanState({ kind: "idle" });
@@ -86,6 +116,8 @@ export const OrchestrationPanel = ({
     }
   }, [taskRun]);
 
+  const [defaultPipelineId, setDefaultPipelineId] = useState<string>("");
+
   useEffect(() => {
     void (async () => {
       try {
@@ -95,6 +127,7 @@ export const OrchestrationPanel = ({
         if (s.orchestration.defaultInstructions) {
           setInstruction(s.orchestration.defaultInstructions);
         }
+        setDefaultPipelineId(s.orchestration.defaultPipelineId);
         if (s.orchestration.enabled) setAdvancedOpen(true);
       } catch {
         setOrchEnabled(false);
@@ -105,19 +138,25 @@ export const OrchestrationPanel = ({
   useEffect(() => {
     if (!advancedOpen) return;
     void fetchPlan();
-  }, [advancedOpen, fetchPlan]);
+    void refreshPipelines(
+      defaultPipelineId.length > 0 ? defaultPipelineId : undefined,
+    );
+  }, [advancedOpen, defaultPipelineId, fetchPlan, refreshPipelines]);
 
   const handleDraft = useCallback(async (): Promise<void> => {
     if (!taskRun) return;
     setBusy(true);
     setActionError(null);
     try {
+      // Pipeline takes precedence over legacy mode when one is selected.
+      const usePipeline = pipelineId.length > 0;
       await window.harness.orchestration.draftPlan({
         taskRunId: taskRun.id,
         mode,
         ...(instruction.trim().length > 0
           ? { instruction: instruction.trim() }
           : {}),
+        ...(usePipeline ? { pipelineId } : {}),
       });
       await fetchPlan();
       await onRefreshTaskRun();
@@ -126,7 +165,7 @@ export const OrchestrationPanel = ({
     } finally {
       setBusy(false);
     }
-  }, [taskRun, mode, instruction, fetchPlan, onRefreshTaskRun]);
+  }, [taskRun, mode, instruction, pipelineId, fetchPlan, onRefreshTaskRun]);
 
   const handleRun = useCallback(
     async (approvalId: string): Promise<void> => {
@@ -187,21 +226,52 @@ export const OrchestrationPanel = ({
             </div>
           )}
           <div className="orchestration-panel__form">
-            <label className="form-field">
-              <span>Mode</span>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as OrchestrationMode)}
-                className="textarea"
+            {pipelines.length > 0 && (
+              <label className="form-field">
+                <span>Pipeline</span>
+                <select
+                  value={pipelineId}
+                  onChange={(e) => setPipelineId(e.target.value)}
+                  className="textarea"
+                  disabled={busy}
+                >
+                  {pipelines.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.steps.length} steps)
+                    </option>
+                  ))}
+                  <option value="">(없음 — Legacy mode 사용)</option>
+                </select>
+              </label>
+            )}
+            {(showLegacyMode || pipelineId.length === 0) && (
+              <label className="form-field">
+                <span>Legacy Mode</span>
+                <select
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as OrchestrationMode)}
+                  className="textarea"
+                  disabled={busy || pipelineId.length > 0}
+                >
+                  {MODES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {pipelines.length > 0 && !showLegacyMode && (
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setShowLegacyMode(true)}
                 disabled={busy}
+                style={{ alignSelf: "flex-start" }}
               >
-                {MODES.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                Legacy mode 보기
+              </button>
+            )}
             <label className="form-field">
               <span>Instruction (선택)</span>
               <input
@@ -220,7 +290,11 @@ export const OrchestrationPanel = ({
                 onClick={() => void handleDraft()}
                 disabled={busy || orchEnabled === false}
               >
-                {busy ? "처리 중…" : "Plan 초안 작성 (approval 생성)"}
+                {busy
+                  ? "처리 중…"
+                  : pipelineId.length > 0
+                    ? "Pipeline으로 Plan 초안 작성"
+                    : "Plan 초안 작성 (Legacy mode)"}
               </button>
             </div>
             {actionError ? (

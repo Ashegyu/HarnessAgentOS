@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import type { AgentPipeline, OrchestrationMode } from "@harness/core";
 import { ORCHESTRATION_MODES } from "@harness/core";
 
@@ -52,8 +52,37 @@ export const ConversationInput = ({
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
   const [showLegacyMode, setShowLegacyMode] = useState(false);
 
+  const refreshPipelines = useCallback(
+    async (preferredId?: string): Promise<void> => {
+      try {
+        const list = await window.harness.pipeline.list();
+        setPipelines(list);
+        if (list.length > 0) {
+          // Priority: explicit preferred (from settings.defaultPipelineId) →
+          // current selection → first available.
+          setOrchPipelineId((prev) => {
+            if (preferredId && list.some((p) => p.id === preferredId)) {
+              return preferredId;
+            }
+            return list.some((p) => p.id === prev) ? prev : list[0]!.id;
+          });
+          setShowLegacyMode(false);
+        } else {
+          setShowLegacyMode(true);
+        }
+      } catch {
+        // pipeline namespace unavailable — keep legacy-only behavior
+        setShowLegacyMode(true);
+      }
+    },
+    [],
+  );
+
+  // On mount: load settings once, then load pipelines (seeded with the
+  // user's configured default pipeline if any).
   useEffect(() => {
     void (async () => {
+      let preferredId: string | undefined;
       try {
         const s = await window.harness.settings.get();
         if (s.orchestration.enabled) {
@@ -63,23 +92,23 @@ export const ConversationInput = ({
             setOrchInstruction(s.orchestration.defaultInstructions);
           }
         }
+        if (s.orchestration.defaultPipelineId.length > 0) {
+          preferredId = s.orchestration.defaultPipelineId;
+        }
       } catch {
         // settings unavailable — orch stays hidden
       }
-      try {
-        const list = await window.harness.pipeline.list();
-        setPipelines(list);
-        // If user has at least one pipeline, default to picking the
-        // first one rather than the legacy mode — pipelines are the
-        // current-gen path; legacy mode stays available via expander.
-        if (list.length > 0) setOrchPipelineId(list[0]!.id);
-        else setShowLegacyMode(true);
-      } catch {
-        // pipeline namespace unavailable — keep legacy-only behavior
-        setShowLegacyMode(true);
-      }
+      await refreshPipelines(preferredId);
     })();
-  }, []);
+  }, [refreshPipelines]);
+
+  // Refresh pipeline list whenever the user opens the Orchestration panel,
+  // so pipelines created in Settings → Pipelines are visible immediately.
+  useEffect(() => {
+    if (orchExpanded) {
+      void refreshPipelines();
+    }
+  }, [orchExpanded, refreshPipelines]);
 
   // Suggestion chip → composer text injection. Parent updates the seed
   // object reference (key changes) each time, so re-clicking the same

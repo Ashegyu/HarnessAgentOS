@@ -443,6 +443,12 @@ app.whenReady().then(async () => {
   } catch {
     // non-fatal — UI just won't pre-populate the sentinels.
   }
+  // Seed 4 example agent profiles (planner/coder/reviewer/tester) on first launch.
+  try {
+    await services.state.agentProfiles.ensureSeed();
+  } catch {
+    // non-fatal — UI still works with an empty profile list.
+  }
   // Best-effort initial capability scan; missing skill directories are
   // non-fatal so first-run still succeeds.
   try {

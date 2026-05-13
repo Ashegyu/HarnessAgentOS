@@ -1,6 +1,10 @@
 import { useEffect, useReducer, useState } from "react";
-import type { AgentProvider, HarnessSettings, OrchestrationMode, WorkerProfile } from "@harness/core";
-import { DEFAULT_HARNESS_SETTINGS } from "@harness/core";
+import type {
+  AgentPipeline,
+  AgentProvider,
+  HarnessSettings,
+  OrchestrationMode,
+} from "@harness/core";
 import { AgentProfilesTab } from "./AgentProfilesTab";
 import { McpServersTab } from "./McpServersTab";
 import { PipelinesTab } from "./PipelinesTab";
@@ -49,9 +53,7 @@ type Action =
   | { type: "setOrchestrationEnabled"; value: boolean }
   | { type: "setDefaultMode"; value: OrchestrationMode }
   | { type: "setDefaultInstructions"; value: string }
-  | { type: "addWorkerProfile" }
-  | { type: "removeWorkerProfile"; id: string }
-  | { type: "updateWorkerProfile"; profile: WorkerProfile }
+  | { type: "setDefaultPipelineId"; value: string }
   | { type: "setAutoApprove"; value: boolean }
   | { type: "saving" }
   | { type: "saved"; settings: HarnessSettings }
@@ -89,21 +91,8 @@ const reducer = (state: FormState, action: Action): FormState => {
   if (action.type === "setDefaultInstructions") {
     return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, defaultInstructions: action.value } } };
   }
-  if (action.type === "addWorkerProfile") {
-    const newProfile: WorkerProfile = {
-      id: crypto.randomUUID(),
-      name: "New Worker",
-      provider: "auto",
-      model: "",
-      role: "coder",
-    };
-    return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, workerProfiles: [...state.draft.orchestration.workerProfiles, newProfile] } } };
-  }
-  if (action.type === "removeWorkerProfile") {
-    return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, workerProfiles: state.draft.orchestration.workerProfiles.filter((p) => p.id !== action.id) } } };
-  }
-  if (action.type === "updateWorkerProfile") {
-    return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, workerProfiles: state.draft.orchestration.workerProfiles.map((p) => p.id === action.profile.id ? action.profile : p) } } };
+  if (action.type === "setDefaultPipelineId") {
+    return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, defaultPipelineId: action.value } } };
   }
   if (action.type === "setAutoApprove") {
     return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoApprove: action.value } } };
@@ -123,6 +112,7 @@ const reducer = (state: FormState, action: Action): FormState => {
 export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
   const [state, dispatch] = useReducer(reducer, { kind: "loading" });
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
+  const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +124,12 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
         if (!cancelled) {
           dispatch({ type: "loadError", message: e instanceof Error ? e.message : String(e) });
         }
+      }
+      try {
+        const list = await window.harness.pipeline.list();
+        if (!cancelled) setPipelines(list);
+      } catch {
+        // pipeline namespace unavailable — leave list empty, dropdown stays hidden.
       }
     })();
     return () => { cancelled = true; };
@@ -325,12 +321,42 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
                 <span className="settings-field__label">Orchestration 활성화</span>
               </label>
 
+              {pipelines.length > 0 && (
+                <label className="settings-field">
+                  <span className="settings-field__label">기본 Pipeline</span>
+                  <select
+                    className="settings-field__input"
+                    value={
+                      pipelines.some(
+                        (p) => p.id === state.draft.orchestration.defaultPipelineId,
+                      )
+                        ? state.draft.orchestration.defaultPipelineId
+                        : ""
+                    }
+                    disabled={state.saving}
+                    onChange={(e) =>
+                      dispatch({ type: "setDefaultPipelineId", value: e.target.value })
+                    }
+                  >
+                    <option value="">(없음 — Legacy mode 사용)</option>
+                    {pipelines.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.steps.length} steps)
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
               <label className="settings-field">
-                <span className="settings-field__label">기본 Mode</span>
+                <span className="settings-field__label">기본 Legacy Mode</span>
                 <select
                   className="settings-field__input"
                   value={state.draft.orchestration.defaultMode}
-                  disabled={state.saving}
+                  disabled={
+                    state.saving ||
+                    state.draft.orchestration.defaultPipelineId.length > 0
+                  }
                   onChange={(e) =>
                     dispatch({ type: "setDefaultMode", value: e.target.value as OrchestrationMode })
                   }
@@ -355,83 +381,11 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
                 />
               </label>
 
-              <div className="settings-field">
-                <div className="settings-field__label-row">
-                  <span className="settings-field__label">Worker Profiles</span>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    disabled={state.saving}
-                    onClick={() => dispatch({ type: "addWorkerProfile" })}
-                  >
-                    + 추가
-                  </button>
-                </div>
-                {state.draft.orchestration.workerProfiles.length === 0 ? (
-                  <p className="settings-field__hint">등록된 worker profile이 없습니다.</p>
-                ) : (
-                  <ul className="worker-profiles-list">
-                    {state.draft.orchestration.workerProfiles.map((p) => (
-                      <li key={p.id} className="worker-profile-item">
-                        <input
-                          type="text"
-                          className="settings-field__input"
-                          placeholder="이름"
-                          value={p.name}
-                          disabled={state.saving}
-                          onChange={(e) =>
-                            dispatch({ type: "updateWorkerProfile", profile: { ...p, name: e.target.value } })
-                          }
-                        />
-                        <select
-                          className="settings-field__input"
-                          value={p.role}
-                          disabled={state.saving}
-                          onChange={(e) =>
-                            dispatch({ type: "updateWorkerProfile", profile: { ...p, role: e.target.value as WorkerProfile["role"] } })
-                          }
-                        >
-                          <option value="planner">planner</option>
-                          <option value="coder">coder</option>
-                          <option value="reviewer">reviewer</option>
-                          <option value="tester">tester</option>
-                        </select>
-                        <select
-                          className="settings-field__input"
-                          value={p.provider}
-                          disabled={state.saving}
-                          onChange={(e) =>
-                            dispatch({ type: "updateWorkerProfile", profile: { ...p, provider: e.target.value as AgentProvider } })
-                          }
-                        >
-                          <option value="auto">auto</option>
-                          <option value="claude">claude</option>
-                          <option value="codex">codex</option>
-                        </select>
-                        <input
-                          type="text"
-                          className="settings-field__input"
-                          placeholder="모델 (비워두면 기본값)"
-                          value={p.model}
-                          disabled={state.saving}
-                          onChange={(e) =>
-                            dispatch({ type: "updateWorkerProfile", profile: { ...p, model: e.target.value } })
-                          }
-                        />
-                        <button
-                          type="button"
-                          className="btn btn--ghost btn--sm btn--danger"
-                          disabled={state.saving}
-                          onClick={() => dispatch({ type: "removeWorkerProfile", id: p.id })}
-                          aria-label="삭제"
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+              <p className="settings-field__hint">
+                에이전트 워크플로우 구성은 <strong>Agents</strong> 탭에서 Agent Profile별로,
+                <strong> Pipelines</strong> 탭에서 실행 순서를 설정하세요.
+                Worker Profiles는 더 이상 사용되지 않습니다.
+              </p>
             </fieldset>
 
             <fieldset className="settings-fieldset">

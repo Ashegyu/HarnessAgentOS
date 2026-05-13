@@ -26,6 +26,8 @@ export interface AgentProfileRepository {
   update(profile: AgentProfile): Promise<AgentProfile>;
   delete(id: string): Promise<void>;
   setDefault(id: string): Promise<AgentProfile>;
+  /** Idempotent: seeds 4 example profiles if the table is empty. */
+  ensureSeed(): Promise<void>;
 }
 
 interface ProfileRow {
@@ -154,6 +156,122 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       throw new Error(`AgentProfile not found after setDefault: ${id}`);
     }
     return refreshed;
+  }
+
+  async ensureSeed(): Promise<void> {
+    const existing = await this.list();
+
+    // Determine which of the 4 canonical roles are already covered so we
+    // only insert what is actually missing. This is safe to call on a DB
+    // that already has profiles (e.g. migrated from legacy settings) — we
+    // never overwrite or duplicate an existing role entry.
+    const coveredRoles = new Set(existing.map((p) => p.role));
+    const rolesToSeed = (
+      ["planner", "coder", "reviewer", "tester"] as const
+    ).filter((r) => !coveredRoles.has(r));
+
+    if (rolesToSeed.length === 0) return;
+
+    const now = nowIso();
+    const hasExistingDefault = existing.some((p) => p.isDefault);
+
+    const defaultTuning: AgentModelTuning = {
+      model: "",
+      timeoutMs: 120_000,
+      stallTimeoutMs: 30_000,
+      contextDepth: 10,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    };
+    const defaultCli: AgentCliEnv = {
+      cliPathOverride: "",
+      env: {},
+      envSecretRefs: {},
+    };
+    const defaultPermissions: AgentPermissions = {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    };
+
+    // Full catalogue of seed profiles (all 4 roles). Only entries whose
+    // role appears in `rolesToSeed` will actually be inserted.
+    const catalogue: Omit<AgentProfile, "id" | "createdAt" | "updatedAt" | "isDefault">[] = [
+      {
+        name: "Planner",
+        description:
+          "Strategic planning and task decomposition. Breaks complex requests into actionable steps and coordinates downstream agents.",
+        provider: "auto",
+        role: "planner",
+        persona:
+          "You are a senior engineering lead specialising in requirement analysis and sprint planning. Your goal is to produce clear, unambiguous task breakdowns that a coding agent can implement without additional clarification.",
+        tuning: defaultTuning,
+        cli: defaultCli,
+        permissions: defaultPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        name: "Coder",
+        description:
+          "Implements features and fixes bugs. Writes clean, well-typed code following the project's conventions.",
+        provider: "auto",
+        role: "coder",
+        persona:
+          "You are an experienced full-stack engineer who writes concise, correct, and maintainable code. You follow the project's coding style, prefer editing existing files over creating new ones, and never add unnecessary abstractions.",
+        tuning: defaultTuning,
+        cli: defaultCli,
+        permissions: defaultPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        name: "Reviewer",
+        description:
+          "Reviews code changes for quality, security, and correctness. Produces a prioritised issue list.",
+        provider: "auto",
+        role: "reviewer",
+        persona:
+          "You are a meticulous code reviewer focused on correctness, security, and maintainability. You classify findings by severity (CRITICAL / HIGH / MEDIUM / LOW) and provide specific, actionable feedback with file and line references.",
+        tuning: defaultTuning,
+        cli: defaultCli,
+        permissions: defaultPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        name: "Tester",
+        description:
+          "Writes and runs tests to validate behaviour. Ensures new code paths are covered before merge.",
+        provider: "auto",
+        role: "tester",
+        persona:
+          "You are a quality-assurance engineer who writes thorough, readable tests following a test-driven approach. You write the test first (RED), then confirm the implementation passes it (GREEN), and flag any coverage gaps.",
+        tuning: defaultTuning,
+        cli: defaultCli,
+        permissions: defaultPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+    ];
+
+    // Insert only missing roles. The very first inserted profile becomes the
+    // default when there is no existing default yet.
+    let firstInserted = true;
+    for (const entry of catalogue) {
+      if (!rolesToSeed.includes(entry.role as AgentProfile["role"])) continue;
+      const profile: AgentProfile = {
+        ...entry,
+        id: newId("agentProfile"),
+        isDefault: !hasExistingDefault && firstInserted,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.insertRow(profile);
+      firstInserted = false;
+    }
   }
 
   private insertRow(p: AgentProfile): void {

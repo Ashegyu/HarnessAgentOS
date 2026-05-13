@@ -123,6 +123,57 @@ test("AgentProfileRepository.setDefault demotes the previous default atomically"
   }
 });
 
+test("AgentProfileRepository.ensureSeed inserts 4 profiles on empty DB", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    assert.deepEqual(await repo.list(), [], "pre-condition: table is empty");
+    await repo.ensureSeed();
+    const all = await repo.list();
+    assert.equal(all.length, 4, "must seed exactly 4 profiles");
+    const roles = all.map((p) => p.role).sort();
+    assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
+    const defaults = all.filter((p) => p.isDefault);
+    assert.equal(defaults.length, 1, "exactly one profile must be isDefault");
+    assert.equal(defaults[0].role, "planner", "planner is the default");
+    assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed is idempotent", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    await repo.ensureSeed();
+    await repo.ensureSeed();
+    const all = await repo.list();
+    assert.equal(all.length, 4, "second call must not insert duplicates");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed skips seed when profiles already exist", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    await repo.create(makeProfileInput({ name: "Existing" }));
+    await repo.ensureSeed();
+    const all = await repo.list();
+    assert.equal(all.length, 1, "ensureSeed must not add profiles when table is non-empty");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentProfileRepository.create round-trips arrays and nested objects", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

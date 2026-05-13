@@ -23,6 +23,13 @@ export interface OrchestrationSettings {
   defaultMode: OrchestrationMode;
   defaultInstructions: string;
   workerProfiles: WorkerProfile[];
+  /**
+   * AgentPipeline.id pre-selected for new task runs. Empty string means
+   * "no default — fall back to the first available pipeline, or legacy
+   * mode when none exist". When the referenced pipeline has been deleted,
+   * the UI treats this as empty.
+   */
+  defaultPipelineId: string;
 }
 
 /**
@@ -64,6 +71,7 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
       defaultMode: "single_worker" as OrchestrationMode,
       defaultInstructions: "",
       workerProfiles: [] as WorkerProfile[],
+      defaultPipelineId: "",
     }),
     approval: Object.freeze({
       autoApprove: false,
