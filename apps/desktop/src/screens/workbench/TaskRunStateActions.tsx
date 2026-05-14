@@ -29,7 +29,9 @@ export const TaskRunStateActions = ({
         .reverse()
         .find(
           (a) =>
-            a.status === "approved" || a.status === "always_approved_for_run",
+            a.status === "approved" ||
+            a.status === "always_approved_for_run" ||
+            a.status === "executed",
         ),
     [approvals],
   );

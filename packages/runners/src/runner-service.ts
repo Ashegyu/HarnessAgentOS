@@ -94,17 +94,25 @@ export class RunnerService {
         `Retry is only allowed when TaskRun is blocked or quality_failed (current: ${taskRun.status})`,
       );
     }
-    return this.executeApproved(approvalId);
+    return this.executeApprovedInternal(approvalId, { allowExecuted: true });
   }
 
   async executeApproved(approvalId: string): Promise<RunnerResult> {
+    return this.executeApprovedInternal(approvalId, { allowExecuted: false });
+  }
+
+  private async executeApprovedInternal(
+    approvalId: string,
+    options: { allowExecuted: boolean },
+  ): Promise<RunnerResult> {
     const approval = await this.deps.state.getApproval(approvalId);
     if (!approval) {
       throw new RunnerError("APPROVAL_NOT_FOUND", `Approval ${approvalId} not found`);
     }
     if (
       approval.status !== "approved" &&
-      approval.status !== "always_approved_for_run"
+      approval.status !== "always_approved_for_run" &&
+      !(options.allowExecuted && approval.status === "executed")
     ) {
       throw new RunnerError(
         "RUNNER_APPROVAL_REQUIRED",
@@ -195,6 +203,11 @@ export class RunnerService {
       await this.deps.state.setStepStatus(step.id, "succeeded", {
         outputSummary: summarizeStepOutput(result),
       });
+      await this.deps.state.decideApproval(
+        approval.id,
+        "executed",
+        `Executed ${approval.actionType}; artifacts=${result.artifactIds.length}`,
+      );
       result.finishedAt = nowIso();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

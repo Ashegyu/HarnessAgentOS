@@ -107,8 +107,42 @@ test("file_write writes inside targetDir and emits diff artifact", async () => {
       const artifacts = await state.listArtifactsByTaskRun(approval.taskRunId);
       assert.ok(artifacts.some((a) => a.kind === "diff"));
 
+      const executedApproval = await state.getApproval(approval.id);
+      assert.equal(executedApproval.status, "executed");
+
       const updatedTaskRun = await state.getTaskRun(approval.taskRunId);
       assert.notEqual(updatedTaskRun.status, "blocked");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("executeApproved refuses to re-run an executed approval directly", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "once.txt", after: "one\n" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await runner.executeApproved(approval.id);
+
+      const executedApproval = await state.getApproval(approval.id);
+      assert.equal(executedApproval.status, "executed");
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) => e instanceof RunnerError && e.code === "RUNNER_APPROVAL_REQUIRED",
+      );
     } finally {
       closeDb(db);
     }
@@ -333,6 +367,38 @@ test("retryApproval succeeds when TaskRun is blocked", async () => {
       // Force the TaskRun into blocked status to simulate a prior failure.
       await state.setTaskRunStatus(draft.taskRun.id, "blocked");
 
+      const result = await runner.retryApproval(approval.id);
+      assert.equal(result.taskRunId, draft.taskRun.id);
+      assert.ok(result.artifactIds.length >= 1);
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("retryApproval can re-run an executed approval when quality_failed", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "retry-executed.txt", after: "hello" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await runner.executeApproved(approval.id);
+
+      const executedApproval = await state.getApproval(approval.id);
+      assert.equal(executedApproval.status, "executed");
+
+      await state.setTaskRunStatus(draft.taskRun.id, "quality_failed");
       const result = await runner.retryApproval(approval.id);
       assert.equal(result.taskRunId, draft.taskRun.id);
       assert.ok(result.artifactIds.length >= 1);
