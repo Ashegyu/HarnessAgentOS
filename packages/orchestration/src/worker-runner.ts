@@ -1,5 +1,11 @@
 import type { LocalStateService } from "@harness/storage";
-import type { AgentProfile, Approval } from "@harness/core";
+import {
+  validateProposedActionDetails,
+  type AgentProfile,
+  type AgentProposedAction,
+  type Approval,
+  type ProposedActionDetails,
+} from "@harness/core";
 import {
   OrchestrationError,
   type OrchestrationPlan,
@@ -26,7 +32,7 @@ export interface WorkerCliInvoker {
     taskRunId: string;
     profile: AgentProfile;
     userRequest: string;
-  }): Promise<{ outputText: string }>;
+  }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }>;
 }
 
 /**
@@ -76,9 +82,16 @@ export class WorkerRunner {
 
     const stepArtifactIds: string[] = [];
     const updatedSteps: WorkerStep[] = [];
+    const acceptedActions: Array<{
+      action: AgentProposedAction;
+      details: ProposedActionDetails;
+      workerTitle: string;
+    }> = [];
+    const policyReport: string[] = [];
     const baseStepIndex = (
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
+    let lastDbStepId: string | null = null;
 
     for (let i = 0; i < input.plan.workerSteps.length; i += 1) {
       const planStep = input.plan.workerSteps[i]!;
@@ -112,15 +125,19 @@ export class WorkerRunner {
         input.plan.taskRunId,
         dbStep.id,
       );
+      lastDbStepId = dbStep.id;
       await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
       let body: string;
       let status: WorkerStep["status"] = "succeeded";
+      let proposedActions: AgentProposedAction[] = [];
       try {
-        body = await this.runWorkerStepBody(
+        const outcome = await this.runWorkerStepBody(
           planStep,
           profile,
           input.plan.taskRunId,
         );
+        body = outcome.body;
+        proposedActions = outcome.proposedActions;
       } catch (e) {
         body = e instanceof Error ? e.message : String(e);
         status = "failed";
@@ -142,13 +159,96 @@ export class WorkerRunner {
         outputSummary: `worker artifact ${artifact.id}`,
       });
       updatedSteps.push({ ...planStep, status });
+      if (status === "succeeded" && proposedActions.length > 0) {
+        for (const [proposalIndex, raw] of proposedActions.entries()) {
+          const details = toProposedActionDetails(raw);
+          const validation = validateProposedActionDetails(details, raw.type);
+          if (!validation.ok || !validation.details) {
+            policyReport.push(
+              `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: ${
+                validation.reason ?? "invalid"
+              }`,
+            );
+            continue;
+          }
+          acceptedActions.push({
+            action: raw,
+            details: validation.details,
+            workerTitle: planStep.title,
+          });
+        }
+      }
       if (status === "failed") break;
+    }
+    if (policyReport.length > 0 && lastDbStepId !== null) {
+      const policyArtifact = await this.deps.state.createArtifact({
+        taskRunId: input.plan.taskRunId,
+        stepId: lastDbStepId,
+        kind: "quality_report",
+        title: "Worker action policy report",
+        uri: `harness:orchestration-policy/${input.plan.id}/${Date.now()}`,
+        summary: [
+          "# Worker proposed-action policy rejections",
+          "",
+          `Total rejected: ${policyReport.length}`,
+          "",
+          ...policyReport,
+        ].join("\n"),
+      });
+      stepArtifactIds.push(policyArtifact.id);
+    }
+    const proposedApprovalIds: string[] = [];
+    if (
+      updatedSteps.length > 0 &&
+      !updatedSteps.some((s) => s.status === "failed") &&
+      acceptedActions.length > 0
+    ) {
+      const approvalStep = await this.deps.state.createStep({
+        taskRunId: input.plan.taskRunId,
+        index: baseStepIndex + updatedSteps.length,
+        kind: "approval",
+        title: "Worker action 승인 대기",
+        status: "pending",
+        inputSummary: acceptedActions.map((a) => a.details.type).join(","),
+      });
+      const checkpoint = await this.deps.state.createCheckpoint({
+        taskRunId: input.plan.taskRunId,
+        stepId: approvalStep.id,
+        reason: "before_edit",
+        stateRef: JSON.stringify({
+          taskRunStatus: "waiting_for_approval",
+          currentStepId: approvalStep.id,
+          artifactIds: stepArtifactIds,
+          orchestrationPlanId: input.plan.id,
+        }),
+        summary: `worker action checkpoint (${acceptedActions.length} actions)`,
+      });
+      for (const { action, details, workerTitle } of acceptedActions) {
+        const approval = await this.deps.state.createApproval({
+          taskRunId: input.plan.taskRunId,
+          checkpointId: checkpoint.id,
+          actionType: details.type,
+          actionSummary: shortRationale(action, workerTitle),
+          status: "pending",
+        });
+        const withDetails = await this.deps.state.setApprovalProposedAction(
+          approval.id,
+          details,
+        );
+        proposedApprovalIds.push(withDetails.id);
+      }
+      await this.deps.state.setTaskRunCurrentStep(
+        input.plan.taskRunId,
+        approvalStep.id,
+      );
     }
     await this.deps.state.setTaskRunStatus(
       input.plan.taskRunId,
       updatedSteps.some((s) => s.status === "failed")
         ? "blocked"
-        : "ready_for_review",
+        : proposedApprovalIds.length > 0
+          ? "waiting_for_approval"
+          : "ready_for_review",
     );
 
     return {
@@ -156,7 +256,7 @@ export class WorkerRunner {
       taskRunId: input.plan.taskRunId,
       workerStepArtifactIds: stepArtifactIds,
       workerSteps: updatedSteps,
-      proposedApprovalIds: [],
+      proposedApprovalIds,
     };
   }
 
@@ -177,12 +277,12 @@ export class WorkerRunner {
     step: WorkerStep,
     profile: AgentProfile | null,
     taskRunId: string,
-  ): Promise<string> {
+  ): Promise<{ body: string; proposedActions: AgentProposedAction[] }> {
     assertActionTypeAllowed(roleToActionIntent(step.role));
     const invoker = this.deps.agentPlanning;
     const userRequest = step.instruction ?? step.inputSummary;
     if (invoker && profile && userRequest.length > 0) {
-      const { outputText } = await invoker.invokeForWorker({
+      const { outputText, proposedActions } = await invoker.invokeForWorker({
         taskRunId,
         profile,
         userRequest,
@@ -194,14 +294,20 @@ export class WorkerRunner {
         profile.persona.length > 0
           ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
           : `[${profile.name}]\n\n`;
-      return personaSnippet + outputText;
+      return {
+        body: personaSnippet + outputText,
+        proposedActions: proposedActions ?? [],
+      };
     }
     // Fallback: deterministic stub.
     const personaLine =
       profile && profile.persona.length > 0
         ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
         : "";
-    return personaLine + roleBody(step.role);
+    return {
+      body: personaLine + roleBody(step.role),
+      proposedActions: [],
+    };
   }
 }
 
@@ -248,4 +354,35 @@ const roleToActionIntent = (role: WorkerRole): string => {
     default:
       return "summarize";
   }
+};
+
+const toProposedActionDetails = (
+  raw: AgentProposedAction,
+): ProposedActionDetails => {
+  if (raw.type === "file_write") {
+    return {
+      type: "file_write",
+      filePatch: {
+        path: raw.path,
+        after: raw.after,
+        ...(raw.before !== undefined ? { before: raw.before } : {}),
+      },
+    };
+  }
+  return {
+    type: "shell",
+    command: raw.command,
+    ...(raw.args !== undefined ? { args: raw.args } : {}),
+  };
+};
+
+const shortRationale = (
+  action: AgentProposedAction,
+  workerTitle: string,
+): string => {
+  const head =
+    action.type === "file_write"
+      ? `file_write ${action.path}`
+      : `shell ${action.command.slice(0, 80)}`;
+  return `${workerTitle}: ${head} — ${action.rationale.slice(0, 160)}`;
 };

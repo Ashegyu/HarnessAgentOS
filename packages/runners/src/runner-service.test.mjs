@@ -120,6 +120,41 @@ test("file_write writes inside targetDir and emits diff artifact", async () => {
   }
 });
 
+test("file_write modifies an existing file and records before/after diff", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      writeFileSync(join(t.target, "existing.txt"), "old\n", "utf8");
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: {
+          path: "existing.txt",
+          before: "old\n",
+          after: "new\n",
+        },
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await runner.executeApproved(approval.id);
+
+      assert.equal(readFileSync(join(t.target, "existing.txt"), "utf8"), "new\n");
+      const artifacts = await state.listArtifactsByTaskRun(approval.taskRunId);
+      const diff = artifacts.find((a) => a.kind === "diff");
+      assert.ok(diff, "diff artifact must exist");
+      assert.match(diff.summary, /bytes written/);
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("executeApproved refuses to re-run an executed approval directly", async () => {
   const t = tmp();
   try {

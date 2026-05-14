@@ -425,3 +425,125 @@ test("generatePlan emits progress events before and after CLI invocation", async
   assert.ok(progress.every((event) => event.taskRunId === "tr-progress"));
   assert.ok(progress.every((event) => event.invocationId === "inv-progress"));
 });
+
+test("invokeForWorker asks for harness plan output and returns parsed actions", async () => {
+  const taskRun = {
+    id: "tr-worker",
+    threadId: "th-worker",
+    userRequest: "original request",
+    targetDir: "/tmp/project",
+    status: "running",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = {
+    id: "ap-worker",
+    name: "Worker",
+    description: "",
+    provider: "claude",
+    role: "coder",
+    persona: "Be precise.",
+    tuning: {
+      model: "claude-sonnet-4-6",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+    permissions: {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const invocation = {
+    id: "inv-worker",
+    taskRunId: taskRun.id,
+    provider: "claude",
+    model: "claude-sonnet-4-6",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  let lastRequest = null;
+  let artifactSeq = 0;
+  const planOutput = {
+    summary: "Create file",
+    assumptions: [],
+    steps: [{ title: "Write file", rationale: "requested", risk: "medium" }],
+    proposedActions: [
+      {
+        type: "file_write",
+        path: "created.txt",
+        after: "created\n",
+        rationale: "create requested file",
+      },
+    ],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      getThread: async () => ({
+        id: "th-worker",
+        title: "t",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async () => invocation,
+      updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    adapter: {
+      invoke: async (request) => {
+        lastRequest = request;
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 12,
+        };
+      },
+    },
+  });
+
+  const result = await svc.invokeForWorker({
+    taskRunId: taskRun.id,
+    profile,
+    userRequest: "create a file",
+  });
+
+  assert.equal(result.proposedActions?.length, 1);
+  assert.equal(result.proposedActions?.[0].type, "file_write");
+  assert.equal(result.proposedActions?.[0].path, "created.txt");
+  assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);
+  assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
+  assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
+  assert.match(lastRequest.prompt, /create a file/);
+});

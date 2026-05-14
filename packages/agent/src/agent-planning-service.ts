@@ -691,17 +691,17 @@ export class AgentPlanningService {
    * step's bound `AgentProfile` for persona/tuning/MCP and the
    * pipeline-author-written `instruction` as the user request. Returns
    * the raw stdout text so the worker-runner can persist it as a log
-   * artifact.
+   * artifact, plus parsed proposed actions when the model follows the
+   * `harness_agent_plan` contract.
    *
    * Side-effect-free per Phase 2 policy (a): this method does NOT
    * create approvals, run shell commands, or write files. The model
-   * may *suggest* such actions inside its output text, but turning
-   * those into actionable approvals is a follow-up — Phase 2 only
-   * captures the text.
+   * may *suggest* such actions inside its output text; the worker-runner
+   * turns those suggestions into pending approvals before any side effect.
    *
    * Differences vs `generatePlan`:
    *  - no TaskRun status mutation (worker-runner owns step rows)
-   *  - no plan parsing / proposed-action handling
+   *  - parses proposed actions but does not create approvals itself
    *  - errors bubble up so the worker-runner marks the step failed
    *
    * Persists an `agent_invocations` row keyed by the synthesized
@@ -716,7 +716,7 @@ export class AgentPlanningService {
     taskRunId: string;
     profile: AgentProfile;
     userRequest: string;
-  }): Promise<{ outputText: string }> {
+  }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
       throw new AgentPlanningError(
@@ -773,8 +773,14 @@ export class AgentPlanningService {
       mcpCleanup = prep.cleanup;
     }
 
-    const systemPrompt = redactSecrets(input.profile.persona, 80_000);
-    const userPrompt = redactSecrets(input.userRequest, 80_000);
+    const prompt = buildSplitAgentPrompt({
+      taskRun: { ...taskRun, userRequest: input.userRequest },
+      persona: input.profile.persona,
+      systemPromptPrefix: tuning.systemPromptPrefix,
+      systemPromptSuffix: tuning.systemPromptSuffix,
+    });
+    const systemPrompt = redactSecrets(prompt.systemPrompt, 80_000);
+    const userPrompt = redactSecrets(prompt.userPrompt, 80_000);
 
     // Persist prompt + invocation row so the renderer's
     // `InlineAgentStream` can subscribe to stream events keyed by
@@ -891,6 +897,10 @@ export class AgentPlanningService {
         }
       }
       const redactedOutput = redactSecrets(result.stdout, 200_000);
+      const parsedPlan = parseAgentPlan(redactedOutput);
+      const proposedActions = parsedPlan.ok
+        ? parsedPlan.plan.proposedActions
+        : [];
       const rawOutputArtifact = await this.deps.state.createArtifact({
         taskRunId: taskRun.id,
         kind: "log",
@@ -905,8 +915,17 @@ export class AgentPlanningService {
         latencyMs: result.latencyMs,
         finishedAt,
       });
-      emitProgress("complete", "Worker 응답 처리 완료");
-      return { outputText: redactedOutput };
+      emitProgress(
+        "complete",
+        proposedActions.length > 0
+          ? "Worker 제안 action 확인"
+          : "Worker 응답 처리 완료",
+        proposedActions.length > 0 ? `${proposedActions.length}개 action` : undefined,
+      );
+      return {
+        outputText: redactedOutput,
+        ...(proposedActions.length > 0 ? { proposedActions } : {}),
+      };
     } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
       const code = isCancelled

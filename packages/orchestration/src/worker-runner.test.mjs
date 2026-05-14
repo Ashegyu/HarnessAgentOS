@@ -257,6 +257,94 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
   }
 });
 
+test("runApproved creates downstream approvals for worker file_write proposals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "CliCoder", persona: "Be precise." }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Solo",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Implement",
+          instruction: "Create and update files.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "Worker proposed file changes.",
+          proposedActions: [
+            {
+              type: "file_write",
+              path: "created.txt",
+              after: "created\n",
+              rationale: "create requested file",
+            },
+            {
+              type: "file_write",
+              path: "existing.txt",
+              before: "old\n",
+              after: "new\n",
+              rationale: "modify requested file",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 2);
+    const approvals = await state.listApprovalsByTaskRun(taskRun.id);
+    const downstream = approvals.filter((a) =>
+      result.proposedApprovalIds.includes(a.id),
+    );
+    assert.equal(downstream.length, 2);
+    assert.deepEqual(
+      downstream.map((a) => a.status),
+      ["pending", "pending"],
+    );
+    assert.deepEqual(
+      downstream.map((a) => a.actionType),
+      ["file_write", "file_write"],
+    );
+    assert.deepEqual(downstream[0].proposedAction, {
+      type: "file_write",
+      filePatch: { path: "created.txt", after: "created\n" },
+    });
+    assert.deepEqual(downstream[1].proposedAction, {
+      type: "file_write",
+      filePatch: { path: "existing.txt", before: "old\n", after: "new\n" },
+    });
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun.status, "waiting_for_approval");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 // Phase 2 — when the invoker throws, the worker step is marked failed
 // and the error message is captured in the artifact. The runner must
 // not unwind subsequent steps in the same plan; the loop already breaks
