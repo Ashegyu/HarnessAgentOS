@@ -1118,6 +1118,11 @@ export const WorkbenchShell = (): JSX.Element => {
               autoApprove={autoApprove}
               onOpenThreadDrawer={openThreadDrawer}
               activeTaskRunId={selectedTaskRunId}
+              activeTaskRun={
+                taskRunDetail.kind === "ready"
+                  ? taskRunDetail.detail.taskRun
+                  : null
+              }
               activeTaskRunApprovals={
                 taskRunDetail.kind === "ready"
                   ? taskRunDetail.detail.approvals

@@ -20,6 +20,10 @@ import {
 } from "./agent-stream-parser";
 import { AgentStreamSections } from "./AgentStreamSections";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
+import {
+  deriveChatTurnDisplayStatus,
+  taskRunWithActiveOverride,
+} from "./chat-turn-status";
 
 type DetailState =
   | { kind: "idle" }
@@ -53,6 +57,7 @@ interface ConversationWorkbenchProps {
   onOpenThreadDrawer?: () => void;
   activeTaskRunApprovals: Approval[];
   activeTaskRunId: string | null;
+  activeTaskRun: TaskRun | null;
   /**
    * AgentInvocations for the currently-selected TaskRun. Used to render
    * the central-window streaming view inline next to its ChatTurn. Empty
@@ -87,6 +92,7 @@ export const ConversationWorkbench = ({
   onOpenThreadDrawer,
   activeTaskRunApprovals,
   activeTaskRunId,
+  activeTaskRun,
   activeTaskRunInvocations,
   agentProgressByTaskRunId,
 }: ConversationWorkbenchProps): JSX.Element => {
@@ -163,6 +169,7 @@ export const ConversationWorkbench = ({
         onOpenContextDrawer={() => {
           if (!contextDrawerOpen) onToggleContextDrawer();
         }}
+        activeTaskRun={activeTaskRun}
       />
       <ConversationInput
         threadId={threadId}
@@ -235,6 +242,7 @@ const ChatTranscript = ({
   autoApprove,
   contextDrawerOpen,
   onOpenContextDrawer,
+  activeTaskRun,
 }: {
   detail: ThreadDetail;
   selectedTaskRunId: string | null;
@@ -242,6 +250,7 @@ const ChatTranscript = ({
   onDeleteTask: (id: string) => Promise<void>;
   onSuggest: (text: string) => void;
   activeTaskRunId: string | null;
+  activeTaskRun: TaskRun | null;
   activeTaskRunApprovals: Approval[];
   activeTaskRunInvocations: AgentInvocation[];
   agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
@@ -296,30 +305,33 @@ const ChatTranscript = ({
 
   return (
     <div className="chat-transcript" ref={scrollRef}>
-      {ordered.map((tr) => (
-        <ChatTurn
-          key={tr.id}
-          taskRun={tr}
-          answer={agentAnswers?.[tr.id]}
-          isSelected={selectedTaskRunId === tr.id}
-          onSelect={() => onSelectTaskRun(tr.id)}
-          onDelete={() => void onDeleteTask(tr.id)}
-          invocation={
-            activeTaskRunId === tr.id ? latestInvocation : undefined
-          }
-          progress={agentProgressByTaskRunId[tr.id] ?? []}
-          inlineApprovalCard={
-            activeTaskRunId === tr.id ? (
-              <InlineApprovalCard
-                approvals={activeTaskRunApprovals}
-                autoApprove={autoApprove}
-                contextDrawerOpen={contextDrawerOpen}
-                onOpenDrawer={onOpenContextDrawer}
-              />
-            ) : null
-          }
-        />
-      ))}
+      {ordered.map((tr) => {
+        const displayTaskRun = taskRunWithActiveOverride(tr, activeTaskRun);
+        const isActive = activeTaskRunId === tr.id;
+        return (
+          <ChatTurn
+            key={tr.id}
+            taskRun={displayTaskRun}
+            answer={agentAnswers?.[tr.id]}
+            isSelected={selectedTaskRunId === tr.id}
+            onSelect={() => onSelectTaskRun(tr.id)}
+            onDelete={() => void onDeleteTask(tr.id)}
+            invocation={isActive ? latestInvocation : undefined}
+            approvals={isActive ? activeTaskRunApprovals : []}
+            progress={agentProgressByTaskRunId[tr.id] ?? []}
+            inlineApprovalCard={
+              isActive ? (
+                <InlineApprovalCard
+                  approvals={activeTaskRunApprovals}
+                  autoApprove={autoApprove}
+                  contextDrawerOpen={contextDrawerOpen}
+                  onOpenDrawer={onOpenContextDrawer}
+                />
+              ) : null
+            }
+          />
+        );
+      })}
     </div>
   );
 };
@@ -331,6 +343,7 @@ const ChatTurn = ({
   onSelect,
   onDelete,
   invocation,
+  approvals,
   progress,
   inlineApprovalCard,
 }: {
@@ -340,6 +353,7 @@ const ChatTurn = ({
   onSelect: () => void;
   onDelete: () => void;
   invocation: AgentInvocation | undefined;
+  approvals: readonly Approval[];
   progress: readonly AgentProgressItem[];
   inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
@@ -350,6 +364,11 @@ const ChatTurn = ({
   // the parent transcript scroll.
   const hasInvocation = invocation !== undefined;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
+  const displayStatus = deriveChatTurnDisplayStatus({
+    taskRunStatus: taskRun.status,
+    invocationStatus: invocation?.status,
+    approvals,
+  });
 
   return (
     <div
@@ -399,7 +418,7 @@ const ChatTurn = ({
           )}
         </div>
         <div className="chat-bubble__meta">
-          <TaskRunStatusBadge status={taskRun.status} />
+          <TaskRunStatusBadge status={displayStatus} />
           <span title={taskRun.targetDir}>{shortPath(taskRun.targetDir)}</span>
         </div>
       </div>
