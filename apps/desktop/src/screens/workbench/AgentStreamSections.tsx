@@ -189,9 +189,39 @@ const sectionContent = (
 };
 
 const formatToolInput = (input: unknown): string => {
+  if (typeof input === "string") return input.slice(0, 240);
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    const primary =
+      stringValue(record["command"]) ??
+      stringValue(record["path"]) ??
+      stringValue(record["filePath"]);
+    const cwd =
+      stringValue(record["cwd"]) ??
+      stringValue(record["workdir"]) ??
+      stringValue(record["workingDirectory"]) ??
+      stringValue(record["targetDir"]);
+    const timeout =
+      numberValue(record["timeout_ms"]) ?? numberValue(record["timeoutMs"]);
+    const reason =
+      stringValue(record["rationale"]) ?? stringValue(record["reason"]);
+    const parts = [
+      primary,
+      cwd ? `cwd: ${cwd}` : null,
+      timeout !== null ? `timeout: ${timeout}ms` : null,
+      reason,
+    ].filter((part): part is string => Boolean(part));
+    if (parts.length > 0) return parts.join(" · ").slice(0, 240);
+  }
   try {
     return JSON.stringify(input).slice(0, 180);
   } catch {
     return String(input).slice(0, 180);
   }
 };
+
+const stringValue = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value : null;
+
+const numberValue = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;

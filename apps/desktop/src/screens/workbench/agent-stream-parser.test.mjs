@@ -621,6 +621,70 @@ test("codex completed assistant snapshots append intermediate response sections"
   );
 });
 
+test("codex response_item reasoning summary is captured as thinking", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "response_item",
+      payload: {
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: "파일 구조 확인 중" }],
+      },
+    }),
+  );
+
+  assert.equal(s.parsed.thinkingText, "파일 구조 확인 중");
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["thinking"],
+  );
+});
+
+test("codex response_item function_call is captured as command tool use", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "shell_command",
+        arguments: JSON.stringify({
+          command: "npm run check",
+          workdir: "C:\\work",
+          timeout_ms: 10000,
+        }),
+        call_id: "call-1",
+      },
+    }) +
+      line({
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-1",
+          output: "Exit code: 0\nOutput:\nok",
+        },
+      }),
+  );
+
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "shell_command",
+      input: {
+        command: "npm run check",
+        workdir: "C:\\work",
+        timeout_ms: 10000,
+      },
+    },
+  ]);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["tool"],
+  );
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
 test("codex completed harness_agent_plan keeps sections while running", () => {
   const s = initStreamParserState();
   const planOutput = {

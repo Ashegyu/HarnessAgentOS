@@ -838,6 +838,23 @@ const ingestCodexLine = (
     return true;
   }
 
+  const payload = obj["payload"];
+  if (isRecord(payload) && ingestCodexLine(state, payload)) {
+    return true;
+  }
+
+  const thinkingText = extractCodexThinkingText(obj);
+  if (thinkingText !== null) {
+    const text = parsed.thinkingText.length > 0 ? `\n${thinkingText}` : thinkingText;
+    parsed.thinkingText += text;
+    appendTextDeltaSection(state, "thinking", text);
+    return true;
+  }
+
+  if (isCodexToolOutput(obj)) {
+    return true;
+  }
+
   const delta = extractCodexDeltaText(obj);
   if (delta !== null) {
     parsed.liveText += delta;
@@ -939,16 +956,46 @@ const extractText = (obj: Record<string, unknown>): string => {
   return parts.join("");
 };
 
+const extractCodexThinkingText = (
+  obj: Record<string, unknown>,
+): string | null => {
+  const candidates = [obj["item"], obj["payload"], obj];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate)) continue;
+    const type = typeof candidate["type"] === "string" ? candidate["type"] : "";
+    if (!type.includes("reasoning") && !type.includes("thinking")) continue;
+    const summaryText = extractCodexSummaryText(candidate["summary"]);
+    if (summaryText.length > 0) return summaryText;
+    if (type.includes("summary")) {
+      const text = extractText(candidate);
+      if (text.length > 0) return text;
+    }
+  }
+  return null;
+};
+
+const extractCodexSummaryText = (summary: unknown): string => {
+  if (typeof summary === "string") return summary.trim();
+  if (!Array.isArray(summary)) return "";
+  const parts: string[] = [];
+  for (const block of summary) {
+    if (typeof block === "string") {
+      parts.push(block);
+      continue;
+    }
+    if (!isRecord(block)) continue;
+    const text = extractText(block);
+    if (text.length > 0) parts.push(text);
+  }
+  return parts.join("\n").trim();
+};
+
 const extractCodexToolUse = (
   obj: Record<string, unknown>,
 ): { name: string; input: unknown } | null => {
   const candidate = isRecord(obj["item"]) ? obj["item"] : obj;
   const type = typeof candidate["type"] === "string" ? candidate["type"] : "";
-  if (
-    !type.includes("tool") &&
-    !type.includes("function_call") &&
-    !type.includes("local_shell_call")
-  ) {
+  if (!isCodexToolCallType(type)) {
     return null;
   }
   const name =
@@ -963,7 +1010,41 @@ const extractCodexToolUse = (
     candidate["args"] ??
     candidate["command"] ??
     null;
-  return { name, input };
+  return { name, input: normalizeCodexToolInput(input) };
+};
+
+const isCodexToolCallType = (type: string): boolean => {
+  if (type === "function_call_output") return false;
+  return (
+    type.includes("tool") ||
+    type.includes("local_shell_call") ||
+    type === "function_call" ||
+    type.includes("shell") ||
+    type.includes("exec_command")
+  );
+};
+
+const isCodexToolOutput = (obj: Record<string, unknown>): boolean => {
+  const candidate = isRecord(obj["item"]) ? obj["item"] : obj;
+  return candidate["type"] === "function_call_output";
+};
+
+const normalizeCodexToolInput = (input: unknown): unknown => {
+  if (typeof input !== "string") return input;
+  const trimmed = input.trim();
+  if (
+    !(
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    )
+  ) {
+    return input;
+  }
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return input;
+  }
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
