@@ -93,3 +93,34 @@ test("shell rejects non-string args", () => {
   );
   assert.equal(r.ok, false);
 });
+
+test("capability_use accepts normalized capability selection details", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "capability_use",
+      capabilityUse: {
+        capabilityId: " cap_refactor ",
+        capabilityName: " Refactor ",
+        reason: " Matched trigger terms: refactor ",
+        matchedTerms: ["refactor"],
+      },
+      command: "echo should be stripped",
+    },
+    "capability_use",
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.details.type, "capability_use");
+  assert.equal(r.details.capabilityUse.capabilityId, "cap_refactor");
+  assert.equal(r.details.capabilityUse.capabilityName, "Refactor");
+  assert.deepEqual(r.details.capabilityUse.matchedTerms, ["refactor"]);
+  assert.equal(r.details.command, undefined);
+});
+
+test("capability_use rejects missing capabilityUse payload", () => {
+  const r = validateProposedActionDetails(
+    { type: "capability_use" },
+    "capability_use",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /capabilityUse object/);
+});

@@ -217,6 +217,8 @@ const initServices = (): {
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
     prepareMcpInvocation,
+    getApprovedCapabilityContexts: ({ taskRunId }) =>
+      capabilityService.approvedPromptContexts({ taskRunId }),
     // Long-running agent work is valid, but a child process must never
     // hang forever. Keep a generous hard timeout and a separate idle
     // timeout for "no output" stalls.

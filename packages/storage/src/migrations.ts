@@ -1,6 +1,9 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
+const APPROVAL_ACTION_TYPE_CHECK =
+  "'capability_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
+
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
  * 9 tables defined in docs/architecture/harness-agent-os-design.md §14.
@@ -39,22 +42,14 @@ export const applyMigrations = (db: DatabaseType): void => {
     // v6 — expand approvals.status CHECK to include 'executed'.
     // SQLite doesn't support ALTER CONSTRAINT; the table must be rebuilt.
     if (!approvalStatusAllows(db, "executed")) {
-      db.exec(`ALTER TABLE approvals RENAME TO approvals_v5`);
-      db.exec(`CREATE TABLE approvals (
-        id TEXT PRIMARY KEY,
-        task_run_id TEXT NOT NULL,
-        checkpoint_id TEXT NOT NULL,
-        action_type TEXT NOT NULL CHECK(action_type IN ('file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan')),
-        action_summary TEXT NOT NULL,
-        status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
-        decision_message TEXT,
-        decided_at TEXT,
-        proposed_action_json TEXT,
-        FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
-        FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
-      )`);
-      db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json FROM approvals_v5`);
-      db.exec(`DROP TABLE approvals_v5`);
+      rebuildApprovals(db);
+    }
+
+    // v13 — add capability_use approvals for Skillify candidate selection.
+    // This is not runner-executed; it gates whether approved skill
+    // instructions may be injected into a later agent prompt.
+    if (!approvalActionTypeAllows(db, "capability_use")) {
+      rebuildApprovals(db);
     }
 
     db.prepare(
@@ -80,6 +75,35 @@ const approvalStatusAllows = (db: DatabaseType, status: string): boolean => {
     .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'`)
     .get() as { sql: string } | undefined;
   return row?.sql?.includes(`'${status}'`) ?? false;
+};
+
+const approvalActionTypeAllows = (
+  db: DatabaseType,
+  actionType: string,
+): boolean => {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'`)
+    .get() as { sql: string } | undefined;
+  return row?.sql?.includes(`'${actionType}'`) ?? false;
+};
+
+const rebuildApprovals = (db: DatabaseType): void => {
+  db.exec(`ALTER TABLE approvals RENAME TO approvals_migration_old`);
+  db.exec(`CREATE TABLE approvals (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    checkpoint_id TEXT NOT NULL,
+    action_type TEXT NOT NULL CHECK(action_type IN (${APPROVAL_ACTION_TYPE_CHECK})),
+    action_summary TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
+    decision_message TEXT,
+    decided_at TEXT,
+    proposed_action_json TEXT,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
+    FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
+  )`);
+  db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json FROM approvals_migration_old`);
+  db.exec(`DROP TABLE approvals_migration_old`);
 };
 
 export const readSchemaVersion = (db: DatabaseType): number | null => {

@@ -169,6 +169,7 @@ test("quality namespace exposes Phase 4 verbs", () => {
 test("capability namespace exposes Phase 5 verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.capability).sort(), [
     "list",
+    "proposeCandidates",
     "proposeScriptRun",
     "readSkill",
     "refresh",

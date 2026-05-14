@@ -8,6 +8,7 @@ import {
   ok,
   type Approval,
   type Capability,
+  type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
   type HarnessResult,
   type SkillResources,
@@ -18,6 +19,7 @@ import {
   CapabilityServiceError,
   type SkillSourceConfig,
 } from "@harness/skillify-adapter";
+import type { HarnessEventBus } from "../event-bus";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -37,6 +39,7 @@ export const registerCapabilityIpc = (
   service: CapabilityService,
   registry: CapabilityRegistry,
   sources: SkillSourceConfig[],
+  events?: HarnessEventBus,
 ): void => {
   ipcMain.handle(
     IPC_CHANNELS.capability.list,
@@ -127,6 +130,42 @@ export const registerCapabilityIpc = (
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.capability.proposeCandidates,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<CapabilityCandidateApprovalResult>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { taskRunId?: unknown; prompt?: unknown };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      if (typeof cast.prompt !== "string") {
+        return err(harnessError(STATE_INVALID_INPUT, "prompt must be a string"));
+      }
+      try {
+        const result = await service.proposeCandidateApprovals({
+          taskRunId: cast.taskRunId,
+          prompt: cast.prompt,
+        });
+        if (result.approvals.length > 0) {
+          events?.taskRunChanged(cast.taskRunId);
+        }
+        return ok(result);
+      } catch (e) {
+        return wrapErr<CapabilityCandidateApprovalResult>(
+          e,
+          CAPABILITY_REFRESH_FAILED,
+        );
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.capability.proposeScriptRun,
     async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
       if (!isObject(input)) {
@@ -155,6 +194,7 @@ export const registerCapabilityIpc = (
           taskRunId: cast.taskRunId,
           scriptName: cast.scriptName,
         });
+        events?.taskRunChanged(approval.taskRunId);
         return ok(approval);
       } catch (e) {
         return wrapErr<Approval>(e, CAPABILITY_REFRESH_FAILED);

@@ -10,6 +10,7 @@ import type { ProposedAction } from "./types.ts";
  */
 
 const ACTIONS_REQUIRING_APPROVAL: ReadonlySet<ApprovalActionType> = new Set([
+  "capability_use",
   "file_write",
   "shell",
   "dependency_install",

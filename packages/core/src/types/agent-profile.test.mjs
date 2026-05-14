@@ -22,6 +22,7 @@ test("AGENT_PROFILE_ACTION_TYPES matches the approval action types", () => {
   // Must mirror APPROVAL_ACTION_TYPES so permission UI never references
   // an action that the approval system doesn't know about.
   assert.deepEqual([...AGENT_PROFILE_ACTION_TYPES].sort(), [
+    "capability_use",
     "dependency_install",
     "file_write",
     "git_commit",

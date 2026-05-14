@@ -30,6 +30,7 @@ interface ApprovalPanelProps {
 }
 
 const ACTION_RISK_HINT: Record<string, "low" | "medium" | "high"> = {
+  capability_use: "low",
   file_write: "medium",
   shell: "medium",
   dependency_install: "high",
@@ -45,6 +46,10 @@ const HIGH_RISK_BLOCKED: ReadonlySet<string> = new Set([
   "network",
   "skill_script",
   "orchestration_plan",
+]);
+
+const EXECUTION_NOT_REQUIRED: ReadonlySet<string> = new Set([
+  "capability_use",
 ]);
 
 export const ApprovalPanel = ({
@@ -175,6 +180,12 @@ export const ApprovalPanel = ({
             {JSON.stringify(a.proposedAction, null, 2)}
           </pre>
         )}
+        {a.actionType === "capability_use" && (
+          <p className="approval-card__auto-hint">
+            승인하면 이 Skill 후보가 다음 Agent 프롬프트 컨텍스트에 포함됩니다.
+            파일/명령 실행은 하지 않습니다.
+          </p>
+        )}
         {mode === "pending" && pipelineAutoLaunched ? (
           // Pipeline-pick consent already covers this approval; the
           // auto-approve useEffect will mark it approved+executed in
@@ -218,8 +229,18 @@ export const ApprovalPanel = ({
             <button
               type="button"
               onClick={() => setConfiguring(a)}
-              disabled={busyId !== null || blocked}
-              title={blocked ? "Phase 3 MVP에서 차단됨" : "실행 세부 지정"}
+              disabled={
+                busyId !== null ||
+                blocked ||
+                EXECUTION_NOT_REQUIRED.has(a.actionType)
+              }
+              title={
+                EXECUTION_NOT_REQUIRED.has(a.actionType)
+                  ? "이 approval은 실행 세부 지정이 필요하지 않습니다"
+                  : blocked
+                    ? "Phase 3 MVP에서 차단됨"
+                    : "실행 세부 지정"
+              }
             >
               {a.proposedAction ? "세부 수정" : "세부 지정"}
             </button>
@@ -249,6 +270,10 @@ export const ApprovalPanel = ({
               거절
             </button>
           </div>
+        ) : mode === "approved" && EXECUTION_NOT_REQUIRED.has(a.actionType) ? (
+          <p className="approval-card__auto-hint">
+            승인됨 — 다음 Agent 호출에서 Skill 컨텍스트로 반영됩니다.
+          </p>
         ) : mode === "approved" && pipelineAutoLaunched ? (
           <p className="approval-card__auto-hint">
             자동 실행 대기 중… (파이프라인 선택으로 사전 승인됨)
@@ -258,16 +283,27 @@ export const ApprovalPanel = ({
             <button
               type="button"
               onClick={() => setConfiguring(a)}
-              disabled={busyId !== null || blocked}
+              disabled={
+                busyId !== null ||
+                blocked ||
+                EXECUTION_NOT_REQUIRED.has(a.actionType)
+              }
             >
               {a.proposedAction ? "세부 수정" : "세부 지정"}
             </button>
             <button
               type="button"
               onClick={() => void guardedExecute(a.id)}
-              disabled={busyId !== null || !a.proposedAction || blocked}
+              disabled={
+                busyId !== null ||
+                !a.proposedAction ||
+                blocked ||
+                EXECUTION_NOT_REQUIRED.has(a.actionType)
+              }
               title={
-                blocked
+                EXECUTION_NOT_REQUIRED.has(a.actionType)
+                  ? "이 approval은 runner 실행 대상이 아닙니다"
+                  : blocked
                   ? "Phase 3 MVP에서 차단됨"
                   : a.proposedAction
                     ? "approved 상태인 action을 실행합니다."
@@ -353,7 +389,7 @@ export const ApprovalPanel = ({
 
       {approved.length > 0 && (
         <div className="approval-panel__decided">
-          <header className="panel-header">승인됨 (실행 가능)</header>
+          <header className="panel-header">승인됨 / 실행 대기</header>
           {approved.map((a) => renderCard(a, "approved"))}
         </div>
       )}

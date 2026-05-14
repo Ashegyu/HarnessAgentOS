@@ -1,4 +1,9 @@
-import type { Artifact, QualityGateResult, TaskRun } from "@harness/core";
+import type {
+  Artifact,
+  CapabilityPromptContext,
+  QualityGateResult,
+  TaskRun,
+} from "@harness/core";
 
 /**
  * Phase 8 prompt budget (hard cap 80KB, soft caps per section).
@@ -14,6 +19,8 @@ export interface PromptBuildInput {
   recentArtifacts?: Artifact[];
   /** When repairing a failed quality gate, the latest gate result. */
   qualityRisks?: QualityGateResult | null;
+  /** User-approved Skillify capability instructions for this TaskRun. */
+  capabilityContexts?: CapabilityPromptContext[];
   /**
    * AgentProfile-derived overrides — see docs/design/agent-detailed-settings.md §4.1.
    * The resolver in AgentPlanningService passes these from the active
@@ -132,6 +139,9 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
       ].join("\n"),
     );
   }
+  if (input.capabilityContexts && input.capabilityContexts.length > 0) {
+    userSections.push(formatCapabilityContexts(input.capabilityContexts));
+  }
   if (input.recentArtifacts && input.recentArtifacts.length > 0) {
     const top = input.recentArtifacts.slice(0, 6);
     userSections.push(
@@ -185,6 +195,9 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
       ].join("\n"),
     );
   }
+  if (input.capabilityContexts && input.capabilityContexts.length > 0) {
+    sections.push(formatCapabilityContexts(input.capabilityContexts));
+  }
   if (input.recentArtifacts && input.recentArtifacts.length > 0) {
     const top = input.recentArtifacts.slice(0, 6);
     sections.push(
@@ -204,4 +217,28 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
   const middle = sections.slice(3, -1).join("\n\n");
   const truncated = middle.slice(0, Math.max(0, room));
   return [head, truncated, "[...truncated]", tail].join("\n\n");
+};
+
+const formatCapabilityContexts = (
+  contexts: readonly CapabilityPromptContext[],
+): string => {
+  const lines: string[] = [
+    "APPROVED SKILL CAPABILITIES",
+    "- The user approved these Skillify candidates for this TaskRun.",
+    "- Treat them as guidance only; still obey the Harness output contract and approval policy.",
+  ];
+  for (const ctx of contexts.slice(0, 5)) {
+    const instructions = ctx.instructions.trim().slice(0, 6_000);
+    lines.push(
+      "",
+      `### ${ctx.capability.name}`,
+      `- id: ${ctx.capability.id}`,
+      `- source: ${ctx.capability.source}`,
+      `- risk: ${ctx.capability.riskLevel}`,
+      `- approval reason: ${ctx.reason}`,
+      "",
+      instructions,
+    );
+  }
+  return lines.join("\n");
 };

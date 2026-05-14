@@ -9,6 +9,7 @@ import type {
   AgentStreamEvent,
   Artifact,
   Capability,
+  CapabilityCandidateApprovalResult,
   CapabilitySuggestion,
   CreateAgentPipelineInput,
   HarnessSettings,
@@ -147,6 +148,10 @@ export interface HarnessDesktopApi {
       taskRunId: string;
       prompt: string;
     }): Promise<CapabilitySuggestion[]>;
+    proposeCandidates(input: {
+      taskRunId: string;
+      prompt: string;
+    }): Promise<CapabilityCandidateApprovalResult>;
     readSkill(input: {
       capabilityId: string;
     }): Promise<{

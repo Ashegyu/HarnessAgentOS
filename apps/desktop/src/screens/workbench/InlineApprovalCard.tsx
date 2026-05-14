@@ -9,6 +9,8 @@ interface InlineApprovalCardProps {
 
 const labelForAction = (actionType: string): string => {
   switch (actionType) {
+    case "capability_use":
+      return "Skill 후보";
     case "file_write":
       return "파일 쓰기";
     case "shell":

@@ -361,8 +361,13 @@ export class ConversationService {
       "rejected",
       message,
     );
-    // Pause the parent TaskRun so the user can decide redirect/cancel.
-    await this.deps.state.setTaskRunStatus(approval.taskRunId, "paused");
+    // capability_use is only consent to include a Skill candidate in the
+    // next prompt. Rejecting it should not pause the task; the agent can
+    // continue without that optional context once all candidates are
+    // decided. Side-effecting approvals still pause for redirect/cancel.
+    if (approval.actionType !== "capability_use") {
+      await this.deps.state.setTaskRunStatus(approval.taskRunId, "paused");
+    }
     return updated;
   }
 

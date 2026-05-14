@@ -166,6 +166,87 @@ test("proposeScriptRun creates an Approval row, never executes", async () => {
   }
 });
 
+test("proposeCandidateApprovals creates pending capability_use approvals without duplicates", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "refactor");
+    const registry = new CapabilityRegistry({ state });
+    await registry.refresh([
+      { source: "skillify:test", rootDir: skillsRoot, trusted: true },
+    ]);
+    const service = new CapabilityService({ state, registry });
+    const taskRun = await seedTaskRun(state);
+
+    const first = await service.proposeCandidateApprovals({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+    assert.equal(first.suggestions.length, 1);
+    assert.equal(first.approvals.length, 1);
+    assert.equal(first.approvals[0].actionType, "capability_use");
+    assert.equal(first.approvals[0].status, "pending");
+    assert.equal(
+      first.approvals[0].proposedAction.capabilityUse.capabilityName,
+      "refactor",
+    );
+
+    const second = await service.proposeCandidateApprovals({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+    assert.equal(second.suggestions.length, 1);
+    assert.equal(second.approvals.length, 0);
+    assert.equal(
+      (await state.listApprovalsByTaskRun(taskRun.id)).filter(
+        (a) => a.actionType === "capability_use",
+      ).length,
+      1,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("approvedPromptContexts returns instructions only after capability approval", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "refactor");
+    const registry = new CapabilityRegistry({ state });
+    await registry.refresh([
+      { source: "skillify:test", rootDir: skillsRoot, trusted: true },
+    ]);
+    const service = new CapabilityService({ state, registry });
+    const taskRun = await seedTaskRun(state);
+    const proposed = await service.proposeCandidateApprovals({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+
+    assert.deepEqual(await service.approvedPromptContexts({ taskRunId: taskRun.id }), []);
+    await state.decideApproval(proposed.approvals[0].id, "approved", "use it");
+
+    const contexts = await service.approvedPromptContexts({
+      taskRunId: taskRun.id,
+    });
+    assert.equal(contexts.length, 1);
+    assert.equal(contexts[0].capability.name, "refactor");
+    assert.match(contexts[0].instructions, /Body/);
+    assert.match(contexts[0].reason, /Matched trigger terms/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("proposeScriptRun blocks directory traversal in scriptName", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

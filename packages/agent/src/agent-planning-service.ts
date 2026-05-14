@@ -23,6 +23,7 @@ import {
   type AgentStreamEvent,
   type Approval,
   type Artifact,
+  type CapabilityPromptContext,
   type ProposedActionDetails,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
@@ -84,6 +85,13 @@ export interface AgentPlanningServiceDeps {
     mcpConfigPath: string | null;
     cleanup: () => Promise<void>;
   }>;
+  /**
+   * Main-process hook: returns Skillify capability instructions that
+   * already passed the approval ledger for this TaskRun.
+   */
+  getApprovedCapabilityContexts?: (input: {
+    taskRunId: string;
+  }) => Promise<CapabilityPromptContext[]>;
 }
 
 export interface GeneratePlanInput {
@@ -203,6 +211,9 @@ export class AgentPlanningService {
     const qualityRisks = await this.deps.state.getLatestQualityGateResult(
       taskRun.id,
     );
+    const capabilityContexts = await this.loadApprovedCapabilityContexts(
+      taskRun.id,
+    );
 
     // Phase 4: resolve the active AgentProfile so persona / prefix /
     // suffix flow into the prompt. Falls through to legacy settings when
@@ -222,6 +233,7 @@ export class AgentPlanningService {
       persona: resolved.persona,
       systemPromptPrefix: resolved.systemPromptPrefix,
       systemPromptSuffix: resolved.systemPromptSuffix,
+      capabilityContexts,
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
         : {}),
@@ -284,7 +296,7 @@ export class AgentPlanningService {
     emitProgress(
       "prompt",
       "프롬프트 구성 완료",
-      `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자`,
+      `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자, 승인 Skill ${capabilityContexts.length}개`,
     );
 
     // 4. invoke CLI through the per-provider queue. The queue serializes
@@ -773,11 +785,15 @@ export class AgentPlanningService {
       mcpCleanup = prep.cleanup;
     }
 
+    const capabilityContexts = await this.loadApprovedCapabilityContexts(
+      taskRun.id,
+    );
     const prompt = buildSplitAgentPrompt({
       taskRun: { ...taskRun, userRequest: input.userRequest },
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
+      capabilityContexts,
     });
     const systemPrompt = redactSecrets(prompt.systemPrompt, 80_000);
     const userPrompt = redactSecrets(prompt.userPrompt, 80_000);
@@ -1023,6 +1039,17 @@ export class AgentPlanningService {
       });
     } catch {
       return null;
+    }
+  }
+
+  private async loadApprovedCapabilityContexts(
+    taskRunId: string,
+  ): Promise<CapabilityPromptContext[]> {
+    if (!this.deps.getApprovedCapabilityContexts) return [];
+    try {
+      return await this.deps.getApprovedCapabilityContexts({ taskRunId });
+    } catch {
+      return [];
     }
   }
 }

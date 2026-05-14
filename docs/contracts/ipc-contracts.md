@@ -39,6 +39,7 @@ export type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipp
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "always_approved_for_run";
 export type ApprovalScope = "once" | "run_action_class";
 export type ApprovalActionType =
+  | "capability_use"
   | "file_write"
   | "shell"
   | "dependency_install"
@@ -381,6 +382,11 @@ interface QualityGateResult {
 capability.list(): Promise<Capability[]>;
 capability.refresh(): Promise<Capability[]>;
 capability.suggest(input: { taskRunId: string; prompt: string }): Promise<CapabilitySuggestion[]>;
+capability.proposeCandidates(input: { taskRunId: string; prompt: string }): Promise<{
+  suggestions: CapabilitySuggestion[];
+  approvals: Approval[];
+  skipped: CapabilitySuggestion[];
+}>;
 capability.readSkill(input: { capabilityId: string }): Promise<{
   capability: Capability;
   instructions: string;
@@ -388,6 +394,12 @@ capability.readSkill(input: { capabilityId: string }): Promise<{
 }>;
 capability.proposeScriptRun(input: { capabilityId: string; taskRunId: string; scriptName: string }): Promise<Approval>;
 ```
+
+동작:
+
+- `suggest`는 TaskRun userRequest + 추가 prompt를 기준으로 triggerTerms를 매칭한다.
+- `proposeCandidates`는 매칭된 trusted capability를 `capability_use` approval로 자동 큐잉한다. 이 approval은 runner 실행 대상이 아니며, 승인된 후보만 이후 agent prompt의 Skill 컨텍스트로 들어간다.
+- `proposeScriptRun`은 script 실행 요청을 바로 실행하지 않고 `skill_script` approval을 만든다.
 
 오류:
 

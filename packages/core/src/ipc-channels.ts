@@ -48,6 +48,7 @@ export const IPC_CHANNELS = {
     list: "capability:list",
     refresh: "capability:refresh",
     suggest: "capability:suggest",
+    proposeCandidates: "capability:proposeCandidates",
     readSkill: "capability:readSkill",
     proposeScriptRun: "capability:proposeScriptRun",
   },

@@ -77,6 +77,35 @@ test("buildSplitAgentPrompt includes recentArtifacts when provided", () => {
   assert.ok(userPrompt.includes("Previous plan"));
 });
 
+test("buildSplitAgentPrompt includes approved capability context", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    capabilityContexts: [
+      {
+        capability: {
+          id: "cap_refactor",
+          source: "skillify:project",
+          name: "Refactor",
+          description: "Refactor code safely",
+          triggerTerms: ["refactor"],
+          riskLevel: "low",
+          requiresApproval: false,
+        },
+        reason: "Matched trigger terms: refactor",
+        instructions: "# Refactor\n\nKeep edits small.",
+      },
+    ],
+  });
+  assert.ok(userPrompt.includes("APPROVED SKILL CAPABILITIES"));
+  assert.ok(userPrompt.includes("Refactor"));
+  assert.ok(userPrompt.includes("Keep edits small."));
+});
+
+test("buildSplitAgentPrompt omits capability context before approval", () => {
+  const { userPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
+  assert.ok(!userPrompt.includes("APPROVED SKILL CAPABILITIES"));
+});
+
 test("buildSplitAgentPrompt combined size stays within hard cap", () => {
   const { systemPrompt, userPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
   const combined = systemPrompt + "\n\n" + userPrompt;

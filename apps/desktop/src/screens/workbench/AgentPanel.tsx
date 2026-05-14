@@ -11,6 +11,8 @@ interface AgentPanelProps {
   onGenerate: () => Promise<void>;
   /** When false, Generate / Retry buttons are disabled with a tooltip. */
   agentAvailable: boolean;
+  /** Pending Skillify candidate approvals must be decided before prompt build. */
+  pendingCapabilityApprovals: number;
   /**
    * True when this TaskRun is being driven by orchestration (pipeline
    * pick or legacy orch mode). In that mode the user must NOT see the
@@ -42,6 +44,7 @@ export const AgentPanel = ({
   onUseFallback,
   onGenerate,
   agentAvailable,
+  pendingCapabilityApprovals,
   orchestrationDriven,
 }: AgentPanelProps): JSX.Element | null => {
   const [busy, setBusy] = useState<string | null>(null);
@@ -79,6 +82,13 @@ export const AgentPanel = ({
         return (
           <span className="agent-panel__hint">
             파이프라인 / 오케스트레이션이 워커 호출을 자동 실행합니다.
+          </span>
+        );
+      }
+      if (pendingCapabilityApprovals > 0) {
+        return (
+          <span className="agent-panel__hint">
+            Skill 후보 {pendingCapabilityApprovals}건의 승인/거절을 기다리는 중입니다.
           </span>
         );
       }

@@ -9,6 +9,7 @@ import {
   type Approval,
   type Artifact,
   type Capability,
+  type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
   type HarnessSettings,
   type SkillResources,
@@ -180,6 +181,11 @@ const harnessApi: HarnessDesktopApi = {
     suggest: (input) =>
       invokeUnwrapped<CapabilitySuggestion[]>(
         IPC_CHANNELS.capability.suggest,
+        input,
+      ),
+    proposeCandidates: (input) =>
+      invokeUnwrapped<CapabilityCandidateApprovalResult>(
+        IPC_CHANNELS.capability.proposeCandidates,
         input,
       ),
     readSkill: (input) =>

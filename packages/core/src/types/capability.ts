@@ -1,3 +1,5 @@
+import type { Approval } from "./approval.ts";
+
 export type CapabilityRiskLevel = "low" | "medium" | "high";
 
 export const CAPABILITY_RISK_LEVELS: readonly CapabilityRiskLevel[] = [
@@ -45,4 +47,16 @@ export interface SkillResources {
   scripts: string[];
   templates: string[];
   examples: string[];
+}
+
+export interface CapabilityCandidateApprovalResult {
+  suggestions: CapabilitySuggestion[];
+  approvals: Approval[];
+  skipped: CapabilitySuggestion[];
+}
+
+export interface CapabilityPromptContext {
+  capability: Capability;
+  reason: string;
+  instructions: string;
 }

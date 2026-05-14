@@ -57,6 +57,8 @@ export const validateProposedActionDetails = (
       return validateFileWrite(raw);
     case "shell":
       return validateShell(raw);
+    case "capability_use":
+      return validateCapabilityUse(raw);
     case "dependency_install":
     case "git_commit":
     case "network":
@@ -139,4 +141,59 @@ const validateShell = (raw: Record<string, unknown>): ProposedActionValidation =
     ...(args !== undefined ? { args } : {}),
   };
   return { ok: true, details: normalized };
+};
+
+const validateCapabilityUse = (
+  raw: Record<string, unknown>,
+): ProposedActionValidation => {
+  const capabilityUse = raw.capabilityUse;
+  if (!isPlainObject(capabilityUse)) {
+    return { ok: false, reason: "capability_use requires capabilityUse object" };
+  }
+  const capabilityId = capabilityUse.capabilityId;
+  const capabilityName = capabilityUse.capabilityName;
+  const reason = capabilityUse.reason;
+  const matchedTerms = capabilityUse.matchedTerms;
+  if (typeof capabilityId !== "string" || capabilityId.trim().length === 0) {
+    return {
+      ok: false,
+      reason: "capabilityUse.capabilityId must be a non-empty string",
+    };
+  }
+  if (
+    typeof capabilityName !== "string" ||
+    capabilityName.trim().length === 0
+  ) {
+    return {
+      ok: false,
+      reason: "capabilityUse.capabilityName must be a non-empty string",
+    };
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return {
+      ok: false,
+      reason: "capabilityUse.reason must be a non-empty string",
+    };
+  }
+  if (
+    !Array.isArray(matchedTerms) ||
+    !matchedTerms.every((term) => typeof term === "string")
+  ) {
+    return {
+      ok: false,
+      reason: "capabilityUse.matchedTerms must be an array of strings",
+    };
+  }
+  return {
+    ok: true,
+    details: {
+      type: "capability_use",
+      capabilityUse: {
+        capabilityId: capabilityId.trim(),
+        capabilityName: capabilityName.trim(),
+        reason: reason.trim(),
+        matchedTerms,
+      },
+    },
+  };
 };

@@ -25,6 +25,7 @@ test("dependency_install/network/git_commit/skill_script/orchestration_plan are 
 
 test("all listed action types require approval in Phase 2", () => {
   for (const a of [
+    "capability_use",
     "file_write",
     "shell",
     "dependency_install",

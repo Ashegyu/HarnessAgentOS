@@ -290,12 +290,60 @@ test("v10 migration creates secrets table with BLOB column", () => {
   }
 });
 
-test("readSchemaVersion reflects the new SCHEMA_VERSION after v12", () => {
+test("readSchemaVersion reflects the current SCHEMA_VERSION", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
     const v = readSchemaVersion(db);
     assert.equal(v, SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v13 migration allows capability_use approval action type", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    db.prepare(
+      `INSERT INTO threads(id, title, target_dir, created_at, updated_at)
+       VALUES(?, ?, ?, ?, ?)`,
+    ).run(
+      "thr_cap",
+      "t",
+      "/tmp/proj",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO task_runs(id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at)
+       VALUES(?, ?, ?, ?, ?, NULL, ?, ?)`,
+    ).run(
+      "tsk_cap",
+      "thr_cap",
+      "refactor",
+      "/tmp/proj",
+      "drafting",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO steps(id, task_run_id, step_index, kind, title, status)
+       VALUES(?, ?, 0, 'approval', 'Skill 후보', 'pending')`,
+    ).run("stp_cap", "tsk_cap");
+    db.prepare(
+      `INSERT INTO checkpoints(id, task_run_id, step_id, reason, state_ref, summary, created_at)
+       VALUES(?, ?, ?, 'before_edit', '{}', 'skill candidate', ?)`,
+    ).run("ckp_cap", "tsk_cap", "stp_cap", "2026-01-01T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+       VALUES(?, ?, ?, 'capability_use', ?, 'pending')`,
+    ).run("apv_cap", "tsk_cap", "ckp_cap", "Use skill");
+    const row = db
+      .prepare(`SELECT action_type FROM approvals WHERE id = ?`)
+      .get("apv_cap");
+    assert.equal(row.action_type, "capability_use");
   } finally {
     closeDb(db);
     t.cleanup();

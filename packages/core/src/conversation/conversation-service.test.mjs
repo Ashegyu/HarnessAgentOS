@@ -113,6 +113,60 @@ test("rejectApproval requires non-empty message and pauses TaskRun", async () =>
   }
 });
 
+test("rejectApproval for capability_use keeps drafting TaskRun active", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const draft = await conversation.createTask({
+      userRequest: "refactor helper",
+      targetDir: "/tmp",
+      mode: "agent",
+    });
+    const step = await state.createStep({
+      taskRunId: draft.taskRun.id,
+      index: 2,
+      kind: "approval",
+      title: "Skill 후보 승인 대기",
+      status: "pending",
+      inputSummary: "refactor",
+    });
+    const checkpoint = await state.createCheckpoint({
+      taskRunId: draft.taskRun.id,
+      stepId: step.id,
+      reason: "before_edit",
+      stateRef: "{}",
+      summary: "skill candidate checkpoint",
+    });
+    const approval = await state.createApproval({
+      taskRunId: draft.taskRun.id,
+      checkpointId: checkpoint.id,
+      actionType: "capability_use",
+      actionSummary: "Skill 후보 사용: refactor",
+      status: "pending",
+      proposedAction: {
+        type: "capability_use",
+        capabilityUse: {
+          capabilityId: "cap_refactor",
+          capabilityName: "refactor",
+          reason: "Matched trigger terms: refactor",
+          matchedTerms: ["refactor"],
+        },
+      },
+    });
+
+    const updated = await conversation.rejectApproval({
+      approvalId: approval.id,
+      message: "이번 작업에는 불필요",
+    });
+    assert.equal(updated.status, "rejected");
+    const tr = await state.getTaskRun(draft.taskRun.id);
+    assert.equal(tr.status, "drafting");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("approve marks approval as approved or same run action class", async () => {
   const t = tmp();
   const { db, state, conversation } = makeService(t);

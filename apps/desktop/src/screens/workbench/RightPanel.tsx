@@ -221,6 +221,13 @@ export const RightPanel = ({
                 onRetry={onAgentRetry}
                 onCancel={onAgentCancel}
                 onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
+                pendingCapabilityApprovals={
+                  state.detail.approvals.filter(
+                    (a) =>
+                      a.actionType === "capability_use" &&
+                      a.status === "pending",
+                  ).length
+                }
                 orchestrationDriven={
                   pipelineAutoLaunched ||
                   state.detail.approvals.some(
@@ -283,6 +290,7 @@ export const RightPanel = ({
                   <CapabilityPanel
                     key={state.detail.taskRun.id}
                     taskRun={state.detail.taskRun}
+                    approvals={state.detail.approvals}
                     prompt={state.detail.taskRun.userRequest}
                     onApprovalCreated={onCapabilityApprovalCreated}
                   />

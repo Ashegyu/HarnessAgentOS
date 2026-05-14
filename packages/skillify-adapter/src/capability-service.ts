@@ -5,6 +5,8 @@ import {
   CAPABILITY_UNTRUSTED_SKILL,
   type Approval,
   type Capability,
+  type CapabilityCandidateApprovalResult,
+  type CapabilityPromptContext,
   type CapabilitySuggestion,
   type SkillResources,
 } from "@harness/core";
@@ -66,6 +68,151 @@ export class CapabilityService {
       prompt: `${taskRun.userRequest}\n${input.prompt}`,
       capabilities,
     });
+  }
+
+  /**
+   * Turn ranked Skillify suggestions into visible approval candidates.
+   * This does not execute scripts and does not inject instructions into
+   * a prompt yet. The agent prompt path later reads only approved
+   * `capability_use` approvals via `approvedPromptContexts`.
+   */
+  async proposeCandidateApprovals(input: {
+    taskRunId: string;
+    prompt: string;
+  }): Promise<CapabilityCandidateApprovalResult> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new CapabilityServiceError(
+        "STATE_TASK_RUN_NOT_FOUND",
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const suggestions = await this.suggest(input);
+    if (suggestions.length === 0) {
+      return { suggestions, approvals: [], skipped: [] };
+    }
+
+    const existingApprovals = await this.deps.state.listApprovalsByTaskRun(
+      taskRun.id,
+    );
+    const alreadyProposed = new Set(
+      existingApprovals
+        .filter((a) => a.actionType === "capability_use")
+        .map((a) => a.proposedAction?.capabilityUse?.capabilityId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+
+    const approvals: Approval[] = [];
+    const skipped: CapabilitySuggestion[] = [];
+    let checkpointId: string | null = null;
+
+    for (const suggestion of suggestions) {
+      const capability = suggestion.capability;
+      const metadata = this.deps.registry.getMetadata(capability.id);
+      if (!metadata?.trusted || alreadyProposed.has(capability.id)) {
+        skipped.push(suggestion);
+        continue;
+      }
+      if (checkpointId === null) {
+        const stepIndex = (
+          await this.deps.state.listStepsByTaskRun(taskRun.id)
+        ).length;
+        const candidateStep = await this.deps.state.createStep({
+          taskRunId: taskRun.id,
+          index: stepIndex,
+          kind: "approval",
+          title: "Skill 후보 승인 대기",
+          status: "pending",
+          inputSummary: suggestions
+            .map((s) => s.capability.name)
+            .slice(0, 5)
+            .join(", "),
+        });
+        const checkpoint = await this.deps.state.createCheckpoint({
+          taskRunId: taskRun.id,
+          stepId: candidateStep.id,
+          reason: "before_edit",
+          stateRef: JSON.stringify({
+            taskRunStatus: taskRun.status,
+            currentStepId: candidateStep.id,
+            capabilityCandidateIds: suggestions.map((s) => s.capability.id),
+          }),
+          summary: "skill candidate checkpoint",
+        });
+        await this.deps.state.setTaskRunCurrentStep(
+          taskRun.id,
+          candidateStep.id,
+        );
+        checkpointId = checkpoint.id;
+      }
+
+      if (checkpointId === null) {
+        throw new CapabilityServiceError(
+          "STATE_INVALID_INPUT",
+          "No checkpoint available for capability candidate approval",
+        );
+      }
+      const approval = await this.deps.state.createApproval({
+        taskRunId: taskRun.id,
+        checkpointId,
+        actionType: "capability_use",
+        actionSummary: `Skill 후보 사용: ${capability.name} — ${suggestion.reason}`,
+        status: "pending",
+        proposedAction: {
+          type: "capability_use",
+          capabilityUse: {
+            capabilityId: capability.id,
+            capabilityName: capability.name,
+            reason: suggestion.reason,
+            matchedTerms: suggestion.matchedTerms,
+          },
+        },
+      });
+      approvals.push(approval);
+      alreadyProposed.add(capability.id);
+    }
+
+    return { suggestions, approvals, skipped };
+  }
+
+  async approvedPromptContexts(input: {
+    taskRunId: string;
+  }): Promise<CapabilityPromptContext[]> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new CapabilityServiceError(
+        "STATE_TASK_RUN_NOT_FOUND",
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const approvals = await this.deps.state.listApprovalsByTaskRun(taskRun.id);
+    const seen = new Set<string>();
+    const contexts: CapabilityPromptContext[] = [];
+    for (const approval of approvals) {
+      if (approval.actionType !== "capability_use") continue;
+      if (
+        approval.status !== "approved" &&
+        approval.status !== "always_approved_for_run" &&
+        approval.status !== "executed"
+      ) {
+        continue;
+      }
+      const capabilityId = approval.proposedAction?.capabilityUse?.capabilityId;
+      if (!capabilityId || seen.has(capabilityId)) continue;
+      const metadata = this.deps.registry.getMetadata(capabilityId);
+      if (!metadata?.trusted) continue;
+      const capability = await this.requireCapability(capabilityId);
+      const instructions = await readSkillInstructions(metadata);
+      contexts.push({
+        capability,
+        reason:
+          approval.proposedAction?.capabilityUse?.reason ??
+          approval.actionSummary,
+        instructions,
+      });
+      seen.add(capabilityId);
+    }
+    return contexts;
   }
 
   async readSkill(input: {
