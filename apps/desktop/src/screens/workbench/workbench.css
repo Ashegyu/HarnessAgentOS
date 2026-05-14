@@ -3100,6 +3100,28 @@ details.agent-stream-section[open] .agent-stream-section__chevron {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.agent-stream-section__tools--grouped {
+  gap: 4px;
+}
+.agent-stream-section__tool-group-summary {
+  min-width: 0;
+}
+.agent-stream-section__tool-count,
+.agent-stream-section__tool-index {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.agent-stream-section__tool-count {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.agent-stream-section__tool-repeat {
+  padding-left: var(--space-2);
+  opacity: 0.9;
+}
 
 .agent-stream-section__meta {
   display: grid;
@@ -3483,6 +3505,28 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.inline-agent-stream__tools--grouped {
+  gap: 4px;
+}
+.inline-agent-stream__tool-group-summary {
+  min-width: 0;
+}
+.inline-agent-stream__tool-count,
+.inline-agent-stream__tool-index {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.inline-agent-stream__tool-count {
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+.inline-agent-stream__tool-repeat {
+  padding-left: var(--space-2);
+  opacity: 0.9;
 }
 
 /* Live / intermediate — pulsing edge to convey "still flowing". */

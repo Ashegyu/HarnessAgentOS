@@ -1,4 +1,9 @@
 import type { ParsedStreamSection } from "./agent-stream-parser";
+import {
+  groupConsecutiveToolSections,
+  type AgentStreamDisplaySection,
+  type GroupedToolStreamSection,
+} from "./agent-stream-section-groups";
 
 interface AgentStreamSectionsProps {
   sections: readonly ParsedStreamSection[];
@@ -13,12 +18,13 @@ export const AgentStreamSections = ({
   terminal,
   fallbackFinalText = null,
 }: AgentStreamSectionsProps): JSX.Element => {
-  const displaySections: readonly ParsedStreamSection[] =
+  const baseSections: readonly ParsedStreamSection[] =
     sections.length > 0
       ? sections
       : fallbackFinalText
         ? [{ id: "fallback-final", kind: "final", text: fallbackFinalText }]
         : [];
+  const displaySections = groupConsecutiveToolSections(baseSections);
   return (
     <>
       {displaySections.map((section, index) => (
@@ -36,7 +42,7 @@ export const AgentStreamSections = ({
 
 interface AgentStreamSectionProps {
   index: number;
-  section: ParsedStreamSection;
+  section: AgentStreamDisplaySection;
   surface: "inline" | "panel";
   terminal: boolean;
 }
@@ -88,7 +94,7 @@ const AgentStreamSection = ({
 };
 
 const sectionClasses = (
-  section: ParsedStreamSection,
+  section: AgentStreamDisplaySection,
   surface: "inline" | "panel",
 ): {
   root: string;
@@ -98,8 +104,9 @@ const sectionClasses = (
   ordinal: string;
 } => {
   if (surface === "panel") {
-    const modifier =
-      section.kind === "thinking" ? " agent-stream-section--thinking" : "";
+    const modifier = section.kind === "thinking"
+      ? " agent-stream-section--thinking"
+      : "";
     return {
       root: `agent-stream-section${modifier}`,
       head: "agent-stream-section__head",
@@ -109,7 +116,7 @@ const sectionClasses = (
     };
   }
   return {
-    root: `inline-agent-stream__section ${inlineSectionModifier(section.kind)}`,
+    root: `inline-agent-stream__section ${inlineSectionModifier(section)}`,
     head: "inline-agent-stream__head",
     title: "inline-agent-stream__title",
     chevron: "inline-agent-stream__chevron",
@@ -117,11 +124,12 @@ const sectionClasses = (
   };
 };
 
-const inlineSectionModifier = (kind: ParsedStreamSection["kind"]): string => {
-  switch (kind) {
+const inlineSectionModifier = (section: AgentStreamDisplaySection): string => {
+  switch (section.kind) {
     case "thinking":
       return "inline-agent-stream__section--thinking";
     case "tool":
+    case "tool_group":
       return "inline-agent-stream__section--tool";
     case "final":
       return "inline-agent-stream__section--final";
@@ -130,12 +138,14 @@ const inlineSectionModifier = (kind: ParsedStreamSection["kind"]): string => {
   }
 };
 
-const sectionTitle = (section: ParsedStreamSection): string => {
+const sectionTitle = (section: AgentStreamDisplaySection): string => {
   switch (section.kind) {
     case "thinking":
       return "생각 과정";
     case "tool":
       return "명령어 / 도구 호출";
+    case "tool_group":
+      return `명령어 / 도구 호출 · ${section.tools.length}회`;
     case "final":
       return "최종 답변";
     case "response":
@@ -145,11 +155,12 @@ const sectionTitle = (section: ParsedStreamSection): string => {
   }
 };
 
-const sectionIcon = (section: ParsedStreamSection): string => {
+const sectionIcon = (section: AgentStreamDisplaySection): string => {
   switch (section.kind) {
     case "thinking":
       return "✦";
     case "tool":
+    case "tool_group":
       return "▷";
     case "final":
       return "✓";
@@ -159,7 +170,7 @@ const sectionIcon = (section: ParsedStreamSection): string => {
 };
 
 const sectionContent = (
-  section: ParsedStreamSection,
+  section: AgentStreamDisplaySection,
   surface: "inline" | "panel",
 ): JSX.Element => {
   const prefix = surface === "inline"
@@ -172,6 +183,8 @@ const sectionContent = (
       return <div className={`${prefix}__live`}>{section.text}</div>;
     case "final":
       return <pre className={`${prefix}__final`}>{section.text}</pre>;
+    case "tool_group":
+      return <ToolGroupContent section={section} prefix={prefix} />;
     case "tool":
       return (
         <ul className={`${prefix}__tools`}>
@@ -187,6 +200,34 @@ const sectionContent = (
       );
   }
 };
+
+const ToolGroupContent = ({
+  section,
+  prefix,
+}: {
+  section: GroupedToolStreamSection;
+  prefix: "inline-agent-stream" | "agent-stream-section";
+}): JSX.Element => (
+  <ul className={`${prefix}__tools ${prefix}__tools--grouped`}>
+    <li className={`${prefix}__tool-group-summary`}>
+      <code>{section.name}</code>
+      {section.input ? (
+        <span className={`${prefix}__tool-input`}>
+          {formatToolInput(section.input)}
+        </span>
+      ) : null}
+      <span className={`${prefix}__tool-count`}>{section.tools.length}회</span>
+    </li>
+    {section.tools.map((tool, index) => (
+      <li key={tool.id} className={`${prefix}__tool-repeat`}>
+        <span className={`${prefix}__tool-index`}>#{index + 1}</span>
+        <span className={`${prefix}__tool-input`}>
+          {formatToolRunDetail(tool.input)}
+        </span>
+      </li>
+    ))}
+  </ul>
+);
 
 const formatToolInput = (input: unknown): string => {
   if (typeof input === "string") return input.slice(0, 240);
@@ -223,6 +264,26 @@ const formatToolInput = (input: unknown): string => {
     return String(input).slice(0, 180);
   }
 };
+
+const formatToolRunDetail = (input: unknown): string => {
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    const status = stringValue(record["status"]);
+    const exitCode = numberValue(record["exitCode"]) ?? numberValue(record["exit_code"]);
+    const output =
+      stringValue(record["outputPreview"]) ??
+      stringValue(record["aggregated_output"]);
+    const parts = [
+      status ? `status: ${status}` : null,
+      exitCode !== null ? `exit: ${exitCode}` : null,
+      output ? `output: ${oneLine(output)}` : null,
+    ].filter((part): part is string => Boolean(part));
+    if (parts.length > 0) return parts.join(" · ").slice(0, 220);
+  }
+  return formatToolInput(input);
+};
+
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
 
 const stringValue = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value : null;
