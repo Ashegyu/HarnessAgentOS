@@ -27,6 +27,7 @@ interface ThreadRow {
   updated_at: string;
   archived_at: string | null;
   agent_session_id?: string | null;
+  pipeline_id?: string | null;
 }
 
 export const rowToThread = (r: ThreadRow): Thread => {
@@ -40,6 +41,9 @@ export const rowToThread = (r: ThreadRow): Thread => {
   if (r.archived_at !== null) t.archivedAt = r.archived_at;
   if (r.agent_session_id !== null && r.agent_session_id !== undefined) {
     t.agentSessionId = r.agent_session_id;
+  }
+  if (r.pipeline_id !== null && r.pipeline_id !== undefined) {
+    t.pipelineId = r.pipeline_id;
   }
   return t;
 };

@@ -92,6 +92,12 @@ export interface HarnessDesktopApi {
     createThread(input: {
       title: string;
       targetDir?: string;
+      /**
+       * AgentPipeline.id to bind to this thread. When set, every TaskRun
+       * routes through orchestration.draftPlan with this pipeline.
+       * Omit or pass empty string for regular chat.
+       */
+      pipelineId?: string;
     }): Promise<Thread>;
     deleteThread(input: { threadId: string }): Promise<void>;
   };

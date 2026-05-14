@@ -96,3 +96,90 @@ test("Threads survive a DB close+reopen (canonical state restored)", async () =>
     t.cleanup();
   }
 });
+
+// v12 — pipeline binding round-trip. The binding lives on the thread
+// row so every TaskRun routes through orchestration with that pipeline.
+test("ThreadRepository persists pipelineId on create and reads it back via list/get", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteThreadRepository(db);
+    const a = await repo.create({ title: "bound", pipelineId: "pipe_abc" });
+    const b = await repo.create({ title: "unbound" });
+    assert.equal(a.pipelineId, "pipe_abc");
+    assert.equal(b.pipelineId, undefined);
+
+    const fromGet = await repo.get(a.id);
+    assert.equal(fromGet?.pipelineId, "pipe_abc");
+
+    const list = await repo.list();
+    const aRow = list.find((r) => r.id === a.id);
+    const bRow = list.find((r) => r.id === b.id);
+    assert.equal(aRow?.pipelineId, "pipe_abc");
+    assert.equal(bRow?.pipelineId, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("ThreadRepository treats empty-string pipelineId as 'no binding'", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteThreadRepository(db);
+    const thread = await repo.create({ title: "x", pipelineId: "" });
+    assert.equal(thread.pipelineId, undefined);
+
+    const fromGet = await repo.get(thread.id);
+    assert.equal(fromGet?.pipelineId, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("ThreadRepository update sets and clears pipelineId", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteThreadRepository(db);
+    const created = await repo.create({ title: "x" });
+    assert.equal(created.pipelineId, undefined);
+
+    const bound = await repo.update(created.id, { pipelineId: "pipe_xyz" });
+    assert.equal(bound.pipelineId, "pipe_xyz");
+
+    // null clears the binding back to "no pipeline"
+    const cleared = await repo.update(created.id, { pipelineId: null });
+    assert.equal(cleared.pipelineId, undefined);
+
+    const persisted = await repo.get(created.id);
+    assert.equal(persisted?.pipelineId, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("Thread pipelineId survives a DB close+reopen (legacy rows tolerated)", async () => {
+  const t = tmp();
+  let db = openDb({ filePath: t.file });
+  try {
+    let repo = new SqliteThreadRepository(db);
+    const bound = await repo.create({ title: "bound", pipelineId: "pipe_keep" });
+    const legacy = await repo.create({ title: "legacy" });
+    closeDb(db);
+
+    db = openDb({ filePath: t.file });
+    repo = new SqliteThreadRepository(db);
+    const all = await repo.list();
+    const boundReloaded = all.find((r) => r.id === bound.id);
+    const legacyReloaded = all.find((r) => r.id === legacy.id);
+    assert.equal(boundReloaded?.pipelineId, "pipe_keep");
+    assert.equal(legacyReloaded?.pipelineId, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});

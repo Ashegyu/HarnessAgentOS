@@ -7,6 +7,14 @@ export type ConversationMode = "template" | "agent";
 interface ConversationInputProps {
   threadId: string | null;
   threadTargetDir?: string | undefined;
+  /**
+   * AgentPipeline.id bound to the active thread. When set, the per-message
+   * Orchestration toggle is hidden and submissions automatically include
+   * this pipeline via WorkbenchShell's routing — the input shows a small
+   * "Pipeline: <name>" badge so the user knows their messages will run
+   * through that pipeline.
+   */
+  threadPipelineId?: string | undefined;
   /** Whether at least one agent CLI provider is currently available. */
   agentAvailable: boolean;
   /**
@@ -33,6 +41,7 @@ interface ConversationInputProps {
 export const ConversationInput = ({
   threadId,
   threadTargetDir,
+  threadPipelineId,
   agentAvailable,
   composerSeed,
   onSubmit,
@@ -254,7 +263,27 @@ export const ConversationInput = ({
           Agent {agentAvailable ? "" : "(미설치)"}
         </button>
       </div>
-      {orchEnabled && (
+      {threadPipelineId && (() => {
+        // Thread-level binding takes precedence: hide the legacy
+        // per-message Orchestration toggle entirely and show a static
+        // badge so the user knows their submissions auto-route through
+        // the bound pipeline (WorkbenchShell.handleCreateTask).
+        const bound = pipelines.find((p) => p.id === threadPipelineId);
+        const label = bound
+          ? `${bound.name} (${bound.steps.length} steps)`
+          : "(삭제됨 — 일반 채팅으로 폴백)";
+        return (
+          <div
+            className="conversation-input__orch"
+            title="이 스레드는 파이프라인에 묶여 있어, 모든 메시지가 자동으로 이 파이프라인을 거칩니다."
+          >
+            <span className="conversation-input__orch-badge">
+              ▣ Pipeline: <strong>{label}</strong>
+            </span>
+          </div>
+        );
+      })()}
+      {!threadPipelineId && orchEnabled && (
         <div className="conversation-input__orch">
           <button
             type="button"

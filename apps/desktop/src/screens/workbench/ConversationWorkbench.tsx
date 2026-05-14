@@ -23,6 +23,12 @@ interface ConversationWorkbenchProps {
   }) => Promise<void>;
   threadTargetDir: string | undefined;
   threadId: string | null;
+  /**
+   * AgentPipeline.id bound to the currently selected thread. When set,
+   * ConversationInput hides the per-message Orchestration toggle and
+   * shows a "Pipeline: <name>" badge instead.
+   */
+  threadPipelineId: string | undefined;
   agentAvailable: boolean;
   contextDrawerOpen: boolean;
   onToggleContextDrawer: () => void;
@@ -47,6 +53,7 @@ export const ConversationWorkbench = ({
   onCreateTask,
   threadTargetDir,
   threadId,
+  threadPipelineId,
   agentAvailable,
   contextDrawerOpen,
   onToggleContextDrawer,
@@ -131,6 +138,7 @@ export const ConversationWorkbench = ({
       <ConversationInput
         threadId={threadId}
         threadTargetDir={threadTargetDir}
+        threadPipelineId={threadPipelineId}
         agentAvailable={agentAvailable}
         composerSeed={composerSeed}
         onSubmit={onCreateTask}

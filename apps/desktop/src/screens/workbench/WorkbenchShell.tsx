@@ -414,7 +414,11 @@ export const WorkbenchShell = (): JSX.Element => {
   ]);
 
   const handleCreateThread = useCallback(
-    async (input: { title: string; targetDir?: string }): Promise<void> => {
+    async (input: {
+      title: string;
+      targetDir?: string;
+      pipelineId?: string;
+    }): Promise<void> => {
       const created = await window.harness.state.createThread(input);
       await refreshThreads();
       setSelectedThreadId(created.id);
@@ -435,6 +439,15 @@ export const WorkbenchShell = (): JSX.Element => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
       }
+      // Thread-level pipeline binding takes precedence over any per-task
+      // orchestration setup. If the thread was created with a pipelineId,
+      // every TaskRun in it routes through orchestration.draftPlan with
+      // that pipeline. See docs/design/pipeline-thread-binding-plan.html.
+      const boundThread =
+        threadsState.kind === "ready"
+          ? threadsState.threads.find((t) => t.id === selectedThreadId)
+          : null;
+      const threadPipelineId = boundThread?.pipelineId;
       const payload: {
         threadId: string;
         userRequest: string;
@@ -450,7 +463,9 @@ export const WorkbenchShell = (): JSX.Element => {
       setSelectedTaskRunId(draft.taskRun.id);
       // Agent mode: chain into generatePlan immediately so the user sees
       // streaming output instead of a sitting-still placeholder.
-      if (input.mode === "agent") {
+      // Skipped when the thread is pipeline-bound — orchestration owns
+      // the response generation in that case.
+      if (input.mode === "agent" && !threadPipelineId) {
         try {
           await window.harness.agent.generatePlan({
             taskRunId: draft.taskRun.id,
@@ -462,15 +477,20 @@ export const WorkbenchShell = (): JSX.Element => {
           console.error("agent.generatePlan failed", e);
         }
       }
-      // Auto-draft orchestration plan when the user configured it upfront.
-      if (input.orchMode) {
+      // Auto-draft orchestration plan: either the thread is bound to a
+      // pipeline (Phase 1 routing) OR the caller explicitly passed an
+      // orchMode (legacy per-message toggle path). Thread binding wins.
+      const effectivePipelineId = threadPipelineId ?? input.orchPipelineId;
+      const effectiveOrchMode: OrchestrationMode | undefined =
+        threadPipelineId ? "single_worker" : input.orchMode;
+      if (effectiveOrchMode) {
         try {
           await window.harness.orchestration.draftPlan({
             taskRunId: draft.taskRun.id,
-            mode: input.orchMode,
+            mode: effectiveOrchMode,
             ...(input.orchInstruction ? { instruction: input.orchInstruction } : {}),
-            ...(input.orchPipelineId
-              ? { pipelineId: input.orchPipelineId }
+            ...(effectivePipelineId
+              ? { pipelineId: effectivePipelineId }
               : {}),
           });
         } catch (e) {
@@ -487,6 +507,7 @@ export const WorkbenchShell = (): JSX.Element => {
       refreshTaskRunDetail,
       selectedTaskRunId,
       selectedThreadId,
+      threadsState,
     ],
   );
 
@@ -760,6 +781,7 @@ export const WorkbenchShell = (): JSX.Element => {
               onCreateTask={handleCreateTask}
               threadTargetDir={selectedThread?.targetDir}
               threadId={selectedThreadId}
+              threadPipelineId={selectedThread?.pipelineId}
               agentAvailable={agentAvailable}
               contextDrawerOpen={contextDrawerOpen}
               onToggleContextDrawer={toggleContextDrawer}

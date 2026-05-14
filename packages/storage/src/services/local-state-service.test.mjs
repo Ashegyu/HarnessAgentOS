@@ -42,6 +42,39 @@ test("createThread normalizes targetDir via path-policy", async () => {
   }
 });
 
+// v12 — pipeline binding goes through the service intact.
+test("createThread passes pipelineId through to the repository", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const bound = await svc.createThread({
+      title: "bound",
+      pipelineId: "pipe_xyz",
+    });
+    assert.equal(bound.pipelineId, "pipe_xyz");
+
+    const reloaded = await svc.getThread(bound.id);
+    assert.equal(reloaded?.pipelineId, "pipe_xyz");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("createThread treats empty-string pipelineId as 'no binding'", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "x", pipelineId: "" });
+    assert.equal(thread.pipelineId, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("getThreadDetail returns thread with empty taskRuns array", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

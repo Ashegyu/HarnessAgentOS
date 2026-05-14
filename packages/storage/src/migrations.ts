@@ -26,6 +26,16 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE threads ADD COLUMN agent_session_id TEXT`);
     }
 
+    // v12 — pipeline_id on threads. When set, every TaskRun in the
+    // thread routes through orchestration.draftPlan with this pipeline
+    // instead of the regular single-profile chat path. NULL means
+    // "regular chat". Deliberately no FK — pipeline deletion is
+    // tolerated; UI falls back to regular chat in that case. See
+    // docs/design/pipeline-thread-binding-plan.html §4.2.
+    if (!hasColumn(db, "threads", "pipeline_id")) {
+      db.exec(`ALTER TABLE threads ADD COLUMN pipeline_id TEXT`);
+    }
+
     // v6 — expand approvals.status CHECK to include 'executed'.
     // SQLite doesn't support ALTER CONSTRAINT; the table must be rebuilt.
     if (!approvalStatusAllows(db, "executed")) {

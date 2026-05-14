@@ -127,6 +127,9 @@ export class LocalStateService implements ConversationStateGateway {
     }
     const payload: CreateThreadInput = { title: input.title.trim() };
     if (normalizedTargetDir !== undefined) payload.targetDir = normalizedTargetDir;
+    if (typeof input.pipelineId === "string" && input.pipelineId.length > 0) {
+      payload.pipelineId = input.pipelineId;
+    }
     return this.threads.create(payload);
   }
 

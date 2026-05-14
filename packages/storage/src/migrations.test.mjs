@@ -6,6 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { applyMigrations, readSchemaVersion } from "./migrations.ts";
 import { openDb, closeDb } from "./db.ts";
+import { SCHEMA_VERSION } from "./schema.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-migr-"));
@@ -289,12 +290,12 @@ test("v10 migration creates secrets table with BLOB column", () => {
   }
 });
 
-test("readSchemaVersion reflects the new SCHEMA_VERSION after v10", () => {
+test("readSchemaVersion reflects the new SCHEMA_VERSION after v12", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
     const v = readSchemaVersion(db);
-    assert.equal(v, 11);
+    assert.equal(v, SCHEMA_VERSION);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -310,7 +311,7 @@ test("applyMigrations is idempotent across two opens", () => {
   try {
     applyMigrations(db); // explicit third pass — must be no-op
     const v = readSchemaVersion(db);
-    assert.equal(v, 11);
+    assert.equal(v, SCHEMA_VERSION);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -334,7 +335,7 @@ test("applyMigrations upgrades a pre-v7 DB without losing existing rows", () => 
 
   try {
     applyMigrations(db);
-    assert.equal(readSchemaVersion(db), 11);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
     const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("harness_settings");
     assert.ok(row, "legacy settings row should survive the upgrade");
     assert.match(row.value, /"agent"/);

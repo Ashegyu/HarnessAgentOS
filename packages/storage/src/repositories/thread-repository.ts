@@ -33,11 +33,14 @@ export class SqliteThreadRepository implements ThreadRepository {
       updatedAt: now,
     };
     if (input.targetDir !== undefined) thread.targetDir = input.targetDir;
+    if (input.pipelineId !== undefined && input.pipelineId.length > 0) {
+      thread.pipelineId = input.pipelineId;
+    }
 
     this.db
       .prepare(
-        `INSERT INTO threads(id, title, target_dir, created_at, updated_at, archived_at)
-         VALUES(@id, @title, @targetDir, @createdAt, @updatedAt, NULL)`,
+        `INSERT INTO threads(id, title, target_dir, created_at, updated_at, archived_at, pipeline_id)
+         VALUES(@id, @title, @targetDir, @createdAt, @updatedAt, NULL, @pipelineId)`,
       )
       .run({
         id: thread.id,
@@ -45,6 +48,7 @@ export class SqliteThreadRepository implements ThreadRepository {
         targetDir: thread.targetDir ?? null,
         createdAt: thread.createdAt,
         updatedAt: thread.updatedAt,
+        pipelineId: thread.pipelineId ?? null,
       });
 
     return thread;
@@ -53,7 +57,7 @@ export class SqliteThreadRepository implements ThreadRepository {
   async list(): Promise<Thread[]> {
     const rows = this.db
       .prepare(
-        `SELECT id, title, target_dir, created_at, updated_at, archived_at, agent_session_id
+        `SELECT id, title, target_dir, created_at, updated_at, archived_at, agent_session_id, pipeline_id
          FROM threads ORDER BY datetime(updated_at) DESC, rowid DESC`,
       )
       .all() as Parameters<typeof rowToThread>[0][];
@@ -63,7 +67,7 @@ export class SqliteThreadRepository implements ThreadRepository {
   async get(id: string): Promise<Thread | null> {
     const row = this.db
       .prepare(
-        `SELECT id, title, target_dir, created_at, updated_at, archived_at, agent_session_id
+        `SELECT id, title, target_dir, created_at, updated_at, archived_at, agent_session_id, pipeline_id
          FROM threads WHERE id = ?`,
       )
       .get(id) as Parameters<typeof rowToThread>[0] | undefined;
@@ -101,12 +105,19 @@ export class SqliteThreadRepository implements ThreadRepository {
       if (patch.agentSessionId === null) delete next.agentSessionId;
       else next.agentSessionId = patch.agentSessionId;
     }
+    if (patch.pipelineId !== undefined) {
+      if (patch.pipelineId === null || patch.pipelineId.length === 0) {
+        delete next.pipelineId;
+      } else {
+        next.pipelineId = patch.pipelineId;
+      }
+    }
     next.updatedAt = nowIso();
 
     this.db
       .prepare(
         `UPDATE threads
-         SET title=@title, target_dir=@targetDir, updated_at=@updatedAt, archived_at=@archivedAt, agent_session_id=@agentSessionId
+         SET title=@title, target_dir=@targetDir, updated_at=@updatedAt, archived_at=@archivedAt, agent_session_id=@agentSessionId, pipeline_id=@pipelineId
          WHERE id=@id`,
       )
       .run({
@@ -116,6 +127,7 @@ export class SqliteThreadRepository implements ThreadRepository {
         updatedAt: next.updatedAt,
         archivedAt: next.archivedAt ?? null,
         agentSessionId: next.agentSessionId ?? null,
+        pipelineId: next.pipelineId ?? null,
       });
 
     return next;

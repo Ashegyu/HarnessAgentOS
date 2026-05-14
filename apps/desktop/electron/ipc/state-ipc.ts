@@ -86,7 +86,11 @@ export const registerStateIpc = (service: LocalStateService): void => {
       if (typeof input !== "object" || input === null) {
         return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
       }
-      const cast = input as { title?: unknown; targetDir?: unknown };
+      const cast = input as {
+        title?: unknown;
+        targetDir?: unknown;
+        pipelineId?: unknown;
+      };
       if (!isNonEmptyString(cast.title)) {
         return err(
           harnessError(STATE_INVALID_INPUT, "title must be a non-empty string"),
@@ -97,11 +101,21 @@ export const registerStateIpc = (service: LocalStateService): void => {
           harnessError(STATE_INVALID_INPUT, "targetDir must be a string when provided"),
         );
       }
+      if (cast.pipelineId !== undefined && typeof cast.pipelineId !== "string") {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "pipelineId must be a string when provided"),
+        );
+      }
       try {
-        const payload =
-          cast.targetDir !== undefined
-            ? { title: cast.title, targetDir: cast.targetDir }
-            : { title: cast.title };
+        const payload: {
+          title: string;
+          targetDir?: string;
+          pipelineId?: string;
+        } = { title: cast.title };
+        if (cast.targetDir !== undefined) payload.targetDir = cast.targetDir;
+        if (cast.pipelineId !== undefined && cast.pipelineId.length > 0) {
+          payload.pipelineId = cast.pipelineId;
+        }
         return ok(await service.createThread(payload));
       } catch (e) {
         // validateTargetDir throws with descriptive message; surface as INVALID_INPUT.

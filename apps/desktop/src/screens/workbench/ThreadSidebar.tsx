@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Thread } from "@harness/core";
+import type { AgentPipeline, Thread } from "@harness/core";
 
 type ThreadsState =
   | { kind: "loading" }
@@ -13,6 +13,7 @@ interface ThreadSidebarProps {
   onCreateThread: (input: {
     title: string;
     targetDir?: string;
+    pipelineId?: string;
   }) => Promise<void>;
   onDeleteThread: (id: string) => Promise<void>;
   onRetry: () => void;
@@ -39,8 +40,49 @@ export const ThreadSidebar = ({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [targetDir, setTargetDir] = useState("");
+  const [pipelineId, setPipelineId] = useState<string>("");
+  const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load pipelines on mount so the thread-list badge can resolve names.
+  // Refresh whenever the create form opens, so a newly-created pipeline
+  // appears in the dropdown without remounting the sidebar.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.harness.pipeline.list();
+        if (!cancelled) setPipelines(list);
+      } catch {
+        if (!cancelled) setPipelines([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [creating]);
+
+  // Seed dropdown selection with the user's preferred default pipeline
+  // when the create form opens, but only if the default still resolves
+  // to a real pipeline; otherwise leave at "no pipeline".
+  useEffect(() => {
+    if (!creating) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await window.harness.settings.get();
+        if (cancelled) return;
+        const preferred = settings.orchestration.defaultPipelineId;
+        if (preferred && pipelines.some((p) => p.id === preferred)) {
+          setPipelineId(preferred);
+        } else {
+          setPipelineId("");
+        }
+      } catch {
+        if (!cancelled) setPipelineId("");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [creating, pipelines]);
 
   const startCreate = (): void => {
     setCreating(true);
@@ -60,6 +102,7 @@ export const ThreadSidebar = ({
     setCreating(false);
     setTitle("");
     setTargetDir("");
+    setPipelineId("");
     setError(null);
   };
 
@@ -72,10 +115,13 @@ export const ThreadSidebar = ({
     setSubmitting(true);
     setError(null);
     try {
-      const payload: { title: string; targetDir?: string } = {
-        title: title.trim(),
-      };
+      const payload: {
+        title: string;
+        targetDir?: string;
+        pipelineId?: string;
+      } = { title: title.trim() };
       if (targetDir.trim().length > 0) payload.targetDir = targetDir.trim();
+      if (pipelineId.length > 0) payload.pipelineId = pipelineId;
       await onCreateThread(payload);
       cancelCreate();
     } catch (e) {
@@ -148,6 +194,23 @@ export const ThreadSidebar = ({
                 </button>
               </div>
             </label>
+            {pipelines.length > 0 && (
+              <label className="thread-create-form__field">
+                <span>Pipeline (선택)</span>
+                <select
+                  value={pipelineId}
+                  onChange={(e) => setPipelineId(e.target.value)}
+                  disabled={submitting}
+                >
+                  <option value="">(없음 — 일반 채팅)</option>
+                  {pipelines.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.steps.length} steps)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {error && <div className="thread-create-form__error">{error}</div>}
             <div className="thread-create-form__actions">
               <button type="button" onClick={cancelCreate} disabled={submitting}>
@@ -180,7 +243,11 @@ export const ThreadSidebar = ({
 
         {state.kind === "ready" && state.threads.length > 0 && (
           <ul className="thread-list">
-            {state.threads.map((t) => (
+            {state.threads.map((t) => {
+              const boundPipeline = t.pipelineId
+                ? pipelines.find((p) => p.id === t.pipelineId)
+                : null;
+              return (
               <li key={t.id} className="thread-list__row">
                 <button
                   type="button"
@@ -208,6 +275,15 @@ export const ThreadSidebar = ({
                       {t.targetDir}
                     </span>
                   )}
+                  {t.pipelineId && (
+                    <span
+                      className="thread-list__pipeline"
+                      data-tooltip={boundPipeline?.name ?? "(삭제됨)"}
+                      title={boundPipeline?.name ?? "참조하던 파이프라인이 삭제됨 — 일반 채팅으로 폴백"}
+                    >
+                      ▣ {boundPipeline?.name ?? "(없음)"}
+                    </span>
+                  )}
                 </button>
                 <button
                   type="button"
@@ -228,7 +304,8 @@ export const ThreadSidebar = ({
                   {deletingId === t.id ? "…" : "×"}
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
