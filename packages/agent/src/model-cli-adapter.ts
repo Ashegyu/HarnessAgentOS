@@ -17,6 +17,7 @@ import {
   buildCliInvocation,
   extractProviderPayload,
 } from "./model-cli-invocation.ts";
+import { resolveProviderCommand } from "./provider-executable.ts";
 
 /**
  * Phase 8 default ModelCliAdapter.
@@ -44,6 +45,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     const { provider, model, timeoutMs, stallTimeoutMs } = request.modelConfig;
     const startedAt = Date.now();
     const invocation = buildCliInvocation(request);
+    const command = resolveProviderCommand(provider, request.cliPathOverride);
 
     if (signal?.aborted) {
       throw new AgentCliError(
@@ -62,7 +64,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     let child;
     try {
-      child = spawn(invocation.command, invocation.args, {
+      child = spawn(command, invocation.args, {
         cwd: request.cwd,
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,

@@ -342,6 +342,9 @@ export class AgentPlanningService {
         primaryDir: taskRun.targetDir,
         enforceInPrompt: true,
       },
+      ...(resolved.profile?.cli.cliPathOverride
+        ? { cliPathOverride: resolved.profile.cli.cliPathOverride }
+        : {}),
       ...(existingSessionId ? { sessionId: existingSessionId } : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
@@ -852,6 +855,9 @@ export class AgentPlanningService {
           primaryDir: taskRun.targetDir,
           enforceInPrompt: true,
         },
+        ...(input.profile.cli.cliPathOverride
+          ? { cliPathOverride: input.profile.cli.cliPathOverride }
+          : {}),
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
       };

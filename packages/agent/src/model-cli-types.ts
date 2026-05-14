@@ -45,6 +45,11 @@ export interface ModelCliRequest {
    * the invocation and delete it after the run completes.
    */
   mcpConfigPath?: string;
+  /**
+   * Absolute executable override from AgentProfile.cli.cliPathOverride.
+   * When unset, the adapter resolves a provider-specific default command.
+   */
+  cliPathOverride?: string;
 }
 
 export interface ModelCliResult {

@@ -4,6 +4,7 @@ import type {
   AgentProviderProbe,
   AgentProviderStatusMap,
 } from "@harness/core";
+import { getProviderCommandCandidates } from "./provider-executable.ts";
 
 /**
  * Provider preference resolution: model name → provider.
@@ -37,6 +38,36 @@ export const probeProvider = (
   binary: string,
   options: { timeoutMs?: number; queueDepth?: number } = {},
 ): Promise<AgentProviderProbe> => {
+  const candidates =
+    binary === "claude" || binary === "codex"
+      ? getProviderCommandCandidates(binary)
+      : [binary];
+  return probeProviderCandidates(candidates, options);
+};
+
+const probeProviderCandidates = async (
+  candidates: readonly string[],
+  options: { timeoutMs?: number; queueDepth?: number },
+): Promise<AgentProviderProbe> => {
+  let last: AgentProviderProbe | null = null;
+  for (const command of candidates) {
+    const probe = await probeProviderCommand(command, options);
+    if (probe.available) return probe;
+    last = probe;
+  }
+  return (
+    last ?? {
+      available: false,
+      error: "no provider command candidates",
+      queueDepth: options.queueDepth ?? 0,
+    }
+  );
+};
+
+const probeProviderCommand = (
+  command: string,
+  options: { timeoutMs?: number; queueDepth?: number } = {},
+): Promise<AgentProviderProbe> => {
   const timeoutMs = options.timeoutMs ?? 3_000;
   const queueDepth = options.queueDepth ?? 0;
   return new Promise((resolve) => {
@@ -48,7 +79,7 @@ export const probeProvider = (
     };
     let child;
     try {
-      child = spawn(binary, ["--version"], {
+      child = spawn(command, ["--version"], {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
       });
@@ -91,7 +122,7 @@ export const probeProvider = (
       }
       settle({
         available: false,
-        error: stderr.trim() || `${binary} --version exited with code ${code}`,
+        error: stderr.trim() || `${command} --version exited with code ${code}`,
         queueDepth,
       });
     });
