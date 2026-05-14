@@ -312,6 +312,54 @@ test("shell + recognised test command surfaces as a 'test' step", async () => {
   }
 });
 
+test("shell step stores actual command for build evidence", async () => {
+  const t = tmp();
+  try {
+    const { db, state, artifactStore, conversation } = await setup(t);
+    const runner = new RunnerService({
+      state,
+      artifactStore,
+      shellRunner: {
+        run: async () => ({
+          stdout: "built\n",
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1,
+        }),
+      },
+    });
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "shell",
+        actionSummary: "execute command",
+      });
+      await state.setApprovalProposedAction(approval.id, {
+        type: "shell",
+        command: "npm run build",
+      });
+      await state.decideApproval(approval.id, "approved");
+
+      await runner.executeApproved(approval.id);
+
+      const steps = await state.listStepsByTaskRun(draft.taskRun.id);
+      const runnerStep = steps.find((s) => s.kind === "shell");
+      assert.ok(runnerStep, "expected shell runner step");
+      assert.equal(runnerStep.title, "shell: npm run build");
+      assert.equal(runnerStep.inputSummary, "npm run build");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("artifact DB id matches file id so readArtifact does not ENOENT", async () => {
   const t = tmp();
   try {

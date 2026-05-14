@@ -84,6 +84,40 @@ test("collectEvidence detects shell build steps via title hint", () => {
   assert.equal(evidence.buildEvidence[0].passed, true);
 });
 
+test("collectEvidence detects build log artifacts via command title and exit code", () => {
+  const evidence = collectEvidence([], [
+    {
+      id: "art_b1",
+      taskRunId: "tsk_1",
+      kind: "log",
+      title: "shell: npm run build",
+      uri: "artifact://b/1",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      summary: "exit=0, 1500ms",
+    },
+  ]);
+  assert.equal(evidence.buildEvidence.length, 1);
+  assert.equal(evidence.buildEvidence[0].passed, true);
+  assert.equal(evidence.buildEvidence[0].artifactId, "art_b1");
+});
+
+test("collectEvidence detects failed build log artifacts", () => {
+  const evidence = collectEvidence([], [
+    {
+      id: "art_b2",
+      taskRunId: "tsk_1",
+      kind: "log",
+      title: "shell: dotnet build",
+      uri: "artifact://b/2",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      summary: "exit=1, 1500ms",
+    },
+  ]);
+  assert.equal(evidence.buildEvidence.length, 1);
+  assert.equal(evidence.buildEvidence[0].passed, false);
+  assert.equal(evidence.buildEvidence[0].artifactId, "art_b2");
+});
+
 test("collectEvidence detects shell test invocations via output summary", () => {
   const evidence = collectEvidence(
     [

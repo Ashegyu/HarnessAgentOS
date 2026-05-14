@@ -162,13 +162,14 @@ export class RunnerService {
       ? "test"
       : mapActionToStepKind(approval.actionType);
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id)).length;
+    const stepSummary = summarizeStepInput(approval, details);
     const stepInput: CreateStepInput = {
       taskRunId: taskRun.id,
       index: stepIndex,
       kind: stepKind,
-      title: `${stepKind}: ${approval.actionSummary.slice(0, 80)}`,
+      title: `${stepKind}: ${stepSummary.slice(0, 80)}`,
       status: "running",
-      inputSummary: approval.actionSummary.slice(0, 200),
+      inputSummary: stepSummary.slice(0, 200),
     };
     const step = await this.deps.state.createStep(stepInput);
     await this.deps.state.setTaskRunCurrentStep(taskRun.id, step.id);
@@ -407,6 +408,15 @@ const summarize = (details: ProposedActionDetails): string => {
   if (details.command) return `shell: ${details.command}`;
   if (details.filePatch) return `file: ${details.filePatch.path}`;
   return details.type;
+};
+
+const summarizeStepInput = (
+  approval: Approval,
+  details: ProposedActionDetails,
+): string => {
+  if (details.command) return details.command;
+  if (details.filePatch) return details.filePatch.path;
+  return approval.actionSummary;
 };
 
 const summarizeStepOutput = (r: RunnerResult): string => {

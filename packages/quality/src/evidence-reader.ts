@@ -28,6 +28,16 @@ export const collectEvidence = (
       const passed = !EXIT_FAIL.test(summary) && (EXIT_OK.test(summary) || /\bpass(?:ed)?\b/i.test(summary));
       const ev: { passed: boolean; artifactId?: string } = { passed, artifactId: a.id };
       testEvidence.push(ev);
+    } else if (a.kind === "log") {
+      const summary = `${a.title} ${a.summary ?? ""}`;
+      const exitedOk = EXIT_OK.test(summary);
+      const exitedFail = EXIT_FAIL.test(summary);
+      if (BUILD_HINT.test(summary) && (exitedOk || exitedFail)) {
+        buildEvidence.push({
+          passed: exitedOk && !exitedFail,
+          artifactId: a.id,
+        });
+      }
     }
   }
 
