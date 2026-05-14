@@ -84,6 +84,7 @@ export const AgentStreamView = ({
   const hasAnyOutput =
     parsed.finalText !== null ||
     parsed.liveText.length > 0 ||
+    parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0 ||
     parsed.unknown.length > 0;
 
@@ -121,6 +122,7 @@ export const AgentStreamView = ({
         <pre className="agent-stream-view__body">
           {[
             parsed.finalText ? `# result\n${parsed.finalText}` : null,
+            parsed.thinkingText ? `# thinking\n${parsed.thinkingText}` : null,
             parsed.liveText ? `# live\n${parsed.liveText}` : null,
             parsed.unknown.length > 0
               ? `# unknown\n${parsed.unknown.join("\n")}`
@@ -131,6 +133,16 @@ export const AgentStreamView = ({
         </pre>
       ) : (
         <>
+          {parsed.thinkingText.length > 0 && (
+            <section className="agent-stream-section agent-stream-section--thinking">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">생각</span>
+              </header>
+              <div className="agent-stream-section__thinking">
+                {parsed.thinkingText}
+              </div>
+            </section>
+          )}
           {parsed.finalText !== null ? (
             <section className="agent-stream-section">
               <header className="agent-stream-section__head">

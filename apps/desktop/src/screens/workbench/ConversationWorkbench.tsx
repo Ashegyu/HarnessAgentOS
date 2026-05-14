@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import type { Approval, TaskRun, ThreadDetail } from "@harness/core";
+import type {
+  AgentInvocation,
+  Approval,
+  TaskRun,
+  ThreadDetail,
+} from "@harness/core";
 import { ConversationInput, type ConversationMode } from "./ConversationInput";
 import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
 import { HeroEmpty } from "./HeroEmpty";
 import { InlineApprovalCard } from "./InlineApprovalCard";
+import { InlineAgentStream } from "./InlineAgentStream";
 
 type DetailState =
   | { kind: "idle" }
@@ -37,6 +43,14 @@ interface ConversationWorkbenchProps {
   onOpenThreadDrawer?: () => void;
   activeTaskRunApprovals: Approval[];
   activeTaskRunId: string | null;
+  /**
+   * AgentInvocations for the currently-selected TaskRun. Used to render
+   * the central-window streaming view inline next to its ChatTurn. Empty
+   * when no run is selected or the run hasn't produced any invocation
+   * yet (e.g. before the user clicks 「Generate plan」 in agent mode and
+   * before the worker step starts in pipeline mode).
+   */
+  activeTaskRunInvocations: AgentInvocation[];
 }
 
 const formatTime = (iso: string): string => {
@@ -62,6 +76,7 @@ export const ConversationWorkbench = ({
   onOpenThreadDrawer,
   activeTaskRunApprovals,
   activeTaskRunId,
+  activeTaskRunInvocations,
 }: ConversationWorkbenchProps): JSX.Element => {
   const [composerSeed, setComposerSeed] = useState<
     { text: string; key: number } | null
@@ -129,6 +144,7 @@ export const ConversationWorkbench = ({
         onSuggest={seedFromChip}
         activeTaskRunId={activeTaskRunId}
         activeTaskRunApprovals={activeTaskRunApprovals}
+        activeTaskRunInvocations={activeTaskRunInvocations}
         autoApprove={autoApprove}
         contextDrawerOpen={contextDrawerOpen}
         onOpenContextDrawer={() => {
@@ -201,6 +217,7 @@ const ChatTranscript = ({
   onSuggest,
   activeTaskRunId,
   activeTaskRunApprovals,
+  activeTaskRunInvocations,
   autoApprove,
   contextDrawerOpen,
   onOpenContextDrawer,
@@ -212,6 +229,7 @@ const ChatTranscript = ({
   onSuggest: (text: string) => void;
   activeTaskRunId: string | null;
   activeTaskRunApprovals: Approval[];
+  activeTaskRunInvocations: AgentInvocation[];
   autoApprove: boolean;
   contextDrawerOpen: boolean;
   onOpenContextDrawer: () => void;
@@ -224,12 +242,34 @@ const ChatTranscript = ({
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
 
+  // Latest invocation for the currently-active TaskRun — used to attach
+  // an inline streaming view to that turn's agent bubble. Sorted oldest
+  // first, so the last entry is the most recent.
+  const latestInvocation: AgentInvocation | undefined =
+    activeTaskRunInvocations.length > 0
+      ? activeTaskRunInvocations.reduce(
+          (acc, curr) =>
+            new Date(curr.createdAt).getTime() > new Date(acc.createdAt).getTime()
+              ? curr
+              : acc,
+          activeTaskRunInvocations[0] as AgentInvocation,
+        )
+      : undefined;
+
   // Auto-scroll to latest message whenever the message count changes.
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [ordered.length, selectedTaskRunId]);
+
+  // Also re-anchor when a new invocation starts streaming, so users
+  // don't miss the first tokens.
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [latestInvocation?.id]);
 
   if (ordered.length === 0) {
     return (
@@ -249,6 +289,9 @@ const ChatTranscript = ({
           isSelected={selectedTaskRunId === tr.id}
           onSelect={() => onSelectTaskRun(tr.id)}
           onDelete={() => void onDeleteTask(tr.id)}
+          invocation={
+            activeTaskRunId === tr.id ? latestInvocation : undefined
+          }
           inlineApprovalCard={
             activeTaskRunId === tr.id ? (
               <InlineApprovalCard
@@ -271,6 +314,7 @@ const ChatTurn = ({
   isSelected,
   onSelect,
   onDelete,
+  invocation,
   inlineApprovalCard,
 }: {
   taskRun: TaskRun;
@@ -278,8 +322,18 @@ const ChatTurn = ({
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
+  invocation: AgentInvocation | undefined;
   inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
+  // When this turn has a live invocation we render the streaming view
+  // INSIDE the agent bubble's body. This keeps the chat-turn structure
+  // intact (one user bubble + one agent bubble + inline approval card)
+  // and lets the stream sections own their own scroll without breaking
+  // the parent transcript scroll. We still surface the final answer
+  // separately so the chat reads like a chat once streaming completes.
+  const hasInvocation = invocation !== undefined;
+  const hasFinalAnswer = answer !== undefined && answer.length > 0;
+
   return (
     <div
       className={`chat-turn${isSelected ? " chat-turn--selected" : ""}`}
@@ -306,7 +360,17 @@ const ChatTurn = ({
 
       <div className="chat-bubble chat-bubble--agent">
         <div className="chat-bubble__body">
-          {answer && answer.length > 0 ? (
+          {hasInvocation ? (
+            // The stream view's 최종 답변 section IS the response once
+            // streaming completes. We deliberately do NOT also render the
+            // `agentAnswers[tr.id]` plan summary below it — that surface
+            // lives in the right panel's Plan tab, so duplicating it
+            // here would just confuse "which one is canonical?".
+            <InlineAgentStream invocation={invocation} />
+          ) : hasFinalAnswer ? (
+            // No live invocation on this turn (older turn, or backend
+            // didn't go through the agent path) — fall back to the
+            // persisted plan-summary text so the bubble isn't empty.
             <ChatBubbleAnswer text={answer} />
           ) : (
             <span className="chat-bubble__pending">

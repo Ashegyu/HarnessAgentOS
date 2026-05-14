@@ -27,6 +27,12 @@ export interface ParsedStream {
   finalText: string | null;
   /** Incremental text accumulated from text_delta events. */
   liveText: string;
+  /**
+   * Incremental text accumulated from `thinking_delta` events (extended
+   * thinking blocks). Distinct from `liveText` so the UI can render the
+   * model's chain-of-thought in its own section with different styling.
+   */
+  thinkingText: string;
   /** Recorded tool calls in arrival order. */
   toolUses: Array<{ name: string; input: unknown }>;
   /** Most recent post_turn_summary (last one wins). */
@@ -52,6 +58,7 @@ export interface ParsedStream {
 const EMPTY: ParsedStream = {
   finalText: null,
   liveText: "",
+  thinkingText: "",
   toolUses: [],
   turnSummary: null,
   hooks: [],
@@ -167,6 +174,10 @@ const ingestLine = (state: StreamParserState, line: string): void => {
       const delta = ev?.["delta"] as Record<string, unknown> | undefined;
       if (delta && delta["type"] === "text_delta" && typeof delta["text"] === "string") {
         parsed.liveText += delta["text"] as string;
+      } else if (delta && delta["type"] === "thinking_delta" && typeof delta["thinking"] === "string") {
+        // Extended thinking block — accumulated separately so the UI can
+        // render the model's reasoning in its own section.
+        parsed.thinkingText += delta["thinking"] as string;
       } else if (delta && delta["type"] === "input_json_delta" && typeof delta["partial_json"] === "string") {
         const pending = state.pendingToolInputs.get(blockIndex);
         if (pending) pending.json += delta["partial_json"] as string;

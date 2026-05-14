@@ -825,6 +825,11 @@ export const WorkbenchShell = (): JSX.Element => {
                   ? taskRunDetail.detail.approvals
                   : []
               }
+              activeTaskRunInvocations={
+                taskRunDetail.kind === "ready"
+                  ? taskRunDetail.detail.agentInvocations
+                  : []
+              }
             />
           )}
           <aside

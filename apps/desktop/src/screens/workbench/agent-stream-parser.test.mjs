@@ -175,6 +175,52 @@ test("non-JSON tail line surfaces via unknown after flush", () => {
   assert.deepEqual(s.parsed.unknown, ["this is not json"]);
 });
 
+test("thinking_delta events accumulate into thinkingText, separate from liveText", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "stream_event",
+      event: {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "thinking", thinking: "" },
+      },
+    }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "Let me " },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "think about this..." },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: { type: "content_block_stop", index: 0 },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "Answer." },
+        },
+      }),
+  );
+  assert.equal(s.parsed.thinkingText, "Let me think about this...");
+  assert.equal(s.parsed.liveText, "Answer.");
+  assert.equal(s.parsed.finalText, null);
+});
+
 test("setFinalAssistantText overrides finalText without losing liveText", () => {
   const s = initStreamParserState();
   feedStreamChunk(
