@@ -187,13 +187,18 @@ const formatToolInput = (input: unknown): string => {
       stringValue(record["filePath"]);
     const cwd =
       stringValue(record["cwd"]) ??
+      stringValue(record["workdir"]) ??
       stringValue(record["workingDirectory"]) ??
       stringValue(record["targetDir"]);
     const reason =
       stringValue(record["rationale"]) ?? stringValue(record["reason"]);
+    const status = stringValue(record["status"]);
+    const exitCode = numberValue(record["exitCode"]) ?? numberValue(record["exit_code"]);
     const parts = [
       primary,
       cwd ? `cwd: ${cwd}` : null,
+      status ? `status: ${status}` : null,
+      exitCode !== null ? `exit: ${exitCode}` : null,
       reason,
     ].filter((part): part is string => Boolean(part));
     if (parts.length > 0) return parts.join(" · ").slice(0, 180);
@@ -207,3 +212,6 @@ const formatToolInput = (input: unknown): string => {
 
 const stringValue = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value : null;
+
+const numberValue = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;

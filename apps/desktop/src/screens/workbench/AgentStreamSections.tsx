@@ -205,10 +205,14 @@ const formatToolInput = (input: unknown): string => {
       numberValue(record["timeout_ms"]) ?? numberValue(record["timeoutMs"]);
     const reason =
       stringValue(record["rationale"]) ?? stringValue(record["reason"]);
+    const status = stringValue(record["status"]);
+    const exitCode = numberValue(record["exitCode"]) ?? numberValue(record["exit_code"]);
     const parts = [
       primary,
       cwd ? `cwd: ${cwd}` : null,
       timeout !== null ? `timeout: ${timeout}ms` : null,
+      status ? `status: ${status}` : null,
+      exitCode !== null ? `exit: ${exitCode}` : null,
       reason,
     ].filter((part): part is string => Boolean(part));
     if (parts.length > 0) return parts.join(" · ").slice(0, 240);

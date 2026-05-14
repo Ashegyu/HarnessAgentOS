@@ -685,6 +685,78 @@ test("codex response_item function_call is captured as command tool use", () => 
   assert.deepEqual(s.parsed.unknown, []);
 });
 
+test("codex command_execution started and completed update one command section", () => {
+  const s = initStreamParserState();
+  const command =
+    "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'rg --files'";
+
+  feedStreamChunk(
+    s,
+    line({
+      type: "item.started",
+      item: {
+        id: "item_1",
+        type: "command_execution",
+        command,
+        aggregated_output: "",
+        exit_code: null,
+        status: "in_progress",
+      },
+    }) +
+      line({
+        type: "item.completed",
+        item: {
+          id: "item_1",
+          type: "command_execution",
+          command,
+          aggregated_output: "package.json\napps/desktop/package.json\n",
+          exit_code: 0,
+          status: "completed",
+        },
+      }),
+  );
+
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "command_execution",
+      input: {
+        command,
+        status: "completed",
+        exitCode: 0,
+        outputPreview: "package.json\napps/desktop/package.json\n",
+      },
+    },
+  ]);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["tool"],
+  );
+  assert.equal(s.parsed.sections[0].input.status, "completed");
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
+test("codex turn.completed records reasoning usage as thinking metadata", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "turn.completed",
+      usage: {
+        input_tokens: 100,
+        output_tokens: 20,
+        reasoning_output_tokens: 4415,
+      },
+    }),
+  );
+
+  assert.match(s.parsed.thinkingText, /Codex 내부 추론 사용량: 4415 tokens/);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["thinking"],
+  );
+  assert.equal(s.parsed.resultMeta?.usage?.reasoning_output_tokens, 4415);
+});
+
 test("codex completed harness_agent_plan keeps sections while running", () => {
   const s = initStreamParserState();
   const planOutput = {

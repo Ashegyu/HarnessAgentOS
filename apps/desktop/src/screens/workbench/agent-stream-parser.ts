@@ -118,6 +118,8 @@ export interface StreamParserState {
     number,
     { toolUseIndex: number; sectionIndex: number; json: string }
   >;
+  /** Tracks Codex item.started/item.completed tool updates by item id. */
+  codexToolSections: Map<string, { toolUseIndex: number; sectionIndex: number }>;
   /** Confirmed final text extracted from structured agent-plan output. */
   pendingFinalText: string | null;
   /** Monotonic id source for chronological render sections. */
@@ -129,6 +131,7 @@ export const initStreamParserState = (): StreamParserState => ({
   pendingRaw: "",
   parsed: emptyParsedStream(),
   pendingToolInputs: new Map(),
+  codexToolSections: new Map(),
   pendingFinalText: null,
   nextSectionId: 1,
 });
@@ -811,11 +814,17 @@ const ingestCodexLine = (
     return true;
   }
   if (type === "turn.completed") {
+    const usage = isRecord(obj["usage"]) ? obj["usage"] : undefined;
+    const reasoningTokens = usage?.["reasoning_output_tokens"];
     parsed.resultMeta = {
       isError: false,
       durationMs: 0,
       durationApiMs: 0,
+      ...(usage ? { usage } : {}),
     };
+    if (typeof reasoningTokens === "number" && reasoningTokens > 0) {
+      appendCodexReasoningUsage(state, reasoningTokens);
+    }
     return true;
   }
   if (type === "turn.failed") {
@@ -870,7 +879,7 @@ const ingestCodexLine = (
 
   const toolUse = extractCodexToolUse(obj);
   if (toolUse !== null) {
-    appendToolUseSection(state, toolUse);
+    appendCodexToolUseSection(state, toolUse);
     return true;
   }
 
@@ -992,25 +1001,37 @@ const extractCodexSummaryText = (summary: unknown): string => {
 
 const extractCodexToolUse = (
   obj: Record<string, unknown>,
-): { name: string; input: unknown } | null => {
+): { id?: string; name: string; input: unknown } | null => {
   const candidate = isRecord(obj["item"]) ? obj["item"] : obj;
   const type = typeof candidate["type"] === "string" ? candidate["type"] : "";
   if (!isCodexToolCallType(type)) {
     return null;
   }
+  const id = typeof candidate["id"] === "string" ? candidate["id"] : undefined;
   const name =
     typeof candidate["name"] === "string"
       ? (candidate["name"] as string)
       : typeof candidate["tool_name"] === "string"
         ? (candidate["tool_name"] as string)
         : type || "tool";
+  if (type === "command_execution") {
+    return {
+      ...(id !== undefined ? { id } : {}),
+      name,
+      input: normalizeCodexCommandExecutionInput(candidate),
+    };
+  }
   const input =
     candidate["input"] ??
     candidate["arguments"] ??
     candidate["args"] ??
     candidate["command"] ??
     null;
-  return { name, input: normalizeCodexToolInput(input) };
+  return {
+    ...(id !== undefined ? { id } : {}),
+    name,
+    input: normalizeCodexToolInput(input),
+  };
 };
 
 const isCodexToolCallType = (type: string): boolean => {
@@ -1018,6 +1039,7 @@ const isCodexToolCallType = (type: string): boolean => {
   return (
     type.includes("tool") ||
     type.includes("local_shell_call") ||
+    type === "command_execution" ||
     type === "function_call" ||
     type.includes("shell") ||
     type.includes("exec_command")
@@ -1045,6 +1067,72 @@ const normalizeCodexToolInput = (input: unknown): unknown => {
   } catch {
     return input;
   }
+};
+
+const normalizeCodexCommandExecutionInput = (
+  candidate: Record<string, unknown>,
+): unknown => {
+  const command = candidate["command"];
+  if (typeof command !== "string" || command.trim().length === 0) {
+    return candidate;
+  }
+  const status = candidate["status"];
+  const exitCode = candidate["exit_code"];
+  const output = candidate["aggregated_output"];
+  return {
+    command,
+    ...(typeof status === "string" ? { status } : {}),
+    ...(typeof exitCode === "number" ? { exitCode } : {}),
+    ...(typeof output === "string" && output.trim().length > 0
+      ? { outputPreview: output.slice(0, 1_000) }
+      : {}),
+  };
+};
+
+const appendCodexToolUseSection = (
+  state: StreamParserState,
+  toolUse: { id?: string; name: string; input: unknown },
+): void => {
+  if (toolUse.id) {
+    const existing = state.codexToolSections.get(toolUse.id);
+    if (existing) {
+      const parsedTool = state.parsed.toolUses[existing.toolUseIndex];
+      if (parsedTool) {
+        parsedTool.name = toolUse.name;
+        parsedTool.input = toolUse.input;
+      }
+      const section = state.parsed.sections[existing.sectionIndex];
+      if (section?.kind === "tool") {
+        section.name = toolUse.name;
+        section.input = toolUse.input;
+      }
+      return;
+    }
+  }
+  const before = state.parsed.sections.length;
+  const toolUseIndex = appendToolUseSection(state, {
+    name: toolUse.name,
+    input: toolUse.input,
+  });
+  if (toolUse.id) {
+    state.codexToolSections.set(toolUse.id, {
+      toolUseIndex,
+      sectionIndex: before,
+    });
+  }
+};
+
+const appendCodexReasoningUsage = (
+  state: StreamParserState,
+  reasoningTokens: number,
+): void => {
+  const text =
+    `Codex 내부 추론 사용량: ${reasoningTokens} tokens. ` +
+    "세부 추론 텍스트는 Codex JSON 스트림에 포함되지 않았습니다.";
+  if (state.parsed.thinkingText.includes(text)) return;
+  const chunk = state.parsed.thinkingText.length > 0 ? `\n${text}` : text;
+  state.parsed.thinkingText += chunk;
+  appendTextDeltaSection(state, "thinking", chunk);
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
