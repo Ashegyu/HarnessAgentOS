@@ -157,15 +157,16 @@ export class LocalStateService implements ConversationStateGateway {
         .prepare(
           `SELECT a.task_run_id AS taskRunId, a.summary AS summary
            FROM artifacts a
-           INNER JOIN (
-             SELECT task_run_id, MAX(datetime(created_at)) AS max_at
-             FROM artifacts
-             WHERE kind = 'plan' AND task_run_id IN (${placeholders})
-             GROUP BY task_run_id
-           ) latest
-             ON latest.task_run_id = a.task_run_id
-            AND datetime(a.created_at) = latest.max_at
-           WHERE a.kind = 'plan'`,
+           WHERE a.kind = 'plan'
+             AND a.task_run_id IN (${placeholders})
+             AND a.rowid = (
+               SELECT a2.rowid
+               FROM artifacts a2
+               WHERE a2.kind = 'plan'
+                 AND a2.task_run_id = a.task_run_id
+               ORDER BY datetime(a2.created_at) DESC, a2.rowid DESC
+               LIMIT 1
+             )`,
         )
         .all(...taskRuns.map((t) => t.id)) as Array<{
         taskRunId: string;

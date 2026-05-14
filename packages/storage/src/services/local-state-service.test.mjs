@@ -122,6 +122,51 @@ test("getThreadDetail returns null for missing id", async () => {
   }
 });
 
+test("getThreadDetail picks latest plan deterministically when timestamps tie", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "x" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id,
+      userRequest: "do",
+      targetDir: "/tmp/x",
+    });
+    const step = await svc.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "plan",
+      title: "plan",
+      status: "succeeded",
+    });
+    const oldPlan = await svc.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "plan",
+      title: "old",
+      uri: "artifact://plan/old",
+      summary: "old summary",
+    });
+    const newPlan = await svc.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "plan",
+      title: "new",
+      uri: "artifact://plan/new",
+      summary: "new summary",
+    });
+    db.prepare("UPDATE artifacts SET created_at=? WHERE id IN (?, ?)")
+      .run("2026-05-14T00:00:00.000Z", oldPlan.id, newPlan.id);
+
+    const detail = await svc.getThreadDetail(thread.id);
+    assert.equal(detail?.agentAnswers[taskRun.id], "new summary");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("createTaskRun requires existing thread and validates targetDir", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
