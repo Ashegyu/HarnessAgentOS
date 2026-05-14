@@ -2449,6 +2449,17 @@
 .right-panel__tab-body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each tabpanel owns its own scroll context so the user's scroll
+   position is preserved per-tab when switching back and forth.
+   Hidden tabpanels collapse out of layout via the browser default
+   for [hidden] — only the active one takes space. */
+.right-panel__tab-body > [role="tabpanel"]:not([hidden]) {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--space-4);
 }

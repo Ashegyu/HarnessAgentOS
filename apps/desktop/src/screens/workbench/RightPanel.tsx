@@ -156,13 +156,21 @@ export const RightPanel = ({
             ))}
           </nav>
 
-          <div
-            className="right-panel__tab-body"
-            role="tabpanel"
-            id={`right-panel-panel-${activeTab}`}
-            aria-labelledby={`right-panel-tab-${activeTab}`}
-          >
-            {activeTab === "plan" && (
+          {/* All 7 tab panels stay mounted; only the active one is
+              visible. This preserves per-tab local state (form text,
+              draft plan, scroll positions, fetch results) when the
+              user switches tabs and comes back. Per-taskRun resets
+              still work via the existing `key={taskRun.id}` props on
+              QualityPanel / CapabilityPanel / LearnerPanel /
+              OrchestrationPanel — they remount when the active
+              TaskRun changes, just not when the user switches tabs. */}
+          <div className="right-panel__tab-body">
+            <div
+              role="tabpanel"
+              id="right-panel-panel-plan"
+              aria-labelledby="right-panel-tab-plan"
+              hidden={activeTab !== "plan"}
+            >
               <div className="right-panel__stack">
                 <section aria-label="Plan">
                   <header className="panel-header panel-header--inset">
@@ -185,9 +193,14 @@ export const RightPanel = ({
                   />
                 </section>
               </div>
-            )}
+            </div>
 
-            {activeTab === "agent" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-agent"
+              aria-labelledby="right-panel-tab-agent"
+              hidden={activeTab !== "agent"}
+            >
               <AgentPanel
                 taskRun={state.detail.taskRun}
                 invocations={state.detail.agentInvocations}
@@ -197,33 +210,53 @@ export const RightPanel = ({
                 onCancel={onAgentCancel}
                 onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
               />
-            )}
+            </div>
 
-            {activeTab === "timeline" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-timeline"
+              aria-labelledby="right-panel-tab-timeline"
+              hidden={activeTab !== "timeline"}
+            >
               <TaskRunTimeline
                 taskRun={state.detail.taskRun}
                 steps={state.detail.steps}
               />
-            )}
+            </div>
 
-            {activeTab === "artifacts" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-artifacts"
+              aria-labelledby="right-panel-tab-artifacts"
+              hidden={activeTab !== "artifacts"}
+            >
               <ArtifactPanel
                 artifacts={state.detail.artifacts.filter(
                   (a) => a.kind !== "plan",
                 )}
               />
-            )}
+            </div>
 
-            {activeTab === "quality" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-quality"
+              aria-labelledby="right-panel-tab-quality"
+              hidden={activeTab !== "quality"}
+            >
               <QualityPanel
                 key={state.detail.taskRun.id}
                 taskRun={state.detail.taskRun}
                 artifacts={state.detail.artifacts}
                 onTaskRunChanged={onQualityChanged}
               />
-            )}
+            </div>
 
-            {activeTab === "capabilities" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-capabilities"
+              aria-labelledby="right-panel-tab-capabilities"
+              hidden={activeTab !== "capabilities"}
+            >
               <div className="right-panel__stack">
                 <section aria-label="Capabilities">
                   <header className="panel-header panel-header--inset">
@@ -246,16 +279,21 @@ export const RightPanel = ({
                   />
                 </section>
               </div>
-            )}
+            </div>
 
-            {activeTab === "orchestration" && (
+            <div
+              role="tabpanel"
+              id="right-panel-panel-orchestration"
+              aria-labelledby="right-panel-tab-orchestration"
+              hidden={activeTab !== "orchestration"}
+            >
               <OrchestrationPanel
                 key={`${state.detail.taskRun.id}-orch`}
                 taskRun={state.detail.taskRun}
                 approvals={state.detail.approvals}
                 onRefreshTaskRun={onQualityChanged}
               />
-            )}
+            </div>
           </div>
         </div>
       )}
