@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildCliInvocation,
   extractCodexExecPayload,
+  formatProviderExitFailure,
 } from "./model-cli-invocation.ts";
 
 const baseRequest = (overrides = {}) => ({
@@ -110,4 +111,34 @@ test("extractCodexExecPayload returns the final assistant message from JSONL", (
   ].join("\n");
 
   assert.equal(extractCodexExecPayload(raw), "final");
+});
+
+test("formatProviderExitFailure reads Codex JSON errors from stdout", () => {
+  const stdout = [
+    JSON.stringify({ type: "thread.started", thread_id: "thr" }),
+    JSON.stringify({
+      type: "error",
+      message:
+        "unexpected status 401 Unauthorized: Missing bearer or basic authentication in header",
+    }),
+    JSON.stringify({
+      type: "turn.failed",
+      error: {
+        message:
+          "stream disconnected before completion: error sending request for url",
+      },
+    }),
+  ].join("\n");
+
+  const message = formatProviderExitFailure("codex", 1, stdout, "");
+  assert.match(message, /codex exited with code 1/);
+  assert.match(message, /authentication failed/);
+  assert.match(message, /401 Unauthorized/);
+});
+
+test("formatProviderExitFailure falls back to stderr for non-Codex failures", () => {
+  assert.equal(
+    formatProviderExitFailure("claude", 1, "", "auth failed\n"),
+    "claude exited with code 1: auth failed",
+  );
 });

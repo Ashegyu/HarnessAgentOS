@@ -16,6 +16,7 @@ import type {
 import {
   buildCliInvocation,
   extractProviderPayload,
+  formatProviderExitFailure,
 } from "./model-cli-invocation.ts";
 import { resolveProviderCommand } from "./provider-executable.ts";
 
@@ -196,7 +197,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       throw new AgentCliError(
         AGENT_PROVIDER_UNAVAILABLE,
         "fatal",
-        `${provider} exited with code ${exitCode}: ${stderr.trim().slice(0, 400)}`,
+        formatProviderExitFailure(provider, exitCode, stdout, stderr),
       );
     }
 

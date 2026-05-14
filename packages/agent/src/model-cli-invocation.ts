@@ -23,6 +23,21 @@ export const extractProviderPayload = (
   return { text: extractCodexExecPayload(stdout) };
 };
 
+export const formatProviderExitFailure = (
+  provider: AgentProvider,
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+): string => {
+  const detail =
+    provider === "codex"
+      ? extractCodexFailureDetail(stdout, stderr)
+      : compactFailureText(stderr) || compactFailureText(stdout);
+  return detail.length > 0
+    ? `${provider} exited with code ${exitCode}: ${detail}`
+    : `${provider} exited with code ${exitCode}`;
+};
+
 const buildArgs = (request: ModelCliRequest): string[] => {
   const { provider, model } = request.modelConfig;
   if (provider === "claude") {
@@ -249,3 +264,59 @@ const extractCodexDeltaText = (obj: Record<string, unknown>): string | null => {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const extractCodexFailureDetail = (stdout: string, stderr: string): string => {
+  const messages: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (typeof obj["message"] === "string" && obj["type"] === "error") {
+        messages.push(obj["message"]);
+      }
+      const error = obj["error"];
+      if (isRecord(error) && typeof error["message"] === "string") {
+        messages.push(error["message"]);
+      }
+    } catch {
+      // Codex --json should be JSONL, but keep stderr fallback below.
+    }
+  }
+
+  const authMessage = messages.find((message) =>
+    /\b(401|unauthorized|authentication|missing bearer|api key)\b/i.test(
+      message,
+    ),
+  );
+  if (authMessage !== undefined) {
+    return compactFailureText(`authentication failed: ${authMessage}`);
+  }
+
+  if (messages.length > 0) {
+    return compactFailureText(dedupe(messages).slice(-3).join("\n"));
+  }
+  return compactFailureText(stderr) || compactFailureText(stdout);
+};
+
+const dedupe = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (normalized.length === 0 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+};
+
+const compactFailureText = (text: string): string => {
+  const compact = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return compact.length > 1_200 ? `${compact.slice(0, 1_200)}...` : compact;
+};
