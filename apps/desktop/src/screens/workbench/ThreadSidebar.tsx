@@ -195,14 +195,17 @@ export const ThreadSidebar = ({
               </div>
             </label>
             {pipelines.length > 0 && (
-              <label className="thread-create-form__field">
-                <span>Pipeline (선택)</span>
+              <label
+                className="thread-create-form__field"
+                title="이 스레드의 기본 Pipeline 입니다. 매 메시지마다 채팅 입력 위에서 다른 파이프라인으로 자유롭게 바꿀 수 있습니다."
+              >
+                <span>기본 Pipeline (변경 가능)</span>
                 <select
                   value={pipelineId}
                   onChange={(e) => setPipelineId(e.target.value)}
                   disabled={submitting}
                 >
-                  <option value="">(없음 — 일반 채팅)</option>
+                  <option value="">(없음 — 매 메시지 직접 선택)</option>
                   {pipelines.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name} ({p.steps.length} steps)
@@ -279,7 +282,11 @@ export const ThreadSidebar = ({
                     <span
                       className="thread-list__pipeline"
                       data-tooltip={boundPipeline?.name ?? "(삭제됨)"}
-                      title={boundPipeline?.name ?? "참조하던 파이프라인이 삭제됨 — 일반 채팅으로 폴백"}
+                      title={
+                        boundPipeline
+                          ? `기본 Pipeline: ${boundPipeline.name} — 매 메시지마다 변경 가능`
+                          : "참조하던 파이프라인이 삭제됨"
+                      }
                     >
                       ▣ {boundPipeline?.name ?? "(없음)"}
                     </span>

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import type { AgentPipeline, OrchestrationMode } from "@harness/core";
-import { ORCHESTRATION_MODES } from "@harness/core";
 
 export type ConversationMode = "template" | "agent";
 
@@ -8,11 +7,11 @@ interface ConversationInputProps {
   threadId: string | null;
   threadTargetDir?: string | undefined;
   /**
-   * AgentPipeline.id bound to the active thread. When set, the per-message
-   * Orchestration toggle is hidden and submissions automatically include
-   * this pipeline via WorkbenchShell's routing — the input shows a small
-   * "Pipeline: <name>" badge so the user knows their messages will run
-   * through that pipeline.
+   * AgentPipeline.id remembered on the thread. Used as the dropdown's
+   * initial pre-selection so a thread "remembers" the user's last
+   * choice, but no longer overrides per-message routing — the user
+   * picks (or changes) the pipeline for every submission via the
+   * inline dropdown.
    */
   threadPipelineId?: string | undefined;
   /** Whether at least one agent CLI provider is currently available. */
@@ -53,71 +52,88 @@ export const ConversationInput = ({
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<ConversationMode>("template");
 
+  // Per-message pipeline picker. The thread's `pipelineId` (if any) and
+  // `settings.orchestration.defaultPipelineId` pre-fill the dropdown, but
+  // the user can change it for every submission. Legacy mode + ad-hoc
+  // instruction stay available in the side OrchestrationPanel for users
+  // who want fine-grained control.
   const [orchEnabled, setOrchEnabled] = useState(false);
-  const [orchExpanded, setOrchExpanded] = useState(false);
-  const [orchMode, setOrchMode] = useState<OrchestrationMode>("single_worker");
-  const [orchInstruction, setOrchInstruction] = useState("");
   const [orchPipelineId, setOrchPipelineId] = useState<string>("");
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
-  const [showLegacyMode, setShowLegacyMode] = useState(false);
 
   const refreshPipelines = useCallback(
     async (preferredId?: string): Promise<void> => {
       try {
         const list = await window.harness.pipeline.list();
         setPipelines(list);
-        if (list.length > 0) {
-          // Priority: explicit preferred (from settings.defaultPipelineId) →
-          // current selection → first available.
-          setOrchPipelineId((prev) => {
-            if (preferredId && list.some((p) => p.id === preferredId)) {
-              return preferredId;
-            }
-            return list.some((p) => p.id === prev) ? prev : list[0]!.id;
-          });
-          setShowLegacyMode(false);
-        } else {
-          setShowLegacyMode(true);
-        }
+        // Priority: explicit preferred (thread binding or settings
+        // default) → current selection if still valid → empty (=
+        // "(없음 — 일반 채팅)" so the user sees the no-pipeline option
+        // unless they had something explicitly set).
+        setOrchPipelineId((prev) => {
+          if (preferredId && list.some((p) => p.id === preferredId)) {
+            return preferredId;
+          }
+          if (prev.length > 0 && list.some((p) => p.id === prev)) {
+            return prev;
+          }
+          return "";
+        });
       } catch {
-        // pipeline namespace unavailable — keep legacy-only behavior
-        setShowLegacyMode(true);
+        // Pipeline namespace unavailable — the picker stays empty and
+        // submissions go through the regular chat path.
       }
     },
     [],
   );
 
-  // On mount: load settings once, then load pipelines (seeded with the
-  // user's configured default pipeline if any).
+  // Resolve the preferred initial pipeline:
+  // 1. thread binding (the per-thread "remembered" choice) — wins
+  // 2. settings.orchestration.defaultPipelineId — global default
+  // 3. empty — user must opt in for this message
+  const computePreferredId = useCallback(
+    (settingsDefault: string): string | undefined => {
+      if (threadPipelineId && threadPipelineId.length > 0) {
+        return threadPipelineId;
+      }
+      if (settingsDefault.length > 0) return settingsDefault;
+      return undefined;
+    },
+    [threadPipelineId],
+  );
+
+  // On mount: load orchestration enabled flag + pipeline list. The
+  // dropdown is then ready to use without further interaction.
   useEffect(() => {
     void (async () => {
-      let preferredId: string | undefined;
+      let settingsDefault = "";
       try {
         const s = await window.harness.settings.get();
-        if (s.orchestration.enabled) {
-          setOrchEnabled(true);
-          setOrchMode(s.orchestration.defaultMode);
-          if (s.orchestration.defaultInstructions) {
-            setOrchInstruction(s.orchestration.defaultInstructions);
-          }
-        }
-        if (s.orchestration.defaultPipelineId.length > 0) {
-          preferredId = s.orchestration.defaultPipelineId;
-        }
+        if (s.orchestration.enabled) setOrchEnabled(true);
+        settingsDefault = s.orchestration.defaultPipelineId;
       } catch {
-        // settings unavailable — orch stays hidden
+        // Settings unavailable — orch picker stays hidden.
       }
-      await refreshPipelines(preferredId);
+      await refreshPipelines(computePreferredId(settingsDefault));
     })();
-  }, [refreshPipelines]);
+  }, [refreshPipelines, computePreferredId]);
 
-  // Refresh pipeline list whenever the user opens the Orchestration panel,
-  // so pipelines created in Settings → Pipelines are visible immediately.
+  // Whenever the user switches to a different thread that carries its
+  // own pipelineId, re-seed the dropdown to that thread's remembered
+  // choice. The settings default still loses to a thread-specific
+  // value.
   useEffect(() => {
-    if (orchExpanded) {
-      void refreshPipelines();
-    }
-  }, [orchExpanded, refreshPipelines]);
+    if (!threadPipelineId) return;
+    setOrchPipelineId((prev) => {
+      // Only override if the currently-selected pipeline is no longer
+      // valid; otherwise leave whatever the user picked alone.
+      if (prev === threadPipelineId) return prev;
+      if (pipelines.some((p) => p.id === threadPipelineId)) {
+        return threadPipelineId;
+      }
+      return prev;
+    });
+  }, [threadPipelineId, pipelines]);
 
   // Suggestion chip → composer text injection. Parent updates the seed
   // object reference (key changes) each time, so re-clicking the same
@@ -155,13 +171,11 @@ export const ConversationInput = ({
       };
       if (overrideDir.trim().length > 0) payload.targetDir = overrideDir.trim();
       else if (!threadTargetDir) payload.targetDir = targetDir;
-      if (orchEnabled && orchExpanded) {
-        payload.orchMode = orchMode;
-        if (orchInstruction.trim().length > 0)
-          payload.orchInstruction = orchInstruction.trim();
-        // Pipeline takes precedence over mode when one is selected.
-        if (orchPipelineId.length > 0)
-          payload.orchPipelineId = orchPipelineId;
+      // Per-message pipeline pick. Empty value means "(없음 — 일반
+      // 채팅)" so we deliberately omit orchPipelineId from the payload
+      // and the regular agent flow runs.
+      if (orchEnabled && orchPipelineId.length > 0) {
+        payload.orchPipelineId = orchPipelineId;
       }
       await onSubmit(payload);
       setText("");
@@ -263,97 +277,29 @@ export const ConversationInput = ({
           Agent {agentAvailable ? "" : "(미설치)"}
         </button>
       </div>
-      {threadPipelineId && (() => {
-        // Thread-level binding takes precedence: hide the legacy
-        // per-message Orchestration toggle entirely and show a static
-        // badge so the user knows their submissions auto-route through
-        // the bound pipeline (WorkbenchShell.handleCreateTask).
-        const bound = pipelines.find((p) => p.id === threadPipelineId);
-        const label = bound
-          ? `${bound.name} (${bound.steps.length} steps)`
-          : "(삭제됨 — 일반 채팅으로 폴백)";
-        return (
-          <div
-            className="conversation-input__orch"
-            title="이 스레드는 파이프라인에 묶여 있어, 모든 메시지가 자동으로 이 파이프라인을 거칩니다."
-          >
-            <span className="conversation-input__orch-badge">
-              ▣ Pipeline: <strong>{label}</strong>
-            </span>
-          </div>
-        );
-      })()}
-      {!threadPipelineId && orchEnabled && (
-        <div className="conversation-input__orch">
-          <button
-            type="button"
-            className="conversation-input__orch-toggle"
-            onClick={() => setOrchExpanded((v) => !v)}
+      {orchEnabled && pipelines.length > 0 && (
+        <label className="conversation-input__pipeline" title="이번 메시지를 거칠 파이프라인을 선택하세요. 매 메시지마다 자유롭게 바꿀 수 있습니다.">
+          <span className="conversation-input__pipeline-label">Pipeline</span>
+          <select
+            className="conversation-input__pipeline-select"
+            value={orchPipelineId}
+            onChange={(e) => setOrchPipelineId(e.target.value)}
+            onFocus={() => void refreshPipelines()}
             disabled={submitting}
           >
-            {orchExpanded ? "▾" : "▸"} Orchestration
-          </button>
-          {orchExpanded && (
-            <div className="conversation-input__orch-form">
-              {pipelines.length > 0 && (
-                <label className="conversation-input__orch-field">
-                  <span>Pipeline</span>
-                  <select
-                    value={orchPipelineId}
-                    onChange={(e) => setOrchPipelineId(e.target.value)}
-                    disabled={submitting}
-                  >
-                    {pipelines.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.steps.length} steps)
-                      </option>
-                    ))}
-                    <option value="">(없음 — Legacy mode 사용)</option>
-                  </select>
-                </label>
-              )}
-              {(showLegacyMode || orchPipelineId.length === 0) && (
-                <label className="conversation-input__orch-field">
-                  <span>Legacy Mode</span>
-                  <select
-                    value={orchMode}
-                    onChange={(e) =>
-                      setOrchMode(e.target.value as OrchestrationMode)
-                    }
-                    disabled={submitting || orchPipelineId.length > 0}
-                  >
-                    {ORCHESTRATION_MODES.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {pipelines.length > 0 && !showLegacyMode && (
-                <button
-                  type="button"
-                  className="conversation-input__orch-toggle"
-                  onClick={() => setShowLegacyMode(true)}
-                  disabled={submitting}
-                  style={{ alignSelf: "flex-start" }}
-                >
-                  Legacy mode 보기
-                </button>
-              )}
-              <label className="conversation-input__orch-field">
-                <span>Instruction (선택)</span>
-                <input
-                  type="text"
-                  value={orchInstruction}
-                  onChange={(e) => setOrchInstruction(e.target.value)}
-                  placeholder="planner에게 전달할 지시"
-                  disabled={submitting}
-                />
-              </label>
-            </div>
+            <option value="">(없음 — 일반 채팅)</option>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.steps.length} steps)
+              </option>
+            ))}
+          </select>
+          {threadPipelineId && orchPipelineId === threadPipelineId && (
+            <span className="conversation-input__pipeline-hint">
+              스레드 기본값
+            </span>
           )}
-        </div>
+        </label>
       )}
       <textarea
         className="conversation-input__text"

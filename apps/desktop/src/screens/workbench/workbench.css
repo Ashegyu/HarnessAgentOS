@@ -2568,7 +2568,9 @@
 
 /* Phase 1 — static badge shown when the thread is pipeline-bound,
    in place of the per-message Orchestration toggle. Communicates the
-   binding without inviting interaction. */
+   binding without inviting interaction. (Phase 1.1 superseded this
+   with an inline picker, but the class is kept for completeness in
+   case other surfaces want a similar chip.) */
 .conversation-input__orch-badge {
   display: inline-flex;
   align-items: center;
@@ -2584,6 +2586,41 @@
 .conversation-input__orch-badge strong {
   color: var(--accent, var(--text-primary));
   font-weight: 600;
+}
+
+/* Per-message pipeline picker that sits above the composer textarea.
+   Always visible when orchestration is enabled + at least one
+   pipeline exists, so the user can pick (or change) on every
+   submission. */
+.conversation-input__pipeline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font-size: 11px;
+}
+
+.conversation-input__pipeline-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  min-width: 60px;
+}
+
+.conversation-input__pipeline-select {
+  flex: 1;
+  max-width: 320px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 3px 6px;
+}
+
+.conversation-input__pipeline-hint {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: italic;
 }
 
 .conversation-input__orch-toggle {
