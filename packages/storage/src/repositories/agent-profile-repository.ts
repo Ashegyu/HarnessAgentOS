@@ -58,7 +58,7 @@ const rowToProfile = (row: ProfileRow): AgentProfile => ({
   provider: row.provider as AgentProfile["provider"],
   role: row.role as AgentProfile["role"],
   persona: row.persona,
-  tuning: JSON.parse(row.tuning_json) as AgentModelTuning,
+  tuning: normalizeTuning(JSON.parse(row.tuning_json) as AgentModelTuning),
   cli: JSON.parse(row.cli_json) as AgentCliEnv,
   permissions: JSON.parse(row.permissions_json) as AgentPermissions,
   mcpServerIds: JSON.parse(row.mcp_server_ids_json) as string[],
@@ -66,6 +66,29 @@ const rowToProfile = (row: ProfileRow): AgentProfile => ({
   isDefault: row.is_default === 1,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+});
+
+/**
+ * Existing installations can carry historical profile-level timeouts
+ * (120s hard / 30s stall). Profiles win over global settings during
+ * invocation, so normalize them at the repository boundary too.
+ */
+const normalizeTuning = (tuning: AgentModelTuning): AgentModelTuning => ({
+  ...tuning,
+  timeoutMs:
+    !tuning.timeoutMs || tuning.timeoutMs < DEFAULT_AGENT_TIMEOUT_MS
+      ? DEFAULT_AGENT_TIMEOUT_MS
+      : tuning.timeoutMs,
+  stallTimeoutMs:
+    !tuning.stallTimeoutMs ||
+    tuning.stallTimeoutMs < DEFAULT_AGENT_STALL_TIMEOUT_MS
+      ? DEFAULT_AGENT_STALL_TIMEOUT_MS
+      : tuning.stallTimeoutMs,
+});
+
+const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
+  ...profile,
+  tuning: normalizeTuning(profile.tuning),
 });
 
 const SELECT = `SELECT id, name, description, provider, role, persona,
@@ -103,12 +126,16 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       createdAt: now,
       updatedAt: now,
     };
-    this.insertRow(profile);
-    return profile;
+    const normalized = normalizeProfile(profile);
+    this.insertRow(normalized);
+    return normalized;
   }
 
   async update(profile: AgentProfile): Promise<AgentProfile> {
-    const updated: AgentProfile = { ...profile, updatedAt: nowIso() };
+    const updated: AgentProfile = normalizeProfile({
+      ...profile,
+      updatedAt: nowIso(),
+    });
     this.db
       .prepare(
         `UPDATE agent_profiles SET

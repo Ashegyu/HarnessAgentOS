@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb } from "../db.ts";
 import { SqliteAgentProfileRepository } from "./agent-profile-repository.ts";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-ap-"));
@@ -229,6 +233,51 @@ test("AgentProfileRepository.create round-trips arrays and nested objects", asyn
     assert.equal(fetched.cli.envSecretRefs.ANTHROPIC_API_KEY, "anth_key");
     assert.equal(fetched.tuning.temperature, 0.2);
     assert.equal(fetched.tuning.systemPromptPrefix, "PREFIX");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.list upgrades legacy profile timeout values below defaults", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const created = await repo.create(
+      makeProfileInput({
+        name: "Legacy Planner",
+        role: "planner",
+        tuning: {
+          model: "claude-sonnet-4",
+          timeoutMs: 120_000,
+          stallTimeoutMs: 30_000,
+          contextDepth: 5,
+          systemPromptPrefix: "",
+          systemPromptSuffix: "",
+        },
+        isDefault: true,
+      }),
+    );
+    db.prepare("UPDATE agent_profiles SET tuning_json = ? WHERE id = ?").run(
+      JSON.stringify({
+        model: "claude-sonnet-4",
+        timeoutMs: 120_000,
+        stallTimeoutMs: 30_000,
+        contextDepth: 5,
+        systemPromptPrefix: "",
+        systemPromptSuffix: "",
+      }),
+      created.id,
+    );
+
+    const [profile] = await repo.list();
+    assert.equal(profile.tuning.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+    assert.equal(profile.tuning.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
+
+    const fetched = await repo.get(profile.id);
+    assert.equal(fetched.tuning.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+    assert.equal(fetched.tuning.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
   } finally {
     closeDb(db);
     t.cleanup();
