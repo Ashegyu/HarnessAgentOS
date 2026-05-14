@@ -258,7 +258,7 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
               </label>
 
               <label className="settings-field">
-                <span className="settings-field__label">Timeout (ms)</span>
+                <span className="settings-field__label">Hard timeout (ms)</span>
                 <input
                   type="number"
                   className="settings-field__input"
@@ -274,7 +274,7 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
               </label>
 
               <label className="settings-field">
-                <span className="settings-field__label">Stall timeout (ms)</span>
+                <span className="settings-field__label">Idle timeout (ms)</span>
                 <input
                   type="number"
                   className="settings-field__input"

@@ -4,6 +4,10 @@ import type {
   AgentCliEnv,
   AgentModelTuning,
 } from "@harness/core";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
 
@@ -177,8 +181,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
 
     const defaultTuning: AgentModelTuning = {
       model: "",
-      timeoutMs: 120_000,
-      stallTimeoutMs: 30_000,
+      timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+      stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 10,
       systemPromptPrefix: "",
       systemPromptSuffix: "",

@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 import { AgentPlanningService } from "./agent-planning-service.ts";
 
 /**
@@ -60,6 +64,15 @@ test("cancelInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FO
     () => svc.cancelInvocation({ invocationId: "unknown-id" }),
     (err) => err.constructor.name === "AgentPlanningError" && err.code === "AGENT_INVOCATION_NOT_FOUND",
   );
+});
+
+test("AgentPlanningService defaults allow long-running agent work", () => {
+  const svc = new AgentPlanningService({
+    state: makeGateway(),
+    getProviderStatus: () => null,
+  });
+  assert.equal(svc.defaults.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+  assert.equal(svc.defaults.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
 });
 
 test("cancelInvocation returns immediately if invocation already succeeded", async () => {

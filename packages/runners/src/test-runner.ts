@@ -19,6 +19,7 @@ export class TestRunner {
     command: string;
     cwd: string;
     timeoutMs?: number;
+    idleTimeoutMs?: number;
   }): Promise<TestRunResult> {
     const r = await this.shell.run(input);
     return { ...r, passed: r.exitCode === 0 };

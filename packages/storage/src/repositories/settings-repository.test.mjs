@@ -5,6 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb } from "../db.ts";
 import { SqliteSettingsRepository } from "./settings-repository.ts";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-settings-"));
@@ -21,8 +25,8 @@ test("SettingsRepository returns DEFAULT_HARNESS_SETTINGS when no row exists", a
     const repo = new SqliteSettingsRepository(db);
     const settings = await repo.get();
     assert.equal(settings.agent.provider, "auto");
-    assert.equal(settings.agent.timeoutMs, 300_000);
-    assert.equal(settings.agent.stallTimeoutMs, 60_000);
+    assert.equal(settings.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+    assert.equal(settings.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
     assert.equal(settings.agent.contextDepth, 5);
   } finally {
     closeDb(db);
@@ -36,13 +40,13 @@ test("SettingsRepository upserts and retrieves a partial update", async () => {
   try {
     const repo = new SqliteSettingsRepository(db);
     // values >= defaults are preserved verbatim by get()
-    const updated = await repo.update({ agent: { provider: "claude", timeoutMs: 600_000, stallTimeoutMs: 120_000, model: "sonnet", contextDepth: 7 } });
+    const updated = await repo.update({ agent: { provider: "claude", timeoutMs: DEFAULT_AGENT_TIMEOUT_MS + 60_000, stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS + 60_000, model: "sonnet", contextDepth: 7 } });
     assert.equal(updated.agent.provider, "claude");
-    assert.equal(updated.agent.timeoutMs, 600_000);
+    assert.equal(updated.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS + 60_000);
     const retrieved = await repo.get();
     assert.equal(retrieved.agent.provider, "claude");
-    assert.equal(retrieved.agent.timeoutMs, 600_000);
-    assert.equal(retrieved.agent.stallTimeoutMs, 120_000);
+    assert.equal(retrieved.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS + 60_000);
+    assert.equal(retrieved.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS + 60_000);
     assert.equal(retrieved.agent.model, "sonnet");
   } finally {
     closeDb(db);
@@ -58,8 +62,8 @@ test("SettingsRepository.get() upgrades legacy timeout values below defaults", a
     // simulate a row left over from before the streaming-adapter fix
     await repo.update({ agent: { provider: "auto", timeoutMs: 120_000, stallTimeoutMs: 30_000, model: "", contextDepth: 5 } });
     const retrieved = await repo.get();
-    assert.equal(retrieved.agent.timeoutMs, 300_000, "legacy timeoutMs upgraded");
-    assert.equal(retrieved.agent.stallTimeoutMs, 60_000, "legacy stallTimeoutMs upgraded");
+    assert.equal(retrieved.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS, "legacy timeoutMs upgraded");
+    assert.equal(retrieved.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS, "legacy stallTimeoutMs upgraded");
   } finally {
     closeDb(db);
     t.cleanup();

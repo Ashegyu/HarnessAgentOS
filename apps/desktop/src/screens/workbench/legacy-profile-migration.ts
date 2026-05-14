@@ -3,7 +3,11 @@ import type {
   AgentSettings,
   WorkerProfile,
 } from "@harness/core";
-import { DEFAULT_AGENT_PERMISSIONS } from "@harness/core";
+import {
+  DEFAULT_AGENT_PERMISSIONS,
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 
 /**
  * Renderer-side mirror of packages/storage/src/services/profile-migrator.ts.
@@ -134,8 +138,8 @@ export const planLegacyMigration = (
   // agent block, but only when there's something non-default in it.
   const hasNonDefault =
     input.legacyAgent.model.trim().length > 0 ||
-    input.legacyAgent.timeoutMs !== 300_000 ||
-    input.legacyAgent.stallTimeoutMs !== 60_000 ||
+    input.legacyAgent.timeoutMs !== DEFAULT_AGENT_TIMEOUT_MS ||
+    input.legacyAgent.stallTimeoutMs !== DEFAULT_AGENT_STALL_TIMEOUT_MS ||
     input.legacyAgent.contextDepth !== 5;
   if (!hasNonDefault) return null;
 

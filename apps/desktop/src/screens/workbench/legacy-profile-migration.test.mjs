@@ -1,12 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "@harness/core";
 import { planLegacyMigration } from "./legacy-profile-migration.ts";
 
 const legacyAgentDefaults = {
   provider: "auto",
   model: "",
-  timeoutMs: 300_000,
-  stallTimeoutMs: 60_000,
+  timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+  stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
   contextDepth: 5,
 };
 
@@ -116,11 +120,11 @@ test("planLegacyMigration ignores pristine global defaults (nothing to migrate)"
 
 test("planLegacyMigration treats a non-default timeout as 'something to migrate'", () => {
   const plan = planLegacyMigration({
-    legacyAgent: { ...legacyAgentDefaults, timeoutMs: 900_000 },
+    legacyAgent: { ...legacyAgentDefaults, timeoutMs: DEFAULT_AGENT_TIMEOUT_MS + 60_000 },
     workerProfiles: [],
     existingProfiles: [],
   });
   assert.ok(plan);
   assert.equal(plan.inputs.length, 1);
-  assert.equal(plan.inputs[0].tuning.timeoutMs, 900_000);
+  assert.equal(plan.inputs[0].tuning.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS + 60_000);
 });

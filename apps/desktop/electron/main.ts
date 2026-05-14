@@ -5,6 +5,8 @@ import { stat, writeFile, mkdir, unlink } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
   ConversationService,
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
   TaskRunCompletionService,
   type HarnessSettings,
 } from "@harness/core";
@@ -215,12 +217,13 @@ const initServices = (): {
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
     prepareMcpInvocation,
-    // Claude CLI in `--print` mode is non-streaming: stdout stays empty
-    // until the full response is generated and then flushes at once.
-    // The default 30s stall timer therefore mis-fires on any non-trivial
-    // prompt. Use a single overall timeout (5 min) and an equally long
-    // stall budget so the stall check effectively never fires on its own.
-    defaults: { timeoutMs: 5 * 60_000, stallTimeoutMs: 5 * 60_000 },
+    // Long-running agent work is valid, but a child process must never
+    // hang forever. Keep a generous hard timeout and a separate idle
+    // timeout for "no output" stalls.
+    defaults: {
+      timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+      stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+    },
   });
 
   // Phase 2 — OrchestrationService is wired AFTER agentPlanning so the

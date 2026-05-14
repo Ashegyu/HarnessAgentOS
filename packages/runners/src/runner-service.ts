@@ -8,7 +8,12 @@ import type {
   Step,
   TaskRun,
 } from "@harness/core";
-import { formatSimpleDiff } from "@harness/core";
+import {
+  DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
+  DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
+  DEFAULT_RUNNER_TEST_TIMEOUT_MS,
+  formatSimpleDiff,
+} from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
 import { FileRunner } from "./file-runner.ts";
@@ -308,12 +313,14 @@ export class RunnerService {
       ? await this.test.run({
           command: details.command,
           cwd: taskRun.targetDir,
-          timeoutMs: 5 * 60 * 1000,
+          timeoutMs: DEFAULT_RUNNER_TEST_TIMEOUT_MS,
+          idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
         })
       : await this.shell.run({
           command: details.command,
           cwd: taskRun.targetDir,
-          timeoutMs: 5 * 60 * 1000,
+          timeoutMs: DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
+          idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
         });
     result.exitCode = runOutcome.exitCode;
     result.stdout = maskSecrets(runOutcome.stdout);

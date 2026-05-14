@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import {
+  DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
+  DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
+} from "@harness/core";
 import { classifyShellCommand } from "./runner-policy.ts";
 
 export interface ShellRunResult {
@@ -20,12 +24,11 @@ export class ShellRunnerError extends Error {
 }
 
 const STDOUT_LIMIT = 1_000_000; // 1 MB
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * Phase 3 shell runner. Executes a single approved command in the
- * target directory with timeout + output cap. Refuses dangerous
- * patterns identified by RunnerPolicy.classifyShellCommand.
+ * target directory with hard timeout, idle timeout, and output cap.
+ * Refuses dangerous patterns identified by RunnerPolicy.classifyShellCommand.
  *
  * Uses `shell: true` because user-approved commands often include
  * pipes/redirection. Containment is enforced by setting cwd to the
@@ -38,6 +41,7 @@ export class ShellRunner {
     command: string;
     cwd: string;
     timeoutMs?: number;
+    idleTimeoutMs?: number;
     env?: NodeJS.ProcessEnv;
   }): Promise<ShellRunResult> {
     const safety = classifyShellCommand(input.command);
@@ -61,8 +65,39 @@ export class ShellRunner {
       let stdoutBytes = 0;
       let stderrBytes = 0;
       let killedByLimit = false;
+      let settled = false;
+      const timeoutMs = input.timeoutMs ?? DEFAULT_RUNNER_SHELL_TIMEOUT_MS;
+      const idleTimeoutMs =
+        input.idleTimeoutMs ?? DEFAULT_RUNNER_IDLE_TIMEOUT_MS;
+      let hardTimer: NodeJS.Timeout;
+      let idleTimer: NodeJS.Timeout | undefined;
+
+      const cleanup = (): void => {
+        clearTimeout(hardTimer);
+        if (idleTimer) clearTimeout(idleTimer);
+      };
+      const fail = (message: string): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        try {
+          child.kill();
+        } catch {
+          /* ignore */
+        }
+        reject(new ShellRunnerError("RUNNER_EXECUTION_FAILED", message));
+      };
+      const armIdleTimer = (): void => {
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          fail(
+            `Command idle timed out after ${idleTimeoutMs}ms: ${input.command}`,
+          );
+        }, idleTimeoutMs);
+      };
 
       const onStdout = (b: Buffer): void => {
+        armIdleTimer();
         stdoutBytes += b.length;
         if (stdoutBytes < STDOUT_LIMIT) stdoutChunks.push(b);
         else if (!killedByLimit) {
@@ -71,6 +106,7 @@ export class ShellRunner {
         }
       };
       const onStderr = (b: Buffer): void => {
+        armIdleTimer();
         stderrBytes += b.length;
         if (stderrBytes < STDOUT_LIMIT) stderrChunks.push(b);
       };
@@ -78,23 +114,15 @@ export class ShellRunner {
       child.stdout?.on("data", onStdout);
       child.stderr?.on("data", onStderr);
 
-      const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-      const timer = setTimeout(() => {
-        try {
-          child.kill();
-        } catch {
-          /* ignore */
-        }
-        reject(
-          new ShellRunnerError(
-            "RUNNER_EXECUTION_FAILED",
-            `Command timed out after ${timeoutMs}ms: ${input.command}`,
-          ),
-        );
+      hardTimer = setTimeout(() => {
+        fail(`Command timed out after ${timeoutMs}ms: ${input.command}`);
       }, timeoutMs);
+      armIdleTimer();
 
       child.on("error", (err) => {
-        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        cleanup();
         reject(
           new ShellRunnerError(
             "RUNNER_EXECUTION_FAILED",
@@ -104,7 +132,9 @@ export class ShellRunner {
       });
 
       child.on("close", (code) => {
-        clearTimeout(timer);
+        if (settled) return;
+        settled = true;
+        cleanup();
         resolveResult({
           exitCode: typeof code === "number" ? code : -1,
           stdout: Buffer.concat(stdoutChunks).toString("utf8"),

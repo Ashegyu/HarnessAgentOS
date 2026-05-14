@@ -360,6 +360,109 @@ test("shell step stores actual command for build evidence", async () => {
   }
 });
 
+test("shell approvals use generous hard timeout with idle timeout", async () => {
+  const t = tmp();
+  try {
+    const { db, state, artifactStore, conversation } = await setup(t);
+    let seen;
+    const runner = new RunnerService({
+      state,
+      artifactStore,
+      shellRunner: {
+        run: async (input) => {
+          seen = input;
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            durationMs: 1,
+            command: input.command,
+            cwd: input.cwd,
+          };
+        },
+      },
+    });
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "shell",
+        actionSummary: "execute command",
+      });
+      await state.setApprovalProposedAction(approval.id, {
+        type: "shell",
+        command: "node -v",
+      });
+      await state.decideApproval(approval.id, "approved");
+
+      await runner.executeApproved(approval.id);
+
+      assert.equal(seen.timeoutMs, 30 * 60_000);
+      assert.equal(seen.idleTimeoutMs, 10 * 60_000);
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("test approvals use longer hard timeout with idle timeout", async () => {
+  const t = tmp();
+  try {
+    const { db, state, artifactStore, conversation } = await setup(t);
+    let seen;
+    const runner = new RunnerService({
+      state,
+      artifactStore,
+      testRunner: {
+        run: async (input) => {
+          seen = input;
+          return {
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            durationMs: 1,
+            command: input.command,
+            cwd: input.cwd,
+            passed: true,
+          };
+        },
+      },
+    });
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "shell",
+        actionSummary: "execute tests",
+      });
+      await state.setApprovalProposedAction(approval.id, {
+        type: "shell",
+        command: "npm test -- --runInBand",
+      });
+      await state.decideApproval(approval.id, "approved");
+
+      await runner.executeApproved(approval.id);
+
+      assert.equal(seen.timeoutMs, 45 * 60_000);
+      assert.equal(seen.idleTimeoutMs, 10 * 60_000);
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("artifact DB id matches file id so readArtifact does not ENOENT", async () => {
   const t = tmp();
   try {

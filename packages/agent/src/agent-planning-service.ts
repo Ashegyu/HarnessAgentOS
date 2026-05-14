@@ -7,6 +7,8 @@ import {
   AGENT_PROPOSED_ACTION_INVALID,
   AGENT_PROVIDER_UNAVAILABLE,
   AGENT_TASK_RUN_NOT_FOUND,
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
   isHarnessError,
   validateProposedActionDetails,
   type AgentInvocation,
@@ -120,8 +122,9 @@ export class AgentPlanningService {
     this.adapter = deps.adapter ?? new DefaultModelCliAdapter();
     this.queue = deps.queue ?? new AgentInvocationQueue();
     this.defaults = {
-      timeoutMs: deps.defaults?.timeoutMs ?? 300_000,
-      stallTimeoutMs: deps.defaults?.stallTimeoutMs ?? 60_000,
+      timeoutMs: deps.defaults?.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS,
+      stallTimeoutMs:
+        deps.defaults?.stallTimeoutMs ?? DEFAULT_AGENT_STALL_TIMEOUT_MS,
     };
   }
 

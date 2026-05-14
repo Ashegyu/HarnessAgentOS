@@ -5,6 +5,8 @@ import type {
 } from "@harness/core";
 import {
   APPROVAL_ACTION_TYPES,
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
   DEFAULT_AGENT_PERMISSIONS,
 } from "@harness/core";
 
@@ -86,8 +88,8 @@ export const emptyDraft = (): ProfileDraft => ({
   model: "",
   temperatureText: "",
   maxTokensText: "",
-  timeoutMsText: "300000",
-  stallTimeoutMsText: "60000",
+  timeoutMsText: String(DEFAULT_AGENT_TIMEOUT_MS),
+  stallTimeoutMsText: String(DEFAULT_AGENT_STALL_TIMEOUT_MS),
   contextDepthText: "5",
   systemPromptPrefix: "",
   systemPromptSuffix: "",
@@ -180,8 +182,11 @@ export const serializeDraft = (
 ): Omit<AgentProfile, "createdAt" | "updatedAt"> => {
   const tuning: AgentProfile["tuning"] = {
     model: draft.model,
-    timeoutMs: textToNumOrUndefined(draft.timeoutMsText) ?? 300_000,
-    stallTimeoutMs: textToNumOrUndefined(draft.stallTimeoutMsText) ?? 60_000,
+    timeoutMs:
+      textToNumOrUndefined(draft.timeoutMsText) ?? DEFAULT_AGENT_TIMEOUT_MS,
+    stallTimeoutMs:
+      textToNumOrUndefined(draft.stallTimeoutMsText) ??
+      DEFAULT_AGENT_STALL_TIMEOUT_MS,
     contextDepth: textToNumOrUndefined(draft.contextDepthText) ?? 5,
     systemPromptPrefix: draft.systemPromptPrefix,
     systemPromptSuffix: draft.systemPromptSuffix,

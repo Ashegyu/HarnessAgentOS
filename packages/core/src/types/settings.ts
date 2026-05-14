@@ -1,4 +1,8 @@
 import type { OrchestrationMode, WorkerRole } from "./orchestration.ts";
+import {
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+} from "../execution-timeouts.ts";
 
 export type AgentProvider = "auto" | "claude" | "codex";
 
@@ -62,8 +66,8 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
     agent: Object.freeze({
       provider: "auto" as AgentProvider,
       model: "",
-      timeoutMs: 300_000,
-      stallTimeoutMs: 60_000,
+      timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+      stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 5,
     }),
     orchestration: Object.freeze({

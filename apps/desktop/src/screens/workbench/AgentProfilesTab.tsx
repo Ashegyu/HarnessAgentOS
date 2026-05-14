@@ -446,7 +446,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Timeout (ms)</span>
+                <span className="settings-field__label">Hard timeout (ms)</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -457,7 +457,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  Stall timeout (ms)
+                  Idle timeout (ms)
                 </span>
                 <input
                   type="text"
