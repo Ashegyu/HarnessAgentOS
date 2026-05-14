@@ -74,6 +74,12 @@ const validateSettingsInput = (
   const workerProfiles: WorkerProfile[] = Array.isArray(orch.workerProfiles)
     ? (orch.workerProfiles as WorkerProfile[])
     : [];
+  // Empty string is the documented "no default" sentinel (see
+  // OrchestrationSettings.defaultPipelineId). When the referenced pipeline
+  // is deleted the UI also treats this row as empty, so coercing unknown
+  // values down to "" is the safe normalization.
+  const defaultPipelineId =
+    typeof orch.defaultPipelineId === "string" ? orch.defaultPipelineId : "";
   const ap =
     s.approval !== null && typeof s.approval === "object"
       ? (s.approval as Record<string, unknown>)
@@ -95,6 +101,7 @@ const validateSettingsInput = (
         defaultMode: orchestrationMode,
         defaultInstructions: orchestrationInstructions,
         workerProfiles,
+        defaultPipelineId,
       },
       approval: {
         autoApprove,

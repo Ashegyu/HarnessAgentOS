@@ -63,6 +63,46 @@ export const WorkbenchShell = (): JSX.Element => {
   // before the row's status flips out of "pending".
   const autoInFlightRef = useRef<Set<string>>(new Set());
 
+  // Tracks TaskRun IDs that were created via pipeline-pick at submit
+  // time. For these runs we auto-approve EVERY approval — the
+  // orchestration_plan one AND any downstream worker-proposed approvals
+  // (file_write, shell, …) — regardless of the global autoApprove flag
+  // or the active profile's per-action permissions. Picking a pipeline
+  // is itself the user's "yes, run everything this pipeline produces"
+  // consent. Persisted to localStorage so an in-progress pipeline run
+  // keeps auto-approving after a renderer reload.
+  const pipelineAutoTaskRunIdsRef = useRef<Set<string>>(new Set());
+  const PIPELINE_AUTO_LS_KEY = "harness.pipelineAutoTaskRunIds";
+  // Initial load — pre-populate the Set from localStorage so reloads
+  // mid-run don't lose the auto-approve consent.
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(PIPELINE_AUTO_LS_KEY);
+      if (!stored) return;
+      const parsed = JSON.parse(stored) as unknown;
+      if (Array.isArray(parsed)) {
+        pipelineAutoTaskRunIdsRef.current = new Set(
+          parsed.filter((x): x is string => typeof x === "string"),
+        );
+      }
+    } catch {
+      // Corrupt LS — drop silently; worst case the user re-consents on
+      // their next pipeline submission.
+    }
+  }, []);
+  const markPipelineAutoTaskRun = useCallback((taskRunId: string): void => {
+    pipelineAutoTaskRunIdsRef.current.add(taskRunId);
+    try {
+      window.localStorage.setItem(
+        PIPELINE_AUTO_LS_KEY,
+        JSON.stringify(Array.from(pipelineAutoTaskRunIdsRef.current)),
+      );
+    } catch {
+      // Quota / disabled storage — in-memory Set still works for this
+      // session, just won't survive reload.
+    }
+  }, []);
+
   // V1 → V2 migration flag. Width keys (sidebarWidth/rightPanelWidth) carry
   // over with compatible semantics, so no value translation is needed; this
   // flag just records that the user has booted v2 at least once, in case a
@@ -357,22 +397,40 @@ export const WorkbenchShell = (): JSX.Element => {
     refreshThreadDetail,
   ]);
 
-  // Auto-approve + auto-execute. Combines the global `approval.autoApprove`
-  // toggle with the active AgentProfile's per-action permissions. Block
-  // list on the profile wins over the global flag (see
-  // packages/core/src/conversation/auto-approve-policy.ts).
+  // Auto-approve + auto-execute. Combines three triggers:
+  //   1. The global `approval.autoApprove` toggle.
+  //   2. The active AgentProfile's per-action permissions.
+  //   3. Pipeline-pick consent (this TaskRun was started by picking a
+  //      pipeline in ConversationInput — every approval it produces is
+  //      pre-approved, including downstream worker actions).
+  //
+  // The profile's BLOCK LIST is a hard floor across all three triggers
+  // — a "trust everything" pipeline pick must NOT bypass an explicit
+  // per-profile prohibition (e.g. a production profile that blocks
+  // `git_commit`). Pipeline-pick consent only bypasses the global
+  // toggle and the profile's per-action ALLOW list (those are
+  // opt-ins); the block list is opt-out and stays authoritative.
   useEffect(() => {
     if (taskRunDetail.kind !== "ready") return;
     const inFlight = autoInFlightRef.current;
+    const isPipelineAutoTask = pipelineAutoTaskRunIdsRef.current.has(
+      taskRunDetail.detail.taskRun.id,
+    );
+    const blockedActions =
+      activeAgentProfile?.permissions.blockedActions ?? [];
     const pending = taskRunDetail.detail.approvals.filter(
-      (a: Approval): boolean =>
-        a.status === "pending" &&
-        !inFlight.has(a.id) &&
-        shouldAutoApprove({
+      (a: Approval): boolean => {
+        if (a.status !== "pending") return false;
+        if (inFlight.has(a.id)) return false;
+        // Block list trumps every auto-approve trigger.
+        if (blockedActions.includes(a.actionType)) return false;
+        if (isPipelineAutoTask) return true;
+        return shouldAutoApprove({
           approval: a,
           globalAutoApprove: autoApprove,
           activeProfile: activeAgentProfile,
-        }),
+        });
+      },
     );
     if (pending.length === 0) return;
     void (async () => {
@@ -510,6 +568,14 @@ export const WorkbenchShell = (): JSX.Element => {
           // global autoApprove: the user already opted in by selecting
           // a pipeline for this message.
           if (usingPipeline) {
+            // Mark this TaskRun as pipeline-auto BEFORE issuing any
+            // approve / runApproved call. The global auto-approve
+            // useEffect uses this flag (in addition to the
+            // autoInFlightRef) to silently approve every subsequent
+            // approval the workers produce — file_write, shell, etc.
+            // — without bothering the user. The user already opted in
+            // by picking the pipeline at submit time.
+            markPipelineAutoTaskRun(draft.taskRun.id);
             autoInFlightRef.current.add(drafted.approval.id);
             try {
               await window.harness.conversation.approve({
