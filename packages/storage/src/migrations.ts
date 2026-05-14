@@ -2,7 +2,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
 const APPROVAL_ACTION_TYPE_CHECK =
-  "'capability_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
+  "'capability_use','model_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
 
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
@@ -49,6 +49,13 @@ export const applyMigrations = (db: DatabaseType): void => {
     // This is not runner-executed; it gates whether approved skill
     // instructions may be injected into a later agent prompt.
     if (!approvalActionTypeAllows(db, "capability_use")) {
+      rebuildApprovals(db);
+    }
+
+    // v14 — add model_use approvals for Learner model recommendations.
+    // Like capability_use, this is consent to shape the next agent
+    // invocation, not a runner-executed side effect.
+    if (!approvalActionTypeAllows(db, "model_use")) {
       rebuildApprovals(db);
     }
 

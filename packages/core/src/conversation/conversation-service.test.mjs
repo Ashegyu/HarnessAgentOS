@@ -167,6 +167,60 @@ test("rejectApproval for capability_use keeps drafting TaskRun active", async ()
   }
 });
 
+test("rejectApproval for model_use keeps drafting TaskRun active", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const draft = await conversation.createTask({
+      userRequest: "analyze architecture",
+      targetDir: "/tmp",
+      mode: "agent",
+    });
+    const step = await state.createStep({
+      taskRunId: draft.taskRun.id,
+      index: 2,
+      kind: "approval",
+      title: "Learner 추천 승인 대기",
+      status: "pending",
+      inputSummary: "gpt-5.5",
+    });
+    const checkpoint = await state.createCheckpoint({
+      taskRunId: draft.taskRun.id,
+      stepId: step.id,
+      reason: "before_edit",
+      stateRef: "{}",
+      summary: "learner recommendation checkpoint",
+    });
+    const approval = await state.createApproval({
+      taskRunId: draft.taskRun.id,
+      checkpointId: checkpoint.id,
+      actionType: "model_use",
+      actionSummary: "Learner 모델 추천 사용: gpt-5.5",
+      status: "pending",
+      proposedAction: {
+        type: "model_use",
+        modelUse: {
+          model: "gpt-5.5",
+          reason: "Highest reward",
+          recommendationId: "rec_1",
+          confidence: 0.7,
+        },
+      },
+    });
+
+    const updated = await conversation.rejectApproval({
+      approvalId: approval.id,
+      message: "이번에는 기본 모델 사용",
+    });
+    assert.equal(updated.status, "rejected");
+    const tr = await state.getTaskRun(draft.taskRun.id);
+    assert.equal(tr.status, "drafting");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("approve marks approval as approved or same run action class", async () => {
   const t = tmp();
   const { db, state, conversation } = makeService(t);

@@ -361,11 +361,15 @@ export class ConversationService {
       "rejected",
       message,
     );
-    // capability_use is only consent to include a Skill candidate in the
-    // next prompt. Rejecting it should not pause the task; the agent can
-    // continue without that optional context once all candidates are
-    // decided. Side-effecting approvals still pause for redirect/cancel.
-    if (approval.actionType !== "capability_use") {
+    // capability_use/model_use are only consent to include advisory
+    // context in the next prompt/invocation. Rejecting one should not
+    // pause the task; the agent can continue without that optional
+    // context once all candidates are decided. Side-effecting approvals
+    // still pause for redirect/cancel.
+    if (
+      approval.actionType !== "capability_use" &&
+      approval.actionType !== "model_use"
+    ) {
       await this.deps.state.setTaskRunStatus(approval.taskRunId, "paused");
     }
     return updated;

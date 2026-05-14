@@ -11,6 +11,8 @@ const labelForAction = (actionType: string): string => {
   switch (actionType) {
     case "capability_use":
       return "Skill 후보";
+    case "model_use":
+      return "모델 추천";
     case "file_write":
       return "파일 쓰기";
     case "shell":

@@ -17,6 +17,7 @@ import {
   type HarnessDesktopApi,
   type HarnessError,
   type HarnessResult,
+  type LearnerRecommendationApprovalResult,
   type LearnerRecommendation,
   type LearningTrace,
   type OrchestrationPlan,
@@ -209,6 +210,11 @@ const harnessApi: HarnessDesktopApi = {
     recommend: (input) =>
       invokeUnwrapped<LearnerRecommendation>(
         IPC_CHANNELS.learner.recommend,
+        input,
+      ),
+    proposeRecommendation: (input) =>
+      invokeUnwrapped<LearnerRecommendationApprovalResult>(
+        IPC_CHANNELS.learner.proposeRecommendation,
         input,
       ),
     recordSelection: (input) =>

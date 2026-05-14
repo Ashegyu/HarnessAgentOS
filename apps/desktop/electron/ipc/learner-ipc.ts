@@ -8,6 +8,7 @@ import {
   harnessError,
   ok,
   type HarnessResult,
+  type LearnerRecommendationApprovalResult,
   type LearnerRecommendation,
   type LearningTrace,
 } from "@harness/core";
@@ -16,6 +17,7 @@ import {
   LearnerAdvisorError,
   TraceRecorder,
 } from "@harness/learner";
+import type { HarnessEventBus } from "../event-bus";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -34,6 +36,7 @@ const wrapErr = <T>(e: unknown, code = LEARNER_TASK_NOT_FOUND): HarnessResult<T>
 export const registerLearnerIpc = (
   advisor: LearnerAdvisor,
   recorder: TraceRecorder,
+  events?: HarnessEventBus,
 ): void => {
   ipcMain.handle(
     IPC_CHANNELS.learner.getTrace,
@@ -77,6 +80,35 @@ export const registerLearnerIpc = (
         return ok(await advisor.recommend({ taskRunId: cast.taskRunId }));
       } catch (e) {
         return wrapErr<LearnerRecommendation>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.proposeRecommendation,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<LearnerRecommendationApprovalResult>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { taskRunId?: unknown };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      try {
+        const result = await advisor.proposeRecommendationApprovals({
+          taskRunId: cast.taskRunId,
+        });
+        if (result.approvals.length > 0) {
+          events?.taskRunChanged(cast.taskRunId);
+        }
+        return ok(result);
+      } catch (e) {
+        return wrapErr<LearnerRecommendationApprovalResult>(e);
       }
     },
   );

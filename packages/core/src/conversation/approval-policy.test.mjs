@@ -9,6 +9,7 @@ import {
 test("file_write and shell are medium risk", () => {
   assert.equal(classifyRisk("file_write"), "medium");
   assert.equal(classifyRisk("shell"), "medium");
+  assert.equal(classifyRisk("model_use"), "medium");
 });
 
 test("dependency_install/network/git_commit/skill_script/orchestration_plan are high", () => {
@@ -26,6 +27,7 @@ test("dependency_install/network/git_commit/skill_script/orchestration_plan are 
 test("all listed action types require approval in Phase 2", () => {
   for (const a of [
     "capability_use",
+    "model_use",
     "file_write",
     "shell",
     "dependency_install",

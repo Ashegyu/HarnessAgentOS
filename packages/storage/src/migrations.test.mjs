@@ -350,6 +350,59 @@ test("v13 migration allows capability_use approval action type", () => {
   }
 });
 
+test("v14 migration allows model_use approval action type", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    db.prepare(
+      `INSERT INTO threads(id, title, target_dir, created_at, updated_at)
+       VALUES(?, ?, ?, ?, ?)`,
+    ).run(
+      "thr_model",
+      "t",
+      "/tmp/proj",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO task_runs(id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at)
+       VALUES(?, ?, ?, ?, ?, NULL, ?, ?)`,
+    ).run(
+      "tsk_model",
+      "thr_model",
+      "analyze",
+      "/tmp/proj",
+      "drafting",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO steps(id, task_run_id, step_index, kind, title, status)
+       VALUES(?, ?, 0, 'approval', 'Learner 추천', 'pending')`,
+    ).run("stp_model", "tsk_model");
+    db.prepare(
+      `INSERT INTO checkpoints(id, task_run_id, step_id, reason, state_ref, summary, created_at)
+       VALUES(?, ?, ?, 'before_edit', '{}', 'learner recommendation', ?)`,
+    ).run(
+      "ckp_model",
+      "tsk_model",
+      "stp_model",
+      "2026-01-01T00:00:00.000Z",
+    );
+    db.prepare(
+      `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+       VALUES(?, ?, ?, 'model_use', ?, 'pending')`,
+    ).run("apv_model", "tsk_model", "ckp_model", "Use model");
+    const row = db
+      .prepare(`SELECT action_type FROM approvals WHERE id = ?`)
+      .get("apv_model");
+    assert.equal(row.action_type, "model_use");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("applyMigrations is idempotent across two opens", () => {
   const t = tmp();
   let db = openDb({ filePath: t.file });

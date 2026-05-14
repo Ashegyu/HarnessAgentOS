@@ -18,6 +18,7 @@ import type {
   SkillResources,
   SkillSource,
   LearnerRecommendation,
+  LearnerRecommendationApprovalResult,
   LearningTrace,
   OrchestrationMode,
   OrchestrationPlan,
@@ -168,6 +169,9 @@ export interface HarnessDesktopApi {
   learner: {
     getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
     recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
+    proposeRecommendation(input: {
+      taskRunId: string;
+    }): Promise<LearnerRecommendationApprovalResult>;
     recordSelection(input: {
       taskRunId: string;
       selectedModel?: string;

@@ -142,8 +142,12 @@ export class RunnerService {
     }
 
     // Phase 3 MVP: dependency_install / git_commit / network are blocked
-    // (per phase-03 보안/승인 정책). UI should not surface execute for these.
+    // (per phase-03 보안/승인 정책). capability_use/model_use are also
+    // not runner-executed; they only gate prompt/invocation context.
+    // UI should not surface execute for these.
     if (
+      approval.actionType === "capability_use" ||
+      approval.actionType === "model_use" ||
       approval.actionType === "dependency_install" ||
       approval.actionType === "git_commit" ||
       approval.actionType === "network" ||

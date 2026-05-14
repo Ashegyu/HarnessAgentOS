@@ -68,7 +68,7 @@ export const WorkbenchShell = (): JSX.Element => {
   // the effect doesn't double-fire on the eventual taskRunChanged event
   // before the row's status flips out of "pending".
   const autoInFlightRef = useRef<Set<string>>(new Set());
-  const capabilityResumeInFlightRef = useRef<Set<string>>(new Set());
+  const advisoryResumeInFlightRef = useRef<Set<string>>(new Set());
 
   const pushAgentProgress = useCallback(
     (taskRunId: string, item: AgentProgressItem): void => {
@@ -517,10 +517,13 @@ export const WorkbenchShell = (): JSX.Element => {
             await window.harness.orchestration.runApproved({
               approvalId: approval.id,
             });
-          } else if (approval.actionType === "capability_use") {
-            // capability_use is consent to include approved Skillify
-            // instructions in a later agent prompt. There is no runner
-            // side effect to execute for this approval type.
+          } else if (
+            approval.actionType === "capability_use" ||
+            approval.actionType === "model_use"
+          ) {
+            // capability_use/model_use are consent to include approved
+            // advisory context in a later agent prompt/invocation. There
+            // is no runner side effect to execute for these approval types.
           } else {
             await window.harness.runner.executeApproved({
               approvalId: approval.id,
@@ -604,7 +607,7 @@ export const WorkbenchShell = (): JSX.Element => {
       // first render so the manual button never flashes.
       if (usingPipeline) markPipelineAutoTaskRun(draft.taskRun.id);
       setSelectedTaskRunId(draft.taskRun.id);
-      let capabilityApprovalCount = 0;
+      let advisoryApprovalCount = 0;
       if (input.mode === "agent" && !usingPipeline) {
         try {
           const capabilityCandidates =
@@ -612,13 +615,13 @@ export const WorkbenchShell = (): JSX.Element => {
               taskRunId: draft.taskRun.id,
               prompt: input.userRequest,
             });
-          capabilityApprovalCount = capabilityCandidates.approvals.length;
-          if (capabilityApprovalCount > 0) {
+          advisoryApprovalCount += capabilityCandidates.approvals.length;
+          if (capabilityCandidates.approvals.length > 0) {
             noteAgentProgress(
               draft.taskRun.id,
               "context",
               "Skill 후보 승인 대기",
-              `${capabilityApprovalCount}개 후보가 자동으로 올라갔습니다. 승인하면 다음 Agent 프롬프트에 반영됩니다.`,
+              `${capabilityCandidates.approvals.length}개 후보가 자동으로 올라갔습니다. 승인하면 다음 Agent 프롬프트에 반영됩니다.`,
             );
           }
         } catch (e) {
@@ -626,6 +629,28 @@ export const WorkbenchShell = (): JSX.Element => {
             draft.taskRun.id,
             "context",
             "Skill 후보 확인 실패",
+            errorMessage(e),
+          );
+        }
+        try {
+          const learnerCandidates =
+            await window.harness.learner.proposeRecommendation({
+              taskRunId: draft.taskRun.id,
+            });
+          advisoryApprovalCount += learnerCandidates.approvals.length;
+          if (learnerCandidates.approvals.length > 0) {
+            noteAgentProgress(
+              draft.taskRun.id,
+              "context",
+              "Learner 추천 승인 대기",
+              `${learnerCandidates.approvals.length}개 추천이 과거 trace 기반 후보로 올라갔습니다. 승인하면 다음 Agent 호출에 반영됩니다.`,
+            );
+          }
+        } catch (e) {
+          noteAgentProgress(
+            draft.taskRun.id,
+            "context",
+            "Learner 추천 확인 실패",
             errorMessage(e),
           );
         }
@@ -637,7 +662,7 @@ export const WorkbenchShell = (): JSX.Element => {
       if (
         input.mode === "agent" &&
         !usingPipeline &&
-        capabilityApprovalCount === 0
+        advisoryApprovalCount === 0
       ) {
         noteAgentProgress(
           draft.taskRun.id,
@@ -763,18 +788,18 @@ export const WorkbenchShell = (): JSX.Element => {
     if (taskRun.status !== "drafting") return;
     if (pipelineAutoTaskRunIdsRef.current.has(taskRun.id)) return;
     if (agentInvocations.length > 0) return;
-    const capabilityApprovals = approvals.filter(
-      (a) => a.actionType === "capability_use",
+    const advisoryApprovals = approvals.filter(
+      (a) => a.actionType === "capability_use" || a.actionType === "model_use",
     );
-    if (capabilityApprovals.length === 0) return;
-    if (capabilityApprovals.some((a) => a.status === "pending")) return;
-    const inFlight = capabilityResumeInFlightRef.current;
+    if (advisoryApprovals.length === 0) return;
+    if (advisoryApprovals.some((a) => a.status === "pending")) return;
+    const inFlight = advisoryResumeInFlightRef.current;
     if (inFlight.has(taskRun.id)) return;
     inFlight.add(taskRun.id);
     noteAgentProgress(
       taskRun.id,
       "context",
-      "Skill 후보 결정 완료",
+      "추천 후보 결정 완료",
       "승인/거절 결과를 반영해 Agent plan 생성을 시작합니다.",
     );
     void (async () => {

@@ -24,6 +24,7 @@ import {
   type Approval,
   type Artifact,
   type CapabilityPromptContext,
+  type LearnerModelContext,
   type ProposedActionDetails,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
@@ -32,7 +33,10 @@ import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
-import { normalizeModelForProvider } from "./provider-detection.ts";
+import {
+  normalizeModelForProvider,
+  providerForModel,
+} from "./provider-detection.ts";
 import { AgentInvocationQueue } from "./agent-invocation-queue.ts";
 import type {
   ModelCliAdapter,
@@ -92,6 +96,22 @@ export interface AgentPlanningServiceDeps {
   getApprovedCapabilityContexts?: (input: {
     taskRunId: string;
   }) => Promise<CapabilityPromptContext[]>;
+  /**
+   * Main-process hook: returns a Learner model recommendation that
+   * already passed approval for this TaskRun.
+   */
+  getApprovedLearnerModel?: (input: {
+    taskRunId: string;
+  }) => Promise<LearnerModelContext | null>;
+  /**
+   * Main-process hook: records which approved advisory choices were
+   * actually used for this invocation.
+   */
+  recordLearnerSelection?: (input: {
+    taskRunId: string;
+    selectedModel?: string;
+    selectedCapabilities?: string[];
+  }) => Promise<unknown>;
 }
 
 export interface GeneratePlanInput {
@@ -163,11 +183,18 @@ export class AgentPlanningService {
       );
     }
 
+    const approvedLearnerModel =
+      input.model === undefined
+        ? await this.loadApprovedLearnerModel(taskRun.id)
+        : null;
+    const modelHint = input.model ?? approvedLearnerModel?.model;
     const providers = this.deps.getProviderStatus();
-    const providerHint =
-      input.provider === "auto" || input.provider === undefined
-        ? undefined
-        : input.provider;
+    const providerHint: "claude" | "codex" | undefined =
+      input.provider === "claude" || input.provider === "codex"
+        ? input.provider
+        : modelHint
+          ? toConcreteProvider(providerForModel(modelHint))
+          : undefined;
     const provider: "claude" | "codex" | null =
       providerHint ??
       (providers?.claude?.available
@@ -190,7 +217,7 @@ export class AgentPlanningService {
         );
       }
     }
-    const model = resolveModel(provider, input.model);
+    const model = resolveModel(provider, modelHint);
 
     // 1. plan step
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id))
@@ -293,6 +320,13 @@ export class AgentPlanningService {
         ? `${resolved.profile.name} (${resolved.source})`
         : "전역 agent 설정 사용",
     );
+    if (approvedLearnerModel) {
+      emitProgress(
+        "profile",
+        "Learner 모델 추천 반영",
+        `${model} — ${approvedLearnerModel.reason}`,
+      );
+    }
     emitProgress(
       "prompt",
       "프롬프트 구성 완료",
@@ -360,6 +394,17 @@ export class AgentPlanningService {
       ...(existingSessionId ? { sessionId: existingSessionId } : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
+    await this.recordLearnerSelection({
+      taskRunId: taskRun.id,
+      ...(approvedLearnerModel ? { selectedModel: model } : {}),
+      ...(capabilityContexts.length > 0
+        ? {
+            selectedCapabilities: capabilityContexts.map(
+              (ctx) => ctx.capability.id,
+            ),
+          }
+        : {}),
+    });
     let rawStdout = "";
     let latencyMs = 0;
     let resultSessionId: string | undefined;
@@ -1052,6 +1097,36 @@ export class AgentPlanningService {
       return [];
     }
   }
+
+  private async loadApprovedLearnerModel(
+    taskRunId: string,
+  ): Promise<LearnerModelContext | null> {
+    if (!this.deps.getApprovedLearnerModel) return null;
+    try {
+      return await this.deps.getApprovedLearnerModel({ taskRunId });
+    } catch {
+      return null;
+    }
+  }
+
+  private async recordLearnerSelection(input: {
+    taskRunId: string;
+    selectedModel?: string;
+    selectedCapabilities?: string[];
+  }): Promise<void> {
+    if (!this.deps.recordLearnerSelection) return;
+    if (
+      input.selectedModel === undefined &&
+      input.selectedCapabilities === undefined
+    ) {
+      return;
+    }
+    try {
+      await this.deps.recordLearnerSelection(input);
+    } catch {
+      // Advisory trace writes must not block a valid agent invocation.
+    }
+  }
 }
 
 const toProposedActionDetails = (
@@ -1081,6 +1156,11 @@ const resolveModel = (
 ): string => {
   return normalizeModelForProvider(provider, preferred);
 };
+
+const toConcreteProvider = (
+  provider: AgentProvider | null,
+): "claude" | "codex" | undefined =>
+  provider === "claude" || provider === "codex" ? provider : undefined;
 
 const shortRationale = (a: AgentProposedAction): string => {
   const head =

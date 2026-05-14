@@ -1,9 +1,12 @@
 import {
   LEARNER_TASK_NOT_FOUND,
+  type Approval,
   type CapabilitySuggestion,
   type EffortHint,
   type LearnerDecisionRecord,
+  type LearnerModelContext,
   type LearnerRecommendation,
+  type LearnerRecommendationApprovalResult,
   type LearningTrace,
 } from "@harness/core";
 
@@ -99,6 +102,186 @@ export class LearnerAdvisor {
     return recommendation;
   }
 
+  /**
+   * Turns the advisory recommendation into explicit approval candidates.
+   * It does not change the active agent profile, invoke a CLI, or inject
+   * context by itself. The prompt/invocation path later reads only
+   * approved `model_use`/`capability_use` rows.
+   */
+  async proposeRecommendationApprovals(input: {
+    taskRunId: string;
+  }): Promise<LearnerRecommendationApprovalResult> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const recommendation = await this.recommend(input);
+    const existingApprovals = await this.deps.state.listApprovalsByTaskRun(
+      taskRun.id,
+    );
+    const alreadyProposedModels = new Set(
+      existingApprovals
+        .filter((a) => a.actionType === "model_use")
+        .map((a) => a.proposedAction?.modelUse?.model)
+        .filter((model): model is string =>
+          typeof model === "string" && model.length > 0,
+        ),
+    );
+    const alreadyProposedCapabilities = new Set(
+      existingApprovals
+        .filter((a) => a.actionType === "capability_use")
+        .map((a) => a.proposedAction?.capabilityUse?.capabilityId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+
+    const approvals: Approval[] = [];
+    const skipped: LearnerRecommendationApprovalResult["skipped"] = [];
+    let checkpointId: string | null = null;
+
+    const ensureCheckpoint = async (): Promise<string> => {
+      if (checkpointId !== null) return checkpointId;
+      const stepIndex = (
+        await this.deps.state.listStepsByTaskRun(taskRun.id)
+      ).length;
+      const modelLabel = recommendation.recommendedModel ?? "모델 추천 없음";
+      const capLabels = recommendation.recommendedCapabilities
+        .map((s) => s.capability.name)
+        .slice(0, 5)
+        .join(", ");
+      const step = await this.deps.state.createStep({
+        taskRunId: taskRun.id,
+        index: stepIndex,
+        kind: "approval",
+        title: "Learner 추천 승인 대기",
+        status: "pending",
+        inputSummary: [modelLabel, capLabels].filter(Boolean).join(" / "),
+      });
+      const checkpoint = await this.deps.state.createCheckpoint({
+        taskRunId: taskRun.id,
+        stepId: step.id,
+        reason: "before_edit",
+        stateRef: JSON.stringify({
+          taskRunStatus: taskRun.status,
+          currentStepId: step.id,
+          learnerRecommendationId: recommendation.id,
+          recommendedModel: recommendation.recommendedModel ?? null,
+          recommendedCapabilityIds:
+            recommendation.recommendedCapabilities.map(
+              (s) => s.capability.id,
+            ),
+        }),
+        summary: "learner recommendation checkpoint",
+      });
+      await this.deps.state.setTaskRunCurrentStep(taskRun.id, step.id);
+      checkpointId = checkpoint.id;
+      return checkpoint.id;
+    };
+
+    if (recommendation.recommendedModel) {
+      const model = recommendation.recommendedModel.trim();
+      if (model.length === 0 || alreadyProposedModels.has(model)) {
+        skipped.push({
+          kind: "model",
+          id: model,
+          reason: "이미 같은 모델 추천 approval이 있습니다.",
+        });
+      } else {
+        const approval = await this.deps.state.createApproval({
+          taskRunId: taskRun.id,
+          checkpointId: await ensureCheckpoint(),
+          actionType: "model_use",
+          actionSummary: `Learner 모델 추천 사용: ${model} — ${shorten(recommendation.rationale, 160)}`,
+          status: "pending",
+          proposedAction: {
+            type: "model_use",
+            modelUse: {
+              model,
+              reason: recommendation.rationale,
+              recommendationId: recommendation.id,
+              confidence: recommendation.confidence,
+            },
+          },
+        });
+        approvals.push(approval);
+        alreadyProposedModels.add(model);
+      }
+    }
+
+    for (const suggestion of recommendation.recommendedCapabilities.slice(
+      0,
+      5,
+    )) {
+      const capability = suggestion.capability;
+      if (alreadyProposedCapabilities.has(capability.id)) {
+        skipped.push({
+          kind: "capability",
+          id: capability.id,
+          reason: "이미 같은 capability approval이 있습니다.",
+        });
+        continue;
+      }
+      const reason = [
+        `Learner trace 추천: ${suggestion.reason}`,
+        recommendation.rationale,
+      ].join(" ");
+      const approval = await this.deps.state.createApproval({
+        taskRunId: taskRun.id,
+        checkpointId: await ensureCheckpoint(),
+        actionType: "capability_use",
+        actionSummary: `Learner Skill 추천 사용: ${capability.name} — ${shorten(suggestion.reason, 160)}`,
+        status: "pending",
+        proposedAction: {
+          type: "capability_use",
+          capabilityUse: {
+            capabilityId: capability.id,
+            capabilityName: capability.name,
+            reason,
+            matchedTerms: suggestion.matchedTerms,
+          },
+        },
+      });
+      approvals.push(approval);
+      alreadyProposedCapabilities.add(capability.id);
+    }
+
+    return { recommendation, approvals, skipped };
+  }
+
+  async approvedModelContext(input: {
+    taskRunId: string;
+  }): Promise<LearnerModelContext | null> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const approvals = await this.deps.state.listApprovalsByTaskRun(taskRun.id);
+    for (const approval of approvals) {
+      if (approval.actionType !== "model_use") continue;
+      if (
+        approval.status !== "approved" &&
+        approval.status !== "always_approved_for_run" &&
+        approval.status !== "executed"
+      ) {
+        continue;
+      }
+      const modelUse = approval.proposedAction?.modelUse;
+      if (!modelUse?.model) continue;
+      return {
+        model: modelUse.model,
+        reason: modelUse.reason,
+        recommendationId: modelUse.recommendationId,
+        confidence: modelUse.confidence,
+      };
+    }
+    return null;
+  }
+
   async getTrace(input: {
     taskRunId: string;
   }): Promise<LearningTrace | null> {
@@ -190,3 +373,6 @@ const buildRationale = (input: {
 
 const clamp = (n: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, n));
+
+const shorten = (text: string, max: number): string =>
+  text.length <= max ? text : `${text.slice(0, max - 1)}…`;

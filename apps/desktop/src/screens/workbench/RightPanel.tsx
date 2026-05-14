@@ -221,10 +221,11 @@ export const RightPanel = ({
                 onRetry={onAgentRetry}
                 onCancel={onAgentCancel}
                 onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
-                pendingCapabilityApprovals={
+                pendingAdvisoryApprovals={
                   state.detail.approvals.filter(
                     (a) =>
-                      a.actionType === "capability_use" &&
+                      (a.actionType === "capability_use" ||
+                        a.actionType === "model_use") &&
                       a.status === "pending",
                   ).length
                 }
@@ -302,6 +303,8 @@ export const RightPanel = ({
                   <LearnerPanel
                     key={state.detail.taskRun.id}
                     taskRun={state.detail.taskRun}
+                    approvals={state.detail.approvals}
+                    onApprovalCreated={onCapabilityApprovalCreated}
                   />
                 </section>
               </div>

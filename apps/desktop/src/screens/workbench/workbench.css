@@ -2055,8 +2055,9 @@
 }
 
 .recommendation-card__capabilities li {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: var(--space-2);
 }
 

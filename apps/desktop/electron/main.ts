@@ -219,6 +219,14 @@ const initServices = (): {
     prepareMcpInvocation,
     getApprovedCapabilityContexts: ({ taskRunId }) =>
       capabilityService.approvedPromptContexts({ taskRunId }),
+    getApprovedLearnerModel: ({ taskRunId }) =>
+      learnerAdvisor.approvedModelContext({ taskRunId }),
+    recordLearnerSelection: ({ taskRunId, selectedModel, selectedCapabilities }) =>
+      traceRecorder.recordSelection({
+        taskRunId,
+        ...(selectedModel !== undefined ? { selectedModel } : {}),
+        ...(selectedCapabilities !== undefined ? { selectedCapabilities } : {}),
+      }),
     // Long-running agent work is valid, but a child process must never
     // hang forever. Keep a generous hard timeout and a separate idle
     // timeout for "no output" stalls.

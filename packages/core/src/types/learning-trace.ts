@@ -1,3 +1,4 @@
+import type { Approval } from "./approval.ts";
 import type { CapabilitySuggestion } from "./capability.ts";
 
 export interface LearningTrace {
@@ -33,6 +34,25 @@ export interface LearnerRecommendation {
   costHint?: EffortHint;
   latencyHint?: EffortHint;
   confidence: number;
+}
+
+export interface LearnerModelContext {
+  model: string;
+  reason: string;
+  recommendationId: string;
+  confidence: number;
+}
+
+export interface LearnerRecommendationSkipped {
+  kind: "model" | "capability";
+  id: string;
+  reason: string;
+}
+
+export interface LearnerRecommendationApprovalResult {
+  recommendation: LearnerRecommendation;
+  approvals: Approval[];
+  skipped: LearnerRecommendationSkipped[];
 }
 
 export interface LearnerDecisionRecord {

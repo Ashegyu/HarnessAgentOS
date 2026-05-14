@@ -124,3 +124,37 @@ test("capability_use rejects missing capabilityUse payload", () => {
   assert.equal(r.ok, false);
   assert.match(r.reason ?? "", /capabilityUse object/);
 });
+
+test("model_use accepts normalized learner model recommendation details", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "model_use",
+      modelUse: {
+        model: " gpt-5.5 ",
+        reason: " Highest reward ",
+        recommendationId: " rec_1 ",
+        confidence: 0.74,
+      },
+      command: "ignored",
+    },
+    "model_use",
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.details.type, "model_use");
+  assert.deepEqual(r.details.modelUse, {
+    model: "gpt-5.5",
+    reason: "Highest reward",
+    recommendationId: "rec_1",
+    confidence: 0.74,
+  });
+  assert.equal(r.details.command, undefined);
+});
+
+test("model_use rejects missing modelUse payload", () => {
+  const r = validateProposedActionDetails(
+    { type: "model_use" },
+    "model_use",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /modelUse object/);
+});

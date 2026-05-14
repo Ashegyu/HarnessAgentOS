@@ -31,6 +31,7 @@ interface ApprovalPanelProps {
 
 const ACTION_RISK_HINT: Record<string, "low" | "medium" | "high"> = {
   capability_use: "low",
+  model_use: "medium",
   file_write: "medium",
   shell: "medium",
   dependency_install: "high",
@@ -50,6 +51,7 @@ const HIGH_RISK_BLOCKED: ReadonlySet<string> = new Set([
 
 const EXECUTION_NOT_REQUIRED: ReadonlySet<string> = new Set([
   "capability_use",
+  "model_use",
 ]);
 
 export const ApprovalPanel = ({
@@ -186,6 +188,12 @@ export const ApprovalPanel = ({
             파일/명령 실행은 하지 않습니다.
           </p>
         )}
+        {a.actionType === "model_use" && (
+          <p className="approval-card__auto-hint">
+            승인하면 이 Learner 모델 추천이 다음 Agent 호출 모델로 반영됩니다.
+            파일/명령 실행은 하지 않습니다.
+          </p>
+        )}
         {mode === "pending" && pipelineAutoLaunched ? (
           // Pipeline-pick consent already covers this approval; the
           // auto-approve useEffect will mark it approved+executed in
@@ -272,7 +280,7 @@ export const ApprovalPanel = ({
           </div>
         ) : mode === "approved" && EXECUTION_NOT_REQUIRED.has(a.actionType) ? (
           <p className="approval-card__auto-hint">
-            승인됨 — 다음 Agent 호출에서 Skill 컨텍스트로 반영됩니다.
+            승인됨 — 다음 Agent 호출에서 추천 컨텍스트로 반영됩니다.
           </p>
         ) : mode === "approved" && pipelineAutoLaunched ? (
           <p className="approval-card__auto-hint">

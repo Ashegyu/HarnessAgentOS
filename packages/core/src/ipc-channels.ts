@@ -55,6 +55,7 @@ export const IPC_CHANNELS = {
   learner: {
     getTrace: "learner:getTrace",
     recommend: "learner:recommend",
+    proposeRecommendation: "learner:proposeRecommendation",
     recordSelection: "learner:recordSelection",
     recordOutcome: "learner:recordOutcome",
     recordDecision: "learner:recordDecision",

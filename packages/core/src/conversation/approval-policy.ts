@@ -11,6 +11,7 @@ import type { ProposedAction } from "./types.ts";
 
 const ACTIONS_REQUIRING_APPROVAL: ReadonlySet<ApprovalActionType> = new Set([
   "capability_use",
+  "model_use",
   "file_write",
   "shell",
   "dependency_install",
@@ -35,7 +36,8 @@ export const classifyRisk = (
   action: ApprovalActionType,
 ): "low" | "medium" | "high" => {
   if (HIGH_RISK_ACTIONS.has(action)) return "high";
-  if (action === "shell" || action === "file_write") return "medium";
+  if (action === "shell" || action === "file_write" || action === "model_use")
+    return "medium";
   return "low";
 };
 

@@ -409,7 +409,7 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
                 </span>
               </label>
               <p className="settings-field__hint" style={{ color: "var(--status-failed)" }}>
-                ⚠ 켜면 capability_use·file_write·shell뿐 아니라 dependency_install·git_commit·skill_script·network·orchestration_plan까지 사람의 확인 없이 자동 승인됩니다. capability_use는 실행하지 않고 Skill 컨텍스트만 반영하며, orchestration_plan을 자동 승인하면 worker가 만드는 후속 approval도 연쇄적으로 자동 처리됩니다.
+                ⚠ 켜면 capability_use·model_use·file_write·shell뿐 아니라 dependency_install·git_commit·skill_script·network·orchestration_plan까지 사람의 확인 없이 자동 승인됩니다. capability_use/model_use는 실행하지 않고 Skill 컨텍스트나 Learner 모델 추천만 반영하며, orchestration_plan을 자동 승인하면 worker가 만드는 후속 approval도 연쇄적으로 자동 처리됩니다.
               </p>
 
               <label className="settings-field settings-field--checkbox">

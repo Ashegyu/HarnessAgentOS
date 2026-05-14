@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  Approval,
   LearnerRecommendation,
   LearningTrace,
   TaskRun,
@@ -8,6 +9,8 @@ import { RecommendationCard } from "./RecommendationCard";
 
 interface LearnerPanelProps {
   taskRun: TaskRun | null;
+  approvals?: Approval[];
+  onApprovalCreated?: () => Promise<void>;
 }
 
 type RecommendationState =
@@ -24,15 +27,17 @@ type TraceState =
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
-export const LearnerPanel = ({ taskRun }: LearnerPanelProps): JSX.Element => {
+export const LearnerPanel = ({
+  taskRun,
+  approvals = [],
+  onApprovalCreated,
+}: LearnerPanelProps): JSX.Element => {
   const [recState, setRecState] = useState<RecommendationState>({
     kind: "idle",
   });
   const [traceState, setTraceState] = useState<TraceState>({ kind: "idle" });
-  const [decided, setDecided] = useState<{
-    decision: "accepted" | "rejected";
-    reason?: string;
-  } | null>(null);
+  const [proposalMessage, setProposalMessage] = useState<string | null>(null);
+  const [proposalBusy, setProposalBusy] = useState(false);
 
   const refresh = useCallback(async (): Promise<void> => {
     if (!taskRun) {
@@ -60,38 +65,33 @@ export const LearnerPanel = ({ taskRun }: LearnerPanelProps): JSX.Element => {
   }, [taskRun]);
 
   useEffect(() => {
-    setDecided(null);
+    setProposalMessage(null);
     void refresh();
   }, [refresh]);
 
-  const handleDecision = useCallback(
-    async (
-      decision: "accepted" | "rejected",
-      reason?: string,
-    ): Promise<void> => {
+  const handleProposeRecommendation = useCallback(
+    async (): Promise<void> => {
       if (!taskRun || recState.kind !== "ready") return;
-      await window.harness.learner.recordDecision({
-        taskRunId: taskRun.id,
-        recommendationId: recState.recommendation.id,
-        decision,
-        reason,
-      });
-      if (decision === "accepted") {
-        await window.harness.learner.recordSelection({
+      setProposalBusy(true);
+      setProposalMessage(null);
+      try {
+        const result = await window.harness.learner.proposeRecommendation({
           taskRunId: taskRun.id,
-          ...(recState.recommendation.recommendedModel
-            ? { selectedModel: recState.recommendation.recommendedModel }
-            : {}),
-          selectedCapabilities:
-            recState.recommendation.recommendedCapabilities.map(
-              (s) => s.capability.id,
-            ),
         });
+        setProposalMessage(
+          result.approvals.length > 0
+            ? `${result.approvals.length}개 Learner 추천 후보가 approval로 올라갔습니다.`
+            : "새로 올릴 Learner 추천 후보가 없습니다.",
+        );
+        await onApprovalCreated?.();
+        await refresh();
+      } catch (e) {
+        setProposalMessage(errorMessage(e));
+      } finally {
+        setProposalBusy(false);
       }
-      setDecided(reason !== undefined ? { decision, reason } : { decision });
-      await refresh();
     },
-    [taskRun, recState, refresh],
+    [taskRun, recState, refresh, onApprovalCreated],
   );
 
   if (!taskRun) {
@@ -113,15 +113,14 @@ export const LearnerPanel = ({ taskRun }: LearnerPanelProps): JSX.Element => {
       {recState.kind === "ready" ? (
         <RecommendationCard
           recommendation={recState.recommendation}
-          disabled={decided !== null}
-          onAccept={(reason) => handleDecision("accepted", reason)}
-          onReject={(reason) => handleDecision("rejected", reason)}
+          approvals={approvals}
+          disabled={proposalBusy}
+          onPropose={handleProposeRecommendation}
         />
       ) : null}
-      {decided ? (
+      {proposalMessage ? (
         <div className="muted">
-          기록됨: {decided.decision === "accepted" ? "수락" : "거절"}
-          {decided.reason ? ` — ${decided.reason}` : ""}
+          {proposalMessage}
         </div>
       ) : null}
 

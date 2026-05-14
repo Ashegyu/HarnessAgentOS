@@ -17,6 +17,7 @@ export type ApprovalScope = "once" | "run_action_class";
 
 export type ApprovalActionType =
   | "capability_use"
+  | "model_use"
   | "file_write"
   | "shell"
   | "dependency_install"
@@ -27,6 +28,7 @@ export type ApprovalActionType =
 
 export const APPROVAL_ACTION_TYPES: readonly ApprovalActionType[] = [
   "capability_use",
+  "model_use",
   "file_write",
   "shell",
   "dependency_install",
@@ -49,6 +51,13 @@ export interface ProposedCapabilityUse {
   matchedTerms: string[];
 }
 
+export interface ProposedModelUse {
+  model: string;
+  reason: string;
+  recommendationId: string;
+  confidence: number;
+}
+
 /**
  * Concrete execution detail attached to an Approval. Phase 2 stores
  * this on the approval row (column added by Phase 3 migration). The
@@ -62,6 +71,7 @@ export interface ProposedActionDetails {
   cwd?: string;
   filePatch?: ProposedFilePatch;
   capabilityUse?: ProposedCapabilityUse;
+  modelUse?: ProposedModelUse;
 }
 
 export interface Approval {

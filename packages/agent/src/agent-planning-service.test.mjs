@@ -426,6 +426,134 @@ test("generatePlan emits progress events before and after CLI invocation", async
   assert.ok(progress.every((event) => event.invocationId === "inv-progress"));
 });
 
+test("generatePlan uses approved Learner model recommendation when no explicit model is supplied", async () => {
+  const draftingTaskRun = {
+    id: "tr-learner-model",
+    threadId: "th-learner-model",
+    userRequest: "explain current project",
+    targetDir: "/tmp",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const baseInvocation = {
+    id: "inv-learner-model",
+    taskRunId: "tr-learner-model",
+    provider: "codex",
+    model: "gpt-5.5",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const planOutput = {
+    summary: "Project explained",
+    assumptions: [],
+    steps: [{ title: "Explain", rationale: "answer only", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  let stepSeq = 0;
+  let artifactSeq = 0;
+  let lastRequest = null;
+  const selections = [];
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => draftingTaskRun,
+      createStep: async (input) => ({
+        id: `step-${++stepSeq}`,
+        taskRunId: input.taskRunId,
+        index: input.index,
+        kind: input.kind,
+        title: input.title,
+        status: input.status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async (input) => ({
+        ...baseInvocation,
+        provider: input.provider,
+        model: input.model,
+      }),
+      updateAgentInvocation: async (_id, patch) => ({
+        ...baseInvocation,
+        ...patch,
+      }),
+      setStepStatus: async (id, status) => ({
+        id,
+        taskRunId: "tr-learner-model",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+      setTaskRunCurrentStep: async () => {},
+      createCheckpoint: async (input) => ({
+        id: "cp-learner-model",
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        reason: input.reason,
+        stateRef: input.stateRef,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        claude: { available: false, queueDepth: 0 },
+        codex: { available: true, queueDepth: 0 },
+      }),
+    getApprovedLearnerModel: async () => ({
+      model: "gpt-5.5",
+      reason: "Highest avg reward",
+      recommendationId: "rec_learner",
+      confidence: 0.8,
+    }),
+    recordLearnerSelection: async (input) => {
+      selections.push(input);
+    },
+    adapter: {
+      invoke: async (request) => {
+        lastRequest = request;
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 10,
+        };
+      },
+    },
+  });
+
+  const result = await svc.generatePlan({ taskRunId: "tr-learner-model" });
+
+  assert.equal(result.invocation.provider, "codex");
+  assert.equal(result.invocation.model, "gpt-5.5");
+  assert.equal(lastRequest.modelConfig.provider, "codex");
+  assert.equal(lastRequest.modelConfig.model, "gpt-5.5");
+  assert.deepEqual(selections, [
+    { taskRunId: "tr-learner-model", selectedModel: "gpt-5.5" },
+  ]);
+});
+
 test("invokeForWorker asks for harness plan output and returns parsed actions", async () => {
   const taskRun = {
     id: "tr-worker",

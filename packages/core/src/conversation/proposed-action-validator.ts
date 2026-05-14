@@ -59,6 +59,8 @@ export const validateProposedActionDetails = (
       return validateShell(raw);
     case "capability_use":
       return validateCapabilityUse(raw);
+    case "model_use":
+      return validateModelUse(raw);
     case "dependency_install":
     case "git_commit":
     case "network":
@@ -193,6 +195,49 @@ const validateCapabilityUse = (
         capabilityName: capabilityName.trim(),
         reason: reason.trim(),
         matchedTerms,
+      },
+    },
+  };
+};
+
+const validateModelUse = (
+  raw: Record<string, unknown>,
+): ProposedActionValidation => {
+  const modelUse = raw.modelUse;
+  if (!isPlainObject(modelUse)) {
+    return { ok: false, reason: "model_use requires modelUse object" };
+  }
+  const model = modelUse.model;
+  const reason = modelUse.reason;
+  const recommendationId = modelUse.recommendationId;
+  const confidence = modelUse.confidence;
+  if (typeof model !== "string" || model.trim().length === 0) {
+    return { ok: false, reason: "modelUse.model must be a non-empty string" };
+  }
+  if (typeof reason !== "string" || reason.trim().length === 0) {
+    return { ok: false, reason: "modelUse.reason must be a non-empty string" };
+  }
+  if (
+    typeof recommendationId !== "string" ||
+    recommendationId.trim().length === 0
+  ) {
+    return {
+      ok: false,
+      reason: "modelUse.recommendationId must be a non-empty string",
+    };
+  }
+  if (typeof confidence !== "number") {
+    return { ok: false, reason: "modelUse.confidence must be a number" };
+  }
+  return {
+    ok: true,
+    details: {
+      type: "model_use",
+      modelUse: {
+        model: model.trim(),
+        reason: reason.trim(),
+        recommendationId: recommendationId.trim(),
+        confidence,
       },
     },
   };

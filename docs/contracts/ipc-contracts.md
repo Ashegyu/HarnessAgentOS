@@ -40,6 +40,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "always_appro
 export type ApprovalScope = "once" | "run_action_class";
 export type ApprovalActionType =
   | "capability_use"
+  | "model_use"
   | "file_write"
   | "shell"
   | "dependency_install"
@@ -424,6 +425,17 @@ interface LearnerRecommendation {
 
 learner.getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
 learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
+learner.proposeRecommendation(input: {
+  taskRunId: string;
+}): Promise<{
+  recommendation: LearnerRecommendation;
+  approvals: Approval[];
+  skipped: Array<{
+    kind: "model" | "capability";
+    id: string;
+    reason: string;
+  }>;
+}>;
 learner.recordSelection(input: {
   taskRunId: string;
   selectedModel?: string;
@@ -446,6 +458,7 @@ learner.recordDecision(input: {
 
 `recordSelection`은 user/policy가 모델·capability를 골랐을 때 호출되어 LearningTrace의 `selectedModel`/`selectedCapabilities`를 갱신한다.
 `recordOutcome`은 `quality.markDone` 성공 직후 IPC 계층이 자동 호출하므로 renderer가 명시적으로 부르는 일은 드물지만, 외부 통합용으로 노출되어 있다.
+`proposeRecommendation`은 현재 TaskRun의 trace 기반 추천을 approval 후보로 올린다. 추천 모델은 `model_use`, 추천 capability는 `capability_use` approval이 되며 둘 다 runner 실행 대상이 아니다. 승인된 `model_use`만 다음 `agent.generatePlan` 호출의 모델 override로 반영된다.
 
 오류:
 

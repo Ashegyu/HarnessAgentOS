@@ -26,6 +26,7 @@ test("AGENT_PROFILE_ACTION_TYPES matches the approval action types", () => {
     "dependency_install",
     "file_write",
     "git_commit",
+    "model_use",
     "network",
     "orchestration_plan",
     "shell",

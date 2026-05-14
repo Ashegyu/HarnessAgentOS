@@ -180,6 +180,7 @@ test("capability namespace exposes Phase 5 verbs", () => {
 test("learner namespace exposes Phase 6 verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.learner).sort(), [
     "getTrace",
+    "proposeRecommendation",
     "recommend",
     "recordDecision",
     "recordOutcome",
