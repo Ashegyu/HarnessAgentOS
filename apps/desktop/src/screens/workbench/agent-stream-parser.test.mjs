@@ -63,6 +63,43 @@ test("result line populates finalText and resultMeta", () => {
   });
 });
 
+test("result line normalizes harness_agent_plan output to the plan summary", () => {
+  const s = initStreamParserState();
+  const planOutput = {
+    summary: "프로젝트 구조와 실행 흐름을 분석했습니다.",
+    assumptions: [],
+    steps: [{ title: "분석", rationale: "요청 처리", risk: "low" }],
+    proposedActions: [
+      {
+        type: "file_write",
+        path: "report.html",
+        after: "<html>large report</html>",
+        rationale: "보고서 저장",
+      },
+    ],
+    suggestedQualityChecks: [
+      { command: "start report.html", reason: "브라우저 렌더링 확인" },
+    ],
+    questions: [],
+  };
+
+  feedStreamChunk(
+    s,
+    line({
+      type: "result",
+      is_error: false,
+      duration_ms: 1500,
+      duration_api_ms: 1100,
+      result: `설명\n\n\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+    }),
+  );
+
+  assert.equal(s.parsed.finalText, planOutput.summary);
+  assert.equal(s.parsed.intermediateText, planOutput.summary);
+  assert.doesNotMatch(s.parsed.finalText, /proposedActions/);
+  assert.doesNotMatch(s.parsed.finalText, /<html>/);
+});
+
 test("tool_use name captured on content_block_start", () => {
   const s = initStreamParserState();
   feedStreamChunk(
@@ -264,6 +301,35 @@ test("hydrateSavedAgentOutput preserves plain saved output as final text", () =>
   assert.equal(s.parsed.intermediateText, "full saved answer\nwith details");
   assert.deepEqual(s.parsed.unknown, []);
   assert.equal(s.parsed.resultMeta?.durationMs, 1234);
+});
+
+test("hydrateSavedAgentOutput normalizes saved harness_agent_plan text", () => {
+  const s = initStreamParserState();
+  const planOutput = {
+    summary: "저장된 계획 요약만 최종 답변으로 표시합니다.",
+    assumptions: [],
+    steps: [],
+    proposedActions: [
+      {
+        type: "file_write",
+        path: "report.html",
+        after: "<html>raw file body</html>",
+        rationale: "보고서 저장",
+      },
+    ],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+
+  hydrateSavedAgentOutput(
+    s,
+    `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput, null, 2)}\n\`\`\``,
+    { terminal: true },
+  );
+
+  assert.equal(s.parsed.intermediateText, planOutput.summary);
+  assert.equal(s.parsed.finalText, planOutput.summary);
+  assert.doesNotMatch(s.parsed.finalText, /raw file body/);
 });
 
 test("hydrateSavedAgentOutput replays saved stream json lines", () => {

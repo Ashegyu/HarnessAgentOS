@@ -135,7 +135,7 @@ export const setIntermediateAssistantText = (
   state: StreamParserState,
   text: string,
 ): StreamParserState => {
-  state.parsed.intermediateText = text;
+  state.parsed.intermediateText = normalizeAssistantDisplayText(text);
   return state;
 };
 
@@ -147,7 +147,13 @@ export const promoteIntermediateTextToFinal = (
   if (parsed.finalText === null) {
     const text =
       parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
-    if (text.length > 0) parsed.finalText = text;
+    if (text.length > 0) {
+      const displayText = normalizeAssistantDisplayText(text);
+      parsed.finalText = displayText;
+      if (parsed.intermediateText.length === 0) {
+        parsed.intermediateText = displayText;
+      }
+    }
   }
   parsed.resultMeta = {
     isError: false,
@@ -202,7 +208,7 @@ export const setFinalAssistantText = (
   state: StreamParserState,
   text: string,
 ): StreamParserState => {
-  state.parsed.finalText = text;
+  state.parsed.finalText = normalizeAssistantDisplayText(text);
   return state;
 };
 
@@ -218,7 +224,14 @@ const ingestLine = (state: StreamParserState, line: string): void => {
   const type = obj["type"];
   if (type === "result") {
     if (typeof obj["result"] === "string") {
-      parsed.finalText = obj["result"] as string;
+      const finalText = normalizeAssistantDisplayText(obj["result"] as string);
+      parsed.finalText = finalText;
+      if (
+        parsed.intermediateText.length === 0 ||
+        isHarnessAgentPlanOutput(parsed.intermediateText)
+      ) {
+        parsed.intermediateText = finalText;
+      }
     } else if (parsed.finalText === null) {
       promoteIntermediateTextToFinal(state);
     }
@@ -326,6 +339,49 @@ const hasStructuredResponse = (parsed: ParsedStream): boolean =>
   parsed.toolUses.length > 0 ||
   parsed.resultMeta !== null;
 
+const normalizeAssistantDisplayText = (text: string): string => {
+  const summary = extractHarnessAgentPlanSummary(text);
+  return summary ?? text;
+};
+
+const isHarnessAgentPlanOutput = (text: string): boolean =>
+  extractHarnessAgentPlanSummary(text) !== null;
+
+const extractHarnessAgentPlanSummary = (text: string): string | null => {
+  const fencedJson = extractHarnessAgentPlanFencedJson(text);
+  const parsedFenced = fencedJson ? parsePlanSummaryJson(fencedJson) : null;
+  if (parsedFenced !== null) return parsedFenced;
+
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    return parsePlanSummaryJson(trimmed);
+  }
+  return null;
+};
+
+const extractHarnessAgentPlanFencedJson = (text: string): string | null => {
+  const match = /```harness_agent_plan\s*([\s\S]*?)```/.exec(text);
+  return match?.[1]?.trim() ?? null;
+};
+
+const parsePlanSummaryJson = (json: string): string | null => {
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as Record<string, unknown>)["summary"] === "string"
+    ) {
+      const summary = ((parsed as Record<string, unknown>)["summary"] as string).trim();
+      return summary.length > 0 ? summary : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};
+
 const ingestCodexLine = (
   parsed: ParsedStream,
   obj: Record<string, unknown>,
@@ -374,7 +430,7 @@ const ingestCodexLine = (
 
   const assistantText = extractCodexAssistantText(obj);
   if (assistantText !== null) {
-    parsed.intermediateText = assistantText;
+    parsed.intermediateText = normalizeAssistantDisplayText(assistantText);
     return true;
   }
 
