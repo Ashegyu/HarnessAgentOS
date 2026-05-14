@@ -113,9 +113,9 @@ test("rejectApproval requires non-empty message and pauses TaskRun", async () =>
   }
 });
 
-test("approve marks approval as approved (or always_approved_for_run with scope)", async () => {
+test("approve marks approval as approved or same run action class", async () => {
   const t = tmp();
-  const { db, conversation } = makeService(t);
+  const { db, state, conversation } = makeService(t);
   try {
     const draft = await conversation.createTask({
       userRequest: "x",
@@ -130,11 +130,32 @@ test("approve marks approval as approved (or always_approved_for_run with scope)
       userRequest: "y",
       targetDir: "/tmp",
     });
+    const scopedBase = draft2.approvals[0];
+    const sameAction = await state.createApproval({
+      taskRunId: draft2.taskRun.id,
+      checkpointId: draft2.checkpoint.id,
+      actionType: scopedBase.actionType,
+      actionSummary: "same action class",
+      status: "pending",
+    });
+    const otherAction = await state.createApproval({
+      taskRunId: draft2.taskRun.id,
+      checkpointId: draft2.checkpoint.id,
+      actionType: "shell",
+      actionSummary: "different action class",
+      status: "pending",
+    });
+
     const r2 = await conversation.approve({
-      approvalId: draft2.approvals[0].id,
+      approvalId: scopedBase.id,
       scope: "run_action_class",
     });
     assert.equal(r2.status, "always_approved_for_run");
+    assert.equal(
+      (await state.getApproval(sameAction.id)).status,
+      "always_approved_for_run",
+    );
+    assert.equal((await state.getApproval(otherAction.id)).status, "pending");
   } finally {
     closeDb(db);
     t.cleanup();

@@ -306,6 +306,34 @@ export class ConversationService {
     }
     const decision =
       input.scope === "run_action_class" ? "always_approved_for_run" : "approved";
+    if (input.scope !== "run_action_class") {
+      return this.deps.state.decideApproval(
+        input.approvalId,
+        decision,
+        input.message,
+      );
+    }
+
+    const pending = await this.deps.state.listPendingApprovalsForTaskRun(
+      approval.taskRunId,
+    );
+    const sameActionClass = pending.filter(
+      (a) => a.actionType === approval.actionType,
+    );
+    if (!sameActionClass.some((a) => a.id === approval.id)) {
+      sameActionClass.push(approval);
+    }
+
+    let updatedSelected: Approval | null = null;
+    for (const a of sameActionClass) {
+      const updated = await this.deps.state.decideApproval(
+        a.id,
+        decision,
+        input.message,
+      );
+      if (a.id === approval.id) updatedSelected = updated;
+    }
+    if (updatedSelected) return updatedSelected;
     return this.deps.state.decideApproval(
       input.approvalId,
       decision,

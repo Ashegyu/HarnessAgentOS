@@ -234,9 +234,9 @@ export const ApprovalPanel = ({
               type="button"
               onClick={() => void guardedApprove(a.id, "run_action_class")}
               disabled={busyId !== null}
-              title="이 TaskRun 안에서 같은 종류의 action을 자동 승인합니다."
+              title="이 TaskRun 안의 pending 상태인 같은 actionType approvals를 함께 승인합니다."
             >
-              자동 승인 (run scope)
+              같은 종류 모두 승인
             </button>
             <button
               type="button"
