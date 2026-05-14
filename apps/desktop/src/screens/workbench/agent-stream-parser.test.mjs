@@ -589,6 +589,38 @@ test("codex completed assistant item stays intermediate while running", () => {
   assert.deepEqual(s.parsed.unknown, []);
 });
 
+test("codex completed assistant snapshots append intermediate response sections", () => {
+  const s = initStreamParserState();
+  const completedAssistant = (text) =>
+    line({
+      type: "item.completed",
+      item: {
+        type: "assistant_message",
+        role: "assistant",
+        content: [{ type: "output_text", text }],
+      },
+    });
+
+  feedStreamChunk(
+    s,
+    completedAssistant("첫 번째 중간 답변") +
+      completedAssistant("두 번째 중간 답변") +
+      completedAssistant("두 번째 중간 답변"),
+  );
+
+  assert.equal(s.parsed.intermediateText, "두 번째 중간 답변");
+  assert.equal(s.parsed.finalText, null);
+  assert.deepEqual(
+    s.parsed.sections
+      .filter((section) => section.kind === "response")
+      .map((section) => ({ phase: section.phase, text: section.text })),
+    [
+      { phase: "intermediate", text: "첫 번째 중간 답변" },
+      { phase: "intermediate", text: "두 번째 중간 답변" },
+    ],
+  );
+});
+
 test("codex completed harness_agent_plan keeps sections while running", () => {
   const s = initStreamParserState();
   const planOutput = {

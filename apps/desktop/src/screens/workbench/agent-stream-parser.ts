@@ -728,8 +728,11 @@ const appendResponseSnapshotSection = (
   if (trimmed.length === 0) return;
   const sections = state.parsed.sections;
   const last = sections[sections.length - 1];
-  if (last?.kind === "response" && last.phase === phase) {
-    last.text = text;
+  if (
+    last?.kind === "response" &&
+    last.phase === phase &&
+    last.text.trim() === trimmed
+  ) {
     return;
   }
   sections.push({ id: nextSectionId(state), kind: "response", phase, text });
