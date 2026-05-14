@@ -1,0 +1,1773 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ruflo · Agno · Hermes-Agent · Everything Claude Code · Codex CLI 적용 분석 보고서</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #151b23;
+      --panel2: #1c2430;
+      --text: #e6edf3;
+      --muted: #9aa7b2;
+      --line: #30363d;
+      --accent: #7dd3fc;
+      --accent2: #c084fc;
+      --accent3: #f0abfc;
+      --good: #7ee787;
+      --warn: #ffd166;
+      --bad: #ff7b72;
+      --info: #79c0ff;
+      --code: #0b1020;
+      --shadow: 0 16px 40px rgba(0,0,0,.35);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 18% 0%, rgba(125,211,252,.14), transparent 32rem),
+        radial-gradient(circle at 82% 7%, rgba(192,132,252,.12), transparent 28rem),
+        radial-gradient(circle at 50% 24%, rgba(126,231,135,.06), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", Roboto, sans-serif;
+      line-height: 1.68;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .layout { display: grid; grid-template-columns: 305px minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky; top: 0; align-self: start; height: 100vh; overflow: auto;
+      padding: 28px 18px; border-right: 1px solid var(--line);
+      background: rgba(13,17,23,.9); backdrop-filter: blur(12px);
+    }
+    aside h2 { font-size: 16px; margin: 0 0 18px; color: #fff; letter-spacing: .02em; }
+    aside .small { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+    nav a { display:block; padding:8px 10px; border-radius:10px; color:#c9d1d9; font-size:13px; margin:2px 0; }
+    nav a:hover { background:rgba(125,211,252,.08); text-decoration:none; }
+    main { max-width: 1280px; padding: 44px 38px 80px; }
+    .hero {
+      padding: 34px;
+      border: 1px solid rgba(125,211,252,.24);
+      background: linear-gradient(135deg, rgba(21,27,35,.92), rgba(28,36,48,.86));
+      box-shadow: var(--shadow); border-radius: 28px; margin-bottom: 28px;
+    }
+    .eyebrow { color: var(--accent); font-weight: 700; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { font-size: clamp(32px, 5vw, 58px); line-height: 1.07; margin: 12px 0 18px; letter-spacing: -.04em; }
+    .subtitle { color:#b6c2cf; font-size:18px; max-width:960px; }
+    .meta { display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
+    .pill { border:1px solid var(--line); background:rgba(13,17,23,.55); color:#d8e0e8; border-radius:999px; padding:6px 11px; font-size:12px; white-space:nowrap; }
+    section { margin-top: 34px; }
+    h2 { font-size: 30px; margin: 0 0 16px; letter-spacing: -.02em; }
+    h3 { font-size: 22px; margin: 26px 0 10px; }
+    h4 { font-size: 17px; margin: 22px 0 8px; color:#f0f6fc; }
+    p { margin: 9px 0; }
+    .grid { display:grid; gap:16px; }
+    .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { background:rgba(21,27,35,.88); border:1px solid var(--line); border-radius:var(--radius); padding:18px; box-shadow:0 8px 24px rgba(0,0,0,.22); }
+    .card h3, .card h4 { margin-top:0; }
+    .callout { border-left:4px solid var(--accent); background:rgba(125,211,252,.08); border-radius:14px; padding:14px 16px; margin:16px 0; }
+    .callout.warn { border-left-color:var(--warn); background:rgba(255,209,102,.08); }
+    .callout.good { border-left-color:var(--good); background:rgba(126,231,135,.08); }
+    .callout.bad { border-left-color:var(--bad); background:rgba(255,123,114,.08); }
+    .tag { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:999px; color:#c9d1d9; font-size:12px; margin:2px 4px 2px 0; }
+    table { width:100%; border-collapse:collapse; margin:14px 0; background:rgba(21,27,35,.78); border-radius:var(--radius); overflow:hidden; }
+    th, td { border:1px solid var(--line); padding:11px 12px; vertical-align:top; }
+    th { background:rgba(125,211,252,.08); color:#f0f6fc; font-weight:700; text-align:left; }
+    td { color:#d5dde5; }
+    .matrix th:first-child, .matrix td:first-child { width: 165px; }
+    .score { font-weight:800; }
+    .good-text { color:var(--good); }
+    .warn-text { color:var(--warn); }
+    .bad-text { color:var(--bad); }
+    code, pre { font-family:"Cascadia Code", "JetBrains Mono", Consolas, monospace; }
+    code { background:rgba(110,118,129,.24); padding:2px 5px; border-radius:6px; }
+    pre { background:var(--code); border:1px solid var(--line); padding:16px; border-radius:16px; overflow:auto; color:#c9d1d9; }
+    .diagram { background:#0b1020; border:1px solid var(--line); border-radius:18px; padding:18px; white-space:pre; overflow:auto; font-family:"Cascadia Code", "JetBrains Mono", Consolas, monospace; color:#c9d1d9; line-height:1.45; }
+    details { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background:rgba(21,27,35,.78); margin:12px 0; }
+    summary { cursor:pointer; font-weight:700; color:#f0f6fc; }
+    .repo-header { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; background:linear-gradient(135deg, rgba(125,211,252,.09), rgba(192,132,252,.08)); border:1px solid var(--line); border-radius:24px; padding:22px; margin-bottom:18px; }
+    .repo-title { font-size:28px; font-weight:800; letter-spacing:-.03em; }
+    .repo-sub { color:var(--muted); font-size:13px; margin-top:4px; }
+    .note { color:var(--muted); font-size:13px; }
+    .kbd { display:inline-block; padding:1px 7px; border:1px solid var(--line); border-bottom-width:2px; border-radius:7px; background:rgba(255,255,255,.04); font-family:"Cascadia Code", monospace; font-size:12px; }
+    .source-list li { margin:7px 0; }
+    .pagebreak { break-before: page; }
+    @media (max-width: 1100px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position:relative; height:auto; border-right:0; border-bottom:1px solid var(--line); }
+      main { padding: 28px 18px 60px; }
+      .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+      .repo-header { flex-direction:column; }
+      .diagram { white-space:pre-wrap; }
+    }
+    @media print {
+      body { background:white; color:#111; }
+      aside { display:none; }
+      main { max-width:none; padding:0; }
+      .hero, .card, details, .repo-header, table { box-shadow:none; background:white; color:#111; }
+      a { color:#0645ad; }
+      code, pre, .diagram { background:#f6f8fa; color:#111; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <h2>분석 문서 내비게이션</h2>
+    <div class="small">기준일: 2026-05-14 KST<br>형식: 공개 저장소/문서 기반 정적 분석</div>
+    <nav>
+      <a href="#summary">1. 결론 요약</a>
+      <a href="#quick-decision">2. 선택 가이드</a>
+      <a href="#comparison">3. 전체 비교표</a>
+      <a href="#architecture-map">4. 구조 차이</a>
+      <a href="#ruflo">5. Ruflo 상세 분석</a>
+      <a href="#agno">6. Agno 상세 분석</a>
+      <a href="#hermes">7. Hermes-Agent 상세 분석</a>
+      <a href="#ecc">8. Everything Claude Code 상세 분석</a>
+      <a href="#feature-map">9. 기능별 차이</a>
+      <a href="#csharp">10. C# 프로젝트 적용 전략</a>
+      <a href="#poc">11. POC/검증 계획</a>
+      <a href="#risks">12. 리스크 체크리스트</a>
+      <a href="#codex-cli">13. Codex CLI 적용</a>
+      <a href="#sources">14. 확인한 근거</a>
+    </nav>
+  </aside>
+  <main>
+    <header class="hero">
+      <div class="eyebrow">Agent Framework / Orchestration Source Review</div>
+      <h1>Ruflo · Agno · Hermes-Agent ·<br>Everything Claude Code · Codex CLI 적용 분석</h1>
+      <p class="subtitle">
+        네 저장소를 “나중에 실제 프로젝트에 적용한다”는 관점으로 다시 비교했습니다. 단순 README 요약이 아니라
+        <strong>동작 방식, 아키텍처, 장단점, 운영 리스크, C# 기반 제품에 붙이는 현실적인 방법, Codex CLI 적용 방법</strong>까지 포함합니다.
+      </p>
+      <div class="meta">
+        <span class="pill">Ruflo: Claude Code 중심 멀티 에이전트 오케스트레이션</span>
+        <span class="pill">Agno: 프로덕션 AgentOS / Agent Platform SDK</span>
+        <span class="pill">Hermes-Agent: 자기개선형 개인/운영 에이전트</span>
+        <span class="pill">Everything Claude Code: agent harness 성능 최적화 패키지</span>
+        <span class="pill">Codex CLI 적용: AGENTS.md · skills · hooks · MCP · subagents · plugins</span>
+        <span class="pill">출력: 단일 HTML 문서</span>
+      </div>
+    </header>
+
+    <section id="summary">
+      <h2>1. 결론 요약</h2>
+      <div class="callout good">
+        <strong>가장 실용적인 결론:</strong> 제품에 직접 넣을 “에이전트 백엔드”는 여전히 <strong>Agno</strong>가 가장 적합합니다.
+        개발 워크플로우 자동화는 <strong>Ruflo</strong>와 <strong>Everything Claude Code(ECC)</strong>가 강하고, 개인/운영 자동화와 장기 실행 assistant는
+        <strong>Hermes-Agent</strong>가 강합니다. ECC는 Ruflo와 같은 “Claude Code 강화” 계열이지만, 더 넓은 harness/IDE/Codex/Cursor/OpenCode 적응 레이어와
+        hook/rule/skill 공급망 관리 성격이 강합니다.
+      </div>
+
+      <div class="grid cols-4">
+        <div class="card">
+          <h3>Ruflo</h3>
+          <p><strong>핵심 정체성:</strong> Claude Code를 중심으로 다수의 특화 에이전트, swarm, MCP 도구, 메모리, hook, plugin을 붙이는 개발 자동화 오케스트레이터입니다.</p>
+          <p><strong>적합한 용도:</strong> 대형 코드베이스 분석, 구현 계획 분해, 병렬 에이전트 작업, Claude Code 기반 자동화.</p>
+          <p><strong>주의:</strong> 패키지/브랜치/문서상의 이름과 수치가 일부 혼재되어 있습니다. 도입 전 설치 버전과 실제 도구 수를 반드시 검증해야 합니다.</p>
+        </div>
+        <div class="card">
+          <h3>Agno</h3>
+          <p><strong>핵심 정체성:</strong> Agent, Team, Workflow를 만들고 AgentOS Runtime/API/Control Plane으로 운영하는 프로덕션 지향 SDK입니다.</p>
+          <p><strong>적합한 용도:</strong> SaaS/업무 시스템에 agent API, session, memory, DB, RBAC, HITL, tracing, scheduler를 붙이는 경우.</p>
+          <p><strong>주의:</strong> Python 생태계와 FastAPI/DB 운영 전제가 강합니다. C# 제품에는 out-of-process agent service로 붙이는 구조가 적합합니다.</p>
+        </div>
+        <div class="card">
+          <h3>Hermes-Agent</h3>
+          <p><strong>핵심 정체성:</strong> TUI, messaging gateway, cron, skills, curated memory, terminal/browser tools를 갖춘 자기개선형 장기 실행 에이전트입니다.</p>
+          <p><strong>적합한 용도:</strong> 개인 AI 비서, Telegram/Discord 기반 운영 봇, 서버/샌드박스에서 실행되는 개발·리서치 자동화.</p>
+          <p><strong>주의:</strong> 도구 실행면이 넓고 자율성이 강합니다. 제품에 붙일 때는 권한·샌드박스·승인 정책을 강하게 제한해야 합니다.</p>
+        </div>
+        <div class="card">
+          <h3>Everything Claude Code</h3>
+          <p><strong>핵심 정체성:</strong> Claude Code, Codex, Cursor, OpenCode 등 agent harness 전반에 skills, agents, hooks, rules, MCP 설정, installer, security scanner를 제공하는 성능 최적화/운영 패키지입니다.</p>
+          <p><strong>적합한 용도:</strong> 개발팀 표준 agent harness, 코딩 규칙 자동 적용, hook 기반 품질 게이트, skill/rule 재사용, 보안 스캔, multi-harness 설정 배포.</p>
+          <p><strong>주의:</strong> 제품 runtime SDK가 아니라 “개발 환경 운영체제”에 가깝습니다. C# 앱에 직접 임베딩하기보다는 개발팀/CI/agent workspace 계층에 적용해야 합니다.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="quick-decision">
+      <h2>2. 선택 가이드</h2>
+      <table>
+        <thead><tr><th>목표</th><th>권장 선택</th><th>이유</th><th>비권장/주의</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>내 C# 제품에 AI Agent 기능을 붙여 수익화</td>
+            <td><strong>Agno 우선</strong></td>
+            <td>AgentOS, API, DB, RBAC, session, memory, tracing, scheduler 등 제품화 요소가 가장 명확합니다.</td>
+            <td>Python 런타임을 별도 서비스로 운영해야 하므로 배포·모니터링 설계가 필요합니다.</td>
+          </tr>
+          <tr>
+            <td>Claude Code 기반 개발 자동화, 여러 agent 작업 분해</td>
+            <td><strong>Ruflo 또는 ECC</strong></td>
+            <td>Ruflo는 swarm/orchestration 지향, ECC는 skills/rules/hooks/commands로 개발자 harness를 표준화하는 데 강합니다.</td>
+            <td>두 시스템을 동시에 full install하면 hook/rule/command 충돌이 생길 수 있어 역할 분리가 필요합니다.</td>
+          </tr>
+          <tr>
+            <td>개발팀 표준 규칙, hook, skill, 보안 스캔 배포</td>
+            <td><strong>Everything Claude Code</strong></td>
+            <td>rules, hooks, skills, AgentShield, installer, multi-harness adapters가 패키지화되어 있어 팀 표준화에 유리합니다.</td>
+            <td>너무 많은 rules/skills를 한 번에 넣으면 context와 행동 제약이 과해질 수 있습니다. minimal/core profile부터 적용해야 합니다.</td>
+          </tr>
+          <tr>
+            <td>개인 비서, 서버 상주 자동화, 메시징 기반 agent</td>
+            <td><strong>Hermes-Agent</strong></td>
+            <td>Telegram/Discord/Matrix 등 gateway, cron, TUI, skills, curated memory, terminal backend가 강합니다.</td>
+            <td>강한 권한의 toolset을 그대로 제품 사용자에게 노출하면 위험합니다.</td>
+          </tr>
+          <tr>
+            <td>장기적으로 가장 안전한 하이브리드</td>
+            <td><strong>Agno + ECC/Ruflo + Hermes 분리 운영</strong></td>
+            <td>Agno는 제품 API, ECC/Ruflo는 개발 자동화, Hermes는 내부 운영 자동화로 역할을 나눕니다.</td>
+            <td>하나의 프레임워크에 모든 역할을 몰아넣으면 권한·운영·디버깅 복잡도가 증가합니다.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>추천 아키텍처:</strong> C# 앱은 핵심 비즈니스 로직과 UI를 담당하고, 네 agent 계열은
+        별도 프로세스/컨테이너/서비스로 격리합니다. C# 쪽에는 <code>IAgentRuntime</code>, <code>IToolApprovalPolicy</code>,
+        <code>IAgentAuditLog</code> 같은 추상화만 둡니다. 이렇게 하면 GC, 보안, 장애 전파, 배포 복잡도를 제어할 수 있습니다.
+      </div>
+    </section>
+
+    <section id="comparison">
+      <h2>3. 전체 비교표</h2>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>Ruflo</th>
+            <th>Agno</th>
+            <th>Hermes-Agent</th>
+            <th>Everything Claude Code</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>핵심 포지션</td>
+            <td>Claude Code용 multi-agent orchestration layer</td>
+            <td>Agent platform SDK + AgentOS runtime/control plane</td>
+            <td>Self-improving autonomous assistant/agent</td>
+            <td>Agent harness performance system + config/skill/rule/hook distribution</td>
+          </tr>
+          <tr>
+            <td>주 언어/런타임</td>
+            <td>Node.js/TypeScript 계열, npm 패키지, MCP/CLI/plugin</td>
+            <td>Python, FastAPI 기반 AgentOS, 다양한 provider/tool/storage</td>
+            <td>Python 3.11+, TUI/CLI/gateway/cron/API, 일부 JS browser 의존성</td>
+            <td>Node.js scripts + Markdown assets + shell/PowerShell installer + 일부 Python/Rust alpha</td>
+          </tr>
+          <tr>
+            <td>가장 강한 사용처</td>
+            <td>개발 자동화, 코드 분석/구현 분해, Claude Code 확장</td>
+            <td>프로덕션 agent 서비스, 엔터프라이즈 API, multi-user SaaS</td>
+            <td>개인/운영 자동화, 장기 실행 agent, 메시징 인터페이스</td>
+            <td>팀 단위 Claude/Codex/Cursor/OpenCode 개발 환경 표준화, hook 품질 게이트</td>
+          </tr>
+          <tr>
+            <td>Agent 모델</td>
+            <td>전문화된 agent, swarm, hive-mind, router, model selector, memory loop</td>
+            <td>Agent, Team, Workflow, Claude Agent SDK/LangGraph/DSPy 통합 가능</td>
+            <td>AIAgent 중심 loop, subagents/delegation, skills/memory/context 기반</td>
+            <td>subagents + skills + commands + rules. Agent runtime보다는 harness prompt/tooling 표준화</td>
+          </tr>
+          <tr>
+            <td>도구 실행</td>
+            <td>MCP tools, Claude Code MCP 직접 노출, plugin tool</td>
+            <td>toolkits/custom tools/MCP/HITL. 업무 도구로 포장하기 쉬움</td>
+            <td>terminal/browser/web/media/gateway toolsets. 실행력이 강함</td>
+            <td>hooks/commands/MCP configs를 통해 도구 실행 전후를 제어. AgentShield로 설정 스캔</td>
+          </tr>
+          <tr>
+            <td>메모리</td>
+            <td>HNSW/AgentDB/knowledge graph/learning loop/ReasoningBank 등 문서상 강함</td>
+            <td>DB-backed memory, sessions, knowledge, traces. 여러 DB/vector DB 지원</td>
+            <td>curated MEMORY.md/USER.md + SQLite FTS5 session recall + user model</td>
+            <td>SessionStart/Stop/PreCompact hooks, session state 파일, continuous-learning-v2 instincts</td>
+          </tr>
+          <tr>
+            <td>운영 API</td>
+            <td>CLI/MCP/plugin 중심. Web UI beta, Goal Planner UI</td>
+            <td>AgentOS Production API, SSE/WebSocket, Control Plane UI</td>
+            <td>OpenAI-compatible API server, gateways, TUI, ACP adapter</td>
+            <td>제품 API보다 installer/CLI/dashboard/agent harness adapters 중심</td>
+          </tr>
+          <tr>
+            <td>권한/보안</td>
+            <td>federation trust, signatures, PII pipeline 등 문서상 풍부</td>
+            <td>JWT RBAC, audit logs, approval workflow, request isolation, own cloud</td>
+            <td>toolset 제한, sandbox terminal backend, skill/memory security scan, profile isolation</td>
+            <td>hooks, deny rules, AgentShield, security guide, sandbox/least agency 운영 원칙</td>
+          </tr>
+          <tr>
+            <td>프로덕션 적합도</td>
+            <td><span class="warn-text">중간</span> — 개발 자동화에는 강하지만 제품 API화는 별도 설계 필요</td>
+            <td><span class="good-text">높음</span> — 제품형 agent platform 구조가 명확</td>
+            <td><span class="warn-text">중간</span> — 개인/운영 agent에는 강하지만 제품 통제면은 설계 필요</td>
+            <td><span class="warn-text">중간</span> — 제품 runtime이 아니라 개발/CI/harness 표준화에는 높음</td>
+          </tr>
+          <tr>
+            <td>C# 통합 난이도</td>
+            <td>중간~높음. 외부 CLI/MCP bridge 설계 필요</td>
+            <td>중간. HTTP/SSE API 서비스로 붙이기 쉬움</td>
+            <td>중간. OpenAI-compatible API/gateway로 붙일 수 있으나 권한 통제가 중요</td>
+            <td>중간. 앱 runtime보다 repo/devcontainer/CI에 설치하고 C# 프로젝트 룰로 소비</td>
+          </tr>
+          <tr>
+            <td>가장 큰 리스크</td>
+            <td>문서/패키지명/버전/수치의 혼재, 빠른 변화, 실제 기능 검증 필요</td>
+            <td>Python 서비스 운영, dependency surface, control plane/telemetry 설정 확인</td>
+            <td>권한이 넓은 도구 실행, 자동 skill/memory 변경, large issue surface</td>
+            <td>hook/rule이 너무 강해 정상 작업을 막거나, 외부 skill/rule 공급망이 공격면이 될 수 있음</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="architecture-map">
+      <h2>4. 구조 차이 한눈에 보기</h2>
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>Ruflo: 개발환경 오케스트레이터</h3>
+          <div class="diagram">User / Claude Code
+   │
+   ▼
+Ruflo CLI · Plugin · MCP Server
+   │
+   ├─ Hook / Command Router
+   ├─ Memory Search / Store
+   ├─ Swarm Init / Agent Spawn
+   ├─ Model Router / Neural Modules
+   └─ Tool Execution via MCP
+   │
+   ▼
+Specialized Agents + Shared Memory
+   │
+   ▼
+Code changes / plans / reports / learned memory</div>
+        </div>
+        <div class="card">
+          <h3>Agno: 프로덕션 Agent Platform</h3>
+          <div class="diagram">Client / Product UI / API Consumer
+   │ HTTP · SSE · WebSocket
+   ▼
+AgentOS Runtime (FastAPI)
+   │
+   ├─ Agent / Team / Workflow
+   ├─ Context / Memory / Knowledge
+   ├─ Toolkits + HITL Approval
+   ├─ Storage DB / Vector DB
+   ├─ Tracing / Audit / RBAC
+   └─ Scheduler / Interfaces
+   │
+   ▼
+Model Providers + Business Tools</div>
+        </div>
+        <div class="card">
+          <h3>Hermes: 장기 실행 자기개선 Agent</h3>
+          <div class="diagram">CLI · TUI · Gateway · Cron · API · ACP
+   │
+   ▼
+AIAgent Core
+   │
+   ├─ Prompt Builder: SOUL/MEMORY/USER/Skills
+   ├─ Provider Resolver
+   ├─ Tool Registry / Toolsets
+   ├─ Terminal/Browser/Web Backends
+   ├─ SQLite + FTS5 Recall
+   └─ Skill/Memory Update Loop
+   │
+   ▼
+Streaming answer · tool action · learned skill</div>
+        </div>
+        <div class="card">
+          <h3>ECC: Agent Harness 운영 레이어</h3>
+          <div class="diagram">Developer / Team / CI / Agent Harness
+   │
+   ▼
+Everything Claude Code package
+   │
+   ├─ agents/*.md          specialized subagents
+   ├─ skills/*/SKILL.md    reusable workflows
+   ├─ rules/*              always-follow guidance
+   ├─ hooks/hooks.json     PreToolUse/PostToolUse/Stop
+   ├─ scripts/*            installer, doctor, status, audit
+   ├─ mcp-configs/*        optional MCP servers
+   └─ adapters             Claude/Codex/Cursor/OpenCode/Gemini
+   │
+   ▼
+Safer, standardized coding sessions + quality gates</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="ruflo" class="pagebreak">
+      <div class="repo-header">
+        <div>
+          <div class="repo-title">5. Ruflo 상세 분석</div>
+          <div class="repo-sub">Repository: <a href="https://github.com/ruvnet/ruflo">ruvnet/ruflo</a> · 중심 키워드: Claude Code, MCP, swarm, memory, federation, plugins</div>
+        </div>
+        <div><span class="tag">Node.js</span><span class="tag">TypeScript</span><span class="tag">MCP</span><span class="tag">Claude Code</span><span class="tag">Swarm</span></div>
+      </div>
+
+      <h3>5.1 소스의 성격</h3>
+      <p>Ruflo는 일반적인 “agent framework SDK”라기보다 <strong>Claude Code 위에 얹는 multi-agent orchestration layer</strong>에 가깝습니다. 문서상으로는 specialized agents, swarm, self-learning memory, model routing, MCP server, hooks, plugins, Web UI, federation까지 포함하는 큰 플랫폼입니다.</p>
+      <p>저장소 구조는 단일 작은 라이브러리 형태가 아니라 <code>v3</code>, <code>plugins</code>, <code>docs</code>, <code>mcp</code>, <code>agents</code>, <code>goal_ui</code>, <code>@claude-flow/*</code> 패키지 구조가 섞여 있습니다. 실제 패키지명도 일부 문서/메타데이터에서 <code>claude-flow</code>와 Ruflo가 혼재합니다. 도입 시 README보다 <strong>설치되는 npm package, CLI command, 실제 MCP tool list</strong>를 기준으로 검증해야 합니다.</p>
+
+      <h3>5.2 동작 방식</h3>
+      <ol>
+        <li><strong>초기화:</strong> 프로젝트에 Ruflo 설정, Claude Code hooks, MCP server, plugin/agent 정의를 설치합니다.</li>
+        <li><strong>입력 수신:</strong> 사용자가 Claude Code slash command 또는 일반 프롬프트를 입력합니다.</li>
+        <li><strong>라우팅:</strong> hook/router가 작업 유형을 판단하고, 필요한 memory search, model selection, swarm mode를 결정합니다.</li>
+        <li><strong>Swarm 구성:</strong> architect, coder, reviewer, tester, security, documentation 등 역할별 agent가 생성되거나 선택됩니다.</li>
+        <li><strong>도구 호출:</strong> MCP tool을 통해 파일, 코드, memory, planner, neural module, 외부 API 등을 호출합니다.</li>
+        <li><strong>결과 통합:</strong> agent들의 산출물을 합치고, 코드 변경/리포트/plan/검증 결과를 생성합니다.</li>
+        <li><strong>학습 루프:</strong> memory store, reasoning bank, neural train, token/model router 업데이트 등으로 다음 작업에 반영합니다.</li>
+      </ol>
+
+      <div class="diagram">Ruflo 작업 흐름 예시
+
+/plan "3D airplane simulator physics engine 설계"
+  └─ Router: task=architecture + performance-critical C#
+      ├─ memory_search: 과거 설계/코딩 룰 검색
+      ├─ swarm_init: hierarchical 또는 mesh swarm 구성
+      │   ├─ architecture-agent
+      │   ├─ performance-agent
+      │   ├─ graphics-agent
+      │   ├─ physics-agent
+      │   └─ security/review-agent
+      ├─ 각 agent가 병렬 분석
+      ├─ reviewer가 충돌/누락 검토
+      ├─ plan/checklist 산출
+      └─ memory_store: 좋은 설계 패턴과 오류를 저장</div>
+
+      <h3>5.3 주요 기능</h3>
+      <div class="grid cols-2">
+        <div class="card"><h4>Swarm / Hive Mind</h4><p>여러 agent를 역할별로 분리해 하나의 작업을 병렬/계층적으로 처리합니다. 구현 계획, 코드 작성, 테스트, 리뷰, 문서화처럼 서로 다른 사고 방식이 필요한 작업에 적합합니다.</p></div>
+        <div class="card"><h4>MCP Tool Layer</h4><p>Claude Code 또는 다른 MCP client가 Ruflo 기능을 도구로 호출할 수 있습니다. memory, swarm, neural, federation, file/code 작업 등이 tool surface가 됩니다.</p></div>
+        <div class="card"><h4>Memory / Learning</h4><p>HNSW vector search, AgentDB, knowledge graph, ReasoningBank 등으로 설명된 memory layer를 통해 과거 작업과 의사결정을 재사용하는 구조입니다.</p></div>
+        <div class="card"><h4>Model Router</h4><p>작업 유형과 성능/비용/성공률에 따라 모델을 선택하는 routing 계층을 둡니다. 문서에는 Thompson sampling 기반 selector도 언급됩니다.</p></div>
+        <div class="card"><h4>Plugin Catalog</h4><p>core, swarm, memory, ADR, DDD, SPARC, security audit, testgen, browser 등 다수의 Claude Code plugin 카탈로그가 있습니다.</p></div>
+        <div class="card"><h4>Federation</h4><p>복수 설치 간 agent peering, Ed25519 identity, trust ladder, signed envelopes, budget/circuit breaker, PII pipeline을 문서화하고 있습니다.</p></div>
+      </div>
+
+      <h3>5.4 장점</h3>
+      <ul>
+        <li><strong>Claude Code 친화성:</strong> Claude Code를 주 개발 도구로 쓴다면 hook, slash command, plugin, MCP가 바로 workflow에 들어옵니다.</li>
+        <li><strong>개발 작업 분해에 특화:</strong> architecture, coding, testing, review, documentation을 여러 agent로 나누는 방식이 코드베이스 작업에 잘 맞습니다.</li>
+        <li><strong>도구 표면이 큼:</strong> memory, swarm, federation, planner 등 다양한 MCP 도구가 있어 실험 범위가 넓습니다.</li>
+        <li><strong>장기적 학습 방향:</strong> 작업 히스토리와 memory를 바탕으로 반복 개발 효율을 높이는 방향성이 명확합니다.</li>
+      </ul>
+
+      <h3>5.5 단점과 리스크</h3>
+      <ul>
+        <li><strong>브랜드/패키지명 혼재:</strong> 저장소명은 Ruflo지만 패키지/문서에는 <code>claude-flow</code> 계열이 함께 나타납니다. 자동화 스크립트 작성 시 혼동될 수 있습니다.</li>
+        <li><strong>기능 수치 불일치 가능성:</strong> README, status 문서, package metadata가 말하는 agent/tool/version 수치가 다를 수 있습니다.</li>
+        <li><strong>제품 임베딩보다는 개발환경 중심:</strong> C# 런타임 안에 라이브러리처럼 넣기보다는 외부 orchestrator로 쓰는 편이 현실적입니다.</li>
+        <li><strong>보안면이 넓음:</strong> 파일/쉘/코드 변경/메모리/외부 provider를 다루므로 강한 sandbox와 approval policy가 필요합니다.</li>
+      </ul>
+
+      <h3>5.6 적용 방안</h3>
+      <table>
+        <thead><tr><th>적용 위치</th><th>권장 방식</th><th>검증 기준</th></tr></thead>
+        <tbody>
+          <tr><td>개발자 로컬</td><td>Claude Code 확장. plan/review/test automation에 제한 사용.</td><td>기존 workflow보다 PR 품질, 테스트 통과율, 소요 시간이 개선되는지 측정.</td></tr>
+          <tr><td>CI/PR Bot</td><td>read-only review + patch proposal 중심. 자동 merge 금지.</td><td>false positive, 비용, 보안 경고 품질, human review 절감률 측정.</td></tr>
+          <tr><td>C# 제품 내부</td><td>직접 임베딩 비권장. 내부 개발 자동화 서버로 분리.</td><td>shell/file 권한 격리, worktree 격리, audit log, rollback 가능성 확인.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="agno" class="pagebreak">
+      <div class="repo-header">
+        <div>
+          <div class="repo-title">6. Agno 상세 분석</div>
+          <div class="repo-sub">Repository: <a href="https://github.com/agno-agi/agno">agno-agi/agno</a> · 중심 키워드: AgentOS, Agents, Teams, Workflows, storage, memory, tools, RBAC</div>
+        </div>
+        <div><span class="tag">Python</span><span class="tag">FastAPI</span><span class="tag">AgentOS</span><span class="tag">SSE</span><span class="tag">Production API</span></div>
+      </div>
+
+      <h3>6.1 소스의 성격</h3>
+      <p>Agno는 네 저장소 중 가장 <strong>제품 백엔드로 바로 전환하기 쉬운 Agent SDK</strong>입니다. Agent, Team, Workflow를 코드로 구성하고, AgentOS를 통해 API, session, memory, storage, tracing, control plane, scheduler, approval flow를 운영하는 방향입니다.</p>
+      <p>C# 개발자 관점에서 Agno의 장점은 “언어가 Python이라서 아쉽다”가 아니라 <strong>외부 agent microservice로 분리하기 좋다</strong>는 점입니다. C# 앱은 인증/과금/UI/도메인 로직을 담당하고, Agno는 Agent API를 담당하게 하면 경계가 명확합니다.</p>
+
+      <h3>6.2 동작 방식</h3>
+      <ol>
+        <li><strong>Agent 정의:</strong> model, instructions, tools, memory/storage, knowledge base, expected output 등을 Python 코드로 선언합니다.</li>
+        <li><strong>Runtime 실행:</strong> AgentOS runtime이 FastAPI 형태로 올라가고 client는 HTTP/SSE/WebSocket으로 agent run을 요청합니다.</li>
+        <li><strong>Tool orchestration:</strong> agent가 필요한 toolkits/custom tools/MCP tools를 선택하고 실행합니다.</li>
+        <li><strong>HITL/승인:</strong> 위험한 tool call은 confirmation이나 user approval 이벤트를 통해 멈췄다가 재개할 수 있습니다.</li>
+        <li><strong>Storage/Memory:</strong> session, user, run, memory, knowledge, trace가 DB/vector store에 남습니다.</li>
+        <li><strong>운영 관찰:</strong> Control Plane/trace/audit를 통해 어떤 요청에서 어떤 도구가 호출됐는지 확인합니다.</li>
+      </ol>
+
+      <div class="diagram">Agno 제품형 요청 흐름
+
+C# UI / Web Client
+  └─ POST /agents/{agent_id}/runs
+      ├─ JWT / tenant / user validation
+      ├─ Agno AgentOS Runtime
+      │   ├─ load session + memory
+      │   ├─ call model provider
+      │   ├─ request tool call
+      │   ├─ if risky: emit approval event
+      │   ├─ execute tool after approval
+      │   └─ stream text/tool events via SSE
+      └─ C# UI displays stream + approval prompts</div>
+
+      <h3>6.3 주요 기능</h3>
+      <div class="grid cols-2">
+        <div class="card"><h4>Agent / Team / Workflow</h4><p>단일 agent뿐 아니라 여러 agent를 팀으로 묶거나 deterministic workflow로 구성할 수 있습니다. 제품 업무 프로세스와 잘 맞습니다.</p></div>
+        <div class="card"><h4>AgentOS API</h4><p>Runtime/API가 명확하므로 외부 앱에서 HTTP/SSE로 연결하기 쉽습니다. C#과의 통합 포인트가 가장 깨끗합니다.</p></div>
+        <div class="card"><h4>Storage / Memory / Knowledge</h4><p>DB-backed session/memory/knowledge 구조가 명확합니다. 상용 서비스에서는 “기억을 어디에 저장하고 어떻게 삭제할지”가 중요합니다.</p></div>
+        <div class="card"><h4>RBAC / Audit / Approval</h4><p>다중 사용자/다중 tenant 서비스에서 필요한 승인, 권한, 감사 계층을 만들기 좋습니다.</p></div>
+      </div>
+
+      <h3>6.4 장점</h3>
+      <ul>
+        <li><strong>제품화 관점이 가장 강함:</strong> API, session, storage, RBAC, tracing, scheduler, control plane이라는 상용 요소가 정리되어 있습니다.</li>
+        <li><strong>C#과 결합이 쉬움:</strong> Python process를 별도 서비스로 띄우고 HTTP/SSE로 붙이면 됩니다.</li>
+        <li><strong>업무 도구 포장에 적합:</strong> custom function tools를 C# API proxy로 만들거나 MCP로 연결할 수 있습니다.</li>
+        <li><strong>HITL 설계가 자연스러움:</strong> 위험 작업을 중간에 멈추고 사용자 승인 이벤트로 처리하는 제품 UX를 만들기 좋습니다.</li>
+      </ul>
+
+      <h3>6.5 단점과 리스크</h3>
+      <ul>
+        <li><strong>Python 운영 부담:</strong> C# 주력 팀이라면 Python dependency, virtualenv/uv, 배포, 모니터링, 장애 대응 체계를 새로 관리해야 합니다.</li>
+        <li><strong>AgentOS가 제품의 일부가 됨:</strong> 단순 라이브러리보다 서비스 운영에 가깝기 때문에 infra 설계가 필요합니다.</li>
+        <li><strong>DB/Vector DB 선택:</strong> memory/knowledge를 어떻게 저장할지에 따라 비용과 latency가 크게 바뀝니다.</li>
+        <li><strong>Tool 권한 설계:</strong> Agno가 구조를 제공해도 실제 권한 정책은 제품 요구사항에 맞게 직접 구현해야 합니다.</li>
+      </ul>
+
+      <h3>6.6 적용 방안</h3>
+      <table>
+        <thead><tr><th>적용 위치</th><th>권장 방식</th><th>검증 기준</th></tr></thead>
+        <tbody>
+          <tr><td>제품 agent API</td><td>Agno AgentOS를 별도 컨테이너로 배포하고 C# Gateway에서 호출.</td><td>P95 latency, SSE 안정성, tool approval UX, multi-tenant isolation.</td></tr>
+          <tr><td>문서/지식 Q&A</td><td>knowledge store와 vector DB를 연결하고 사용자별 권한 필터 적용.</td><td>검색 정확도, 출처 표시율, 권한 우회 여부, 비용.</td></tr>
+          <tr><td>업무 자동화</td><td>C# business API를 safe tool로 노출하고 approval policy를 중앙화.</td><td>감사 로그 완전성, idempotency, rollback/compensation 지원.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="hermes" class="pagebreak">
+      <div class="repo-header">
+        <div>
+          <div class="repo-title">7. Hermes-Agent 상세 분석</div>
+          <div class="repo-sub">Repository: <a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a> · 중심 키워드: AIAgent, TUI, skills, memory, gateways, tools, cron</div>
+        </div>
+        <div><span class="tag">Python</span><span class="tag">TUI</span><span class="tag">Gateway</span><span class="tag">Skills</span><span class="tag">Memory</span></div>
+      </div>
+
+      <h3>7.1 소스의 성격</h3>
+      <p>Hermes-Agent는 “내 서비스에 넣는 SDK”라기보다 <strong>개인/운영 assistant를 장기 실행시키는 runtime</strong>에 가깝습니다. CLI/TUI, OpenAI-compatible API, Telegram/Discord/Matrix gateway, cron, terminal/browser backend, skills, curated memory를 갖춘 자율 agent 실행 환경입니다.</p>
+      <p>장점은 실행력이 강하다는 점이고, 단점도 정확히 그 지점에서 나옵니다. terminal, browser, web, media, integration toolset을 열면 agent가 실제 환경에 강한 영향을 줄 수 있으므로 제품 사용자에게 직접 노출하면 위험합니다.</p>
+
+      <h3>7.2 동작 방식</h3>
+      <ol>
+        <li><strong>Profile/context 로딩:</strong> SOUL, MEMORY, USER, skills, provider 설정을 읽어 agent prompt를 구성합니다.</li>
+        <li><strong>입력 수신:</strong> TUI, CLI, API, gateway, cron에서 message/task가 들어옵니다.</li>
+        <li><strong>Provider 선택:</strong> configured model provider로 요청을 전달합니다.</li>
+        <li><strong>Tool registry:</strong> agent가 toolset에서 필요한 도구를 선택합니다. terminal/browser/web/media 등 실행 범위가 큽니다.</li>
+        <li><strong>메모리/스킬 업데이트:</strong> session recall, curated memory, procedural skill update를 통해 다음 실행에 반영합니다.</li>
+        <li><strong>출력/스트리밍:</strong> 대화 답변, 파일 변경, tool result, gateway message, scheduled task 결과를 반환합니다.</li>
+      </ol>
+
+      <div class="diagram">Hermes 운영 자동화 예시
+
+Cron: "매일 09:00 서버 상태 점검"
+  ├─ AIAgent loads memory + ops skill
+  ├─ terminal tool: run diagnostics in sandbox
+  ├─ browser/web tool: check dashboard if allowed
+  ├─ summarize incidents
+  ├─ gateway: send Telegram/Discord report
+  └─ memory update: 반복 장애 패턴 저장</div>
+
+      <h3>7.3 주요 기능</h3>
+      <div class="grid cols-2">
+        <div class="card"><h4>TUI / CLI / API / Gateway</h4><p>대화형 TUI, API server, messaging gateway, cron scheduler를 통해 다양한 입력 경로를 제공합니다.</p></div>
+        <div class="card"><h4>Skills / Procedural Learning</h4><p>작업 중 발견한 절차/패턴을 skill로 정리하고 다음 작업에서 재사용하는 방향이 강합니다.</p></div>
+        <div class="card"><h4>Curated Memory</h4><p>MEMORY.md, USER.md, session recall 등을 사용해 개인화와 장기 작업 연결성을 높입니다.</p></div>
+        <div class="card"><h4>Toolsets</h4><p>terminal, browser, web, media, integration 등 실제 환경을 조작하는 도구셋이 풍부합니다.</p></div>
+      </div>
+
+      <h3>7.4 장점</h3>
+      <ul>
+        <li><strong>실행 채널 다양성:</strong> CLI/TUI/API/gateway/cron을 모두 제공하므로 운영 자동화에 맞습니다.</li>
+        <li><strong>자기개선 방향성:</strong> memory와 skill update를 통해 반복 작업의 품질을 높이는 구조입니다.</li>
+        <li><strong>개인/운영 assistant에 적합:</strong> 단일 사용자 또는 제한된 운영팀이 쓰는 assistant로는 기능 구성이 풍부합니다.</li>
+        <li><strong>OpenAI-compatible API:</strong> 기존 client나 C# adapter에서 연결하기 비교적 쉽습니다.</li>
+      </ul>
+
+      <h3>7.5 단점과 리스크</h3>
+      <ul>
+        <li><strong>권한 폭이 큼:</strong> terminal/browser/tool execution을 잘못 열면 agent compromise가 곧 시스템 compromise가 됩니다.</li>
+        <li><strong>제품화 통제면 부족:</strong> RBAC, tenant, billing, audit, approval을 제품 수준으로 직접 설계해야 합니다.</li>
+        <li><strong>memory poisoning 위험:</strong> 장기 memory와 skill 자동 업데이트는 공급망/프롬프트 인젝션 방어가 필요합니다.</li>
+        <li><strong>운영 복잡도:</strong> gateway, cron, sandbox, provider, browser backend가 결합되면 장애 포인트가 많아집니다.</li>
+      </ul>
+
+      <h3>7.6 적용 방안</h3>
+      <table>
+        <thead><tr><th>적용 위치</th><th>권장 방식</th><th>검증 기준</th></tr></thead>
+        <tbody>
+          <tr><td>개인 개발 비서</td><td>로컬/TUI 중심. repo별 sandbox와 memory 분리.</td><td>반복 작업 품질, 실수율, memory 오염 여부.</td></tr>
+          <tr><td>운영 봇</td><td>gateway + cron. whitelist 사용자와 restricted toolset만 허용.</td><td>권한 오남용, 알림 품질, 실패 복구, audit log.</td></tr>
+          <tr><td>C# 제품 내부</td><td>직접 제품 기능보다는 내부 운영 assistant로 분리.</td><td>사용자 데이터 격리, shell/network 승인, sandbox escape 방지.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="ecc" class="pagebreak">
+      <div class="repo-header">
+        <div>
+          <div class="repo-title">8. Everything Claude Code 상세 분석</div>
+          <div class="repo-sub">Repository: <a href="https://github.com/affaan-m/everything-claude-code">affaan-m/everything-claude-code</a> · 중심 키워드: Claude Code, skills, agents, hooks, rules, MCP, AgentShield, multi-harness</div>
+        </div>
+        <div><span class="tag">Node.js</span><span class="tag">Markdown</span><span class="tag">Hooks</span><span class="tag">Rules</span><span class="tag">MCP</span><span class="tag">Codex/Cursor/OpenCode</span></div>
+      </div>
+
+      <h3>8.1 소스의 성격</h3>
+      <p>Everything Claude Code(ECC)는 “새로운 agent runtime”이라기보다 <strong>agent harness 성능 최적화 시스템</strong>입니다. README는 skills, instincts, memory optimization, continuous learning, security scanning, research-first development, production-ready agents/hooks/commands/rules/MCP configurations를 포함한다고 설명합니다. Claude Code뿐 아니라 Codex, Cursor, OpenCode, Gemini, GitHub Copilot 등 여러 harness를 대상으로 합니다.</p>
+      <p>따라서 ECC는 Agno처럼 제품 API server를 세우는 프레임워크가 아닙니다. <strong>개발자의 AI coding environment를 표준화하고 안전하게 강화하는 asset pack + installer + hook runtime + security scanner</strong>에 가깝습니다. C# 앱에 붙이는 agent backend라기보다 C# 프로젝트를 개발하는 과정, CI, code review, documentation, TDD, 보안 점검에 적용하는 것이 맞습니다.</p>
+
+      <h3>8.2 공개 표면과 구성</h3>
+      <table>
+        <thead><tr><th>구성 요소</th><th>역할</th><th>실무 의미</th></tr></thead>
+        <tbody>
+          <tr><td><code>agents/</code></td><td>planner, architect, tdd-guide, code-reviewer, security-reviewer, language reviewer/build resolver 등 전문 subagent 정의.</td><td>작업을 역할별 agent에게 위임해 품질을 높입니다. 단, 실제 실행은 Claude Code 같은 harness가 담당합니다.</td></tr>
+          <tr><td><code>skills/</code></td><td>workflow와 domain knowledge. TDD, security-review, backend/frontend patterns, e2e-testing, verification-loop, cost-aware LLM pipeline 등.</td><td>반복 가능한 작업 지식을 SKILL.md로 정리해 자동/수동 호출합니다.</td></tr>
+          <tr><td><code>rules/</code></td><td>항상 적용하는 coding style, testing, performance, security, hooks, agents, language-specific 규칙.</td><td>프로젝트/조직 규칙을 강제합니다. 너무 많이 적용하면 context bloat와 과도한 제약이 생깁니다.</td></tr>
+          <tr><td><code>hooks/</code></td><td>PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd, PreCompact 이벤트 자동화.</td><td>도구 실행 전후에 품질 게이트, format, typecheck, console.log 탐지, session memory 저장을 수행합니다.</td></tr>
+          <tr><td><code>commands/</code></td><td><code>/plan</code>, <code>/code-review</code>, <code>/build-fix</code>, <code>/quality-gate</code>, <code>/learn</code> 등 slash entry.</td><td>skills 전환 중에도 명령형 workflow를 유지합니다. 신규 개발은 skills 우선이 권장됩니다.</td></tr>
+          <tr><td><code>mcp-configs/</code></td><td>GitHub, Jira, Firecrawl, Supabase 등 MCP server 설정 예시.</td><td>외부 도구 연결을 빠르게 구성하지만 token/context와 secret 위험을 함께 증가시킵니다.</td></tr>
+          <tr><td><code>scripts/</code></td><td>installer, doctor, repair, uninstall, package-manager detection, hooks implementation, status, work-items 등.</td><td>팀/CI에서 설치와 상태 점검을 자동화할 수 있습니다.</td></tr>
+          <tr><td><code>AgentShield</code></td><td>Claude Code 설정, hooks, MCP, agent, skills의 취약점/오구성/인젝션 위험 스캔.</td><td>ECC 자체뿐 아니라 agent harness 설정 공급망을 점검하는 안전장치로 활용합니다.</td></tr>
+        </tbody>
+      </table>
+      <p class="note">주의: 문서/플러그인/README 위치에 따라 공개 수치가 다르게 표기됩니다. 확인 시점의 plugin.json은 60 agents, 228 skills, 75 legacy command shims를 설명하지만, README의 release note 일부는 55 agents, 208 skills, 72 legacy command shims로 표기합니다. 실제 도입 전 <code>/plugin list ecc@ecc</code>, <code>node scripts/ecc.js list-installed</code>, <code>node scripts/ecc.js doctor</code>로 확인해야 합니다.</p>
+
+      <h3>8.3 설치/사용 경로</h3>
+      <table>
+        <thead><tr><th>경로</th><th>특징</th><th>권장 상황</th><th>주의점</th></tr></thead>
+        <tbody>
+          <tr><td>Claude Code plugin</td><td><code>/plugin marketplace add https://github.com/affaan-m/everything-claude-code</code>, <code>/plugin install ecc@ecc</code></td><td>빠르게 Claude Code에 skills/commands/hooks를 붙이고 싶을 때.</td><td>rules는 플러그인으로 자동 배포되지 않으므로 별도 복사 필요. hook auto-load 중복 주의.</td></tr>
+          <tr><td>Manual install</td><td><code>install.sh</code>, <code>install.ps1</code>, <code>npx ecc-install</code> 등.</td><td>profile/minimal/core/full을 선택하고 필요한 컴포넌트만 설치할 때.</td><td>plugin install과 full manual install을 겹치면 중복 hook/skill 문제가 생길 수 있습니다.</td></tr>
+          <tr><td>Minimal/no-hooks path</td><td>rules/agents/commands/core skills만 사용하고 hooks-runtime 제외.</td><td>낮은 context, local model, 제약이 적은 실험 환경.</td><td>품질 게이트와 session hook 이점은 줄어듭니다.</td></tr>
+          <tr><td>Cross-harness adapters</td><td>Cursor, Codex, OpenCode, Gemini, Qwen, Antigravity 등 target별 adapter.</td><td>팀이 여러 AI coding tool을 섞어 쓸 때.</td><td>각 harness의 로딩 규칙/권한 모델이 달라서 설치 후 실제 동작 검증 필요.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>8.4 동작 방식</h3>
+      <ol>
+        <li><strong>설치 계획 생성:</strong> profile, target, module, capability에 따라 설치할 agents/skills/rules/hooks/commands를 결정합니다.</li>
+        <li><strong>Harness에 자산 배치:</strong> Claude Code, Cursor, Codex, OpenCode 등 각 도구가 인식하는 위치에 markdown/config/script 파일을 복사합니다.</li>
+        <li><strong>SessionStart:</strong> 이전 context, package manager, project state 등을 로딩해 작업 시작 context를 강화합니다.</li>
+        <li><strong>Prompt/command/skill 실행:</strong> 사용자가 <code>/ecc:plan</code>, <code>tdd-workflow</code>, <code>security-review</code> 등을 호출하면 해당 skill/agent/rule이 harness context에 들어갑니다.</li>
+        <li><strong>PreToolUse:</strong> Bash/Edit/Write 등 도구 실행 전에 dev server, git commit, secret, doc file, compact threshold 등을 검사합니다. block 가능한 hook은 exit code 2로 막습니다.</li>
+        <li><strong>PostToolUse:</strong> edit 후 formatting, typecheck, console.log warning, build analysis, quality gate 같은 후처리를 수행합니다.</li>
+        <li><strong>Stop/SessionEnd:</strong> session summary, cost telemetry, pattern extraction, memory persistence를 처리합니다.</li>
+        <li><strong>Continuous Learning:</strong> 반복되는 패턴을 instinct/skill로 추출하고 confidence/import/export/evolve workflow로 재사용합니다.</li>
+      </ol>
+
+      <div class="diagram">ECC 기반 개발 세션 흐름
+
+Developer prompt
+  └─ Claude Code / Cursor / Codex harness
+      ├─ Rules loaded: common + language-specific
+      ├─ Skill selected: tdd-workflow / security-review / backend-patterns
+      ├─ Subagent delegated: planner / code-reviewer / build-error-resolver
+      ├─ PreToolUse hook: block/warn risky actions
+      ├─ Tool executes: Edit / Bash / Write / MCP
+      ├─ PostToolUse hook: format/typecheck/quality-gate
+      ├─ Stop hook: session summary + pattern extraction
+      └─ Next session: memory/context reloaded</div>
+
+      <h3>8.5 핵심 기능 상세</h3>
+      <div class="grid cols-2">
+        <div class="card">
+          <h4>Skills-first workflow</h4>
+          <p>ECC는 commands를 유지하지만 신규 workflow는 skills에 두는 흐름입니다. TDD, verification-loop, security-review, backend/frontend patterns처럼 반복 가능한 작업을 <code>SKILL.md</code>로 제공하여 특정 상황에서 자동/수동으로 끌어옵니다.</p>
+        </div>
+        <div class="card">
+          <h4>Hook runtime</h4>
+          <p>PreToolUse/PostToolUse/Stop/SessionStart/PreCompact 등 이벤트 기반 자동화를 제공합니다. 예를 들어 tool 실행 전 차단, edit 후 formatting/typecheck, response 종료 후 session summary와 pattern extraction이 가능합니다.</p>
+        </div>
+        <div class="card">
+          <h4>Rules as persistent policy</h4>
+          <p>common과 language-specific rules로 항상 따라야 하는 지침을 구성합니다. C# 전용 rules는 공개 표면에서 핵심 지원 언어로 보이지 않으므로 직접 추가하거나 common/performance/security rules를 변환하는 것이 좋습니다.</p>
+        </div>
+        <div class="card">
+          <h4>AgentShield</h4>
+          <p>CLAUDE.md, settings.json, MCP configs, hooks, agent definitions, skills를 대상으로 secret, permission, hook injection, MCP risk, agent config review를 수행합니다. CI gate로 넣기 좋습니다.</p>
+        </div>
+        <div class="card">
+          <h4>Continuous Learning v2</h4>
+          <p><code>/instinct-status</code>, <code>/instinct-import</code>, <code>/instinct-export</code>, <code>/evolve</code>를 통해 반복 패턴을 instincts로 관리하고 skill로 군집화합니다. 개발 조직의 “경험 축적” 레이어로 쓸 수 있습니다.</p>
+        </div>
+        <div class="card">
+          <h4>Cross-harness portability</h4>
+          <p>Claude Code native를 중심으로 Cursor, Codex, OpenCode, Gemini, GitHub Copilot 등 다양한 harness에 assets를 맞춰 배포합니다. 도구별 prompt/rule/agent 포맷 차이를 완충합니다.</p>
+        </div>
+      </div>
+
+      <h3>8.6 장점</h3>
+      <ul>
+        <li><strong>즉시 쓸 수 있는 개발 워크플로우 패키지:</strong> planner, architect, TDD, review, build-fix, security-scan, docs update 같은 실제 개발 흐름이 준비되어 있습니다.</li>
+        <li><strong>Hook 기반 자동 품질 게이트:</strong> agent가 도구를 실행하기 전후에 품질/보안 정책을 걸 수 있어 “프롬프트로만 통제”하는 것보다 강합니다.</li>
+        <li><strong>팀 표준화에 적합:</strong> skills/rules/hooks를 팀 공통 baseline으로 만들면 개발자별 prompt 편차를 줄일 수 있습니다.</li>
+        <li><strong>보안 문제를 명시적으로 다룸:</strong> security guide와 AgentShield가 있어 agent harness 공급망, MCP, hooks, memory, prompt injection 위험을 점검할 수 있습니다.</li>
+        <li><strong>multi-harness 지원:</strong> Claude Code만 쓰지 않는 팀에서도 Cursor/Codex/OpenCode에 유사한 표준을 배포할 수 있습니다.</li>
+        <li><strong>설치/복구/상태 점검 스크립트:</strong> doctor, repair, uninstall, list-installed 등 운영 편의가 있습니다.</li>
+      </ul>
+
+      <h3>8.7 단점과 리스크</h3>
+      <ul>
+        <li><strong>제품 runtime이 아님:</strong> API server, multi-tenant DB, billing, RBAC를 제공하는 Agno식 platform이 아닙니다. 제품 기능에는 별도 backend가 필요합니다.</li>
+        <li><strong>Context bloat:</strong> agents/skills/rules/MCP를 너무 많이 켜면 context window와 tool description 비용이 커집니다. README도 MCP 수와 tool 수를 제한하라고 권장합니다.</li>
+        <li><strong>Hook 충돌/과잉 차단:</strong> hook은 유용하지만 정상 작업을 막을 수 있습니다. 실제로 과거 버전에서 .md 작성 hook이 docs 파일까지 막은 이슈가 있었습니다.</li>
+        <li><strong>공급망 리스크:</strong> skills, hooks, rules, external links, MCP configs는 모두 agent prompt/action surface입니다. 일반 코드 dependency처럼 review해야 합니다.</li>
+        <li><strong>수치/버전 표기 혼재:</strong> README, release note, plugin.json의 count가 서로 다를 수 있습니다. 설치 후 실제 표면을 확인해야 합니다.</li>
+        <li><strong>언어별 편차:</strong> TypeScript/Python/Go/Java/Kotlin/Rust 등은 확장되어 있지만 C# 전용 rule/skill은 직접 보강이 필요할 가능성이 큽니다.</li>
+      </ul>
+
+      <h3>8.8 C# 프로젝트에 맞춘 적용 방안</h3>
+      <table>
+        <thead><tr><th>적용 단계</th><th>권장 작업</th><th>구체적 설정</th><th>성공 기준</th></tr></thead>
+        <tbody>
+          <tr><td>1단계: Minimal</td><td>hook 없이 common rules + custom C# rules + tdd/verification/security skills만 적용.</td><td><code>--profile minimal</code> 또는 수동 복사. <code>rules/common</code> 기반으로 <code>rules/csharp</code> 작성.</td><td>기존 개발 흐름 방해 없이 plan/review 품질 향상.</td></tr>
+          <tr><td>2단계: Hook standard</td><td>format/typecheck/test/security warning hook을 C# 도구에 맞게 변경.</td><td><code>dotnet format</code>, <code>dotnet test</code>, <code>dotnet build -warnaserror</code>, Roslyn analyzer, BenchmarkDotNet gate.</td><td>잘못된 코드가 merge 전 잡히고 false positive가 낮음.</td></tr>
+          <tr><td>3단계: Agent roles</td><td>C# reviewer, performance reviewer, memory/GC reviewer, OpenGL/graphics reviewer agent 추가.</td><td><code>agents/csharp-performance-reviewer.md</code>, <code>skills/dotnet-zero-allocation/</code>, <code>skills/opengl-csharp-rendering/</code>.</td><td>리뷰에서 allocation, Span/Memory, pooling, async overhead, GPU resource lifecycle을 잡아냄.</td></tr>
+          <tr><td>4단계: CI AgentShield</td><td>ECC/Claude settings, hooks, MCP config, skill/rule 파일을 PR마다 스캔.</td><td><code>npx ecc-agentshield scan --format json</code> 결과를 CI artifact로 저장.</td><td>위험 hook/MCP/secret 변경이 자동 감지됨.</td></tr>
+          <tr><td>5단계: Team rollout</td><td>developer workstation, devcontainer, CI에 같은 agent harness baseline을 배포.</td><td>repo-local <code>.claude/</code>, devcontainer image, install-state, version pinning.</td><td>팀원별 Claude Code 품질 편차 감소, 작업 재현성 증가.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>8.9 ECC와 Ruflo를 같이 쓸 때의 판단</h3>
+      <details open>
+        <summary>둘 다 Claude Code 강화 계열인데 무엇이 다른가?</summary>
+        <p><strong>Ruflo</strong>는 agent swarm/orchestration, memory, MCP tool surface, multi-agent execution에 더 무게가 있습니다. “여러 agent가 일을 나눠 수행한다”는 실행형 구조입니다.</p>
+        <p><strong>ECC</strong>는 skills/rules/hooks/commands/installer/security scanner를 통해 “Claude Code/Codex/Cursor가 더 잘 일하도록 환경을 표준화한다”는 운영형 구조입니다.</p>
+        <p>함께 쓴다면 ECC는 <strong>baseline policy + skill/rule/hook</strong>, Ruflo는 <strong>특정 고난도 작업의 orchestration</strong>으로 제한하는 것이 좋습니다. 둘 다 full 권한으로 hook과 command를 설치하면 충돌 위험이 있습니다.</p>
+      </details>
+    </section>
+
+    <section id="feature-map" class="pagebreak">
+      <h2>9. 기능별 차이 상세</h2>
+      <table>
+        <thead><tr><th>기능 영역</th><th>Ruflo</th><th>Agno</th><th>Hermes-Agent</th><th>Everything Claude Code</th><th>실무 판단</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Agent orchestration</td>
+            <td>swarm/hive-mind 중심. 여러 specialized agent 병렬/계층 실행.</td>
+            <td>Agent/Team/Workflow. 제품 workflow에 맞게 코드로 구성.</td>
+            <td>AIAgent 중심 + subagent/delegation. 자율 assistant 성격.</td>
+            <td>subagents는 있지만 runtime보다 harness 표준화 성격.</td>
+            <td>코딩 분해는 Ruflo, 제품 업무 프로세스는 Agno, 개인 자동화는 Hermes, 팀 개발 표준은 ECC.</td>
+          </tr>
+          <tr>
+            <td>Memory</td>
+            <td>vector/HNSW/AgentDB/knowledge graph 등 고급 memory 지향.</td>
+            <td>DB-backed memory/session/knowledge. 제품 데이터 모델과 연결하기 좋음.</td>
+            <td>curated memory + session recall. 개인화/반복업무에 좋음.</td>
+            <td>SessionStart/Stop/PreCompact와 instincts/skills로 개발 지식 저장.</td>
+            <td>상용 서비스 memory는 Agno DB 모델이 가장 통제하기 쉽고, 개발 지식 축적은 ECC가 좋음.</td>
+          </tr>
+          <tr>
+            <td>Tools</td>
+            <td>MCP tool surface가 큼. Claude Code와 강하게 연결.</td>
+            <td>toolkits/custom tools/MCP/HITL. 업무 도구로 포장하기 쉬움.</td>
+            <td>terminal/browser/web/media/gateway toolsets. 실행력이 강함.</td>
+            <td>도구 직접 실행보다 hooks/commands/MCP configs로 실행 전후를 제어.</td>
+            <td>권한이 큰 tool은 Hermes/Ruflo에서 특히 sandbox 필요. ECC hook은 방어/품질 게이트로 활용.</td>
+          </tr>
+          <tr>
+            <td>UI/운영</td>
+            <td>CLI/plugin/Web UI beta/Goal Planner UI.</td>
+            <td>AgentOS Control Plane + Production API.</td>
+            <td>TUI, messaging gateway, OpenAI-compatible API, cron.</td>
+            <td>Dashboard GUI, installer, doctor/status/uninstall scripts, harness adapters.</td>
+            <td>상용 운영 콘솔은 Agno, 개발 환경 관리 콘솔은 ECC, 개인/운영 interaction은 Hermes.</td>
+          </tr>
+          <tr>
+            <td>Security model</td>
+            <td>federation trust, signatures, PII pipeline 등 문서상 풍부.</td>
+            <td>JWT RBAC, audit logs, approval, own cloud.</td>
+            <td>skill/memory scan, sandbox backend, profile isolation.</td>
+            <td>AgentShield, hooks, deny rules, sandbox/least agency guidance.</td>
+            <td>제품 사용자 권한 모델은 Agno가 자연스럽고, ECC는 development harness 보안 baseline에 좋음.</td>
+          </tr>
+          <tr>
+            <td>Extensibility</td>
+            <td>plugins/MCP/agents로 확장.</td>
+            <td>Python class/function/toolkit/db/model/provider로 확장.</td>
+            <td>skills/plugins/toolsets/gateways/providers로 확장.</td>
+            <td>Markdown skills/agents/rules와 Node hooks/scripts로 확장.</td>
+            <td>C#에서는 모두 out-of-process adapter가 현실적. ECC는 repo assets로 소비.</td>
+          </tr>
+          <tr>
+            <td>학습/자기개선</td>
+            <td>self-learning memory, neural modules, reasoning bank 지향.</td>
+            <td>memory/learn/evals/tracing 기반. 제품 품질 관리에 적합.</td>
+            <td>skills/memory를 스스로 만들고 수정하는 procedural learning.</td>
+            <td>continuous-learning-v2 instincts + evolve to skills.</td>
+            <td>자동 자기개선은 반드시 review gate가 있어야 함. ECC/EHermes 계열은 skill/memory diff review 필수.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <details open>
+        <summary>네 저장소의 근본적 차이</summary>
+        <p><strong>Ruflo</strong>는 “개발자를 대신해/보조해 여러 agent가 코드 작업을 분해하는 실행형 orchestration system”에 가깝습니다.</p>
+        <p><strong>Agno</strong>는 “내 서비스에 agent 기능을 API로 제공하는 platform SDK”에 가깝습니다.</p>
+        <p><strong>Hermes-Agent</strong>는 “나를 대신해 계속 배우며 작업하는 장기 실행 assistant”에 가깝습니다.</p>
+        <p><strong>Everything Claude Code</strong>는 “Claude Code/Codex/Cursor 같은 agent harness를 팀 표준에 맞게 강화하는 운영 패키지”에 가깝습니다.</p>
+      </details>
+    </section>
+
+    <section id="csharp" class="pagebreak">
+      <h2>10. C# 프로젝트 적용 전략</h2>
+      <p>사용자의 주력 기술이 C#이고 성능/GC/zero-copy를 중요하게 본다면, Python/Node agent framework를 C# 프로세스 내부에 억지로 넣으면 안 됩니다. <strong>Agent runtime은 별도 프로세스 또는 컨테이너</strong>로 분리하고 C#은 고성능 host/gateway 역할을 맡기는 구조가 좋습니다.</p>
+
+      <h3>10.1 권장 전체 아키텍처</h3>
+      <div class="diagram">C# Product / Tool / Desktop App
+   │
+   ├─ UI: Blazor / WPF / WinUI / Avalonia / Web
+   ├─ Core: domain logic, rendering, simulation, business rules
+   ├─ Agent Gateway Adapter
+   │    ├─ HttpClient + SSE streaming
+   │    ├─ System.Text.Json source generation
+   │    ├─ bounded Channel&lt;AgentEvent&gt;
+   │    ├─ audit log / approval policy
+   │    └─ timeout / retry / circuit breaker
+   │
+   ├────────────── internal network / local process boundary ──────────────┐
+   │                                                                         │
+   ▼                                                                         ▼
+Agno AgentOS Service                    Dev/Ops Agent Runtime
+   ├─ product agents                       ├─ ECC baseline in repo/devcontainer
+   ├─ workflows                            ├─ Ruflo dev swarm for selected tasks
+   ├─ memory/session DB                    ├─ Hermes internal ops assistant
+   └─ RBAC/HITL/tracing                    └─ sandbox terminal + hooks + skills
+
+Storage Layer
+   ├─ PostgreSQL: sessions, tenants, approvals, audit
+   ├─ Redis/NATS: event bus / job queue
+   ├─ Vector DB: knowledge search
+   └─ Object Store: artifacts/files</div>
+
+      <h3>10.2 C# 쪽 추상화</h3>
+      <pre><code>public interface IAgentRuntime
+{
+    IAsyncEnumerable&lt;AgentEvent&gt; RunAsync(
+        AgentRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+public readonly record struct AgentRequest(
+    string Runtime,        // "agno", "ruflo", "hermes", "ecc"
+    string AgentId,
+    string UserId,
+    string SessionId,
+    ReadOnlyMemory&lt;byte&gt; PayloadUtf8);
+
+public readonly record struct AgentEvent(
+    AgentEventType Type,
+    long Sequence,
+    ReadOnlyMemory&lt;byte&gt; PayloadUtf8);
+
+public enum AgentEventType
+{
+    TextDelta,
+    ToolCallRequested,
+    ToolCallApproved,
+    ToolResult,
+    MemoryWrite,
+    Error,
+    Completed
+}</code></pre>
+
+      <p>Payload를 문자열 객체로 계속 변환하지 말고 <code>ReadOnlyMemory&lt;byte&gt;</code> 중심으로 두면 JSON/SSE 파싱 경로에서 불필요한 allocation을 줄일 수 있습니다. UI에 표시할 때만 필요한 만큼 decode합니다.</p>
+
+      <h3>10.3 Zero-copy / 저할당 네트워크 처리 포인트</h3>
+      <ul>
+        <li><strong><code>System.Text.Json</code> source generator:</strong> reflection 기반 serializer 대신 compile-time metadata 사용.</li>
+        <li><strong><code>Utf8JsonReader</code>:</strong> hot path에서 DOM 파싱(<code>JsonDocument</code>)을 남발하지 않고 streaming parse.</li>
+        <li><strong><code>PipeReader</code>:</strong> SSE/streaming 응답을 chunk 단위로 읽고, line/event boundary만 잘라 처리.</li>
+        <li><strong><code>Channel&lt;T&gt;</code>:</strong> agent event를 bounded channel로 흘려 backpressure를 명확히.</li>
+        <li><strong><code>ArrayPool&lt;byte&gt;</code> / <code>MemoryPool&lt;byte&gt;</code>:</strong> 대형 tool result, file diff, trace payload 처리 시 버퍼 재사용.</li>
+        <li><strong><code>ValueTask</code>:</strong> 동기 완료가 잦은 adapter path에서 task allocation 감소.</li>
+        <li><strong>프로세스 격리:</strong> AI agent의 memory leak/GC/의존성 문제를 C# 앱 성능 경로에서 분리.</li>
+      </ul>
+
+      <h3>10.4 Framework별 C# 연결 방식</h3>
+      <table>
+        <thead><tr><th>Framework</th><th>C# 연결 방식</th><th>권장 인터페이스</th><th>핫패스 주의점</th></tr></thead>
+        <tbody>
+          <tr><td>Agno</td><td>AgentOS HTTP/SSE API 호출. 제품 기능으로 가장 적합.</td><td><code>AgnoAgentRuntime : IAgentRuntime</code></td><td>SSE stream parser, timeout, cancellation, tenant auth, DB consistency.</td></tr>
+          <tr><td>Ruflo</td><td>CLI/MCP bridge. 개발 자동화나 내부 도구용.</td><td><code>RufloCliRuntime</code> 또는 <code>McpToolRuntime</code></td><td>작업 디렉터리 격리, git branch, tool approval, stdout/stderr streaming.</td></tr>
+          <tr><td>Hermes</td><td>OpenAI-compatible API/gateway/CLI. 내부 assistant나 sandbox 작업용.</td><td><code>HermesRuntime</code></td><td>terminal 권한, sandbox lifecycle, memory/skill auto-update audit.</td></tr>
+          <tr><td>ECC</td><td>제품 runtime adapter가 아니라 repo/devcontainer/CI assets로 적용.</td><td><code>EccCiRuntime</code> 또는 <code>AgentHarnessPolicy</code></td><td>hook 중복, rule context bloat, C# 전용 rule/skill 유지보수.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>10.5 C# 전용 ECC 확장 아이디어</h3>
+      <div class="grid cols-2">
+        <div class="card"><h4><code>skills/dotnet-zero-allocation/</code></h4><p><code>Span&lt;T&gt;</code>, <code>ReadOnlySpan&lt;T&gt;</code>, <code>Memory&lt;T&gt;</code>, pooling, source generator, ref struct, SIMD, <code>ValueTask</code>, async allocation 분석 절차를 skill화합니다.</p></div>
+        <div class="card"><h4><code>agents/csharp-performance-reviewer.md</code></h4><p>PR diff에서 boxing, LINQ hot path, closure allocation, async state machine, per-frame allocation, <code>string</code> concat, collection growth를 리뷰하는 agent를 추가합니다.</p></div>
+        <div class="card"><h4><code>hooks/dotnet-quality-gate</code></h4><p><code>dotnet build</code>, <code>dotnet test</code>, <code>dotnet format</code>, analyzer, BenchmarkDotNet baseline 비교를 hook/CI에 넣습니다.</p></div>
+        <div class="card"><h4><code>rules/csharp/performance.md</code></h4><p>GC 최소화, zero-copy API, OpenGL resource lifecycle, unsafe 사용 기준, exception hot path 금지, logging allocation 제한을 명문화합니다.</p></div>
+      </div>
+
+      <h3>10.6 적용 패턴</h3>
+      <div class="grid cols-2">
+        <div class="card"><h4>패턴 A — Product Agent Service</h4><p><strong>Agno 중심.</strong> C# 제품에서 “문서 Q&A”, “업무 자동화”, “고객 지원 agent”를 제공할 때 사용합니다.</p><ul><li>C# API Gateway가 사용자 인증/과금/권한 확인.</li><li>Agno AgentOS가 agent run 수행.</li><li>승인 필요한 tool은 C# UI로 approval event를 보냄.</li><li>모든 tool call과 결과를 audit table에 저장.</li></ul></div>
+        <div class="card"><h4>패턴 B — Development Harness Baseline</h4><p><strong>ECC 중심.</strong> C# repo에 rules/skills/hooks를 설치해 개발 품질을 표준화합니다.</p><ul><li>minimal profile부터 시작.</li><li>C# 전용 rules/skills를 추가.</li><li>CI에서 AgentShield와 dotnet quality gate 실행.</li><li>hook false positive를 측정하며 확대.</li></ul></div>
+        <div class="card"><h4>패턴 C — Development Swarm</h4><p><strong>Ruflo 중심.</strong> 개발 작업을 설계/구현/테스트/리뷰 agent로 나누어 진행할 때 사용합니다.</p><ul><li>작업 단위는 branch 또는 worktree로 격리.</li><li>Ruflo 결과는 patch proposal/PR comment로만 반영.</li><li>테스트와 static analysis를 통과해야 merge.</li><li>성능 관련 C# 변경은 benchmark job 필수.</li></ul></div>
+        <div class="card"><h4>패턴 D — Personal Ops Agent</h4><p><strong>Hermes 중심.</strong> 서버 상태 점검, 정기 리서치, 알림, 내부 봇에 적합합니다.</p><ul><li>Telegram/Discord gateway는 whitelist user만 허용.</li><li>shell은 Docker/SSH sandbox로 제한.</li><li>cron 결과는 C# dashboard로 webhook 전송.</li><li>skill/memory 변경은 주기적으로 diff review.</li></ul></div>
+      </div>
+    </section>
+
+    <section id="poc" class="pagebreak">
+      <h2>11. POC/검증 계획</h2>
+      <p>바로 전체 도입하지 말고 4주 POC로 검증하는 것이 안전합니다.</p>
+      <table>
+        <thead><tr><th>주차</th><th>목표</th><th>작업</th><th>합격 기준</th></tr></thead>
+        <tbody>
+          <tr><td>1주차</td><td>ECC minimal + C# custom rules 검증</td><td>테스트 repo에 ECC minimal 설치, <code>rules/csharp</code>, <code>skills/dotnet-zero-allocation</code> 초안 작성.</td><td>개발 흐름 방해 없이 리뷰 품질 향상. hook 없음.</td></tr>
+          <tr><td>2주차</td><td>Agno 제품 agent POC</td><td>C# API Gateway → Agno AgentOS SSE 연결, 간단한 문서 Q&A/업무 tool 구현.</td><td>P95 latency, cancellation, approval, audit log 정상 동작.</td></tr>
+          <tr><td>3주차</td><td>Ruflo/Hermes 내부 자동화 비교</td><td>동일한 “버그 분석 + 테스트 작성 + 리뷰” 작업을 Ruflo와 Hermes로 수행.</td><td>작업 시간, diff 품질, rollback 용이성, 보안 리스크 비교.</td></tr>
+          <tr><td>4주차</td><td>운영 hardening</td><td>AgentShield, sandbox, deny rule, token budget, memory governance, kill switch 구성.</td><td>위험 작업이 승인 없이 실행되지 않고 모든 tool call이 audit에 남음.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>측정 지표</h3>
+      <ul>
+        <li><strong>품질:</strong> 테스트 통과율, PR review comment 정확도, bug escape 감소.</li>
+        <li><strong>성능:</strong> C# hot path allocation 변화, build/test 시간, agent response P95/P99 latency.</li>
+        <li><strong>비용:</strong> task당 token/model cost, 실패/재시도 비용, MCP tool context overhead.</li>
+        <li><strong>보안:</strong> 승인 없이 실행된 shell/network/write 개수 0, secret 접근 0, sandbox escape 0.</li>
+        <li><strong>운영:</strong> 재현성, audit completeness, rollback 시간, hook false positive rate.</li>
+      </ul>
+    </section>
+
+    <section id="risks" class="pagebreak">
+      <h2>12. 리스크 체크리스트</h2>
+      <table>
+        <thead><tr><th>리스크</th><th>영향</th><th>주로 해당</th><th>대응</th></tr></thead>
+        <tbody>
+          <tr><td>Hook/rule 과잉 적용</td><td>정상 작업 차단, 개발자 불만, 우회 행동 증가</td><td>ECC, Ruflo</td><td>minimal profile부터 적용, false positive 로깅, override path 제공.</td></tr>
+          <tr><td>Tool 권한 과다</td><td>파일 삭제, secret 유출, shell/network 악용</td><td>Hermes, Ruflo, ECC, Agno</td><td>deny-by-default, sandbox, approval policy, short-lived scoped token.</td></tr>
+          <tr><td>Memory poisoning</td><td>장기적으로 잘못된 지침/악성 지침이 재사용</td><td>Hermes, ECC, Ruflo, Agno</td><td>memory TTL, source attribution, review status, untrusted workflow memory 격리.</td></tr>
+          <tr><td>MCP context/cost 폭증</td><td>context window 감소, 비용 증가, latency 증가</td><td>ECC, Ruflo, Agno</td><td>활성 MCP/tool 수 제한, CLI wrapper로 대체, 필요한 경우에만 enable.</td></tr>
+          <tr><td>버전/문서 불일치</td><td>설치 실패, 기능 누락, 자동화 스크립트 오류</td><td>Ruflo, ECC</td><td>version pinning, doctor/list-installed, lockfile, POC 설치 로그 저장.</td></tr>
+          <tr><td>Python/Node 운영 복잡도</td><td>C# 제품 장애 원인 증가</td><td>Agno, Hermes, Ruflo, ECC scripts</td><td>별도 컨테이너/프로세스, health check, resource limit, circuit breaker.</td></tr>
+          <tr><td>자동 agent 결과 무검증 merge</td><td>품질/보안 사고</td><td>모두</td><td>human review, CI gate, test/benchmark/security scan, staged rollout.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout bad">
+        <strong>절대 하지 말아야 할 것:</strong> agent에게 host machine root 권한, 개인 GitHub/Gmail/Slack 계정, production secret, unrestricted shell/network를 동시에 주지 마세요.
+        agent가 읽는 외부 문서/이슈/PR/첨부파일은 모두 prompt injection surface입니다.
+      </div>
+    </section>
+
+
+    <section id="codex-cli" class="pagebreak">
+      <h2>13. Codex CLI 적용 가능성 및 적용 방법</h2>
+
+      <div class="callout good">
+        <strong>판정:</strong> 적용 가능합니다. 다만 <strong>Claude Code용 파일을 그대로 복사하는 방식</strong>이 아니라,
+        Everything Claude Code(ECC)의 <strong>skills/rules/MCP/workflow 개념</strong>을 Codex CLI의
+        <code>AGENTS.md</code>, <code>.agents/skills</code>, <code>.codex/config.toml</code>,
+        <code>.codex/hooks.json</code>, <code>.codex/agents</code>, plugin 구조로 옮기는 방식이 안전합니다.
+      </div>
+
+      <p>
+        Codex CLI는 로컬 터미널에서 실행되는 OpenAI coding agent이며, 선택한 디렉터리의 코드를 읽고 수정하고 명령을 실행할 수 있습니다.
+        공식 확장 표면은 <strong>AGENTS.md 기반 프로젝트 지시문</strong>, <strong>skills</strong>, <strong>hooks</strong>,
+        <strong>MCP</strong>, <strong>subagents</strong>, <strong>plugins</strong>, <strong>codex exec 자동화</strong>,
+        <strong>app-server 임베딩</strong>으로 나눌 수 있습니다. 따라서 ECC를 Codex에 적용할 때는 “에이전트 하네스 자산 변환” 관점으로 접근해야 합니다.
+      </p>
+
+      <h3>13.1 한 줄 결론</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>결론</th>
+            <th>이유</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>ECC 전체를 Codex CLI에 그대로 적용</td>
+            <td><span class="bad-text"><strong>비추천</strong></span></td>
+            <td>Claude Code 전용 hook/command/agent 포맷과 Codex 포맷이 다릅니다. 그대로 복사하면 중복 지시, 잘못된 hook 출력, context 낭비가 생깁니다.</td>
+          </tr>
+          <tr>
+            <td>ECC skills를 Codex skill로 적용</td>
+            <td><span class="good-text"><strong>적합</strong></span></td>
+            <td>Codex는 <code>SKILL.md</code> 기반 skills를 공식 지원하고, 저장 위치도 <code>.agents/skills</code>를 사용합니다.</td>
+          </tr>
+          <tr>
+            <td>ECC rules를 Codex 지시문/권한 정책으로 적용</td>
+            <td><span class="good-text"><strong>적합</strong></span></td>
+            <td>코딩 규칙은 <code>AGENTS.md</code>에 넣고, 실제 실행 권한은 <code>approval_policy</code>, <code>sandbox_mode</code>, rules/hooks로 분리합니다.</td>
+          </tr>
+          <tr>
+            <td>ECC hooks를 Codex hooks로 적용</td>
+            <td><span class="warn-text"><strong>변환 필요</strong></span></td>
+            <td>Codex hooks는 공식 지원되지만 event schema와 stdout JSON shape가 다릅니다. hook script의 입출력 어댑터가 필요합니다.</td>
+          </tr>
+          <tr>
+            <td>ECC slash commands를 Codex에 적용</td>
+            <td><span class="warn-text"><strong>부분 적용</strong></span></td>
+            <td>Codex custom prompts는 slash command처럼 쓸 수 있지만 deprecated입니다. 장기적으로는 command를 skill로 바꾸는 편이 맞습니다.</td>
+          </tr>
+          <tr>
+            <td>ECC MCP 설정을 Codex MCP로 적용</td>
+            <td><span class="good-text"><strong>적합</strong></span></td>
+            <td>Codex는 <code>config.toml</code>의 <code>[mcp_servers.*]</code>와 <code>codex mcp add</code>를 지원합니다.</td>
+          </tr>
+          <tr>
+            <td>C# 제품에 Codex를 내장</td>
+            <td><span class="warn-text"><strong>가능하지만 격리 필요</strong></span></td>
+            <td>Codex CLI는 프로세스/JSONL/app-server/MCP adapter로 붙이고, C# 본체는 sandbox, approval, audit, diff review를 담당해야 합니다.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>13.2 ECC 구성 요소를 Codex CLI로 매핑하는 표</h3>
+      <table class="matrix">
+        <thead>
+          <tr>
+            <th>ECC 자산</th>
+            <th>Codex CLI 대응 표면</th>
+            <th>적용 방법</th>
+            <th>주의점</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>rules/common</strong><br><strong>rules/language</strong></td>
+            <td><code>AGENTS.md</code>, <code>.codex/config.toml</code>, rules/approval</td>
+            <td>일반 개발 원칙은 <code>AGENTS.md</code>에, 위험 명령 통제는 권한/승인/훅으로 분리합니다.</td>
+            <td><code>AGENTS.md</code>는 지시문이지 강제 sandbox가 아닙니다. 보안은 config와 hook에서 다시 잡아야 합니다.</td>
+          </tr>
+          <tr>
+            <td><strong>skills/*/SKILL.md</strong></td>
+            <td><code>.agents/skills/&lt;skill&gt;/SKILL.md</code></td>
+            <td>거의 그대로 가져오되 frontmatter의 <code>name</code>, <code>description</code>을 Codex trigger 관점으로 짧고 명확하게 다듬습니다.</td>
+            <td>skill 수가 너무 많으면 초기 skill list가 context를 잡아먹습니다. 프로젝트별로 5~15개부터 시작하세요.</td>
+          </tr>
+          <tr>
+            <td><strong>skills/*/agents/openai.yaml</strong></td>
+            <td>Codex skill optional metadata</td>
+            <td>UI 이름, implicit invocation 제한, MCP dependency 등을 정의할 수 있습니다.</td>
+            <td>핵심은 <code>SKILL.md</code>입니다. metadata는 보조입니다.</td>
+          </tr>
+          <tr>
+            <td><strong>agents/*.md</strong></td>
+            <td><code>.codex/agents/*.toml</code>, <code>[agents.&lt;name&gt;]</code></td>
+            <td>Claude subagent prompt를 Codex custom agent TOML로 변환합니다.</td>
+            <td>Codex subagent는 명시적으로 요청해야 spawn됩니다. 자동 분기 오케스트레이션을 기대하면 안 됩니다.</td>
+          </tr>
+          <tr>
+            <td><strong>hooks/*.json</strong><br><strong>scripts/hooks/*</strong></td>
+            <td><code>.codex/hooks.json</code>, <code>[features] codex_hooks = true</code></td>
+            <td>hook event와 matcher를 Codex 포맷으로 바꾸고, script는 Codex stdin JSON을 읽도록 수정합니다.</td>
+            <td><code>PreToolUse</code>는 완전한 보안 경계가 아닙니다. sandbox/approval/rules와 같이 써야 합니다.</td>
+          </tr>
+          <tr>
+            <td><strong>commands/*.md</strong></td>
+            <td>권장: skills<br>보조: <code>~/.codex/prompts/*.md</code></td>
+            <td><code>/plan</code>, <code>/review</code>, <code>/security-scan</code> 같은 명령은 재사용 skill로 바꾸는 편이 좋습니다.</td>
+            <td>Codex custom prompts는 deprecated입니다. 개인 단축키 용도만 권장합니다.</td>
+          </tr>
+          <tr>
+            <td><strong>mcp-configs/*</strong></td>
+            <td><code>[mcp_servers.&lt;name&gt;]</code>, plugin <code>.mcp.json</code></td>
+            <td>서버별 command/args/env를 <code>~/.codex/config.toml</code> 또는 프로젝트 <code>.codex/config.toml</code>에 옮깁니다.</td>
+            <td>토큰/API 키는 env allowlist 정책과 secret 관리로 분리하세요.</td>
+          </tr>
+          <tr>
+            <td><strong>plugin packaging</strong></td>
+            <td><code>.codex-plugin/plugin.json</code>, marketplace JSON</td>
+            <td>안정화된 skills/MCP/hooks 묶음을 plugin으로 패키징해 팀 배포합니다.</td>
+            <td>초기에는 plugin보다 repo-local skills/config가 단순합니다.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>13.3 Codex CLI 적용 절차</h3>
+
+      <h4>1단계 — Codex CLI 설치 및 기본 실행</h4>
+      <pre><code># npm
+npm i -g @openai/codex
+
+# 또는 Homebrew
+brew install --cask codex
+
+# 프로젝트 루트에서 실행
+cd /path/to/your-repo
+codex</code></pre>
+
+      <h4>2단계 — 프로젝트에 Codex용 기본 디렉터리 생성</h4>
+      <pre><code>mkdir -p .codex/agents
+mkdir -p .codex/hooks
+mkdir -p .agents/skills
+mkdir -p .agents/plugins
+mkdir -p plugins</code></pre>
+
+      <p>
+        <code>.codex</code>는 Codex 설정/agent/hook에, <code>.agents/skills</code>는 repo-scoped skill에,
+        <code>.agents/plugins</code>는 repo-scoped plugin marketplace에 사용합니다.
+      </p>
+
+      <h4>3단계 — <code>.codex/config.toml</code> 기본값 작성</h4>
+      <pre><code># .codex/config.toml
+# 프로젝트에 commit 가능한 Codex baseline.
+# 팀 정책이 강하면 read-only 또는 workspace-write + on-request를 기본값으로 둡니다.
+
+model = &quot;gpt-5.5&quot;
+approval_policy = &quot;on-request&quot;
+sandbox_mode = &quot;workspace-write&quot;
+allow_login_shell = false
+
+[features]
+codex_hooks = true
+
+[agents]
+max_threads = 6
+max_depth = 1
+
+[sandbox_workspace_write]
+network_access = false
+
+[shell_environment_policy]
+inherit = &quot;core&quot;
+ignore_default_excludes = false
+exclude = [
+  &quot;AWS_*&quot;,
+  &quot;AZURE_*&quot;,
+  &quot;GITHUB_TOKEN&quot;,
+  &quot;OPENAI_API_KEY&quot;,
+  &quot;*_TOKEN&quot;,
+  &quot;*_SECRET&quot;,
+  &quot;*_PASSWORD&quot;
+]
+
+# 예: Context7 MCP
+[mcp_servers.context7]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@upstash/context7-mcp&quot;]</code></pre>
+
+      <div class="callout warn">
+        <strong>권장:</strong> 개발자는 <code>~/.codex/config.toml</code>에 개인 모델/토큰/개인 MCP를 두고,
+        repository에는 최소한의 안전 baseline만 둡니다. 프로젝트 config는 trusted project일 때만 로드되므로, 낯선 저장소에서는 신뢰 설정을 먼저 확인해야 합니다.
+      </div>
+
+      <h4>4단계 — <code>AGENTS.md</code>로 프로젝트 작업 규칙 정의</h4>
+      <pre><code># AGENTS.md
+
+## Project identity
+- This is a C#/.NET project.
+- Prioritize correctness, deterministic behavior, allocation minimization, and maintainability.
+- Do not introduce new production dependencies without explicit justification.
+
+## Build and verification
+- After modifying C# files, run:
+  - dotnet build -c Release
+  - dotnet test -c Release
+- For performance-sensitive changes, add or update BenchmarkDotNet benchmarks.
+- For public APIs, update XML docs and usage examples.
+
+## C# performance policy
+- Prefer Span&lt;T&gt;, ReadOnlySpan&lt;T&gt;, Memory&lt;T&gt;, ReadOnlyMemory&lt;T&gt; where ownership is clear.
+- Prefer ArrayPool&lt;T&gt; or ObjectPool&lt;T&gt; only when lifetime and clearing rules are explicit.
+- Avoid LINQ in hot paths.
+- Avoid hidden allocations from closures, async state machines, boxing, string interpolation, and params arrays in hot paths.
+- Prefer System.Text.Json source generation for stable DTOs.
+- Use Utf8JsonReader/Utf8JsonWriter for zero-copy JSON parsing/writing in high-throughput paths.
+- Use ValueTask only when it is measurably beneficial and API constraints are understood.
+- Do not use unsafe code unless there is a benchmark and a clear safety boundary.
+
+## Review behavior
+- Before editing, state the plan and risk.
+- Make minimal diffs.
+- Never rewrite unrelated files.
+- If tests fail, report the failing test and isolate the cause before broad refactoring.</code></pre>
+
+      <h3>13.4 ECC skills를 Codex skill로 변환</h3>
+      <p>
+        가장 먼저 가져올 것은 <strong>skills</strong>입니다. Codex의 skill은 <code>SKILL.md</code>를 중심으로 하고,
+        optional <code>scripts/</code>, <code>references/</code>, <code>assets/</code>, <code>agents/openai.yaml</code>를 둘 수 있습니다.
+      </p>
+
+      <h4>권장 변환 방식</h4>
+      <pre><code># 예: ECC의 verification-loop skill을 Codex 프로젝트 skill로 복사
+cp -R everything-claude-code/.agents/skills/verification-loop .agents/skills/verification-loop
+
+# 또는 직접 생성
+mkdir -p .agents/skills/dotnet-performance-review
+cat &gt; .agents/skills/dotnet-performance-review/SKILL.md &lt;&lt;&#x27;EOF&#x27;
+---
+name: dotnet-performance-review
+description: Use for C#/.NET code review focused on allocations, GC pressure, Span/Memory usage, async overhead, serialization, and BenchmarkDotNet validation.
+---
+
+# Dotnet Performance Review
+
+Use this skill when reviewing C# code for performance-sensitive paths.
+
+## Workflow
+1. Identify hot paths and expected throughput/latency constraints.
+2. Check for avoidable allocations:
+   - LINQ in loops
+   - closures and captures
+   - boxing
+   - string interpolation/logging allocations
+   - params array allocations
+   - async state machine overhead
+3. Prefer Span&lt;T&gt;/ReadOnlySpan&lt;T&gt; only when lifetime is safe.
+4. Prefer ArrayPool&lt;T&gt; only when buffers are returned in all paths.
+5. Require BenchmarkDotNet evidence for non-trivial optimization changes.
+6. Return findings grouped by correctness, allocation, CPU, API risk, and test coverage.
+EOF</code></pre>
+
+      <h4>skill 선별 원칙</h4>
+      <ul>
+        <li><strong>처음부터 ECC 전체 skills를 넣지 마세요.</strong> 초기 skill 목록이 길어져 context와 선택 정확도를 떨어뜨릴 수 있습니다.</li>
+        <li>프로젝트에 직접 효과가 있는 것부터 넣습니다: <code>verification-loop</code>, <code>security-review</code>, <code>tdd-workflow</code>, <code>coding-standards</code>, <code>backend-patterns</code>, <code>api-design</code>.</li>
+        <li>C# 프로젝트라면 별도 <code>dotnet-performance-review</code>, <code>dotnet-api-contract-review</code>, <code>dotnet-test-repair</code> skill을 만드는 것이 ECC 기본 skill보다 효과적입니다.</li>
+      </ul>
+
+      <h3>13.5 ECC agents를 Codex subagents/custom agents로 변환</h3>
+      <p>
+        Codex subagent는 복잡한 작업을 여러 specialized agent로 나눠 병렬 실행하고 결과를 통합하는 용도입니다.
+        Codex는 child agent를 자동으로 난사하지 않고, 사용자가 명시적으로 요청할 때 spawn하는 동작이 기본입니다.
+      </p>
+
+      <h4>Codex custom agent 예시</h4>
+      <pre><code># .codex/agents/dotnet_reviewer.toml
+
+name = &quot;dotnet_reviewer&quot;
+description = &quot;Review C#/.NET code for correctness, allocations, GC pressure, async overhead, API design, and tests.&quot;
+model = &quot;gpt-5.5&quot;
+model_reasoning_effort = &quot;high&quot;
+sandbox_mode = &quot;read-only&quot;
+
+developer_instructions = &quot;&quot;&quot;
+You are a senior C# performance reviewer.
+
+Review priorities:
+1. Correctness and race conditions.
+2. Allocation and GC pressure.
+3. Span&lt;T&gt;, Memory&lt;T&gt;, ArrayPool&lt;T&gt;, ObjectPool&lt;T&gt; lifetime safety.
+4. Async/await overhead and synchronization context risk.
+5. System.Text.Json source-generation and zero-copy opportunities.
+6. Test and benchmark gaps.
+
+Do not edit files. Return a structured review with:
+- Critical issues
+- Performance issues
+- API/design issues
+- Suggested minimal patches
+- Benchmark/test recommendations
+&quot;&quot;&quot;</code></pre>
+
+      <h4>사용 예시 prompt</h4>
+      <pre><code>Spawn dotnet_reviewer and security_reviewer subagents.
+Ask them to inspect the current diff independently.
+Then consolidate their findings into a prioritized fix plan.
+Do not edit files until the plan is complete.</code></pre>
+
+      <h3>13.6 ECC hooks를 Codex hooks로 변환</h3>
+      <p>
+        Codex hooks는 lifecycle 중 deterministic script를 실행하는 확장 표면입니다. 예를 들어 prompt secret scan,
+        Bash command policy, 작업 종료 시 validation, session memory 저장 등을 구현할 수 있습니다.
+      </p>
+
+      <h4>Codex hooks 활성화</h4>
+      <pre><code># .codex/config.toml
+[features]
+codex_hooks = true</code></pre>
+
+      <h4><code>.codex/hooks.json</code> 예시</h4>
+      <pre><code>{
+  &quot;hooks&quot;: {
+    &quot;PreToolUse&quot;: [
+      {
+        &quot;matcher&quot;: &quot;^Bash$&quot;,
+        &quot;hooks&quot;: [
+          {
+            &quot;type&quot;: &quot;command&quot;,
+            &quot;command&quot;: &quot;python3 \&quot;$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_policy.py\&quot;&quot;,
+            &quot;timeout&quot;: 30,
+            &quot;statusMessage&quot;: &quot;Checking Bash command policy&quot;
+          }
+        ]
+      }
+    ],
+    &quot;PostToolUse&quot;: [
+      {
+        &quot;matcher&quot;: &quot;^Bash$&quot;,
+        &quot;hooks&quot;: [
+          {
+            &quot;type&quot;: &quot;command&quot;,
+            &quot;command&quot;: &quot;python3 \&quot;$(git rev-parse --show-toplevel)/.codex/hooks/post_tool_review.py\&quot;&quot;,
+            &quot;timeout&quot;: 30,
+            &quot;statusMessage&quot;: &quot;Reviewing command result&quot;
+          }
+        ]
+      }
+    ],
+    &quot;Stop&quot;: [
+      {
+        &quot;hooks&quot;: [
+          {
+            &quot;type&quot;: &quot;command&quot;,
+            &quot;command&quot;: &quot;python3 \&quot;$(git rev-parse --show-toplevel)/.codex/hooks/stop_quality_gate.py\&quot;&quot;,
+            &quot;timeout&quot;: 60,
+            &quot;statusMessage&quot;: &quot;Running final quality gate&quot;
+          }
+        ]
+      }
+    ]
+  }
+}</code></pre>
+
+      <h4>PreToolUse hook script 예시</h4>
+      <pre><code>#!/usr/bin/env python3
+# .codex/hooks/pre_tool_policy.py
+import json
+import re
+import sys
+
+payload = json.load(sys.stdin)
+tool_input = payload.get(&quot;tool_input&quot;) or {}
+command = tool_input.get(&quot;command&quot;, &quot;&quot;)
+
+blocked_patterns = [
+    r&quot;\brm\s+-rf\s+/&quot;,
+    r&quot;\bgit\s+push\b&quot;,
+    r&quot;\bgit\s+push\s+--force\b&quot;,
+    r&quot;\bdotnet\s+nuget\s+push\b&quot;,
+    r&quot;\bsetx\s+.+TOKEN\b&quot;,
+    r&quot;\bchmod\s+-R\s+777\b&quot;,
+]
+
+for pattern in blocked_patterns:
+    if re.search(pattern, command):
+        print(json.dumps({
+            &quot;hookSpecificOutput&quot;: {
+                &quot;hookEventName&quot;: &quot;PreToolUse&quot;,
+                &quot;permissionDecision&quot;: &quot;deny&quot;,
+                &quot;permissionDecisionReason&quot;: f&quot;Blocked by repository policy: {pattern}&quot;
+            }
+        }))
+        sys.exit(0)
+
+# No output means allow normal Codex flow.
+sys.exit(0)</code></pre>
+
+      <div class="callout warn">
+        <strong>중요:</strong> hook은 편리한 guardrail이지만 완전한 보안 경계가 아닙니다.
+        Codex 문서 기준으로 <code>PreToolUse</code>는 Bash, <code>apply_patch</code>, MCP tool call을 intercept할 수 있지만
+        모든 shell/WebSearch/비-MCP 경로를 완전히 막는 것은 아닙니다. 실제 보안은 <code>sandbox_mode</code>,
+        <code>approval_policy</code>, network off, read-only mode, CI 격리와 함께 설계해야 합니다.
+      </div>
+
+      <h3>13.7 ECC commands를 Codex에 적용하는 방법</h3>
+      <p>
+        Claude Code의 <code>/plan</code>, <code>/security-scan</code>, <code>/multi-plan</code> 같은 command 자산은
+        Codex에서 <strong>skill로 재구성</strong>하는 것을 권장합니다. Codex custom prompts도 slash command처럼 쓸 수 있지만
+        공식적으로 deprecated이므로 장기 표준으로 삼기에는 부적합합니다.
+      </p>
+
+      <h4>개인 단축키가 꼭 필요한 경우: custom prompt</h4>
+      <pre><code>mkdir -p ~/.codex/prompts
+
+cat &gt; ~/.codex/prompts/dotnet-review.md &lt;&lt;&#x27;EOF&#x27;
+---
+description: C# allocation-aware review
+argument-hint: [FILES=&lt;paths&gt;] [FOCUS=&quot;&lt;topic&gt;&quot;]
+---
+
+Review the target C# files with focus on correctness, allocations, GC pressure,
+async overhead, System.Text.Json usage, Span&lt;T&gt;/Memory&lt;T&gt; lifetime safety,
+and BenchmarkDotNet coverage.
+
+Files: $FILES
+Focus: $FOCUS
+
+Return:
+1. Critical correctness issues
+2. Allocation and GC issues
+3. Suggested minimal patch
+4. Benchmark/test recommendations
+EOF
+
+# Codex CLI 안에서:
+# /prompts:dotnet-review FILES=&quot;src/**/*.cs&quot; FOCUS=&quot;hot path allocations&quot;</code></pre>
+
+      <h4>장기 권장: command를 skill로 변환</h4>
+      <ul>
+        <li><code>/plan</code> → <code>.agents/skills/implementation-plan/SKILL.md</code></li>
+        <li><code>/security-scan</code> → <code>.agents/skills/security-review/SKILL.md</code> + hook/CI scanner</li>
+        <li><code>/multi-plan</code> → Codex subagent prompt template + custom agents</li>
+        <li><code>/quality-gate</code> → <code>Stop</code> hook + <code>verification-loop</code> skill</li>
+        <li><code>/model-route</code> → Codex profiles 또는 subagent별 model 설정</li>
+      </ul>
+
+      <h3>13.8 MCP 적용: ECC MCP를 Codex MCP로 옮기기</h3>
+      <p>
+        Codex MCP는 <code>~/.codex/config.toml</code> 또는 trusted project의 <code>.codex/config.toml</code>에 둡니다.
+        CLI와 IDE extension이 같은 MCP 설정을 공유하므로, 프로젝트/개인 설정의 경계를 분리하는 것이 중요합니다.
+      </p>
+
+      <h4>MCP config 예시</h4>
+      <pre><code># ~/.codex/config.toml 또는 .codex/config.toml
+
+[mcp_servers.context7]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@upstash/context7-mcp&quot;]
+
+[mcp_servers.playwright]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@playwright/mcp@latest&quot;]
+
+[mcp_servers.github]
+command = &quot;npx&quot;
+args = [&quot;-y&quot;, &quot;@modelcontextprotocol/server-github&quot;]
+env_vars = [&quot;GITHUB_TOKEN&quot;]</code></pre>
+
+      <h4>CLI로 추가</h4>
+      <pre><code>codex mcp add context7 -- npx -y @upstash/context7-mcp
+
+# Codex TUI 안에서 확인
+# /mcp</code></pre>
+
+      <h3>13.9 plugin으로 팀 배포하기</h3>
+      <p>
+        skills와 MCP/hook 구성이 안정화되면 Codex plugin으로 묶어서 팀에 배포할 수 있습니다.
+        초기에는 repo-local skill로 충분하고, 여러 프로젝트에 반복 적용할 때 plugin이 유리합니다.
+      </p>
+
+      <h4>plugin 구조</h4>
+      <pre><code>dotnet-performance-agent-plugin/
+  .codex-plugin/
+    plugin.json
+  skills/
+    dotnet-performance-review/
+      SKILL.md
+    dotnet-test-repair/
+      SKILL.md
+  .mcp.json
+  hooks/
+    hooks.json
+  assets/
+    icon.png</code></pre>
+
+      <h4>plugin manifest 예시</h4>
+      <pre><code>{
+  &quot;name&quot;: &quot;dotnet-performance-agent&quot;,
+  &quot;version&quot;: &quot;0.1.0&quot;,
+  &quot;description&quot;: &quot;C#/.NET allocation-aware review, test repair, and quality gate workflows.&quot;,
+  &quot;skills&quot;: &quot;./skills/&quot;,
+  &quot;mcpServers&quot;: &quot;./.mcp.json&quot;,
+  &quot;hooks&quot;: &quot;./hooks/hooks.json&quot;,
+  &quot;interface&quot;: {
+    &quot;displayName&quot;: &quot;Dotnet Performance Agent&quot;,
+    &quot;shortDescription&quot;: &quot;C# performance review and verification workflows&quot;,
+    &quot;developerName&quot;: &quot;Your Team&quot;,
+    &quot;category&quot;: &quot;Productivity&quot;,
+    &quot;capabilities&quot;: [&quot;Read&quot;, &quot;Write&quot;]
+  }
+}</code></pre>
+
+      <h4>repo-local marketplace 예시</h4>
+      <pre><code># repository 구조
+.agents/plugins/marketplace.json
+plugins/dotnet-performance-agent/.codex-plugin/plugin.json
+
+# .agents/plugins/marketplace.json
+{
+  &quot;name&quot;: &quot;local-dotnet-agent-plugins&quot;,
+  &quot;interface&quot;: {
+    &quot;displayName&quot;: &quot;Local Dotnet Agent Plugins&quot;
+  },
+  &quot;plugins&quot;: [
+    {
+      &quot;name&quot;: &quot;dotnet-performance-agent&quot;,
+      &quot;source&quot;: {
+        &quot;source&quot;: &quot;local&quot;,
+        &quot;path&quot;: &quot;./plugins/dotnet-performance-agent&quot;
+      },
+      &quot;policy&quot;: {
+        &quot;installation&quot;: &quot;AVAILABLE&quot;,
+        &quot;authentication&quot;: &quot;ON_INSTALL&quot;
+      },
+      &quot;category&quot;: &quot;Productivity&quot;
+    }
+  ]
+}</code></pre>
+
+      <h3>13.10 <code>codex exec</code>로 CI/스크립트 자동화</h3>
+      <p>
+        대화형 TUI가 아니라 CI, pre-merge check, scheduled job, release note 생성 등에 쓰려면 <code>codex exec</code>를 사용합니다.
+      </p>
+
+      <h4>예시: 실패 테스트 자동 triage</h4>
+      <pre><code>codex exec \
+  --sandbox workspace-write \
+  --ask-for-approval on-request \
+  &quot;Run dotnet test -c Release. If tests fail, identify the smallest failing area and propose a minimal patch. Do not push or publish anything.&quot;</code></pre>
+
+      <h4>예시: JSONL 이벤트 스트리밍 저장</h4>
+      <pre><code>codex exec --json \
+  &quot;Review the current diff for C# allocation and API compatibility risks.&quot; \
+  2&gt; codex-progress.log \
+  | tee codex-final.md</code></pre>
+
+      <div class="callout warn">
+        <strong>CI 주의:</strong> CI에서 Codex를 쓰는 경우 repository write 권한, secret 노출, network access, PR comment 권한을 분리하세요.
+        “자동 수정 commit/push”는 초기에는 금지하고, report artifact 생성까지만 허용하는 것이 안전합니다.
+      </div>
+
+      <h3>13.11 C# 제품에 Codex CLI를 붙이는 통합 구조</h3>
+      <p>
+        C# 앱에 Codex를 직접 library처럼 넣는 것보다는 <strong>프로세스 격리 + JSONL/app-server adapter</strong> 방식이 현실적입니다.
+        C# 본체는 권한·세션·diff·audit를 통제하고, Codex는 작업 디렉터리 안에서 agent 작업을 수행하게 만듭니다.
+      </p>
+
+      <h4>권장 아키텍처</h4>
+      <div class="diagram">C# Product / IDE / Agent Workspace Terminal
+        │
+        ├─ IAgentRuntime
+        │   ├─ StartSessionAsync()
+        │   ├─ SendPromptAsync()
+        │   ├─ StreamEventsAsync()
+        │   ├─ RequestApprovalAsync()
+        │   └─ ApplyOrRejectPatchAsync()
+        │
+        ├─ CodexProcessAdapter
+        │   ├─ codex exec --json          # one-shot automation
+        │   ├─ codex app-server stdio     # long-running integration
+        │   └─ codex mcp-server           # orchestration from another agent runtime
+        │
+        ├─ Policy Layer
+        │   ├─ sandbox profile
+        │   ├─ approval policy
+        │   ├─ command denylist/allowlist
+        │   ├─ secret redaction
+        │   └─ audit log
+        │
+        └─ Workspace Isolation
+            ├─ temp git worktree
+            ├─ container or restricted user
+            ├─ network disabled by default
+            └─ explicit diff review before merge</div>
+
+      <h4>C# adapter 구현 포인트</h4>
+      <ul>
+        <li><strong>프로세스 실행:</strong> <code>System.Diagnostics.Process</code>로 <code>codex exec --json</code> 또는 <code>codex app-server --listen stdio://</code>를 실행합니다.</li>
+        <li><strong>스트리밍 파싱:</strong> stdout/stderr JSONL은 <code>System.Text.Json</code>의 <code>Utf8JsonReader</code> 또는 source-generated context로 처리합니다.</li>
+        <li><strong>zero-copy:</strong> event buffer는 <code>ArrayPool&lt;byte&gt;</code>, <code>PipeReader</code>, <code>ReadOnlySequence&lt;byte&gt;</code> 기반으로 파싱하면 GC 압력을 줄일 수 있습니다.</li>
+        <li><strong>diff review:</strong> Codex가 수정한 파일은 즉시 merge하지 말고 <code>git diff --name-only</code>, <code>git diff --stat</code>, <code>dotnet test</code> 결과를 UI에 표시합니다.</li>
+        <li><strong>승인 모델:</strong> 외부 전송, publish, push, delete, credential 변경, paid API 호출은 C# host에서 별도 승인 UI를 요구합니다.</li>
+        <li><strong>격리:</strong> 초기 구현은 별도 worktree + sandbox + network off가 충분하고, 이후 Docker/Windows Sandbox/low-privilege account를 고려합니다.</li>
+      </ul>
+
+      <h4>C# interface 스케치</h4>
+      <pre><code>public interface IAgentRuntime
+{
+    IAsyncEnumerable&lt;AgentEvent&gt; RunAsync(
+        AgentRequest request,
+        CancellationToken cancellationToken = default);
+
+    ValueTask&lt;AgentSession&gt; StartSessionAsync(
+        AgentSessionOptions options,
+        CancellationToken cancellationToken = default);
+
+    ValueTask&lt;ApprovalDecision&gt; RequestApprovalAsync(
+        AgentApprovalRequest request,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed record AgentRequest(
+    string WorkspacePath,
+    string Prompt,
+    AgentPermissionProfile PermissionProfile,
+    IReadOnlyList&lt;string&gt; Skills);
+
+public enum AgentPermissionProfile
+{
+    ReadOnly,
+    WorkspaceWriteNoNetwork,
+    WorkspaceWriteWithApproval,
+    FullAccessIsolatedContainer
+}</code></pre>
+
+      <h3>13.12 Codex 적용 시 우선순위</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>우선순위</th>
+            <th>작업</th>
+            <th>목표</th>
+            <th>완료 기준</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><code>AGENTS.md</code> 작성</td>
+            <td>C# 프로젝트 규칙과 검증 명령 고정</td>
+            <td>Codex가 작업 시작 시 build/test/perf 규칙을 요약할 수 있음</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td>핵심 skills 5~10개만 설치</td>
+            <td>작업 품질 향상, context 낭비 방지</td>
+            <td><code>$dotnet-performance-review</code> 같은 skill이 명시/암시 호출됨</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><code>.codex/config.toml</code> 안전 baseline</td>
+            <td>workspace-write, network off, 승인 정책 적용</td>
+            <td>위험 명령이 자동 실행되지 않음</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td>PreToolUse/PermissionRequest hooks</td>
+            <td>위험 Bash/MCP 실행 차단</td>
+            <td><code>git push</code>, <code>rm -rf /</code>, publish 명령 차단</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td>custom agents 3~5개</td>
+            <td>리뷰/보안/테스트/문서 agent 분리</td>
+            <td>명시적 subagent prompt로 병렬 리뷰 가능</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>codex exec</code> CI dry-run</td>
+            <td>자동 report 생성</td>
+            <td>PR에 수정 없이 review artifact만 생성</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td>C# CodexProcessAdapter</td>
+            <td>내 프로젝트/제품에서 agent runtime 제어</td>
+            <td>JSONL stream, approval, diff preview, audit log 동작</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td>plugin 패키징</td>
+            <td>팀/다중 프로젝트 배포</td>
+            <td>local marketplace에서 설치/disable 가능</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>13.13 Claude Code와 Codex CLI 병행 사용 전략</h3>
+      <div class="grid cols-2">
+        <div class="card">
+          <h4>Claude Code/ECC가 더 좋은 경우</h4>
+          <ul>
+            <li>ECC의 native Claude hook/command/plugin 흐름을 최대한 활용하고 싶을 때</li>
+            <li>이미 Claude Code 중심의 작업 루틴과 memory/hook이 쌓여 있을 때</li>
+            <li>Claude 특화 subagent/command 생태계를 그대로 쓰고 싶을 때</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Codex CLI가 더 좋은 경우</h4>
+          <ul>
+            <li>OpenAI Codex/ChatGPT 플랜 기반으로 로컬 coding agent를 운영하고 싶을 때</li>
+            <li><code>codex exec</code>로 CI/스크립트 자동화를 하고 싶을 때</li>
+            <li>skills, plugins, MCP, app-server를 이용해 C# host와 결합하고 싶을 때</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>13.14 Codex 적용 리스크 체크리스트</h3>
+      <ul>
+        <li><strong>중복 instructions:</strong> <code>AGENTS.md</code>, skill, prompt, hook additional context가 같은 규칙을 반복하면 모델이 혼란스러워집니다.</li>
+        <li><strong>hook 과신:</strong> hook은 guardrail이며 sandbox를 대체하지 않습니다.</li>
+        <li><strong>network/tool risk:</strong> MCP와 web search는 prompt injection 경로가 됩니다. network off를 기본으로 하세요.</li>
+        <li><strong>secret leakage:</strong> <code>shell_environment_policy</code>로 TOKEN/SECRET/KEY 계열을 차단하세요.</li>
+        <li><strong>skill bloat:</strong> ECC 전체 skills를 모두 넣지 말고 프로젝트별 curated subset을 유지하세요.</li>
+        <li><strong>C# host 권한:</strong> Codex process를 같은 권한으로 실행하면 host 앱의 모든 권한을 상속할 수 있습니다. 별도 계정/worktree/container를 권장합니다.</li>
+        <li><strong>CI 자동 수정:</strong> 초기에 자동 commit/push는 금지하고, report 생성과 patch proposal까지만 허용하세요.</li>
+      </ul>
+
+      <h3>13.15 이 문서 기준의 최종 적용안</h3>
+      <div class="callout good">
+        <strong>재균님의 C# 프로젝트 기준 추천:</strong>
+        <ol>
+          <li><strong>1차:</strong> Codex CLI에 <code>AGENTS.md</code> + C# performance skill + verification-loop skill만 적용합니다.</li>
+          <li><strong>2차:</strong> <code>.codex/config.toml</code>에서 workspace-write/no-network/on-request baseline을 고정합니다.</li>
+          <li><strong>3차:</strong> 위험 명령 차단 <code>PreToolUse</code> hook과 작업 종료 품질 gate <code>Stop</code> hook을 추가합니다.</li>
+          <li><strong>4차:</strong> <code>dotnet_reviewer</code>, <code>security_reviewer</code>, <code>test_repair_worker</code> custom agent를 만듭니다.</li>
+          <li><strong>5차:</strong> C# 앱에서는 <code>codex exec --json</code> adapter부터 붙이고, 이후 app-server로 고급 통합합니다.</li>
+          <li><strong>6차:</strong> 안정화된 뒤 plugin으로 묶어 여러 프로젝트에 배포합니다.</li>
+        </ol>
+      </div>
+
+      <h3>13.16 참고 링크</h3>
+      <ul class="source-list">
+        <li><a href="https://github.com/openai/codex">OpenAI Codex GitHub repository</a> — Codex CLI 설치와 로컬 coding agent 개요.</li>
+        <li><a href="https://developers.openai.com/codex/cli">OpenAI Codex CLI docs</a> — CLI 설치, 실행, 주요 기능.</li>
+        <li><a href="https://developers.openai.com/codex/guides/agents-md">AGENTS.md docs</a> — global/project instruction discovery.</li>
+        <li><a href="https://developers.openai.com/codex/skills">Codex Agent Skills docs</a> — <code>SKILL.md</code>, 저장 위치, plugin 배포.</li>
+        <li><a href="https://developers.openai.com/codex/hooks">Codex Hooks docs</a> — hook events, matcher, JSON input/output.</li>
+        <li><a href="https://developers.openai.com/codex/mcp">Codex MCP docs</a> — <code>[mcp_servers.*]</code>, CLI/IDE shared config.</li>
+        <li><a href="https://developers.openai.com/codex/subagents">Codex Subagents docs</a> — parallel custom agent workflows.</li>
+        <li><a href="https://developers.openai.com/codex/plugins">Codex Plugins docs</a> — skills/app/MCP bundle.</li>
+        <li><a href="https://developers.openai.com/codex/noninteractive">Codex non-interactive mode</a> — <code>codex exec</code> automation.</li>
+        <li><a href="https://developers.openai.com/codex/app-server">Codex app-server docs</a> — JSON-RPC/JSONL 기반 제품 통합.</li>
+        <li><a href="https://github.com/affaan-m/everything-claude-code">Everything Claude Code repository</a> — Codex app/CLI 지원, shared skills, MCP sync script, Codex-specific AGENTS.md.</li>
+      </ul>
+    </section>
+
+    <section id="sources" class="pagebreak">
+      <h2>14. 확인한 근거와 한계</h2>
+      <h3>13.1 확인한 공개 근거</h3>
+      <ul class="source-list">
+        <li><a href="https://github.com/ruvnet/ruflo">ruvnet/ruflo GitHub repository</a> — README, package metadata, docs, MCP/plugin 관련 공개 문서.</li>
+        <li><a href="https://github.com/agno-agi/agno">agno-agi/agno GitHub repository</a> — README, AgentOS/API/storage/tooling 관련 공개 문서.</li>
+        <li><a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent GitHub repository</a> — README, skills/memory/tools/API/gateway 관련 공개 문서.</li>
+        <li><a href="https://github.com/affaan-m/everything-claude-code">affaan-m/everything-claude-code GitHub repository</a> — README, package.json, plugin.json, hooks README, hooks.json, mcp-configs, longform/security guide, issue #264.</li>
+      </ul>
+
+      <h3>14.2 한계</h3>
+      <ul>
+        <li><strong>정적 분석:</strong> 이 문서는 공개 문서와 소스 구조 기반 분석입니다. 실제 설치, 부하 테스트, 보안 감사, end-to-end 실행 검증은 별도입니다.</li>
+        <li><strong>빠른 변화:</strong> 네 저장소 모두 agent 생태계의 변화 속도가 빠릅니다. 특히 ECC와 Ruflo는 release note, plugin metadata, README 수치가 갱신될 수 있습니다.</li>
+        <li><strong>수치 신뢰도:</strong> agent/skill/command/tool 개수는 문서 위치에 따라 달라질 수 있으므로 정확한 도입 기준으로 삼지 말고 설치 후 CLI로 확인해야 합니다.</li>
+        <li><strong>C# 적용은 설계 제안:</strong> 네 프로젝트 자체가 C# 네이티브 SDK를 제공하는 것은 아니므로, C# 통합은 HTTP/SSE/CLI/MCP/CI adapter 중심의 권장 설계입니다.</li>
+      </ul>
+
+      <h3>14.3 최종 추천</h3>
+      <div class="callout good">
+        <strong>재균님의 프로젝트 기준:</strong> 실제 수익화 가능한 C# 제품에는 <strong>Agno를 agent service</strong>로 붙이고,
+        개발 품질과 자동화에는 <strong>ECC minimal + C# custom rules/skills</strong>를 먼저 적용하세요. <strong>Codex CLI</strong>는 Claude Code 대체/보완 하네스로 사용할 수 있으며,
+        우선 <code>AGENTS.md</code>, <code>.agents/skills</code>, <code>.codex/config.toml</code>, 최소 hooks부터 적용한 뒤 C# <code>CodexProcessAdapter</code>로 연결하는 구성이 현실적입니다.
+        이후 고난도 구현/리팩토링을 병렬화해야 할 때 <strong>Ruflo</strong>를 제한적으로 사용하고,
+        개인/운영 자동화는 <strong>Hermes-Agent</strong>를 sandbox 안에서 별도 운영하는 구성이 가장 안전합니다.
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

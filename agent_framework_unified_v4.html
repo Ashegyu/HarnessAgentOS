@@ -1,0 +1,4270 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Framework 통합 분석 — Ruflo · Agno · Hermes · ECC × Claude / Codex</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Inter+Tight:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0e10;
+    --bg-2: #15171b;
+    --bg-3: #1d2026;
+    --bg-elev: #22262e;
+    --ink: #e8e6e1;
+    --ink-2: #b5b2aa;
+    --ink-3: #75736d;
+    --line: #2a2e36;
+    --line-2: #383d47;
+    --accent: #ffb547;
+    --accent-2: #ff6b4a;
+    --green: #5bd99c;
+    --blue: #5da8ff;
+    --pink: #ec4899;
+    --teal: #14b8a6;
+    --red: #ff6478;
+    --serif: 'Fraunces', 'Noto Sans KR', serif;
+    --sans: 'Inter Tight', 'Noto Sans KR', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    background-image: 
+      radial-gradient(at 80% 0%, rgba(236, 72, 153, 0.05) 0%, transparent 50%),
+      radial-gradient(at 0% 50%, rgba(20, 184, 166, 0.04) 0%, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(255, 181, 71, 0.03) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+
+  /* TOP STRIP */
+  .top-strip {
+    border-bottom: 1px solid var(--line);
+    padding: 16px 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .top-strip-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .top-strip .right { color: var(--pink); }
+
+  /* HEADER */
+  header.hero {
+    padding: 80px 0 60px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    color: var(--pink);
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 32px;
+    height: 1px;
+    background: var(--pink);
+  }
+  .version-stack {
+    display: inline-flex;
+    gap: 6px;
+    margin-left: auto;
+  }
+  .version-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 100px;
+    letter-spacing: 0.1em;
+    border: 1px solid var(--line-2);
+    color: var(--ink-3);
+  }
+  .version-tag.current {
+    background: var(--pink);
+    color: var(--bg);
+    border-color: var(--pink);
+    font-weight: 700;
+  }
+  h1.title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-style: italic;
+    font-size: clamp(48px, 8vw, 96px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin-bottom: 28px;
+    color: var(--ink);
+  }
+  h1.title em {
+    font-style: normal;
+    color: var(--pink);
+    font-weight: 400;
+  }
+  .hero-meta {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 60px;
+    margin-top: 50px;
+    align-items: end;
+  }
+  .lede {
+    font-family: var(--serif);
+    font-size: 22px;
+    line-height: 1.4;
+    color: var(--ink-2);
+    max-width: 640px;
+  }
+  .lede em { color: var(--pink); font-style: italic; }
+  .meta-block {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-3);
+    line-height: 1.9;
+  }
+  .meta-block strong { color: var(--ink); font-weight: 500; }
+  .meta-block .pink { color: var(--pink); }
+  .meta-block .teal { color: var(--teal); }
+
+  /* TOC */
+  .toc {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 32px;
+    margin: 50px 0 0;
+  }
+  .toc-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 40px;
+  }
+  .toc ol { list-style: none; counter-reset: toc-counter; }
+  .toc li {
+    counter-increment: toc-counter;
+    padding: 9px 0;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .toc li::before {
+    content: counter(toc-counter, decimal-leading-zero) " · ";
+    font-family: var(--mono);
+    color: var(--pink);
+    margin-right: 8px;
+  }
+  .toc li a {
+    color: var(--ink-2);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+  .toc li a:hover { color: var(--ink); }
+  .toc li .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-left: 6px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .toc li .badge.new { background: var(--teal); color: var(--bg); }
+  .toc li .badge.kim { background: var(--pink); color: var(--bg); }
+
+  /* SECTIONS */
+  section { padding: 80px 0; border-bottom: 1px solid var(--line); }
+  .section-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--pink);
+    letter-spacing: 0.2em;
+    margin-bottom: 12px;
+  }
+  h2.section-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(36px, 5vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+  h2.section-title em { font-style: italic; color: var(--pink); }
+  .section-desc {
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 760px;
+    margin-bottom: 50px;
+  }
+
+  /* TL;DR CARDS */
+  .tldr-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+    margin-top: 40px;
+  }
+  .tldr-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 32px;
+    position: relative;
+  }
+  .tldr-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 3px;
+  }
+  .tldr-card.ruflo::before { background: var(--blue); }
+  .tldr-card.agno::before { background: var(--green); }
+  .tldr-card.hermes::before { background: var(--accent); }
+  .tldr-card.ecc::before { background: var(--pink); }
+  .tldr-card.ecc {
+    background: linear-gradient(135deg, var(--bg-2), rgba(236, 72, 153, 0.04));
+    border-color: rgba(236, 72, 153, 0.3);
+  }
+  .tldr-card.ecc::after {
+    content: '★ KIM 사용 중';
+    position: absolute;
+    top: 14px; right: 14px;
+    font-family: var(--mono);
+    font-size: 9px;
+    padding: 4px 8px;
+    background: var(--pink);
+    color: var(--bg);
+    border-radius: 100px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  .tldr-name {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--ink-3);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+  }
+  .tldr-title {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 24px;
+    margin-bottom: 14px;
+    line-height: 1.15;
+  }
+  .tldr-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border: 1px solid var(--line-2);
+    border-radius: 100px;
+    color: var(--ink-2);
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  .tldr-quote {
+    color: var(--ink-2);
+    font-size: 14px;
+    line-height: 1.55;
+    margin-top: 18px;
+  }
+  .tldr-codex-tier {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 8px;
+    margin-top: 14px;
+    border-radius: 4px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  .tldr-codex-tier.s { background: var(--teal); color: var(--bg); }
+  .tldr-codex-tier.a { background: rgba(20, 184, 166, 0.25); color: var(--teal); border: 1px solid var(--teal); }
+  .tldr-codex-tier.b { background: rgba(255, 181, 71, 0.2); color: var(--accent); border: 1px solid var(--accent); }
+  .tldr-codex-tier.c { background: rgba(255, 100, 120, 0.2); color: var(--red); border: 1px solid var(--red); }
+  .tldr-stats {
+    display: flex;
+    gap: 18px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .tldr-stat .label { color: var(--ink-3); display: block; margin-bottom: 4px; }
+  .tldr-stat .value { color: var(--ink); font-weight: 500; font-size: 13.5px; }
+  .tldr-stat .value.pink { color: var(--pink); }
+  .tldr-stat .value.teal { color: var(--teal); }
+
+  /* CALLOUT */
+  .callout {
+    background: rgba(236, 72, 153, 0.06);
+    border: 1px solid rgba(236, 72, 153, 0.2);
+    border-left: 3px solid var(--pink);
+    padding: 24px 28px;
+    margin: 32px 0;
+  }
+  .callout.amber {
+    background: rgba(255, 181, 71, 0.06);
+    border-color: rgba(255, 181, 71, 0.2);
+    border-left-color: var(--accent);
+  }
+  .callout.amber .callout-label { color: var(--accent); }
+  .callout.teal {
+    background: rgba(20, 184, 166, 0.06);
+    border-color: rgba(20, 184, 166, 0.2);
+    border-left-color: var(--teal);
+  }
+  .callout.teal .callout-label { color: var(--teal); }
+  .callout-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--pink);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .callout p { color: var(--ink); font-size: 15px; line-height: 1.65; }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout strong { color: var(--ink); }
+  .callout code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: rgba(0,0,0,0.3);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--pink);
+  }
+  .callout.teal code { color: var(--teal); }
+  .callout.amber code { color: var(--accent); }
+
+  /* PRIMITIVES GRID */
+  .primitive-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 32px 0;
+  }
+  .primitive-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 22px;
+  }
+  .primitive-card .num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--teal);
+    letter-spacing: 0.15em;
+    margin-bottom: 8px;
+  }
+  .primitive-card h5 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 15px;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .primitive-card .vs {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+  .primitive-card p {
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.5;
+  }
+  .primitive-card code {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--teal);
+    background: var(--bg-3);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* PROJECT SECTION */
+  .project-section {
+    padding: 100px 0;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .project-section.ruflo { background: linear-gradient(180deg, transparent, rgba(93, 168, 255, 0.02)); }
+  .project-section.agno { background: linear-gradient(180deg, transparent, rgba(91, 217, 156, 0.02)); }
+  .project-section.hermes { background: linear-gradient(180deg, transparent, rgba(255, 181, 71, 0.03)); }
+  .project-section.ecc { background: linear-gradient(180deg, transparent, rgba(236, 72, 153, 0.04)); }
+  
+  .project-header {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 60px;
+    margin-bottom: 56px;
+    align-items: start;
+    padding-bottom: 36px;
+    border-bottom: 1px solid var(--line);
+  }
+  .project-tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 6px 14px;
+    border-radius: 100px;
+    margin-bottom: 24px;
+  }
+  .project-tag.ruflo { background: rgba(93, 168, 255, 0.12); color: var(--blue); border: 1px solid rgba(93, 168, 255, 0.3); }
+  .project-tag.agno { background: rgba(91, 217, 156, 0.12); color: var(--green); border: 1px solid rgba(91, 217, 156, 0.3); }
+  .project-tag.hermes { background: rgba(255, 181, 71, 0.12); color: var(--accent); border: 1px solid rgba(255, 181, 71, 0.3); }
+  .project-tag.ecc { background: rgba(236, 72, 153, 0.15); color: var(--pink); border: 1px solid rgba(236, 72, 153, 0.3); }
+
+  .project-name {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: clamp(56px, 8vw, 84px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin-bottom: 12px;
+  }
+  .project-name em { font-style: italic; }
+  .project-tagline {
+    font-family: var(--serif);
+    font-size: 21px;
+    line-height: 1.4;
+    color: var(--ink-2);
+    font-style: italic;
+  }
+  .project-meta {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 22px;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .project-meta .row {
+    display: flex;
+    justify-content: space-between;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .project-meta .row:last-child { border-bottom: none; }
+  .project-meta .label { color: var(--ink-3); }
+  .project-meta .value { color: var(--ink); font-weight: 500; }
+  .project-meta .value.pink { color: var(--pink); }
+  .project-meta .value.teal { color: var(--teal); }
+  .project-meta .value.amber { color: var(--accent); }
+
+  /* SUBSECTION */
+  .subsection { margin-bottom: 56px; }
+  .sub-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--ink-3);
+    margin-bottom: 8px;
+  }
+  h3.sub-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 30px;
+    line-height: 1.15;
+    margin-bottom: 22px;
+    letter-spacing: -0.01em;
+  }
+  h3.sub-title em { font-style: italic; }
+  h3.sub-title em.blue { color: var(--blue); }
+  h3.sub-title em.green { color: var(--green); }
+  h3.sub-title em.amber { color: var(--accent); }
+  h3.sub-title em.pink { color: var(--pink); }
+  h3.sub-title em.teal { color: var(--teal); }
+  h4.subsub-title {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 17px;
+    margin-top: 26px;
+    margin-bottom: 10px;
+    color: var(--ink);
+  }
+
+  /* PROSE */
+  .prose { font-size: 15.5px; line-height: 1.7; color: var(--ink-2); max-width: 800px; }
+  .prose p { margin-bottom: 16px; }
+  .prose strong { color: var(--ink); font-weight: 600; }
+  .prose code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--bg-3);
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: var(--pink);
+  }
+  .prose.amber code { color: var(--accent); }
+  .prose.blue code { color: var(--blue); }
+  .prose.green code { color: var(--green); }
+  .prose.teal code { color: var(--teal); }
+
+  /* CODE BLOCK */
+  pre.code {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--pink);
+    padding: 20px 22px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    overflow-x: auto;
+    margin: 22px 0;
+    border-radius: 2px;
+  }
+  pre.code.blue { border-left-color: var(--blue); }
+  pre.code.green { border-left-color: var(--green); }
+  pre.code.amber { border-left-color: var(--accent); }
+  pre.code.teal { border-left-color: var(--teal); }
+  pre.code .comment { color: var(--ink-3); font-style: italic; }
+  pre.code .keyword { color: var(--pink); }
+  pre.code .string { color: var(--green); }
+  pre.code .func { color: var(--blue); }
+  pre.code .num { color: var(--accent); }
+  pre.code.blue .keyword { color: var(--blue); }
+  pre.code.amber .keyword { color: var(--accent); }
+  pre.code.teal .keyword { color: var(--teal); }
+  pre.code.green .keyword { color: var(--green); }
+
+  /* FEATURE GRID */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+    margin-top: 28px;
+  }
+  .feature-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 22px;
+    transition: border-color 0.15s;
+  }
+  .feature-card:hover { border-color: var(--line-2); }
+  .feature-card .feature-icon {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    margin-bottom: 10px;
+    letter-spacing: 0.1em;
+  }
+  .feature-card.blue .feature-icon { color: var(--blue); }
+  .feature-card.green .feature-icon { color: var(--green); }
+  .feature-card.amber .feature-icon { color: var(--accent); }
+  .feature-card.pink .feature-icon { color: var(--pink); }
+  .feature-card h5 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 15.5px;
+    margin-bottom: 8px;
+    color: var(--ink);
+  }
+  .feature-card p {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+  .feature-card code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--bg-3);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+
+  /* PROS/CONS */
+  .pros-cons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 28px;
+  }
+  .pc-block {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 24px;
+  }
+  .pc-block.pros { border-left: 3px solid var(--green); }
+  .pc-block.cons { border-left: 3px solid var(--red); }
+  .pc-block h5 {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  .pc-block ul { list-style: none; }
+  .pc-block li {
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    display: flex;
+    gap: 10px;
+  }
+  .pc-block li:last-child { border-bottom: none; }
+  .pc-block.pros li::before {
+    content: '+';
+    color: var(--green);
+    font-family: var(--mono);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .pc-block.cons li::before {
+    content: '−';
+    color: var(--red);
+    font-family: var(--mono);
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .pc-block li strong { color: var(--ink); }
+
+  /* ARCH DIAGRAM */
+  .arch-diagram {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 36px;
+    margin: 28px 0;
+    overflow-x: auto;
+  }
+  .arch-diagram svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+
+  /* FLOW STEPS */
+  .flow {
+    display: flex;
+    gap: 14px;
+    margin: 28px 0;
+    flex-wrap: wrap;
+  }
+  .flow-step {
+    flex: 1;
+    min-width: 180px;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 18px;
+    position: relative;
+  }
+  .flow-step::after {
+    content: '→';
+    position: absolute;
+    right: -22px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--pink);
+    font-size: 20px;
+  }
+  .flow-step:last-child::after { display: none; }
+  .flow-step.amber::after { color: var(--accent); }
+  .flow-step.teal::after { color: var(--teal); }
+  .flow-step .num {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--pink);
+    margin-bottom: 6px;
+  }
+  .flow-step.amber .num { color: var(--accent); }
+  .flow-step.teal .num { color: var(--teal); }
+  .flow-step .label {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--ink);
+    margin-bottom: 4px;
+  }
+  .flow-step .desc { font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+
+  /* MAPPING GRID */
+  .mapping-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+    margin-top: 22px;
+  }
+  .mapping-cell {
+    background: var(--bg-3);
+    border: 1px solid var(--line);
+    padding: 18px;
+  }
+  .mapping-cell .from {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.15em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .mapping-cell .label {
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  .mapping-cell .arrow {
+    font-family: var(--mono);
+    color: var(--pink);
+    margin: 6px 0;
+    font-size: 13px;
+  }
+  .mapping-cell .to { color: var(--ink-2); line-height: 1.5; font-size: 13px; }
+  .mapping-cell .to strong { color: var(--ink); }
+
+  /* COMPARISON TABLE */
+  .comparison-section { background: var(--bg-2); }
+  .comparison-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin-top: 28px;
+    font-size: 12.5px;
+  }
+  .comparison-table th {
+    background: var(--bg-3);
+    padding: 14px 12px;
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--line-2);
+    font-weight: 500;
+  }
+  .comparison-table th:nth-child(2) { color: var(--blue); }
+  .comparison-table th:nth-child(3) { color: var(--green); }
+  .comparison-table th:nth-child(4) { color: var(--accent); }
+  .comparison-table th:nth-child(5) { color: var(--pink); }
+  .comparison-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink-2);
+    vertical-align: top;
+    line-height: 1.5;
+    font-size: 12.5px;
+  }
+  .comparison-table td:first-child {
+    color: var(--ink);
+    font-weight: 500;
+    width: 17%;
+    background: var(--bg-2);
+  }
+  .comparison-table tr:hover td { background: var(--bg-3); }
+  .comparison-table td:first-child:hover { background: var(--bg-2); }
+  .checkmark { color: var(--green); font-weight: 700; }
+  .crossmark { color: var(--red); font-weight: 700; }
+  .partial { color: var(--accent); font-weight: 700; }
+  .highlight-cell { background: rgba(236, 72, 153, 0.05) !important; }
+  .codex-cell { background: rgba(20, 184, 166, 0.05) !important; }
+
+  /* RECOMMENDATIONS */
+  .rec-card {
+    background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%);
+    border: 1px solid var(--line-2);
+    padding: 36px;
+    margin: 22px 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .rec-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+    background: linear-gradient(180deg, var(--pink), var(--teal));
+  }
+  .rec-num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 44px;
+    color: var(--pink);
+    line-height: 1;
+    margin-bottom: 12px;
+  }
+  .rec-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 24px;
+    margin-bottom: 14px;
+    line-height: 1.2;
+  }
+  .rec-source {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 3px 10px;
+    background: var(--bg);
+    color: var(--pink);
+    border-radius: 100px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+  .rec-card .prose { color: var(--ink); }
+
+  /* DECISION GRID */
+  .decision-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-top: 28px;
+  }
+  .decision-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 22px;
+  }
+  .decision-card .scenario {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.15em;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .decision-card .answer {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 18px;
+    margin-bottom: 12px;
+    color: var(--ink);
+    line-height: 1.2;
+  }
+  .decision-card .answer em { color: var(--pink); font-style: italic; }
+  .decision-card .answer em.teal { color: var(--teal); }
+  .decision-card .reason {
+    font-size: 13px;
+    color: var(--ink-2);
+    line-height: 1.55;
+  }
+
+  /* INSTINCT YAML */
+  .instinct-yaml {
+    background: var(--bg-3);
+    border: 1px solid var(--pink);
+    padding: 22px;
+    margin: 24px 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--ink-2);
+  }
+  .instinct-yaml .key { color: var(--pink); }
+  .instinct-yaml .val { color: var(--green); }
+  .instinct-yaml .comment { color: var(--ink-3); font-style: italic; }
+
+  /* SUPPORT MATRIX */
+  .support-matrix {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 22px;
+    margin-top: 36px;
+  }
+  .support-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 30px;
+    position: relative;
+  }
+  .support-card.tier-s { border: 1px solid var(--teal); background: linear-gradient(135deg, var(--bg-2), rgba(20, 184, 166, 0.06)); }
+  .support-card.tier-a { border-left: 4px solid var(--teal); }
+  .support-card.tier-b { border-left: 4px solid var(--accent); }
+  .support-card.tier-c { border-left: 4px solid var(--red); }
+  .support-badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 4px 10px;
+    border-radius: 100px;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .support-badge.tier-s { background: var(--teal); color: var(--bg); }
+  .support-badge.tier-a { background: rgba(20, 184, 166, 0.2); color: var(--teal); }
+  .support-badge.tier-b { background: rgba(255, 181, 71, 0.2); color: var(--accent); }
+  .support-badge.tier-c { background: rgba(255, 100, 120, 0.2); color: var(--red); }
+  .support-title {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 24px;
+    margin-bottom: 6px;
+  }
+  .support-sub {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--ink-3);
+    margin-bottom: 16px;
+  }
+  .support-card p {
+    color: var(--ink-2);
+    font-size: 13.5px;
+    line-height: 1.55;
+    margin-bottom: 12px;
+  }
+  .support-card pre {
+    background: var(--bg-3);
+    border-left: 2px solid var(--teal);
+    padding: 12px 14px;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--ink-2);
+    overflow-x: auto;
+    margin: 12px 0;
+    border-radius: 2px;
+  }
+
+  /* FOOTER */
+  footer {
+    padding: 60px 0 40px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-3);
+    letter-spacing: 0.1em;
+  }
+  footer .divider {
+    width: 60px;
+    height: 1px;
+    background: var(--line-2);
+    margin: 0 auto 24px;
+  }
+
+  /* RESPONSIVE */
+  @media (max-width: 920px) {
+    .container { padding: 0 20px; }
+    .hero-meta, .project-header, .pros-cons, .decision-grid, .mapping-grid, 
+    .tldr-grid, .primitive-grid, .support-matrix, .toc-grid {
+      grid-template-columns: 1fr;
+      gap: 22px;
+    }
+    .feature-grid { grid-template-columns: 1fr; }
+    h1.title { font-size: 52px; }
+    h2.section-title { font-size: 36px; }
+    .project-name { font-size: 52px; }
+    .flow-step::after { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="top-strip">
+  <div class="container">
+    <div class="top-strip-inner">
+      <span>RESEARCH BRIEF · UNIFIED EDITION</span>
+      <span class="right">4 PROJECTS × 2 HARNESSES · SKILLIFY APPLICATION</span>
+    </div>
+  </div>
+</div>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="container">
+    <div class="eyebrow">
+      Multi-Agent Framework Deep Dive · Unified
+      <div class="version-stack">
+        <span class="version-tag">v1</span>
+        <span class="version-tag">v2</span>
+        <span class="version-tag">v3</span>
+        <span class="version-tag">unified</span>
+        <span class="version-tag current">v4 · +PRACTICAL</span>
+      </div>
+    </div>
+    <h1 class="title">네 갈래의 철학,<br>두 갈래의 <em>harness</em>.</h1>
+    <div class="hero-meta">
+      <p class="lede">
+        Ruflo, Agno, Hermes, ECC — 네 프로젝트의 동작 원리, 강약점, Codex CLI 호환성, 
+        그리고 Skillify에의 적용 방안까지 — 네 차례의 분석을 하나로 통합한 최종 문서. 
+        v4에서는 <em>실제 .NET 코드 인터페이스, 9단계 Codex 적용 가이드, 4주 POC 계획, 리스크 체크리스트</em>까지 추가. 
+        결론은 명확하다: <em>Skillify는 ECC의 .NET 진화형</em>이다.
+      </p>
+      <div class="meta-block">
+        <strong>분석 대상</strong><br>
+        ruvnet/ruflo<br>
+        agno-agi/agno<br>
+        NousResearch/hermes-agent<br>
+        <span class="pink">affaan-m/everything-claude-code</span><br><br>
+        <strong>적용 컨텍스트</strong><br>
+        Skillify · C#/.NET 10<br>
+        CEO→Executor pattern<br>
+        Claude Code + <span class="teal">Codex CLI</span><br><br>
+        <strong>핵심 발견</strong><br>
+        <span class="pink">ECC = Skillify reference</span><br>
+        Kim 이미 사용 중<br>
+        가중치: ECC 65%
+      </div>
+    </div>
+
+    <div class="toc">
+      <div class="toc-title">목차 · TABLE OF CONTENTS</div>
+      <div class="toc-grid">
+        <ol>
+          <li><a href="#summary">Executive Summary — 한눈에 보는 4개 프로젝트</a></li>
+          <li><a href="#codex-primitives">Codex CLI Primitives — 알아야 할 변화 <span class="badge new">NEW</span></a></li>
+          <li><a href="#ruflo">Ruflo — Swarm 오케스트레이션</a></li>
+          <li><a href="#agno">Agno — Production SDK</a></li>
+          <li><a href="#hermes">Hermes — Self-improving Agent</a></li>
+          <li><a href="#ecc">ECC — Harness Performance System <span class="badge kim">★ KIM</span></a></li>
+        </ol>
+        <ol start="7">
+          <li><a href="#codex-application">Codex CLI 적용 방법 (프로젝트별) <span class="badge new">NEW</span></a></li>
+          <li><a href="#comparison">4-Way Comparison Matrix</a></li>
+          <li><a href="#cross-harness">Cross-Harness Comparison <span class="badge new">NEW</span></a></li>
+          <li><a href="#decision">Decision Guide — 시나리오별 선택</a></li>
+          <li><a href="#skillify-strategy">Skillify Cross-Harness Strategy <span class="badge new">NEW</span></a></li>
+          <li><a href="#final">Final Takeaways · 핵심 정리</a></li>
+        </ol>
+      </div>
+      <div class="toc-grid" style="margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line);">
+        <ol start="13">
+          <li><a href="#csharp-integration">C# 통합 아키텍처 · IAgentRuntime · Zero-copy <span class="badge new">v4</span></a></li>
+          <li><a href="#codex-stepbystep">Codex CLI 적용 9단계 가이드 <span class="badge new">v4</span></a></li>
+          <li><a href="#poc-plan">4주 POC 검증 계획 <span class="badge new">v4</span></a></li>
+        </ol>
+        <ol start="16">
+          <li><a href="#risk-checklist">리스크 체크리스트 · 함정과 대응 <span class="badge new">v4</span></a></li>
+          <li><a href="#adoption-priority">최종 적용 우선순위 · 8단계 <span class="badge new">v4</span></a></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- §01 EXECUTIVE SUMMARY -->
+<section id="summary">
+  <div class="container">
+    <div class="section-num">§ 01 · EXECUTIVE SUMMARY</div>
+    <h2 class="section-title">네 가지 답이 <em>있다</em>.</h2>
+    <p class="section-desc">
+      세 프로젝트는 표면상 모두 "AI agent framework"이지만, 해결하려는 문제와 추상화의 수준이 전혀 다르다.
+      ECC를 추가하면 한 가지가 더 명확해진다 — Kim님의 Skillify는 본질적으로 ECC의 진화형이다.
+    </p>
+
+    <div class="tldr-grid">
+      <div class="tldr-card ruflo">
+        <div class="tldr-name">RUFLO · 50.2K ★</div>
+        <div class="tldr-title">Claude Code의 신경계 (+Codex dual)</div>
+        <div>
+          <span class="tldr-tag">Swarm</span>
+          <span class="tldr-tag">Federation</span>
+          <span class="tldr-tag">SONA Learning</span>
+          <span class="tldr-tag">MCP</span>
+        </div>
+        <p class="tldr-quote">
+          100+ 전문 에이전트의 swarm 오케스트레이션. Plugin marketplace, 12 background workers, 
+          zero-trust federation. <code style="font-family:var(--mono);font-size:11px;color:var(--blue);">npx ruflo init --codex</code>로 Codex 모드 진입,
+          <code style="font-family:var(--mono);font-size:11px;color:var(--blue);">dual run</code>으로 Claude+Codex 동시 실행.
+        </p>
+        <span class="tldr-codex-tier a">CODEX TIER A · NATIVE DUAL</span>
+        <div class="tldr-stats">
+          <div class="tldr-stat"><span class="label">언어</span><span class="value">TypeScript</span></div>
+          <div class="tldr-stat"><span class="label">Codex</span><span class="value teal">Dual mode</span></div>
+          <div class="tldr-stat"><span class="label">Skillify</span><span class="value">먼 편</span></div>
+        </div>
+      </div>
+
+      <div class="tldr-card agno">
+        <div class="tldr-name">AGNO · 40.1K ★</div>
+        <div class="tldr-title">에이전트 플랫폼 SDK</div>
+        <div>
+          <span class="tldr-tag">Python SDK</span>
+          <span class="tldr-tag">FastAPI</span>
+          <span class="tldr-tag">RBAC</span>
+          <span class="tldr-tag">OTel</span>
+        </div>
+        <p class="tldr-quote">
+          30 lines로 production-ready service. 50+ REST endpoint, OpenTelemetry, JWT/RBAC. 
+          Codex 모델은 쓸 수 있지만 Codex CLI harness와는 무관 — Agno는 backend service, 
+          Codex CLI는 frontend tool이라 abstraction layer가 다르다.
+        </p>
+        <span class="tldr-codex-tier c">CODEX TIER C · MODEL ONLY</span>
+        <div class="tldr-stats">
+          <div class="tldr-stat"><span class="label">언어</span><span class="value">Python</span></div>
+          <div class="tldr-stat"><span class="label">Codex</span><span class="value">Model only</span></div>
+          <div class="tldr-stat"><span class="label">Skillify</span><span class="value">중간</span></div>
+        </div>
+      </div>
+
+      <div class="tldr-card hermes">
+        <div class="tldr-name">HERMES · 143K ★</div>
+        <div class="tldr-title">스스로 자라는 에이전트</div>
+        <div>
+          <span class="tldr-tag">Skills</span>
+          <span class="tldr-tag">Self-improving</span>
+          <span class="tldr-tag">RL Training</span>
+          <span class="tldr-tag">20채널</span>
+        </div>
+        <p class="tldr-quote">
+          경험에서 skill을 만들고, 사용하면서 개선하는 단일 에이전트. Skills System이 Skillify와 사실상 같은 컨셉. 
+          Codex는 <strong>provider이자 sub-agent</strong> — Hermes가 Codex CLI를 호출해서 병렬 워커 spawn.
+        </p>
+        <span class="tldr-codex-tier a">CODEX TIER A · DELEGATION</span>
+        <div class="tldr-stats">
+          <div class="tldr-stat"><span class="label">언어</span><span class="value">Python</span></div>
+          <div class="tldr-stat"><span class="label">Codex</span><span class="value teal">As sub-agent</span></div>
+          <div class="tldr-stat"><span class="label">Skillify</span><span class="value">매우 가까움</span></div>
+        </div>
+      </div>
+
+      <div class="tldr-card ecc">
+        <div class="tldr-name">ECC · 178K ★ (가장 큼)</div>
+        <div class="tldr-title">Harness Performance System</div>
+        <div>
+          <span class="tldr-tag">Instinct</span>
+          <span class="tldr-tag">Cross-harness</span>
+          <span class="tldr-tag">Hooks-first</span>
+          <span class="tldr-tag">182 Skills</span>
+        </div>
+        <p class="tldr-quote">
+          Anthropic Hackathon Winner. <strong>"Skills는 확률적, Hooks는 결정적"</strong> — Skillify 핵심 통찰의 검증된 구현. 
+          4개 중 유일하게 Codex CLI를 1급 시민으로 지원 — <code style="font-family:var(--mono);font-size:11px;color:var(--pink);">sync-ecc-to-codex.sh</code> 한 줄로 모든 skills/agents/hooks 통합.
+        </p>
+        <span class="tldr-codex-tier s">CODEX TIER S · FIRST-CLASS</span>
+        <div class="tldr-stats">
+          <div class="tldr-stat"><span class="label">언어</span><span class="value">Polyglot</span></div>
+          <div class="tldr-stat"><span class="label">Codex</span><span class="value teal">Native + Sync</span></div>
+          <div class="tldr-stat"><span class="label">Skillify</span><span class="value pink">사실상 동일</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout" style="margin-top: 50px;">
+      <div class="callout-label">⚡ 핵심 발견 (가장 중요한 한 가지)</div>
+      <p>
+        <strong>Kim님은 이미 매일 ECC를 사용 중이고, ECC의 Continuous Learning v2가 Skillify의 살아 있는 reference이다.</strong>
+        ECC의 핵심 통찰들은 Skillify 설계 문서에 적힌 내용을 그대로 검증한다:<br><br>
+        ① "Skills are probabilistic (~50-80% fire rate). Hooks are deterministic (100%)" — 
+        Skillify의 "LLM-judgment vs deterministic-code" 분리 철학과 동일.<br>
+        ② Instinct (atomic, confidence-scored) → cluster → Skill 진화 — Skillify의 
+        "실패→재사용 가능한 skill artifact" 컨셉.<br>
+        ③ Project-scoped vs global instinct, promotion 메커니즘 — 
+        Skillify가 <code>.claude/skillify/</code> 디렉토리 구조로 풀고자 했던 문제의 검증된 해법.<br>
+        ④ Cross-harness 지원 (Claude/Codex/Cursor/OpenCode/Gemini) — 
+        Skillify가 Codex CLI에도 적용되어야 한다면 ECC의 패턴이 청사진.<br><br>
+        결론: 4개를 다 깊이 볼 필요 없이, <strong>ECC가 가장 직접적 reference</strong>이고, 
+        Hermes는 보조 reference, Agno/Ruflo는 향후 확장 단계에서 참고.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- §02 CODEX PRIMITIVES -->
+<section id="codex-primitives">
+  <div class="container">
+    <div class="section-num">§ 02 · CODEX CLI 의 NEW · 알아야 할 변화</div>
+    <h2 class="section-title">Codex CLI는 <em>더 이상 단순한 CLI</em>가 아니다.</h2>
+    <p class="section-desc">
+      2026년 초까지의 Codex CLI는 Claude Code와 거의 같은 primitives를 갖췄다. 
+      AGENTS.md, Hooks, MCP, Skills, Subagents, Plugins, Slash commands — 둘 사이의 격차가 빠르게 줄었다.
+      이는 4개 프로젝트의 cross-harness 지원이 기술적으로 가능해진 이유이기도 하다.
+    </p>
+
+    <div class="primitive-grid">
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 01 ]</div>
+        <h5>📄 AGENTS.md</h5>
+        <div class="vs">vs CLAUDE.md</div>
+        <p>프로젝트의 컨벤션, 빌드/테스트 명령, 도메인 어휘를 담은 brief. 글로벌(<code>~/.codex/AGENTS.md</code>) + 프로젝트 루트(<code>./AGENTS.md</code>) 계층 지원.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 02 ]</div>
+        <h5>🔧 MCP Servers</h5>
+        <div class="vs">vs Claude Code MCP</div>
+        <p><code>~/.codex/config.toml</code>의 <code>[mcp_servers.&lt;name&gt;]</code> 섹션에 등록. STDIO/HTTP 모두 지원. Codex 자체를 MCP server로 expose 가능.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 03 ]</div>
+        <h5>⚡ Hooks</h5>
+        <div class="vs">vs Claude Code Hooks</div>
+        <p>Codex는 자체 Hooks 시스템 보유. Claude Code의 hook event 수(8개)에 비해 다양성은 적음. ECC의 cross-harness adapter로 둘 다 지원 가능.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 04 ]</div>
+        <h5>📚 Skills</h5>
+        <div class="vs">SAME as Claude</div>
+        <p>Codex CLI도 SKILL.md 기반 skills 지원. <code>agentskills.io</code> 표준 호환. Hermes/ECC/Ruflo의 skills를 그대로 사용 가능.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 05 ]</div>
+        <h5>👥 Subagents</h5>
+        <div class="vs">vs delegate_tool</div>
+        <p>Codex는 <code>[agents]</code> 섹션에서 role-configured subagents 정의. 명시적으로 요청 시에만 spawn. 토큰 사용량 high.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 06 ]</div>
+        <h5>🧩 Plugins</h5>
+        <div class="vs">vs Claude Plugins</div>
+        <p>Codex CLI 자체 plugin marketplace 있음. <code>codex plugin</code> CLI로 add/upgrade/remove. ECC는 Codex용 별도 plugin manifest 제공.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 07 ]</div>
+        <h5>/ Slash Commands</h5>
+        <div class="vs">SAME as Claude</div>
+        <p><code>/init</code>, <code>/model</code>, <code>/plan</code>, <code>/personality</code> 등. Type <code>/</code>로 popup. Tab으로 queue.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 08 ]</div>
+        <h5>🛡️ Sandbox + Approval</h5>
+        <div class="vs">vs allowed/confirm</div>
+        <p><code>--sandbox workspace-write</code> + <code>--ask-for-approval on-request</code>. 격리된 macOS/Linux/Windows sandbox.</p>
+      </div>
+      <div class="primitive-card">
+        <div class="num">[ PRIMITIVE 09 ]</div>
+        <h5>🦀 Rust + Open Source</h5>
+        <div class="vs">vs Claude (Node.js)</div>
+        <p>Codex CLI는 Rust로 작성, open source (MIT). 빠른 startup. Kim님의 .NET 환경과는 별개 프로세스로 동작.</p>
+      </div>
+    </div>
+
+    <div class="callout teal">
+      <div class="callout-label">⚡ Skillify에 미치는 함의</div>
+      <p>
+        <strong>Claude Code와 Codex CLI는 더 이상 별개의 세계가 아니다.</strong> 두 harness가 같은 primitives를 갖췄으므로, 
+        Skillify를 처음부터 <strong>cross-harness 디자인</strong>으로 설계하면 동일 코어를 두 harness 모두에서 활용 가능하다.
+        Reference 모델은 ECC — 4개 중 유일하게 Claude/Codex/Cursor/OpenCode/Gemini/Antigravity 모두 지원하는 패턴을 검증했다.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- §03 RUFLO -->
+<section class="project-section ruflo" id="ruflo">
+  <div class="container">
+    <div class="project-header">
+      <div>
+        <span class="project-tag ruflo">03 · RUFLO</span>
+        <h2 class="project-name">Ru<em>flo</em>.</h2>
+        <p class="project-tagline">
+          "Claude Code에 신경계를 심는다 — agent들이 단순히 실행되는 게 아니라 협력하게 만든다."
+        </p>
+      </div>
+      <div class="project-meta">
+        <div class="row"><span class="label">Author</span><span class="value">ruvnet</span></div>
+        <div class="row"><span class="label">Stars</span><span class="value">50,200</span></div>
+        <div class="row"><span class="label">Forks</span><span class="value">5.6k</span></div>
+        <div class="row"><span class="label">Lang</span><span class="value">TypeScript 88%</span></div>
+        <div class="row"><span class="label">License</span><span class="value">MIT</span></div>
+        <div class="row"><span class="label">Codex tier</span><span class="value teal">A · Dual</span></div>
+        <div class="row"><span class="label">Skillify dist</span><span class="value">먼 편</span></div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">03.1 · ARCHITECTURE</div>
+      <h3 class="sub-title">계층적 <em class="blue">swarm</em>으로 구성된 오케스트레이션</h3>
+      <div class="prose blue">
+        <p>
+          Ruflo의 핵심은 <strong>"단일 에이전트가 아닌 swarm"</strong>이라는 점이다. 사용자가 Claude Code에 명령을 내리면,
+          Ruflo의 <code>Router</code>가 작업을 분석해서 적절한 <code>Swarm</code>을 구성하고, 그 swarm 안에서
+          여러 <code>Agent</code>가 협력해 작업을 수행한다. 모든 결과는 <code>Memory</code>에 저장되고
+          <code>Learning Loop</code>를 통해 다음 작업에 반영된다.
+        </p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 1000 400" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrowR" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#5da8ff"/>
+            </marker>
+          </defs>
+          <rect x="380" y="20" width="240" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1.5"/>
+          <text x="500" y="38" text-anchor="middle" fill="#5da8ff" font-family="JetBrains Mono" font-size="11">ORCHESTRATION</text>
+          <text x="500" y="55" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">MCP · Router · 27 Hooks</text>
+          
+          <rect x="380" y="100" width="240" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1.5"/>
+          <text x="500" y="118" text-anchor="middle" fill="#5da8ff" font-family="JetBrains Mono" font-size="11">SWARM COORDINATION</text>
+          <text x="500" y="135" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Queen · Topology · Consensus</text>
+          
+          <rect x="50" y="190" width="170" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1"/>
+          <text x="135" y="208" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Coder</text>
+          <text x="135" y="225" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">implements</text>
+          
+          <rect x="240" y="190" width="170" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1"/>
+          <text x="325" y="208" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Tester</text>
+          <text x="325" y="225" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">writes tests</text>
+          
+          <rect x="430" y="190" width="170" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1"/>
+          <text x="515" y="208" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Reviewer</text>
+          <text x="515" y="225" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">reviews PRs</text>
+          
+          <rect x="620" y="190" width="170" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1"/>
+          <text x="705" y="208" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Security</text>
+          <text x="705" y="225" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">CVE scan</text>
+          
+          <rect x="810" y="190" width="140" height="46" fill="#22262e" stroke="#5da8ff" stroke-width="1"/>
+          <text x="880" y="208" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">... 100+</text>
+
+          <rect x="120" y="280" width="320" height="56" fill="rgba(93,168,255,0.08)" stroke="#5da8ff" stroke-width="1.5"/>
+          <text x="280" y="298" text-anchor="middle" fill="#5da8ff" font-family="JetBrains Mono" font-size="11">MEMORY &amp; LEARNING</text>
+          <text x="280" y="316" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">AgentDB · HNSW · SONA · ReasoningBank</text>
+          
+          <rect x="560" y="280" width="320" height="56" fill="rgba(93,168,255,0.08)" stroke="#5da8ff" stroke-width="1.5"/>
+          <text x="720" y="298" text-anchor="middle" fill="#5da8ff" font-family="JetBrains Mono" font-size="11">LLM PROVIDERS</text>
+          <text x="720" y="316" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Claude · GPT · Gemini · Cohere · Ollama</text>
+          
+          <line x1="500" y1="66" x2="500" y2="98" stroke="#5da8ff" stroke-width="1.5" marker-end="url(#arrowR)"/>
+          <line x1="500" y1="146" x2="500" y2="188" stroke="#5da8ff" stroke-width="1.5" marker-end="url(#arrowR)"/>
+          <path d="M 120 308 Q 50 308 50 150 Q 50 50 380 50" stroke="#ffb547" stroke-width="1.5" fill="none" stroke-dasharray="4,4" marker-end="url(#arrowR)"/>
+          <text x="60" y="180" fill="#ffb547" font-family="JetBrains Mono" font-size="10" transform="rotate(-90 60 180)">LEARNING LOOP</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">03.2 · KEY FEATURES</div>
+      <h3 class="sub-title">동작 방식 핵심 <em class="blue">6가지</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>🐝 Swarm Topology</h5>
+          <p>Hierarchical(Queen→Workers) / Mesh(P2P) / Adaptive. 내부 Raft, Byzantine, Gossip 합의 프로토콜.</p>
+        </div>
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>🧠 SONA + ReasoningBank</h5>
+          <p>성공한 작업의 reasoning trajectory를 vector로 저장. 비슷한 작업 시 패턴 매칭 (89% accuracy 주장).</p>
+        </div>
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>💾 AgentDB (HNSW)</h5>
+          <p>150x ~ 12,500x faster vector search. sub-ms 검색. RuVector는 GPU 가속 — Kim님 OpenGL 배경과 접점.</p>
+        </div>
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>⚡ 12 Background Workers</h5>
+          <p>audit / optimize / testgaps / docgen 등이 Claude Code hooks와 연동되어 자동 트리거.</p>
+        </div>
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>🌐 Federation (Zero-trust)</h5>
+          <p>mTLS + ed25519 + PII 자동 마스킹 + 행동 기반 신뢰 점수. HIPAA/SOC2/GDPR 준수.</p>
+        </div>
+        <div class="feature-card blue">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>🎯 GOAP A* Planner</h5>
+          <p>자연어 목표를 A* search로 실행 가능한 액션 트리로 분해. goal.ruv.io에서 라이브 데모.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">03.3 · ASSESSMENT</div>
+      <h3 class="sub-title">장단점</h3>
+      <div class="pros-cons">
+        <div class="pc-block pros">
+          <h5>장점 / Strengths</h5>
+          <ul>
+            <li><strong>Claude Code와 깊은 통합:</strong> hooks, MCP, plugins 모두 네이티브.</li>
+            <li><strong>Swarm topology 가장 명확:</strong> 4개 중 유일하게 다중 위상 지원.</li>
+            <li><strong>Production-grade federation:</strong> 4개 중 유일하게 cross-org 협업 다룸.</li>
+            <li><strong>거대한 plugin 생태계:</strong> 32 native + 21 npm plugins.</li>
+            <li><strong>Heterogeneous model routing 실증:</strong> Kim님의 routing 연구와 직결.</li>
+            <li><strong>RuVector GPU search:</strong> Kim님 OpenGL/GPU 배경과 자연스러운 접점.</li>
+          </ul>
+        </div>
+        <div class="pc-block cons">
+          <h5>단점 / Weaknesses</h5>
+          <ul>
+            <li><strong>TypeScript/Node.js:</strong> Kim님의 .NET과 분리. 직접 통합 어려움.</li>
+            <li><strong>과도한 복잡도:</strong> 314 MCP tools, 26 CLI commands.</li>
+            <li><strong>마케팅 톤이 강함:</strong> "150x-12,500x" 같은 주장의 실증 부족.</li>
+            <li><strong>Skill 시스템 부재:</strong> SONA가 있지만 명시적 markdown artifact 없음.</li>
+            <li><strong>1,482 releases:</strong> 매우 빠른 변경 = API 안정성 의문.</li>
+            <li><strong>두 install path의 혼란:</strong> Plugin (lite) vs CLI (full) 차이가 크다.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">03.4 · CODEX CLI APPLICATION</div>
+      <h3 class="sub-title">Ruflo · <em class="blue">Claude와 Codex를 동시에</em></h3>
+      <div class="prose blue">
+        <p>
+          Ruflo의 접근은 가장 야심차다 — Claude Code 워커와 Codex 워커를 <strong>동시에 spawn해서 swarm 안에서 협력</strong>시킨다.
+          <code>@claude-flow/codex</code> 패키지가 별도로 존재하며, <code>claude-flow-codex dual</code> CLI는 두 harness를 동시 제어한다.
+        </p>
+      </div>
+
+      <h4 class="subsub-title">📦 설치 (Codex 모드)</h4>
+      <pre class="code blue"><span class="comment"># Codex CLI용으로만 초기화 (AGENTS.md 생성)</span>
+npx ruflo@alpha init --codex
+
+<span class="comment"># Full Codex setup (137+ skills 포함)</span>
+npx ruflo@alpha init --codex --full
+
+<span class="comment"># Dual mode: Claude + Codex 동시 초기화</span>
+npx ruflo@alpha init --dual</pre>
+
+      <h4 class="subsub-title">🎬 Multi-platform Swarm 사용</h4>
+      <pre class="code blue"><span class="comment"># Custom multi-platform swarm</span>
+npx claude-flow-codex dual run \
+  --worker <span class="string">"claude:architect:Design the API structure"</span> \
+  --worker <span class="string">"codex:coder:Implement REST endpoints"</span> \
+  --worker <span class="string">"claude:tester:Write integration tests"</span> \
+  --worker <span class="string">"codex:reviewer:Review code quality"</span> \
+  --namespace <span class="string">"api-feature"</span></pre>
+
+      <h4 class="subsub-title">🔍 동작 원리</h4>
+      <pre class="code blue">┌─────────────────────────────────────────────────────────────────┐
+│ CLAUDE CODE (interactive)    ←→    CODEX WORKERS (headless)     │
+│ - Main conversation              - Parallel background execution│
+│ - Complex reasoning              - Bulk code generation         │
+│ - Architecture decisions         - Test execution               │
+│ - Final integration              - File processing              │
+└─────────────────────────────────────────────────────────────────┘
+        ↓                                       ↓
+   Shared Memory Coordination (AgentDB + HNSW)</pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">03.5 · APPLICATION TO SKILLIFY</div>
+      <h3 class="sub-title">Skillify에 적용</h3>
+      <div class="prose">
+        <p>
+          <strong>Phase 2 이후 참조</strong>. Skillify가 CEO→Executor 단일 라인을 넘어 multi-agent swarm으로 확장 시 
+          (1) topology 추상화, (2) 12 background worker 패턴, (3) federation 보안 모델, (4) dual harness orchestration 패턴을 차용.
+          현재 단계에서는 우선순위 낮음. 단, <code>--worker "harness:role:task"</code> declarative 명세 패턴은 Skillify 명령어 라우터에 즉시 차용 가능.
+        </p>
+      </div>
+      <div class="mapping-grid">
+        <div class="mapping-cell">
+          <div class="from">RUFLO 패턴</div>
+          <div class="label">Queen Agent (Hierarchical)</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify CEO Agent:</strong> 워커 spawn, 진행 모니터링, 결과 통합. <code>Channel&lt;T&gt;</code> 기반 이벤트 풀.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">RUFLO 패턴</div>
+          <div class="label">12 Background Workers</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify hook:</strong> PostToolUse에서 audit/optimize/testgen 자동 트리거. 이미 ECC 셋업이 있어 자연스럽다.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">RUFLO 패턴</div>
+          <div class="label">Dual harness orchestration</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify routing:</strong> bulk codegen → Codex, architecture → Claude. 비용/품질 동시 최적화.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §04 AGNO -->
+<section class="project-section agno" id="agno">
+  <div class="container">
+    <div class="project-header">
+      <div>
+        <span class="project-tag agno">04 · AGNO</span>
+        <h2 class="project-name">Ag<em>no</em>.</h2>
+        <p class="project-tagline">
+          "어떤 프레임워크로든 에이전트를 만들어라. 우리는 그걸 production service로 돌려준다."
+        </p>
+      </div>
+      <div class="project-meta">
+        <div class="row"><span class="label">Author</span><span class="value">agno-agi</span></div>
+        <div class="row"><span class="label">Stars</span><span class="value">40,100</span></div>
+        <div class="row"><span class="label">Forks</span><span class="value">5.4k</span></div>
+        <div class="row"><span class="label">Lang</span><span class="value">Python 99.7%</span></div>
+        <div class="row"><span class="label">License</span><span class="value">Apache 2.0</span></div>
+        <div class="row"><span class="label">Codex tier</span><span class="value">C · Model only</span></div>
+        <div class="row"><span class="label">Skillify dist</span><span class="value">중간</span></div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.1 · ARCHITECTURE</div>
+      <h3 class="sub-title">3-Layer <em class="green">플랫폼</em> 모델</h3>
+      <div class="prose green">
+        <p>
+          명확하게 3계층 분리: <strong>SDK</strong>(에이전트 빌드) / 
+          <strong>Runtime</strong>(FastAPI service) / 
+          <strong>Control Plane</strong>(SaaS UI). 
+          Control Plane만 closed-source, 나머지는 완전 오픈소스. 
+          철학적으로 LangServe + LangSmith의 LangChain 스타일에 가깝다.
+        </p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 1000 380" xmlns="http://www.w3.org/2000/svg">
+          <rect x="100" y="20" width="800" height="70" fill="rgba(91,217,156,0.08)" stroke="#5bd99c" stroke-width="1.5"/>
+          <text x="500" y="42" text-anchor="middle" fill="#5bd99c" font-family="JetBrains Mono" font-size="11">LAYER 3 · CONTROL PLANE (SaaS)</text>
+          <text x="500" y="65" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="14" font-weight="600">AgentOS UI · Chat · Traces · Sessions</text>
+
+          <rect x="100" y="110" width="800" height="100" fill="rgba(91,217,156,0.08)" stroke="#5bd99c" stroke-width="1.5"/>
+          <text x="500" y="130" text-anchor="middle" fill="#5bd99c" font-family="JetBrains Mono" font-size="11">LAYER 2 · RUNTIME (FastAPI, open source)</text>
+          <rect x="130" y="148" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="220" y="166" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">50+ Endpoints</text>
+          <text x="220" y="183" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">SSE · WebSocket</text>
+          <rect x="320" y="148" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="410" y="166" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Postgres</text>
+          <text x="410" y="183" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">Sessions + Memory</text>
+          <rect x="510" y="148" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="600" y="166" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">OpenTelemetry</text>
+          <text x="600" y="183" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">ClickHouse OLAP</text>
+          <rect x="700" y="148" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="790" y="166" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">JWT + RBAC</text>
+          <text x="790" y="183" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">Multi-tenant</text>
+
+          <rect x="100" y="230" width="800" height="100" fill="rgba(91,217,156,0.08)" stroke="#5bd99c" stroke-width="1.5"/>
+          <text x="500" y="250" text-anchor="middle" fill="#5bd99c" font-family="JetBrains Mono" font-size="11">LAYER 1 · SDK (open source Python)</text>
+          <rect x="130" y="268" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="220" y="296" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Agent class</text>
+          <rect x="320" y="268" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="410" y="296" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Team</text>
+          <rect x="510" y="268" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="600" y="296" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">Workflow</text>
+          <rect x="700" y="268" width="180" height="46" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="790" y="296" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="600">100+ Toolkits</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.2 · DEVELOPER EXPERIENCE</div>
+      <h3 class="sub-title">30줄로 <em class="green">production service</em></h3>
+      <pre class="code green"><span class="keyword">from</span> agno.agent <span class="keyword">import</span> Agent
+<span class="keyword">from</span> agno.db.sqlite <span class="keyword">import</span> SqliteDb
+<span class="keyword">from</span> agno.os <span class="keyword">import</span> AgentOS
+<span class="keyword">from</span> agno.tools.workspace <span class="keyword">import</span> Workspace
+
+workbench = <span class="func">Agent</span>(
+    name=<span class="string">"Workbench"</span>,
+    model=<span class="string">"openai:gpt-5.4"</span>,
+    tools=[<span class="func">Workspace</span>(<span class="string">"."</span>,
+        allowed=[<span class="string">"read"</span>, <span class="string">"list"</span>, <span class="string">"search"</span>],
+        confirm=[<span class="string">"write"</span>, <span class="string">"edit"</span>, <span class="string">"delete"</span>, <span class="string">"shell"</span>],
+    )],
+    enable_agentic_memory=<span class="keyword">True</span>,
+)
+
+agent_os = <span class="func">AgentOS</span>(agents=[workbench], db=<span class="func">SqliteDb</span>(...))
+app = agent_os.<span class="func">get_app</span>()
+
+<span class="comment"># $ fastapi dev workbench.py</span>
+<span class="comment"># → http://localhost:8000 (with /docs OpenAPI)</span></pre>
+
+      <div class="callout amber">
+        <div class="callout-label">⚡ 주목할 점</div>
+        <p>
+          <code>allowed</code>/<code>confirm</code> 분리. read/list/search는 자유, write/edit/delete/shell은 human approval. 
+          이 패턴이 Skillify의 "LLM-judgment vs deterministic-code" 분리 철학과 완전히 같다. 
+          위험한 액션을 자동화하지 않고 명시적 confirm을 받는 게이트 메커니즘.
+        </p>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.3 · KEY FEATURES</div>
+      <h3 class="sub-title">Production-First <em class="green">feature set</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card green">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>📡 50+ Production API</h5>
+          <p>SSE streaming, WebSocket, session/run/trace 자동 생성. 외부 제품 통합 시 API 작성 불필요.</p>
+        </div>
+        <div class="feature-card green">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>🛡️ allowed/confirm Gate</h5>
+          <p>read/list/search는 자유, write/delete/shell은 human approval. Skillify의 분리 철학과 동일.</p>
+        </div>
+        <div class="feature-card green">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>📊 OpenTelemetry Tracing</h5>
+          <p>모든 LLM call, tool call이 자동 추적. Postgres에 sessions, ClickHouse에 OLAP.</p>
+        </div>
+        <div class="feature-card green">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>🔐 JWT RBAC + Multi-tenant</h5>
+          <p>SaaS 빌드 시 가장 큰 시간 절약. users/roles/tenants가 SDK 레벨에서 모델링.</p>
+        </div>
+        <div class="feature-card green">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>🤖 Native Claude Agent SDK</h5>
+          <p><code>ClaudeAgent</code> 클래스로 Anthropic 공식 SDK 직접 wrapping. permission_mode 지원.</p>
+        </div>
+        <div class="feature-card green">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>⏰ Cron Scheduling 내장</h5>
+          <p>외부 스케줄러 없이 정기 작업 실행. 백업, 보고서, 정기 audit 등.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.4 · ASSESSMENT</div>
+      <h3 class="sub-title">장단점</h3>
+      <div class="pros-cons">
+        <div class="pc-block pros">
+          <h5>장점 / Strengths</h5>
+          <ul>
+            <li><strong>가장 명확한 추상화:</strong> SDK / Runtime / Control Plane 3계층.</li>
+            <li><strong>Production-ready 진짜:</strong> 30줄로 FastAPI + 50+ endpoints + OTel.</li>
+            <li><strong>Claude Agent SDK 통합:</strong> Anthropic 공식 SDK wrapping.</li>
+            <li><strong>Apache 2.0:</strong> MIT보다 명확한 특허 보호.</li>
+            <li><strong>가장 깔끔한 코드베이스:</strong> Python 99.7%.</li>
+            <li><strong>Enterprise observability:</strong> Multi-tenant tracing, audit log.</li>
+          </ul>
+        </div>
+        <div class="pc-block cons">
+          <h5>단점 / Weaknesses</h5>
+          <ul>
+            <li><strong>Control Plane이 closed-source.</strong></li>
+            <li><strong>Skill 시스템 없음:</strong> Memory만, procedural artifact 부재.</li>
+            <li><strong>Self-improving 부재:</strong> 학습 루프 없음.</li>
+            <li><strong>Swarm 약함:</strong> Team이 있지만 topology/consensus 부재.</li>
+            <li><strong>Python only:</strong> .NET과 별도 서비스로 격리해야 함.</li>
+            <li><strong>외부 의존성 무거움:</strong> Postgres + ClickHouse.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.5 · CODEX CLI APPLICATION</div>
+      <h3 class="sub-title">Agno · <em class="green">모델은 쓰지만 CLI는 무관</em></h3>
+      <div class="prose green">
+        <p>
+          Agno는 <strong>Codex CLI harness 자체를 알지 못한다.</strong> Agno는 backend service이고, Codex CLI는 frontend tool이라 
+          abstraction layer가 다르다. 다만 OpenAI의 모델(Codex 포함)을 Agno Agent로 사용하는 건 자유롭다.
+          간접 통합: Agno를 MCP server로 expose해서 Codex CLI의 <code>~/.codex/config.toml</code>에 등록하는 방법은 가능.
+        </p>
+      </div>
+      <pre class="code green"><span class="comment"># Agno → Codex CLI 우회 경로</span>
+
+<span class="comment"># 1. Agno를 MCP server로 expose (docs.agno.com/mcp)</span>
+
+<span class="comment"># 2. Codex CLI의 ~/.codex/config.toml에 등록</span>
+[mcp_servers.agno]
+command = <span class="string">"npx"</span>
+args = [<span class="string">"-y"</span>, <span class="string">"agno-mcp-server"</span>]
+env = { AGNO_API_KEY = <span class="string">"..."</span> }
+
+<span class="comment"># 3. Codex CLI에서 mcp__agno__* tools 호출 가능</span></pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">04.6 · APPLICATION TO SKILLIFY</div>
+      <h3 class="sub-title">Skillify에 적용</h3>
+      <div class="prose">
+        <p>
+          <strong>Phase 3 (SaaS화)에서 reference</strong>. 3-layer 분리, allowed/confirm 게이트, 
+          50+ REST endpoint 패턴, OTel tracing 모델을 .NET 10에서 모방. Codex CLI 측면에서는 가치 낮음.
+        </p>
+      </div>
+      <div class="mapping-grid">
+        <div class="mapping-cell">
+          <div class="from">AGNO 패턴</div>
+          <div class="label">3-Layer 분리</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> Skillify.Core (SDK) / Skillify.Server (Runtime, ASP.NET Core) / Skillify.UI (Control plane) 분리. 이미 .Storage/.Cli 분리 중이므로 자연스러운 확장.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">AGNO 패턴</div>
+          <div class="label">allowed/confirm 게이트</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> hook에서 PreToolUse 검증. write/delete/shell은 human-in-loop confirm 강제.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">AGNO 패턴</div>
+          <div class="label">OpenTelemetry tracing</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> .NET 10의 OpenTelemetry SDK로 모든 agent run, skill invocation 추적.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §05 HERMES -->
+<section class="project-section hermes" id="hermes">
+  <div class="container">
+    <div class="project-header">
+      <div>
+        <span class="project-tag hermes">05 · HERMES ☤</span>
+        <h2 class="project-name">Her<em>mes</em>.</h2>
+        <p class="project-tagline">
+          "당신과 함께 자라는 에이전트 — 경험에서 skill을 만들고, 사용하면서 개선한다."
+        </p>
+      </div>
+      <div class="project-meta">
+        <div class="row"><span class="label">Author</span><span class="value">NousResearch</span></div>
+        <div class="row"><span class="label">Stars</span><span class="value">143,000</span></div>
+        <div class="row"><span class="label">Forks</span><span class="value">17.7k</span></div>
+        <div class="row"><span class="label">Lang</span><span class="value">Python 88%</span></div>
+        <div class="row"><span class="label">License</span><span class="value">MIT</span></div>
+        <div class="row"><span class="label">Codex tier</span><span class="value teal">A · Delegation</span></div>
+        <div class="row"><span class="label">Skillify dist</span><span class="value amber">매우 가까움</span></div>
+      </div>
+    </div>
+
+    <div class="callout amber">
+      <div class="callout-label">🎯 SKILLIFY 관점에서 두 번째로 중요한 프로젝트</div>
+      <p>
+        Hermes의 Skills System은 SKILL.md 포맷, progressive disclosure, agent-managed lifecycle 모두 Skillify와 동일하다.
+        <strong>agentskills.io 오픈 표준</strong>과 호환되어, Skillify를 이 표준에 맞추면 즉시 거대한 skill 생태계 진입.
+      </p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">05.1 · SKILLS SYSTEM</div>
+      <h3 class="sub-title">Skills System — <em class="amber">Skillify의 reference</em></h3>
+
+      <h4 class="subsub-title">Progressive Disclosure (3단계 토큰 절약)</h4>
+      <pre class="code amber"><span class="keyword">Level 0:</span> skills_list()           → [{name, description}, ...]   (~3k tokens)
+<span class="keyword">Level 1:</span> skill_view(name)         → Full SKILL.md content     (varies)
+<span class="keyword">Level 2:</span> skill_view(name, path)   → Specific reference file   (varies)
+
+<span class="comment"># Agent는 필요할 때만 전체 skill을 로드. 처음엔 색인만 본다.</span>
+<span class="comment"># 토큰 절약 효과: 60-80% (전체 로드 대비)</span></pre>
+
+      <h4 class="subsub-title">SKILL.md Frontmatter (agentskills.io 표준)</h4>
+      <pre class="code amber"><span class="keyword">---</span>
+<span class="keyword">name:</span> <span class="string">"playwright-testing"</span>
+<span class="keyword">description:</span> <span class="string">"End-to-end testing with Playwright"</span>
+<span class="keyword">version:</span> <span class="string">"1.0.0"</span>
+<span class="keyword">author:</span> <span class="string">"team-name"</span>
+<span class="keyword">license:</span> <span class="string">"MIT"</span>
+<span class="keyword">platforms:</span> [linux, macos, windows]
+<span class="keyword">metadata:</span>
+  <span class="keyword">hermes:</span>
+    <span class="keyword">tags:</span> [testing, e2e]
+    <span class="keyword">related_skills:</span> [test-coverage]
+    <span class="keyword">fallback_for_toolsets:</span> [playwright]   <span class="comment"># 조건부 활성화</span>
+<span class="keyword">---</span></pre>
+
+      <h4 class="subsub-title">skill_manage 4가지 액션</h4>
+      <pre class="code amber"><span class="keyword">create</span>      <span class="comment"># 새 skill (name, content)</span>
+<span class="keyword">patch</span>       <span class="comment"># 부분 수정 (old_string → new_string) — 토큰 효율적, 권장</span>
+<span class="keyword">edit</span>        <span class="comment"># 전체 재작성</span>
+<span class="keyword">delete</span>      <span class="comment"># 삭제</span></pre>
+
+      <h4 class="subsub-title">Agent 자동 skill 생성 4가지 trigger</h4>
+      <div class="flow">
+        <div class="flow-step amber">
+          <div class="num">[ TRIGGER 1 ]</div>
+          <div class="label">5+ tool calls 완료</div>
+          <div class="desc">복잡한 작업 성공 시 절차를 skill로 보존</div>
+        </div>
+        <div class="flow-step amber">
+          <div class="num">[ TRIGGER 2 ]</div>
+          <div class="label">Error → working path</div>
+          <div class="desc">실패 후 해결책 발견 (★ Skillify의 핵심)</div>
+        </div>
+        <div class="flow-step amber">
+          <div class="num">[ TRIGGER 3 ]</div>
+          <div class="label">User correction</div>
+          <div class="desc">사용자가 접근법 수정 시</div>
+        </div>
+        <div class="flow-step amber">
+          <div class="num">[ TRIGGER 4 ]</div>
+          <div class="label">Non-trivial workflow</div>
+          <div class="desc">반복 가능성 있는 복잡 워크플로우</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">05.2 · OTHER FEATURES</div>
+      <h3 class="sub-title">Skills 외 <em class="amber">차별화 요소</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>📱 20개 메시징 어댑터</h5>
+          <p>Telegram/Discord/Slack/WhatsApp/Signal/Email/SMS 등. 단일 gateway로 모두 통합.</p>
+        </div>
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>☁️ 7가지 터미널 백엔드</h5>
+          <p>local/Docker/SSH/Singularity/Modal/Daytona/Vercel. Modal/Daytona는 idle hibernate.</p>
+        </div>
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>🌳 Subagent Delegation</h5>
+          <p><code>delegate_tool</code>로 격리된 subagent spawn. CEO→Executor 구현 사례.</p>
+        </div>
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>🔍 SQLite + FTS5 Search</h5>
+          <p>전 세션 full-text 검색 + LLM 요약. lineage tracking.</p>
+        </div>
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>🧪 Atropos RL Training</h5>
+          <p>Trajectory 압축 + ShareGPT 포맷. fine-tune 모델 준비.</p>
+        </div>
+        <div class="feature-card amber">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>👤 Honcho 사용자 모델</h5>
+          <p>변증법적 user modeling. 세션 가로지른 깊은 사용자 이해.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">05.3 · ASSESSMENT</div>
+      <h3 class="sub-title">장단점</h3>
+      <div class="pros-cons">
+        <div class="pc-block pros">
+          <h5>장점 / Strengths</h5>
+          <ul>
+            <li><strong>Skills가 Skillify reference:</strong> 포맷/lifecycle 동일.</li>
+            <li><strong>agentskills.io 오픈 표준 호환:</strong> 즉시 거대 생태계.</li>
+            <li><strong>Self-improving loop 명시적:</strong> 4 trigger.</li>
+            <li><strong>143k stars:</strong> 압도적 검증.</li>
+            <li><strong>RL 친화적:</strong> Atropos + trajectory 압축.</li>
+            <li><strong>비용 효율:</strong> $5 VPS, idle hibernate.</li>
+            <li><strong>18+ LLM provider:</strong> vendor lock-in 없음.</li>
+          </ul>
+        </div>
+        <div class="pc-block cons">
+          <h5>단점 / Weaknesses</h5>
+          <ul>
+            <li><strong>Swarm 컨셉 약함:</strong> subagent만 가능.</li>
+            <li><strong>Python 기반:</strong> .NET 직접 통합 어려움.</li>
+            <li><strong>단일 사용자 가정:</strong> multi-tenant 없음.</li>
+            <li><strong>거대한 코드베이스:</strong> 8,014 commits.</li>
+            <li><strong>RBAC builtin 아님.</strong></li>
+            <li><strong>Hermes-specific frontmatter:</strong> 표준화 작업 필요.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">05.4 · CODEX CLI APPLICATION</div>
+      <h3 class="sub-title">Hermes · <em class="amber">Codex를 provider로 또는 delegate로</em></h3>
+      <div class="prose amber">
+        <p>
+          Hermes의 Codex 통합은 두 가지 방향. 
+          ⓐ <strong>Codex의 GPT-5.5 모델을 Hermes의 backend로 사용</strong>하거나, 
+          ⓑ <strong>Hermes 안에서 Codex CLI를 sub-agent로 호출</strong>. 
+          ⓐ는 Hermes를 main agent로 쓰는 패턴, ⓑ는 Hermes가 Codex에 작업을 위임하는 패턴.
+        </p>
+      </div>
+
+      <h4 class="subsub-title">🅰️ Codex를 Hermes Provider로 (GPT-5.5 OAuth)</h4>
+      <pre class="code amber"><span class="comment"># OpenAI Codex CLI 로그인 사용 (device code flow)</span>
+hermes auth add openai-codex
+<span class="comment"># → 브라우저에서 URL/코드 입력, 인증 완료</span>
+
+<span class="comment"># Hermes config.yaml</span>
+model:
+  provider: openai-codex     <span class="comment"># GPT-5.5 via Codex OAuth</span>
+  
+<span class="comment"># 또는 기존 Codex CLI 크리덴셜 자동 import</span>
+<span class="comment"># Hermes가 ~/.codex/auth.json에서 자동 인식</span></pre>
+
+      <h4 class="subsub-title">🅱️ Codex CLI를 Hermes Sub-agent로 (delegation skill)</h4>
+      <pre class="code amber"><span class="comment"># Hermes에 bundled된 'codex' skill 사용</span>
+<span class="comment"># 위치: skills/autonomous-ai-agents/codex/SKILL.md</span>
+
+terminal(
+  command=<span class="string">"codex exec 'Add dark mode toggle to settings'"</span>,
+  workdir=<span class="string">"~/project"</span>,
+  pty=<span class="keyword">True</span>     <span class="comment"># Codex는 interactive terminal app</span>
+)</pre>
+
+      <h4 class="subsub-title">⚡ 병렬 Codex 워커 — Hermes의 강력한 패턴</h4>
+      <pre class="code amber"><span class="comment"># 1) Git worktrees 생성</span>
+terminal(command=<span class="string">"git worktree add -b fix/issue-78 /tmp/issue-78 main"</span>, workdir=<span class="string">"~/project"</span>)
+terminal(command=<span class="string">"git worktree add -b fix/issue-99 /tmp/issue-99 main"</span>, workdir=<span class="string">"~/project"</span>)
+
+<span class="comment"># 2) 각각 Codex 워커 spawn (background)</span>
+terminal(
+  command=<span class="string">"codex --yolo exec 'Fix issue #78: ...'"</span>,
+  workdir=<span class="string">"/tmp/issue-78"</span>,
+  background=<span class="keyword">True</span>, pty=<span class="keyword">True</span>
+)
+terminal(
+  command=<span class="string">"codex --yolo exec 'Fix issue #99: ...'"</span>,
+  workdir=<span class="string">"/tmp/issue-99"</span>,
+  background=<span class="keyword">True</span>, pty=<span class="keyword">True</span>
+)
+
+<span class="comment"># 3) 진행 모니터링 + PR 생성</span>
+process(action=<span class="string">"list"</span>)
+terminal(command=<span class="string">"gh pr create --head fix/issue-78 ..."</span>)</pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">05.5 · APPLICATION TO SKILLIFY</div>
+      <h3 class="sub-title">Skillify에 적용</h3>
+      <div class="prose">
+        <p>
+          <strong>Phase 1 reference</strong>. SKILL.md frontmatter를 agentskills.io 표준에 맞추기,
+          Progressive Disclosure 3단계 API 도입, skill_manage 4 액션 분리 (patch 권장),
+          conditional activation 필드(<code>fallback_for_toolsets</code>) 추가. 
+          Codex 측면에서는 ⓑ delegation 패턴이 Skillify CEO→Executor와 완벽 일치.
+        </p>
+      </div>
+      <div class="mapping-grid">
+        <div class="mapping-cell">
+          <div class="from">HERMES 패턴</div>
+          <div class="label">SKILL.md + agentskills.io 표준</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> vendor namespace를 <code>metadata.skillify.*</code>로 분리. openai/skills, anthropics/skills와 즉시 호환.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">HERMES 패턴</div>
+          <div class="label">Progressive Disclosure 3-level</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> <code>ISkillRegistry.ListAsync()</code> / <code>ViewAsync(name)</code> / <code>ViewFileAsync(name, path)</code>. 토큰 60-80% 절약.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">HERMES 패턴</div>
+          <div class="label">Codex parallel delegation</div>
+          <div class="arrow">↓</div>
+          <div class="to"><strong>Skillify:</strong> <code>Process.Start("codex", "--yolo exec", ...)</code> + git worktrees. .NET ObjectPool 워밍으로 spawn latency 제거.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §06 ECC -->
+<section class="project-section ecc" id="ecc">
+  <div class="container">
+    <div class="project-header">
+      <div>
+        <span class="project-tag ecc">06 · ECC ★ KIM 이미 사용 중</span>
+        <h2 class="project-name">E<em>CC</em>.</h2>
+        <p class="project-tagline">
+          "The agent harness performance optimization system — skills, instincts, memory, security, research-first."
+        </p>
+      </div>
+      <div class="project-meta">
+        <div class="row"><span class="label">Author</span><span class="value">affaan-m</span></div>
+        <div class="row"><span class="label">Stars</span><span class="value pink">178,000 ★ 최대</span></div>
+        <div class="row"><span class="label">Forks</span><span class="value">27,500</span></div>
+        <div class="row"><span class="label">Lang</span><span class="value">Polyglot</span></div>
+        <div class="row"><span class="label">Skills</span><span class="value pink">182개 (최대)</span></div>
+        <div class="row"><span class="label">Agents</span><span class="value">48개</span></div>
+        <div class="row"><span class="label">License</span><span class="value">MIT</span></div>
+        <div class="row"><span class="label">Hackathon</span><span class="value pink">Anthropic Winner</span></div>
+        <div class="row"><span class="label">Codex tier</span><span class="value teal">S · First-class</span></div>
+        <div class="row"><span class="label">Skillify dist</span><span class="value pink">사실상 동일</span></div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-label">🎯 가장 중요한 발견 — Kim님은 이미 ECC 사용자</div>
+      <p>
+        Kim님의 메모리 분석에 따르면, 이미 <strong>"sophisticated ECC (Everything Claude Code) hooks setup covering PreToolUse guards, 
+        PostToolUse automation (Prettier, TypeScript, ESLint), and Stop/SessionEnd lifecycle management"</strong>을 
+        사용 중이시다. 즉, ECC는 외부 reference가 아니라 <strong>Kim님의 실제 일상 도구이고, Skillify는 본질적으로 
+        ECC의 Continuous Learning v2 컨셉을 .NET으로 재구현하는 프로젝트</strong>이다. 
+        이번 분석은 ECC v2의 최신 진화 (Instinct system, Project scoping, Cross-harness)를 Skillify에 어떻게 가져올지 보여준다.
+      </p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.1 · ARCHITECTURE</div>
+      <h3 class="sub-title">Hooks-first <em class="pink">결정적 관찰</em> 시스템</h3>
+      <div class="prose">
+        <p>
+          ECC의 핵심 통찰: <strong>"Skills는 확률적이다 (~50-80%의 확률로 발동). Hooks는 결정적이다 (100% 발동)"</strong>. 
+          이 한 줄이 ECC v2 전체 아키텍처를 설명한다. Skills로 관찰하던 v1을 버리고, PreToolUse/PostToolUse hooks를 통한
+          100% 결정적 관찰로 전환했다. 이게 정확히 Skillify의 "LLM-judgment vs deterministic-code 엄격 분리" 철학이다.
+        </p>
+      </div>
+
+      <div class="arch-diagram">
+        <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="bgECC" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ec4899" stop-opacity="0.08"/>
+              <stop offset="100%" stop-color="#ec4899" stop-opacity="0.01"/>
+            </linearGradient>
+            <marker id="arrowECC" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L0,6 L8,3 z" fill="#ec4899"/>
+            </marker>
+          </defs>
+
+          <rect x="400" y="20" width="200" height="40" fill="#22262e" stroke="#ec4899" stroke-width="1.5"/>
+          <text x="500" y="45" text-anchor="middle" fill="#e8e6e1" font-family="JetBrains Mono" font-size="13" font-weight="600">User · Claude Code Session</text>
+
+          <rect x="80" y="100" width="840" height="80" fill="url(#bgECC)" stroke="#ec4899" stroke-width="2"/>
+          <text x="500" y="123" text-anchor="middle" fill="#ec4899" font-family="JetBrains Mono" font-size="12" font-weight="700">⚡ HOOKS LAYER · 100% DETERMINISTIC (observe.sh)</text>
+          <rect x="110" y="138" width="160" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="190" y="159" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="500">PreToolUse</text>
+          <rect x="290" y="138" width="160" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="370" y="159" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="500">PostToolUse</text>
+          <rect x="470" y="138" width="160" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="550" y="159" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="500">SessionStart</text>
+          <rect x="650" y="138" width="160" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="730" y="159" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12" font-weight="500">Stop · SessionEnd</text>
+
+          <rect x="350" y="210" width="300" height="46" fill="#22262e" stroke="#ec4899" stroke-width="1"/>
+          <text x="500" y="230" text-anchor="middle" fill="#ec4899" font-family="JetBrains Mono" font-size="11">observations.jsonl</text>
+          <text x="500" y="247" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">project-scoped + global fallback</text>
+
+          <rect x="80" y="290" width="840" height="70" fill="url(#bgECC)" stroke="#ec4899" stroke-width="2"/>
+          <text x="500" y="313" text-anchor="middle" fill="#ec4899" font-family="JetBrains Mono" font-size="12" font-weight="700">🧠 BACKGROUND OBSERVER · Haiku agent (probabilistic, but isolated)</text>
+          <text x="500" y="335" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="12">패턴 탐지: user corrections · error resolutions · repeated workflows</text>
+          <text x="500" y="350" text-anchor="middle" fill="#75736d" font-family="JetBrains Mono" font-size="10">메인 컨텍스트를 오염시키지 않음 (별도 프로세스, throttled signaling)</text>
+
+          <rect x="80" y="390" width="840" height="80" fill="url(#bgECC)" stroke="#ec4899" stroke-width="2"/>
+          <text x="500" y="412" text-anchor="middle" fill="#ec4899" font-family="JetBrains Mono" font-size="12" font-weight="700">⚙️ INSTINCTS · atomic learned behaviors with confidence 0.3 → 0.9</text>
+          <rect x="110" y="428" width="370" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="295" y="448" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="11">projects/&lt;hash&gt;/instincts/personal/ (project-scoped)</text>
+          <rect x="500" y="428" width="370" height="32" fill="#22262e" stroke="#383d47" stroke-width="1"/>
+          <text x="685" y="448" text-anchor="middle" fill="#e8e6e1" font-family="Inter Tight" font-size="11">~/.claude/homunculus/instincts/personal/ (global)</text>
+
+          <rect x="80" y="490" width="840" height="40" fill="url(#bgECC)" stroke="#ec4899" stroke-width="2"/>
+          <text x="500" y="515" text-anchor="middle" fill="#ec4899" font-family="JetBrains Mono" font-size="11" font-weight="700">🌱 EVOLUTION · /evolve clusters → SKILL.md / Command / Agent · /promote project → global</text>
+
+          <line x1="500" y1="60" x2="500" y2="98" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arrowECC)"/>
+          <line x1="500" y1="180" x2="500" y2="208" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arrowECC)"/>
+          <line x1="500" y1="256" x2="500" y2="288" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arrowECC)"/>
+          <line x1="500" y1="360" x2="500" y2="388" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arrowECC)"/>
+          <line x1="500" y1="470" x2="500" y2="488" stroke="#ec4899" stroke-width="1.5" marker-end="url(#arrowECC)"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.2 · CONTINUOUS LEARNING V2 (★ MOST CRITICAL FOR SKILLIFY)</div>
+      <h3 class="sub-title">Instinct → Skill <em class="pink">진화 파이프라인</em></h3>
+      <div class="prose">
+        <p>
+          ECC의 가장 중요한 부분이자 Skillify의 직접 reference. Hermes가 한 번에 "skill"을 만든다면, 
+          ECC는 더 세분화된 접근을 한다: <strong>먼저 작은 atomic "instinct"를 만들고, 충분히 신뢰도가 쌓이면 cluster해서 skill로 진화시킨다</strong>. 
+          이는 Skillify의 "실패 → reusable skill artifact" 컨셉을 더 세밀한 단위로 분해한 형태이다.
+        </p>
+      </div>
+
+      <h4 class="subsub-title">Instinct의 자료구조 (YAML)</h4>
+      <div class="instinct-yaml">
+<span class="comment"># instincts/personal/prefer-functional-style.yaml</span><br>
+---<br>
+<span class="key">id:</span> <span class="val">prefer-functional-style</span><br>
+<span class="key">trigger:</span> <span class="val">"when writing new functions"</span><br>
+<span class="key">confidence:</span> <span class="val">0.7</span>          <span class="comment"># 0.3 → 0.9 진화</span><br>
+<span class="key">domain:</span> <span class="val">"code-style"</span>     <span class="comment"># code-style, testing, git, debugging...</span><br>
+<span class="key">source:</span> <span class="val">"session-observation"</span><br>
+<span class="key">scope:</span> <span class="val">project</span>           <span class="comment"># or 'global'</span><br>
+<span class="key">project_id:</span> <span class="val">"a1b2c3d4e5f6"</span> <span class="comment"># git remote hash</span><br>
+<span class="key">project_name:</span> <span class="val">"my-react-app"</span><br>
+---<br>
+<br>
+<span class="comment"># Prefer Functional Style</span><br>
+<br>
+<span class="comment">## Action</span><br>
+Use functional patterns over classes when appropriate.<br>
+<br>
+<span class="comment">## Evidence</span><br>
+- Observed 5 instances of functional pattern preference<br>
+- User corrected class-based approach to functional on 2025-01-15
+      </div>
+
+      <h4 class="subsub-title">Confidence Scoring (0.3 → 0.9)</h4>
+      <pre class="code"><span class="num">0.3</span>  <span class="comment"># Tentative · 제안만 함, 강제 안 함</span>
+<span class="num">0.5</span>  <span class="comment"># Moderate · 관련 시 적용</span>
+<span class="num">0.7</span>  <span class="comment"># Strong · 자동 승인되어 적용</span>
+<span class="num">0.9</span>  <span class="comment"># Near-certain · 핵심 행동 (always-on)</span>
+
+<span class="keyword">Confidence 증가 조건:</span>
+  - 패턴이 반복 관찰됨
+  - 사용자가 제안된 행동을 정정하지 않음
+  - 다른 소스의 비슷한 instincts가 동의
+
+<span class="keyword">Confidence 감소 조건:</span>
+  - 사용자가 명시적으로 행동 정정
+  - 오랜 기간 패턴이 관찰되지 않음
+  - 모순되는 증거 출현</pre>
+
+      <h4 class="subsub-title">v1 vs v2 비교 — 왜 hooks로 갈아탔는가</h4>
+      <pre class="code">                v1                          v2
+Observation     Stop hook (session end)     PreToolUse/PostToolUse hooks
+Reliability     ~50-80%                     <span class="num">100% reliable</span>
+Analysis        Main context (오염)         Background agent (Haiku, 격리)
+Granularity     Full skills (큼)            Atomic instincts (작음)
+Confidence      None                        <span class="num">0.3-0.9 weighted</span>
+Evolution       Direct to skill             Instincts → cluster → skill/command/agent
+Sharing         None                        Export / Import</pre>
+
+      <h4 class="subsub-title">Evolution Pipeline (5단계)</h4>
+      <div class="flow">
+        <div class="flow-step">
+          <div class="num">[ STAGE 1 ]</div>
+          <div class="label">Observation</div>
+          <div class="desc">PreToolUse/PostToolUse hooks가 JSONL에 기록</div>
+        </div>
+        <div class="flow-step">
+          <div class="num">[ STAGE 2 ]</div>
+          <div class="label">Pattern Detection</div>
+          <div class="desc">Background Haiku agent가 분석</div>
+        </div>
+        <div class="flow-step">
+          <div class="num">[ STAGE 3 ]</div>
+          <div class="label">Instinct 생성</div>
+          <div class="desc">atomic behavior + confidence + domain</div>
+        </div>
+        <div class="flow-step">
+          <div class="num">[ STAGE 4 ]</div>
+          <div class="label">Clustering (/evolve)</div>
+          <div class="desc">관련 instincts를 묶어 skill/command/agent로</div>
+        </div>
+        <div class="flow-step">
+          <div class="num">[ STAGE 5 ]</div>
+          <div class="label">Promotion</div>
+          <div class="desc">project-scoped → global (여러 프로젝트에서 같은 패턴)</div>
+        </div>
+      </div>
+
+      <h4 class="subsub-title">Homunculus 디렉토리 구조 (Project Scoping)</h4>
+      <pre class="code">~/.claude/homunculus/                        <span class="comment"># v2.1 Project scoping</span>
+├── identity.json                            <span class="comment"># 사용자 프로파일, 기술 레벨</span>
+├── projects.json                            <span class="comment"># 레지스트리: hash → name/path/remote</span>
+├── observations.jsonl                       <span class="comment"># 전역 관찰 (fallback)</span>
+├── instincts/
+│   ├── personal/                            <span class="comment"># 전역 자동 학습 instincts</span>
+│   └── inherited/                           <span class="comment"># 전역 임포트 instincts</span>
+├── evolved/
+│   ├── agents/                              <span class="comment"># 전역 생성 agents</span>
+│   ├── skills/                              <span class="comment"># 전역 생성 skills</span>
+│   └── commands/                            <span class="comment"># 전역 생성 commands</span>
+└── projects/
+    ├── <span class="keyword">a1b2c3d4e5f6</span>/                      <span class="comment"># 프로젝트 hash (git remote)</span>
+    │   ├── observations.jsonl
+    │   ├── instincts/
+    │   │   ├── personal/                    <span class="comment"># 프로젝트별 자동 학습</span>
+    │   │   └── inherited/                   <span class="comment"># 프로젝트별 임포트</span>
+    │   └── evolved/
+    │       ├── skills/
+    │       ├── commands/
+    │       └── agents/
+    └── f6e5d4c3b2a1/                        <span class="comment"># 또 다른 프로젝트</span>
+
+<span class="comment"># 같은 instinct가 여러 프로젝트에서 높은 confidence로 나타나면</span>
+<span class="comment"># 전역 scope로 promotion 가능</span></pre>
+
+      <h4 class="subsub-title">5-Layer Self-Observation Guard</h4>
+      <div class="prose">
+        <p>
+          ECC의 정교함을 보여주는 부분. observer agent 자체가 분석한 세션을 또 분석하는 무한 루프를 방지하기 위해 
+          <strong>5단계 guard</strong>를 적용한다. Throttling, signal counter, project detection 등. 
+          Kim님의 Skillify에서도 hook이 hook을 트리거하는 재귀 문제를 미리 알고 대비할 reference.
+        </p>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.3 · OTHER KEY COMPONENTS</div>
+      <h3 class="sub-title">182 Skills · 48 Agents · <em class="pink">Cross-harness</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>📚 182 Skills (4개 중 최대)</h5>
+          <p>10+ 개월간 daily use로 발전. coding-standards, backend-patterns, frontend-patterns, security-review, tdd-workflow, eval-harness, verification-loop 등.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>👥 48 Specialized Agents</h5>
+          <p>planner, architect, tdd-guide, code-reviewer, security-reviewer, build-error-resolver, e2e-runner, refactor-cleaner, 언어별 reviewer (TS/Python/Go/Java/Kotlin/C++/Rust).</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>🌐 Cross-Harness Support</h5>
+          <p>Claude Code, Codex, Cursor, OpenCode, Gemini, Antigravity 모두 지원. 4개 중 유일하게 vendor lock-in 회피.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>🛡️ AgentShield (Security)</h5>
+          <p>Anthropic Hackathon 작품. 1,282 tests, 102 rules. Red-team / Blue-team / Auditor 3-Opus 4.6 파이프라인. <code>npx ecc-agentshield scan</code>.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>🔧 Multi-Language Rules</h5>
+          <p>common + TypeScript + Python + Go + Swift + PHP + Java + Kotlin + Rust + C++. 모듈식 install.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>📊 ECC 2.0 Rust Control Plane</h5>
+          <p><code>ecc2/</code>의 Rust prototype: dashboard, start, sessions, status, stop, resume, daemon. Alpha 단계.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 07 ]</div>
+          <h5>🎛️ Hook Runtime Controls</h5>
+          <p><code>ECC_HOOK_PROFILE=minimal|standard|strict</code>, <code>ECC_DISABLED_HOOKS=...</code> — 런타임에서 hook 강도 조절. Kim님 셋업에 이미 적용된 패턴.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 08 ]</div>
+          <h5>📦 Selective Install</h5>
+          <p>Manifest-driven install. install-plan.js → install-apply.js. State store로 점진적 업데이트. <code>npx ecc consult</code> advisor.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.4 · 1:1 MAPPING TO SKILLIFY</div>
+      <h3 class="sub-title">Skillify ≈ <em class="pink">ECC의 .NET 포팅</em></h3>
+      <div class="mapping-grid">
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 설계</div>
+          <div class="label">실패 → reusable skill artifact</div>
+          <div class="arrow">≡ (equivalent)</div>
+          <div class="to"><strong>ECC:</strong> observation (hooks) → instinct (confidence) → cluster → skill (evolution)</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 설계</div>
+          <div class="label">LLM-judgment vs deterministic-code 분리</div>
+          <div class="arrow">≡ (equivalent)</div>
+          <div class="to"><strong>ECC:</strong> "Skills는 확률적 (~50-80%), Hooks는 결정적 (100%)" — v1→v2 전환의 핵심 통찰</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 설계</div>
+          <div class="label">.claude/skillify/ per-project</div>
+          <div class="arrow">≡ (equivalent)</div>
+          <div class="to"><strong>ECC:</strong> ~/.claude/homunculus/projects/&lt;hash&gt;/ — project hash 기반 격리 + promotion</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 설계</div>
+          <div class="label">SKILL.md + scripts + tests</div>
+          <div class="arrow">≡ (equivalent)</div>
+          <div class="to"><strong>ECC:</strong> SKILL.md + agents/ + hooks/ + scripts/ + references/</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 설계</div>
+          <div class="label">Claude Code hooks 활용</div>
+          <div class="arrow">≡ (equivalent)</div>
+          <div class="to"><strong>ECC:</strong> PreToolUse · PostToolUse · SessionStart · Stop · SessionEnd (Kim님 이미 적용 중)</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 추가 고려</div>
+          <div class="label">신뢰도 점수 (확률적 학습)</div>
+          <div class="arrow">↓ (ECC has it)</div>
+          <div class="to"><strong>ECC:</strong> confidence 0.3 → 0.9, 시간에 따라 진화. 이 메커니즘을 Skillify에 도입 강력 권장.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 추가 고려</div>
+          <div class="label">Background analysis</div>
+          <div class="arrow">↓ (ECC has it)</div>
+          <div class="to"><strong>ECC:</strong> Haiku agent가 별도 프로세스에서 분석. 메인 컨텍스트 오염 방지.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 추가 고려</div>
+          <div class="label">Self-observation guard</div>
+          <div class="arrow">↓ (ECC has it)</div>
+          <div class="to"><strong>ECC:</strong> 5-layer guard로 hook이 자기 자신을 관찰하는 재귀 방지.</div>
+        </div>
+        <div class="mapping-cell">
+          <div class="from">SKILLIFY 추가 고려</div>
+          <div class="label">Cross-harness 지원</div>
+          <div class="arrow">↓ (ECC has it)</div>
+          <div class="to"><strong>ECC:</strong> Claude/Codex/Cursor/OpenCode/Gemini/Antigravity. <code>.codex/</code>, <code>sync-ecc-to-codex.sh</code> 검증.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.5 · CODEX CLI APPLICATION (★ FIRST-CLASS NATIVE INTEGRATION)</div>
+      <h3 class="sub-title">ECC · <em class="pink">Codex CLI 안에 직접 통합</em></h3>
+
+      <div class="callout teal">
+        <div class="callout-label">🎯 ECC는 4개 중 유일하게 진정한 Cross-harness</div>
+        <p>
+          ECC는 처음부터 cross-harness로 설계되었다. README 상단에 명시: <strong>"Works across Claude Code, Codex, Cursor, OpenCode, Gemini, GitHub Copilot."</strong>
+          v1.6.0에서 Codex CLI를 정식 추가, v1.7.0에서 Codex app도 지원, v2.0.0-rc.1에서 cross-harness architecture로 정착했다.
+          모든 48 agents, 182 skills, 68 commands가 Codex CLI에서 동일하게 작동한다.
+        </p>
+      </div>
+
+      <h4 class="subsub-title">📁 ECC 레포 구조 — Codex 전용 디렉토리</h4>
+      <pre class="code">everything-claude-code/
+├── .claude/                <span class="comment"># Claude Code용 (기존)</span>
+├── .claude-plugin/         <span class="comment"># Claude plugin manifest</span>
+├── <span class="keyword">.codex/</span>                 <span class="comment"># ★ Codex CLI용 디렉토리</span>
+│   └── config.toml         <span class="comment">#   Codex 설정 (MCP, agents 등)</span>
+├── <span class="keyword">.codex-plugin/</span>          <span class="comment"># ★ Codex plugin manifest</span>
+├── .cursor/                <span class="comment"># Cursor용</span>
+├── .opencode/              <span class="comment"># OpenCode용</span>
+├── .gemini/                <span class="comment"># Gemini용</span>
+├── .antigravity/           <span class="comment"># Antigravity용</span>
+├── agents/                 <span class="comment"># 48 agents (모든 harness에서 공유)</span>
+├── skills/                 <span class="comment"># 182 skills (공유)</span>
+├── hooks/                  <span class="comment"># Node.js로 작성 (cross-platform)</span>
+└── scripts/
+    └── <span class="keyword">sync-ecc-to-codex.sh</span> <span class="comment"># ★ Codex 동기화 스크립트</span></pre>
+
+      <h4 class="subsub-title">⚡ 빠른 설치 (Codex App + CLI)</h4>
+      <pre class="code"><span class="comment"># 방법 1: 자동 동기화 스크립트 (권장)</span>
+git clone https://github.com/affaan-m/everything-claude-code
+cd everything-claude-code
+npm install && bash scripts/sync-ecc-to-codex.sh
+
+<span class="comment"># 이게 하는 일:</span>
+<span class="comment"># 1. AGENTS.md, skills, MCP servers를 ~/.codex/로 안전하게 병합</span>
+<span class="comment"># 2. ADD-ONLY 전략 — 기존 server를 절대 제거/수정하지 않음</span>
+<span class="comment"># 3. --dry-run으로 미리 보기 가능</span>
+<span class="comment"># 4. --update-mcp로 ECC 서버만 강제 갱신</span>
+
+<span class="comment"># 방법 2: Claude Code에서 /codex-setup 명령 사용</span>
+/codex-setup    <span class="comment"># 자동으로 codex.md 생성</span></pre>
+
+      <h4 class="subsub-title">🔄 sync-ecc-to-codex.sh의 동작 (ADD-ONLY 안전 병합)</h4>
+      <pre class="code">ECC 설치 전 ~/.codex/config.toml:        ECC 설치 후 ~/.codex/config.toml:
+┌──────────────────────────────┐        ┌──────────────────────────────┐
+│ [mcp_servers.user_server]    │  →    │ [mcp_servers.user_server]    │ <span class="comment">← 보존</span>
+│   command = "..."            │        │   command = "..."            │
+│                              │        │                              │
+│                              │        │ [mcp_servers.context7]       │ <span class="comment">← 추가</span>
+│                              │        │ [mcp_servers.github]         │ <span class="comment">← 추가</span>
+│                              │        │ [mcp_servers.exa]            │ <span class="comment">← 추가</span>
+└──────────────────────────────┘        └──────────────────────────────┘
+
+<span class="comment"># 이미 자체 ECC-bundled MCP 사용 시:</span>
+export ECC_DISABLED_MCPS=<span class="string">"github,context7,exa,playwright,sequential-thinking,memory"</span>
+<span class="comment"># → sync 스크립트가 해당 server들을 건너뛴다</span></pre>
+
+      <h4 class="subsub-title">🛡️ Codex 전용 안전장치</h4>
+      <pre class="code"><span class="comment"># 1. Adapter drift guard (PR #257)</span>
+<span class="comment">#    Claude Code와 Codex의 API 차이를 자동 감지/조정</span>
+
+<span class="comment"># 2. SessionStart fallback</span>
+<span class="comment">#    Codex가 SessionStart hook을 지원하지 않으면 우회 경로 사용</span>
+
+<span class="comment"># 3. Hook script — Node.js (Cross-platform)</span>
+<span class="comment">#    Bash 의존성 제거, Windows + macOS + Linux 동작</span>
+
+<span class="comment"># 4. ECC_HOOK_PROFILE 환경변수로 hook 강도 조절</span>
+export ECC_HOOK_PROFILE=minimal|standard|strict</pre>
+
+      <h4 class="subsub-title">🎮 Codex CLI에서 ECC 사용</h4>
+      <pre class="code"><span class="comment"># Codex CLI 실행 (ECC가 자동 감지됨)</span>
+cd ~/your-project
+codex
+
+<span class="comment"># Codex가 자동으로 다음을 로드:</span>
+<span class="comment"># - ~/.codex/AGENTS.md (ECC가 sync한 내용)</span>
+<span class="comment"># - ./AGENTS.md (프로젝트별 override)</span>
+<span class="comment"># - ~/.codex/config.toml의 MCP servers</span>
+<span class="comment"># - ECC의 182 skills</span>
+
+<span class="comment"># Codex 안에서 ECC skills/commands 호출 가능:</span>
+/plan <span class="string">"Add user authentication"</span>     <span class="comment"># planner agent</span>
+/code-review                          <span class="comment"># code-reviewer agent</span>
+/security-scan                        <span class="comment"># AgentShield</span>
+/instinct-status                      <span class="comment"># Continuous Learning v2</span>
+/evolve                               <span class="comment"># Cluster instincts → skills</span></pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.6 · ASSESSMENT</div>
+      <h3 class="sub-title">장단점 (가장 상세)</h3>
+      <div class="pros-cons">
+        <div class="pc-block pros">
+          <h5>장점 / Strengths (12개)</h5>
+          <ul>
+            <li><strong>Skillify의 1:1 reference:</strong> 같은 문제를 같은 방식으로. 검증된 설계.</li>
+            <li><strong>"Hooks는 결정적, Skills는 확률적" 통찰:</strong> Skillify 핵심 철학과 동일.</li>
+            <li><strong>178k stars — 4개 중 최대.</strong></li>
+            <li><strong>Cross-harness 유일:</strong> Claude Code 외 5+ 플랫폼.</li>
+            <li><strong>Instinct → Evolution 진화 파이프라인.</strong></li>
+            <li><strong>Confidence scoring (0.3 → 0.9):</strong> Skillify에 도입할 메커니즘.</li>
+            <li><strong>Project scoping (v2.1):</strong> 프로젝트별 격리 + global promotion.</li>
+            <li><strong>Background observer 격리:</strong> 메인 컨텍스트 오염 방지.</li>
+            <li><strong>Kim 이미 사용 중:</strong> 학습 곡선 zero, 친숙도 최대.</li>
+            <li><strong>AgentShield 보안:</strong> ECDIS 환경에 맞는 보안 패턴.</li>
+            <li><strong>Anthropic Hackathon 수상:</strong> Anthropic 공식 검증.</li>
+            <li><strong>ECC 2.0 Rust control plane:</strong> Performance-first 방향성 일치.</li>
+          </ul>
+        </div>
+        <div class="pc-block cons">
+          <h5>단점 / Weaknesses (10개)</h5>
+          <ul>
+            <li><strong>Polyglot 코드베이스:</strong> Shell + TS + Python + Go + Java + Perl. 통일성 부족.</li>
+            <li><strong>Multi-tenant / RBAC 없음:</strong> 개인용/팀용으로만 설계.</li>
+            <li><strong>Swarm 컨셉 약함:</strong> 48 agents가 있지만 Ruflo 같은 topology/consensus 없음.</li>
+            <li><strong>거대한 surface area:</strong> 48 agents + 182 skills + 68 legacy shims.</li>
+            <li><strong>설치 복잡도:</strong> "Do not stack install methods" 같은 경고가 README에 있음.</li>
+            <li><strong>Self-hosted SaaS 부재:</strong> ecc.tools가 SaaS이지만 ECC 자체는 CLI-first.</li>
+            <li><strong>너무 빠른 변경:</strong> v1.4 → v1.9 → v2.0-rc.1, 두 달 사이. API 안정성 우려.</li>
+            <li><strong>ECC 2.0 alpha:</strong> Rust control plane이 아직 production-ready 아님.</li>
+            <li><strong>전체 install 시 무거움:</strong> 48 agents가 토큰 압박. ECC_HOOK_PROFILE 튜닝 필요.</li>
+            <li><strong>Multi-language rules의 부담:</strong> 사용 안 하는 언어 rules 부담.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">06.7 · APPLICATION TO SKILLIFY (★ HIGHEST PRIORITY)</div>
+      <h3 class="sub-title">Skillify에 어떻게 <em class="pink">적용</em>할까</h3>
+      <div class="prose">
+        <p>
+          <strong>ECC는 차용이 아닌 직접 포팅 reference로 사용해야 한다.</strong> 
+          Skillify의 핵심 컨셉이 ECC v2와 동일하므로, ECC의 검증된 메커니즘들을 .NET 10에 맞춰 그대로 옮기는 게 최단 경로.
+          다음 7가지를 우선순위 순으로 적용한다:
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 01</div>
+        <div class="rec-source">최우선 · IMMEDIATE</div>
+        <div class="rec-title">Instinct 모델 도입 (Skill 이전 단계의 atomic 단위)</div>
+        <p class="prose">
+          현재 Skillify가 "실패 → skill" 단일 단계라면, ECC처럼 "실패 → instinct → cluster → skill" 2단계로 분해. 
+          각 instinct는 작고 atomic, confidence (0.3 → 0.9), domain 태그를 가진다.<br><br>
+          <strong>.NET 구현:</strong><br>
+          • <code>Skillify.Core.Instincts.Instinct</code> record (immutable, source-generated JSON)<br>
+          • <code>ReadOnlySpan&lt;char&gt;</code>으로 confidence 업데이트 시 allocation 없음<br>
+          • <code>FrozenDictionary&lt;DomainTag, ImmutableArray&lt;Instinct&gt;&gt;</code>로 fast lookup<br>
+          • Kim님의 zero-allocation 패턴과 자연스럽게 결합.
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 02</div>
+        <div class="rec-source">최우선 · IMMEDIATE</div>
+        <div class="rec-title">Project Scoping + Promotion 메커니즘</div>
+        <p class="prose">
+          ECC의 v2.1 project scoping 그대로 채택. git remote hash로 portable project ID 생성.<br><br>
+          <strong>.NET 구현:</strong><br>
+          • SQLite per-project로 instincts/skills 격리 (Kim님 이미 SQLite 사용 중)<br>
+          • <code>ProjectIdentity.From(gitRemoteUrl)</code> static method로 hash 생성<br>
+          • <code>SkillRegistry.Global</code> + <code>SkillRegistry.Project(id)</code> 이중 lookup<br>
+          • <code>/promote</code> command for project → global when confidence ≥ 0.8 across N projects
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 03</div>
+        <div class="rec-source">최우선 · IMMEDIATE</div>
+        <div class="rec-title">Confidence Scoring 메커니즘</div>
+        <p class="prose">
+          단순 카운터로 confidence를 계산하지 말고, ECC처럼 차등 가중치:<br><br>
+          <strong>증가:</strong> 반복 관찰 (+0.05), 사용자 미정정 (+0.02), 비슷한 instinct 동의 (+0.03)<br>
+          <strong>감소:</strong> 사용자 정정 (−0.15), 오랜 미관찰 (decay −0.01/week), 모순 증거 (−0.10)<br><br>
+          이렇게 하면 단순 빈도가 아닌 <strong>"의미 있는 학습"</strong>이 측정된다. Bayes update 변형으로도 구현 가능.
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 04</div>
+        <div class="rec-source">우선 · HIGH</div>
+        <div class="rec-title">Background Observer 격리 패턴 + 5-Layer Guard</div>
+        <p class="prose">
+          ECC의 "메인 컨텍스트를 오염시키지 않는 background Haiku agent" 그대로 적용.<br><br>
+          <strong>.NET 구현:</strong><br>
+          • <code>BackgroundService</code> (ASP.NET Core) 또는 별도 console worker로 격리<br>
+          • <code>Channel&lt;T&gt;</code>로 observation 큐, throttled signaling<br>
+          • Anthropic Claude Managed Agents를 background analyzer로 활용 (Kim님 탐색 중)<br>
+          • 5-Layer self-observation guard도 반드시 포팅 — hook recursion은 실제로 흔한 함정.
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 05</div>
+        <div class="rec-source">중요 · MEDIUM</div>
+        <div class="rec-title">Evolution Triggers (/evolve, /promote)</div>
+        <p class="prose">
+          ECC의 <code>/evolve</code>가 instincts를 cluster해서 skill을 만드는 메커니즘은 Skillify의 핵심 가치.<br><br>
+          <strong>조건:</strong> 같은 domain의 instincts가 N개 이상 + 평균 confidence ≥ 0.7<br>
+          <code>SkillEvolver.AnalyzeClusters()</code>가 domain별로 instinct 그룹화 → 
+          <code>EvolutionCandidate</code> 생성 → 사용자 승인 후 <code>SkillRegistry.Save(skill)</code>
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 06</div>
+        <div class="rec-source">고려 · CONSIDERATION</div>
+        <div class="rec-title">AgentShield 보안 스캐닝 통합</div>
+        <p class="prose">
+          외부 skill/instinct import 시 보안 검증 필수. ECC의 AgentShield (1,282 tests, 102 rules)는
+          14 secret patterns, permission auditing, hook injection analysis 수행.<br><br>
+          Kim님의 ECDIS 환경(maritime safety-critical) 특성상 보안 스캐닝은 must-have. 
+          ECC의 trust level (builtin/official/trusted/community) 4단계도 그대로 채택.
+        </p>
+      </div>
+
+      <div class="rec-card">
+        <div class="rec-num">★ 07</div>
+        <div class="rec-source">장기 · LONG-TERM</div>
+        <div class="rec-title">ECC 2.0 Rust Control Plane 모니터링</div>
+        <p class="prose">
+          ECC 2.0 alpha의 <code>ecc2/</code>는 Rust로 작성된 control plane. dashboard, start, sessions 등의 명령 노출.<br><br>
+          Kim님의 .NET 10 환경과 직접 통합되진 않지만, "performance-first compiled language로 control plane을 만든다"는 
+          방향성이 Skillify와 일치. ECC 2.0이 더 성숙해지면 gRPC IPC로 통합 가능.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §07 CODEX APPLICATION SUMMARY -->
+<section id="codex-application">
+  <div class="container">
+    <div class="section-num">§ 07 · CODEX CLI 적용 — 한눈에 비교</div>
+    <h2 class="section-title">네 프로젝트의 <em>Codex 통합</em> 방식.</h2>
+    <p class="section-desc">
+      Codex CLI 지원 등급별로 분류한 요약. 4개 프로젝트가 매우 다른 통합 방식을 채택한다.
+    </p>
+
+    <div class="support-matrix">
+      <div class="support-card tier-s">
+        <span class="support-badge tier-s">CODEX TIER S · FIRST-CLASS NATIVE</span>
+        <div class="support-title">ECC ★</div>
+        <div class="support-sub">Codex CLI 안에 직접 통합 (plugin/skills를 Codex가 직접 로드)</div>
+        <p>4개 중 유일하게 진정한 cross-harness. 처음부터 cross-harness로 설계되었고, 모든 48 agents/182 skills가 Codex에서 동일하게 작동.</p>
+        <pre>git clone .../everything-claude-code
+cd everything-claude-code
+npm install && bash scripts/sync-ecc-to-codex.sh
+# → ~/.codex/config.toml 자동 안전 병합</pre>
+        <p><strong>Skillify 차용 가치:</strong> ★ 최고 — 청사진. Per-harness 디렉토리, safe-merge 스크립트, Node.js cross-platform hooks 패턴 그대로.</p>
+      </div>
+
+      <div class="support-card tier-a">
+        <span class="support-badge tier-a">CODEX TIER A · DUAL ORCHESTRATION</span>
+        <div class="support-title">Ruflo</div>
+        <div class="support-sub">Claude 워커 + Codex 워커 동시 spawn, swarm에서 협력</div>
+        <p>가장 야심찬 접근. <code>@claude-flow/codex</code> 별도 패키지, <code>claude-flow-codex dual</code> CLI로 두 harness를 동시 제어.</p>
+        <pre>npx ruflo@alpha init --codex     # Codex 모드
+npx ruflo@alpha init --dual      # Claude + Codex 동시
+
+npx claude-flow-codex dual run \
+  --worker "claude:architect:..." \
+  --worker "codex:coder:..."</pre>
+        <p><strong>Skillify 차용 가치:</strong> 중간 — over-engineered하지만 <code>--worker "harness:role:task"</code> declarative 명세 패턴은 즉시 차용 가능.</p>
+      </div>
+
+      <div class="support-card tier-a">
+        <span class="support-badge tier-a">CODEX TIER A · DELEGATION</span>
+        <div class="support-title">Hermes</div>
+        <div class="support-sub">Codex를 sub-agent로 호출 (Hermes가 Codex CLI를 spawn)</div>
+        <p>두 가지 방향: ⓐ Codex GPT-5.5를 Hermes provider로 사용, ⓑ Hermes 안에서 Codex CLI를 sub-agent로 호출. ⓑ가 핵심.</p>
+        <pre># Codex를 Hermes provider로 (GPT-5.5 OAuth)
+hermes auth add openai-codex
+
+# Codex CLI를 sub-agent로 호출
+terminal(command="codex --yolo exec '...'",
+  workdir="/tmp/issue-78",
+  background=True, pty=True)</pre>
+        <p><strong>Skillify 차용 가치:</strong> 중간-높음. CEO→Executor 패턴과 완벽 일치. Git worktree + parallel Codex spawn 패턴이 즉시 .NET에서 활용 가능.</p>
+      </div>
+
+      <div class="support-card tier-c">
+        <span class="support-badge tier-c">CODEX TIER C · MODEL ONLY</span>
+        <div class="support-title">Agno</div>
+        <div class="support-sub">Codex CLI harness와는 무관 (모델만 사용 가능)</div>
+        <p>Agno는 backend service, Codex CLI는 frontend tool이라 abstraction layer가 다르다. 간접 통합은 MCP server로 expose해서 가능.</p>
+        <pre># Agno → Codex CLI 우회 경로
+# 1. Agno를 MCP server로 expose
+# 2. Codex의 ~/.codex/config.toml에 등록
+[mcp_servers.agno]
+command = "npx"
+args = ["-y", "agno-mcp-server"]</pre>
+        <p><strong>Skillify 차용 가치:</strong> 낮음. Codex CLI 측면에서는 거의 무관. Agno의 가치는 Phase 3 SaaS화에서.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §08 4-WAY COMPARISON -->
+<section class="comparison-section" id="comparison">
+  <div class="container">
+    <div class="section-num">§ 08 · 4-WAY COMPARISON MATRIX</div>
+    <h2 class="section-title">네 프로젝트 <em>나란히</em> 비교.</h2>
+    <p class="section-desc">
+      모든 차원을 한 표에. Skillify에 가장 가까운 항목은 분홍색, Codex 측면에서 우수한 항목은 청록색.
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Ruflo</th>
+          <th>Agno</th>
+          <th>Hermes</th>
+          <th>ECC ★</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>핵심 철학</td>
+          <td>Swarm orchestration</td>
+          <td>Production SDK</td>
+          <td>Self-improving agent</td>
+          <td class="highlight-cell"><strong>Harness performance</strong> (hooks-first)</td>
+        </tr>
+        <tr>
+          <td>언어 / 런타임</td>
+          <td>TypeScript</td>
+          <td>Python</td>
+          <td>Python</td>
+          <td>Polyglot (Shell+TS+Python+Go+Java+Perl)</td>
+        </tr>
+        <tr>
+          <td>라이선스</td>
+          <td>MIT</td>
+          <td>Apache 2.0</td>
+          <td>MIT</td>
+          <td>MIT</td>
+        </tr>
+        <tr>
+          <td>GitHub Stars</td>
+          <td>50.2k</td>
+          <td>40.1k</td>
+          <td>143k</td>
+          <td class="highlight-cell"><strong>178k (1위)</strong></td>
+        </tr>
+        <tr>
+          <td>Skill 시스템</td>
+          <td><span class="partial">△</span> ReasoningBank (vector)</td>
+          <td><span class="crossmark">✗</span> 없음</td>
+          <td><span class="checkmark">✓</span> SKILL.md (agentskills.io 표준)</td>
+          <td class="highlight-cell"><strong>✓ 182 skills + Instinct 모델</strong></td>
+        </tr>
+        <tr>
+          <td>Self-improving loop</td>
+          <td><span class="partial">△</span> SONA (vector pattern)</td>
+          <td><span class="crossmark">✗</span> 없음</td>
+          <td><span class="checkmark">✓</span> 4 explicit trigger</td>
+          <td class="highlight-cell"><strong>✓ Instinct → Evolve → Skill (5-stage)</strong></td>
+        </tr>
+        <tr>
+          <td>Confidence scoring</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="highlight-cell"><strong>✓ 0.3 → 0.9 진화 (★ unique)</strong></td>
+        </tr>
+        <tr>
+          <td>Project scoping</td>
+          <td><span class="partial">△</span> 일부</td>
+          <td><span class="checkmark">✓</span> Multi-tenant</td>
+          <td><span class="crossmark">✗</span> per-user</td>
+          <td class="highlight-cell"><strong>✓ git hash 기반 + global promotion</strong></td>
+        </tr>
+        <tr>
+          <td>Background observer</td>
+          <td><span class="checkmark">✓</span> Workers</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="partial">△</span> auxiliary_client</td>
+          <td class="highlight-cell"><strong>✓ Isolated Haiku agent (★ unique)</strong></td>
+        </tr>
+        <tr>
+          <td>Multi-agent 협업</td>
+          <td><strong>✓ Swarm (가장 강력)</strong></td>
+          <td><span class="partial">△</span> Team</td>
+          <td><span class="partial">△</span> delegate</td>
+          <td><span class="partial">△</span> 48 agents (simple delegation)</td>
+        </tr>
+        <tr>
+          <td>Production API</td>
+          <td><span class="partial">△</span> MCP</td>
+          <td><strong>✓ 50+ FastAPI</strong></td>
+          <td><span class="checkmark">✓</span> API server</td>
+          <td><span class="partial">△</span> ECC 2.0 Rust (alpha)</td>
+        </tr>
+        <tr>
+          <td>RBAC / Multi-tenant</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><strong>✓ JWT 내장</strong></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+        </tr>
+        <tr>
+          <td>Observability</td>
+          <td><span class="partial">△</span></td>
+          <td><strong>✓ OpenTelemetry</strong></td>
+          <td><span class="partial">△</span> FTS5</td>
+          <td><span class="partial">△</span> Session storage</td>
+        </tr>
+        <tr>
+          <td>Cross-harness</td>
+          <td><span class="crossmark">✗</span> Claude Code only</td>
+          <td><span class="partial">△</span> SDK 자유</td>
+          <td><span class="partial">△</span> 메시징 채널만</td>
+          <td class="codex-cell highlight-cell"><strong>✓ Claude / Codex / Cursor / OpenCode / Gemini</strong></td>
+        </tr>
+        <tr>
+          <td>LLM Provider 수</td>
+          <td>5</td>
+          <td>다수</td>
+          <td><strong>18+ (200+ models)</strong></td>
+          <td>provider-agnostic</td>
+        </tr>
+        <tr>
+          <td>외부 인터페이스</td>
+          <td>Claude Code, MCP</td>
+          <td>Slack/Telegram/...</td>
+          <td><strong>20 어댑터</strong></td>
+          <td>IDE plugins (Claude/Cursor/Codex/...)</td>
+        </tr>
+        <tr>
+          <td>Hook 시스템</td>
+          <td><span class="checkmark">✓</span> 27 hooks</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="partial">△</span> gateway hooks</td>
+          <td class="highlight-cell"><strong>✓ Hook-first 철학 (★ 정체성)</strong></td>
+        </tr>
+        <tr>
+          <td>Security scanning</td>
+          <td><span class="checkmark">✓</span> AIDefence</td>
+          <td><span class="partial">△</span></td>
+          <td><span class="partial">△</span></td>
+          <td class="highlight-cell"><strong>✓ AgentShield (1,282 tests, 102 rules)</strong></td>
+        </tr>
+        <tr>
+          <td>Cron scheduling</td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="checkmark">✓</span> 자연어</td>
+          <td><span class="partial">△</span> hooks 기반</td>
+        </tr>
+        <tr>
+          <td>MCP 통합</td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="checkmark">✓</span> + ECC_DISABLED_MCPS</td>
+        </tr>
+        <tr>
+          <td>Federation / Cross-org</td>
+          <td><strong>✓ mTLS + PII</strong></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+        </tr>
+        <tr>
+          <td>학습 곡선</td>
+          <td>가파름</td>
+          <td><strong>완만</strong></td>
+          <td>중간</td>
+          <td>중간 (Kim 친숙)</td>
+        </tr>
+        <tr>
+          <td>Skill 개수</td>
+          <td>32 plugins</td>
+          <td>100+ toolkits</td>
+          <td>40+ tools</td>
+          <td class="highlight-cell"><strong>182 skills + 48 agents (★ 최대)</strong></td>
+        </tr>
+        <tr>
+          <td>Skillify와의 거리</td>
+          <td>먼 편</td>
+          <td>중간 (인프라)</td>
+          <td>매우 가까움 (skills)</td>
+          <td class="highlight-cell"><strong>사실상 동일 (직접 포팅 reference)</strong></td>
+        </tr>
+        <tr>
+          <td>Kim 친숙도</td>
+          <td>탐색 중</td>
+          <td>탐색 중</td>
+          <td>탐색 중</td>
+          <td class="highlight-cell"><strong>★ 매일 사용 중</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- §09 CROSS-HARNESS COMPARISON -->
+<section class="comparison-section" id="cross-harness">
+  <div class="container">
+    <div class="section-num">§ 09 · CROSS-HARNESS COMPARISON · Codex 측면</div>
+    <h2 class="section-title">Codex CLI 측면 <em>비교 매트릭스</em>.</h2>
+    <p class="section-desc">
+      Codex CLI 지원의 모든 차원을 한 표로. 청록색 셀이 Skillify에 가장 직접 차용 가능한 패턴.
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Dimension</th>
+          <th>Ruflo</th>
+          <th>Agno</th>
+          <th>Hermes</th>
+          <th>ECC ★</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Codex 지원 등급</td>
+          <td><strong style="color:var(--teal);">A · Native Dual</strong></td>
+          <td>C · Model only</td>
+          <td><strong style="color:var(--teal);">A · Delegate</strong></td>
+          <td class="codex-cell"><strong style="color:var(--teal);">S · First-class</strong></td>
+        </tr>
+        <tr>
+          <td>설치 명령어</td>
+          <td><code>npx ruflo init --codex</code></td>
+          <td><span class="crossmark">없음</span></td>
+          <td><code>hermes auth add openai-codex</code></td>
+          <td class="codex-cell"><code>bash sync-ecc-to-codex.sh</code></td>
+        </tr>
+        <tr>
+          <td>AGENTS.md 생성</td>
+          <td><span class="checkmark">✓ 자동</span></td>
+          <td><span class="partial">△ 자체용만</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="codex-cell"><strong>✓ /codex-setup 자동</strong></td>
+        </tr>
+        <tr>
+          <td>~/.codex/config.toml 통합</td>
+          <td><span class="partial">△ init 시</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="codex-cell"><strong>✓ Safe merge ADD-ONLY</strong></td>
+        </tr>
+        <tr>
+          <td>Codex MCP server 등록</td>
+          <td><span class="checkmark">✓</span></td>
+          <td><span class="partial">△ 수동</span></td>
+          <td><span class="partial">△</span></td>
+          <td class="codex-cell"><strong>✓ 자동 + ECC_DISABLED_MCPS</strong></td>
+        </tr>
+        <tr>
+          <td>Skills 공유 (Claude/Codex)</td>
+          <td><span class="checkmark">✓ 137+</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="partial">△ Hermes 안에서만</span></td>
+          <td class="codex-cell"><strong>✓ 182 skills 양쪽 동일</strong></td>
+        </tr>
+        <tr>
+          <td>Agents 공유</td>
+          <td><span class="checkmark">✓ 100+</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="codex-cell"><strong>✓ 48 agents 양쪽 동일</strong></td>
+        </tr>
+        <tr>
+          <td>Codex authentication</td>
+          <td>OPENAI_API_KEY</td>
+          <td>OPENAI_API_KEY</td>
+          <td><strong>OAuth import from ~/.codex/auth.json</strong></td>
+          <td>Codex CLI 기본 인증 (passthrough)</td>
+        </tr>
+        <tr>
+          <td>GPT-5.5 via Codex OAuth</td>
+          <td><span class="partial">△</span></td>
+          <td><span class="checkmark">✓ model param</span></td>
+          <td><strong>✓ provider: openai-codex</strong></td>
+          <td>via Codex CLI 자체</td>
+        </tr>
+        <tr>
+          <td>병렬 Codex 워커 spawn</td>
+          <td><strong>✓ dual run --worker</strong></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><strong>✓ git worktree + background</strong></td>
+          <td><span class="partial">△ skill 통해</span></td>
+        </tr>
+        <tr>
+          <td>Cross-platform hooks</td>
+          <td><span class="partial">△ Bash 위주</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="partial">△</span></td>
+          <td class="codex-cell"><strong>✓ Node.js (Windows OK)</strong></td>
+        </tr>
+        <tr>
+          <td>Adapter drift guard</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="codex-cell"><strong>✓ PR #257에 명시</strong></td>
+        </tr>
+        <tr>
+          <td>SessionStart fallback</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td class="codex-cell"><strong>✓ Codex 미지원 처리</strong></td>
+        </tr>
+        <tr>
+          <td>그 외 지원 harness</td>
+          <td>Claude Code 위주</td>
+          <td>provider-agnostic</td>
+          <td>20+ messaging platform</td>
+          <td class="codex-cell"><strong>Cursor + OpenCode + Gemini + Antigravity</strong></td>
+        </tr>
+        <tr>
+          <td>Migration tool 제공</td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="crossmark">✗</span></td>
+          <td><span class="partial">△ OpenClaw → Hermes</span></td>
+          <td class="codex-cell"><strong>✓ ECC ↔ Codex 양방향</strong></td>
+        </tr>
+        <tr>
+          <td>설치 가이드 완성도</td>
+          <td>중간</td>
+          <td>(해당 없음)</td>
+          <td>중간 (skill 안에)</td>
+          <td class="codex-cell"><strong>높음 — 한국어 번역까지</strong></td>
+        </tr>
+        <tr>
+          <td>Skillify Codex 차용 가치</td>
+          <td>중간 (dual 패턴만)</td>
+          <td>낮음</td>
+          <td>중간-높음 (delegate 패턴)</td>
+          <td class="codex-cell"><strong>★ 최고 — 청사진</strong></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- §10 DECISION GUIDE -->
+<section id="decision">
+  <div class="container">
+    <div class="section-num">§ 10 · DECISION GUIDE</div>
+    <h2 class="section-title">언제 <em>어떤 것</em>을 봐야 하는가.</h2>
+    <p class="section-desc">
+      구체적인 시나리오들. ECC가 추가되면서 결정 매트릭스가 단순해졌다 — 핵심 컨셉에 관한 한 ECC가 첫 번째 reference.
+    </p>
+
+    <div class="decision-grid">
+      <div class="decision-card">
+        <div class="scenario">SCENARIO A · ★ MOST COMMON</div>
+        <div class="answer">"Skillify의 <em>핵심 instinct/skill 시스템</em> 설계?"</div>
+        <div class="reason">
+          <strong>→ ECC (Continuous Learning v2)</strong>를 직접 포팅 reference로 사용. 
+          Instinct 모델, confidence scoring, evolution pipeline 그대로 .NET 10으로 옮긴다.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO B</div>
+        <div class="answer">"Skillify를 <em>Claude + Codex 둘 다</em> 지원하려면?"</div>
+        <div class="reason">
+          <strong>→ ECC를 청사진으로.</strong> Per-harness 디렉토리 (<code>.claude/skillify/</code> + <code>.codex/skillify/</code>), 
+          safe-merge 스크립트, Node.js cross-platform hooks. 한 번의 작업으로 양쪽 모두 커버.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO C</div>
+        <div class="answer">"<em>SKILL.md 표준 포맷</em>은?"</div>
+        <div class="reason">
+          <strong>→ Hermes (agentskills.io) 또는 ECC.</strong> 둘 다 호환 가능. 
+          openai/skills, anthropics/skills 등 외부 생태계와 호환되려면 agentskills.io 표준 권장.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO D</div>
+        <div class="answer">"CEO→Executor를 <em>swarm으로 확장</em>?"</div>
+        <div class="reason">
+          <strong>→ Ruflo</strong>의 topology, consensus, Queen pattern 참고. ECC는 48 agents 있지만 단순 delegation만.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO E</div>
+        <div class="answer">"Skillify를 <em>SaaS 제품</em>으로?"</div>
+        <div class="reason">
+          <strong>→ Agno</strong>의 3-layer + JWT RBAC + OpenTelemetry 패턴을 .NET 10에서 모방.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO F</div>
+        <div class="answer">"Skillify가 <em>Codex 워커</em>를 spawn?"</div>
+        <div class="reason">
+          <strong>→ Hermes의 delegation 패턴.</strong> git worktree + <code>codex --yolo exec</code> + background spawn. 
+          PR 자동 생성까지 다듬어진 워크플로우.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO G</div>
+        <div class="answer">"<em>Background observer</em> 격리?"</div>
+        <div class="reason">
+          <strong>→ ECC</strong>의 Haiku background agent 패턴. 5-layer self-observation guard 함께 포팅.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO H</div>
+        <div class="answer">"<em>Confidence scoring</em> 메커니즘?"</div>
+        <div class="reason">
+          <strong>→ ECC가 유일</strong>. 4개 중 confidence scoring 가진 프로젝트는 ECC뿐. 0.3 → 0.9 진화 모델 그대로.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO I</div>
+        <div class="answer">"<em>외부 채널</em> (Slack/Telegram)?"</div>
+        <div class="reason">
+          <strong>→ Hermes</strong>의 20개 어댑터가 가장 풍부. 단일 gateway로 통합.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO J</div>
+        <div class="answer">"<em>여러 조직</em> 협업 보안?"</div>
+        <div class="reason">
+          <strong>→ Ruflo의 Federation</strong>이 유일. mTLS + ed25519 + PII pipeline.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO K</div>
+        <div class="answer">"<em>RL fine-tune</em> 준비?"</div>
+        <div class="reason">
+          <strong>→ Hermes의 Atropos</strong>. Trajectory 압축 + ShareGPT 포맷. Kim님의 ruvLLM 탐색과 연결.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO L</div>
+        <div class="answer">"<em>보안 스캐닝</em> 자동화?"</div>
+        <div class="reason">
+          <strong>→ ECC의 AgentShield</strong>. 1,282 tests, 102 rules. ECDIS 같은 safety-critical 도메인에 필수.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO M</div>
+        <div class="answer">"<em>Hook recursion</em> 방지?"</div>
+        <div class="reason">
+          <strong>→ ECC의 5-layer guard</strong> 패턴. hook이 자기 자신을 observe하는 무한 루프 방지.
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO N</div>
+        <div class="answer">"<em>Cross-platform hooks</em> (Windows)?"</div>
+        <div class="reason">
+          <strong>→ ECC의 Node.js hooks.</strong> Bash 의존성 제거. .NET native AOT로 더 빠르게 가능 (Kim님 환경).
+        </div>
+      </div>
+      <div class="decision-card">
+        <div class="scenario">SCENARIO O</div>
+        <div class="answer">"<em>Codex MCP server 충돌</em> 방지?"</div>
+        <div class="reason">
+          <strong>→ ECC의 <code>ECC_DISABLED_MCPS</code></strong>. 환경변수로 sync 스크립트가 건너뛸 servers 지정.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §11 SKILLIFY CROSS-HARNESS STRATEGY -->
+<section id="skillify-strategy">
+  <div class="container">
+    <div class="section-num">§ 11 · SKILLIFY CROSS-HARNESS STRATEGY</div>
+    <h2 class="section-title">Skillify <em>최종 적용 전략</em>.</h2>
+    <p class="section-desc">
+      v1-v3의 모든 분석을 종합한 phase별 전략. 각 phase는 우선순위 순으로 ECC > Hermes > Agno > Ruflo 패턴 적용.
+    </p>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 01</div>
+      <div class="rec-source">PHASE 1 · CURRENT SPRINT (★ 즉시 적용)</div>
+      <div class="rec-title">Cross-harness 디렉토리 구조 설계 (ECC 청사진)</div>
+      <p class="prose">
+        Skillify를 처음부터 cross-harness로 만들면 나중에 retrofit하는 것보다 훨씬 쉽다. ECC의 패턴 그대로:
+      </p>
+      <pre class="code"><span class="comment"># Skillify 프로젝트 구조 제안</span>
+your-project/
+├── .claude/
+│   └── skillify/         <span class="comment"># Claude Code용 manifests</span>
+│       ├── skills/       <span class="comment">#   .NET이 생성한 skill manifests</span>
+│       └── hooks.json    <span class="comment">#   Claude hook 설정</span>
+├── .codex/
+│   └── skillify/         <span class="comment"># Codex CLI용 (동일 skills, 다른 manifest)</span>
+│       ├── skills/
+│       └── config.toml   <span class="comment">#   Codex hook + MCP 설정</span>
+├── AGENTS.md             <span class="comment"># Codex 자동 인식</span>
+└── CLAUDE.md             <span class="comment"># Claude Code 자동 인식</span>
+
+<span class="comment"># 공유 디렉토리 (양쪽에서 참조)</span>
+~/.skillify/
+├── homunculus/           <span class="comment"># ECC v2.1 패턴 차용</span>
+│   ├── projects/&lt;hash&gt;/  <span class="comment">#   project-scoped instincts</span>
+│   ├── instincts/        <span class="comment">#   global instincts</span>
+│   └── evolved/          <span class="comment">#   skill/command/agent</span>
+└── skills/               <span class="comment"># SKILL.md 마스터 저장소</span></pre>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 02</div>
+      <div class="rec-source">PHASE 1 · CURRENT SPRINT</div>
+      <div class="rec-title">Safe-merge 설치 스크립트 (.NET 구현)</div>
+      <p class="prose">
+        ECC의 <code>sync-ecc-to-codex.sh</code>를 .NET CLI 명령으로 구현:
+      </p>
+      <pre class="code">skillify sync --target codex          <span class="comment"># ~/.codex/config.toml 안전 병합</span>
+skillify sync --target codex --dry-run <span class="comment"># 미리보기</span>
+skillify sync --target codex --update-mcp <span class="comment"># MCP만 강제 갱신</span>
+
+<span class="comment"># .NET 구현 가이드:</span>
+<span class="comment"># 1. Tomlyn NuGet으로 TOML 파싱</span>
+<span class="comment"># 2. System.IO.File.Replace()로 atomic write</span>
+<span class="comment"># 3. 백업 파일: config.toml.skillify-backup-{timestamp}</span>
+<span class="comment"># 4. ADD-ONLY 전략 — 기존 사용자 설정 절대 건드리지 않음</span>
+<span class="comment"># 5. SKILLIFY_DISABLED_MCPS 환경변수 지원</span></pre>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 03</div>
+      <div class="rec-source">PHASE 1 · CURRENT SPRINT</div>
+      <div class="rec-title">.NET native AOT Cross-platform Hooks (★ Skillify의 비밀 무기)</div>
+      <p class="prose">
+        Kim님의 .NET 10 환경은 hooks를 cross-platform으로 만드는 데 가장 유리하다. Native AOT compile로 startup latency 거의 zero.
+      </p>
+      <pre class="code"><span class="comment"># 기존 ECC (Node.js hooks, ~50-100ms startup)</span>
+hooks/
+├── session-start.js
+├── pre-tool-use.js
+└── post-tool-use.js
+
+<span class="comment"># Skillify (.NET native AOT, ~5ms startup — 10배 빠름)</span>
+hooks/
+├── SessionStart.dll          <span class="comment"># AOT-compiled</span>
+├── PreToolUse.dll
+└── PostToolUse.dll
+
+<span class="comment"># Claude Code hooks.json + Codex CLI config.toml 양쪽 동일 hook 등록</span>
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "*",
+      "hooks": [{"type": "command", "command": "dotnet ~/.skillify/hooks/PreToolUse.dll"}]
+    }]
+  }
+}</pre>
+      <p class="prose">
+        <strong>장점:</strong> Kim님의 zero-allocation 패턴(<code>ReadOnlySpan&lt;byte&gt;</code>, source-generated JSON) 그대로 사용. 
+        Hook 실행이 거의 무료. Native AOT 덕분에 Node.js hooks보다 <strong>10배 빠른 startup</strong>.
+      </p>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 04</div>
+      <div class="rec-source">PHASE 1 · CURRENT SPRINT</div>
+      <div class="rec-title">Hook Profile + 환경변수 시스템</div>
+      <p class="prose">
+        ECC의 <code>ECC_HOOK_PROFILE</code> 패턴 그대로 모방. Kim님 이미 친숙한 패턴:
+      </p>
+      <pre class="code">SKILLIFY_HOOK_PROFILE=minimal     <span class="comment"># 핵심 hook만</span>
+SKILLIFY_HOOK_PROFILE=standard    <span class="comment"># 기본값 (모든 일반 hook)</span>
+SKILLIFY_HOOK_PROFILE=strict      <span class="comment"># 강한 검증 (TDD 강제 등)</span>
+
+SKILLIFY_DISABLED_HOOKS=<span class="string">"pre:bash:tmux,post:edit:typecheck"</span>
+SKILLIFY_DISABLED_MCPS=<span class="string">"github,context7"</span>
+SKILLIFY_SESSION_START_MAX_CHARS=4000   <span class="comment"># 컨텍스트 압박 방지</span></pre>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 05</div>
+      <div class="rec-source">PHASE 2 · MULTI-AGENT 확장</div>
+      <div class="rec-title">Codex Worker Delegation (Hermes 패턴 + .NET ObjectPool)</div>
+      <p class="prose">
+        Skillify가 CEO→Executor 단계를 넘어서 병렬 워커가 필요할 때:
+      </p>
+      <pre class="code"><span class="comment"># Skillify 의사 코드 (C#)</span>
+<span class="keyword">public async</span> Task DelegateToCodexParallel(<span class="keyword">IEnumerable</span>&lt;CodexTask&gt; tasks)
+{
+    <span class="keyword">var</span> worktrees = <span class="keyword">await</span> CreateGitWorktrees(tasks);
+    
+    <span class="keyword">var</span> codexWorkers = worktrees.Select(wt =&gt; 
+        Process.Start(<span class="keyword">new</span> ProcessStartInfo
+        {
+            FileName = <span class="string">"codex"</span>,
+            Arguments = <span class="string">$"--yolo exec '{wt.Task.Description}'"</span>,
+            WorkingDirectory = wt.Path,
+            UseShellExecute = <span class="keyword">false</span>,
+            RedirectStandardOutput = <span class="keyword">true</span>,
+        }));
+    
+    <span class="keyword">await</span> Task.WhenAll(codexWorkers.Select(w =&gt; w.WaitForExitAsync()));
+    
+    <span class="keyword">await</span> CreatePullRequests(worktrees);   <span class="comment">// gh pr create</span>
+    <span class="keyword">await</span> CleanupWorktrees(worktrees);
+}</pre>
+      <p class="prose">
+        <strong>Kim님의 ObjectPool 워밍 풀 패턴과 결합 가능</strong> — Codex 프로세스를 사전 워밍 풀로 유지해서 spawn latency 제거.
+      </p>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 06</div>
+      <div class="rec-source">PHASE 2 · MULTI-AGENT 확장</div>
+      <div class="rec-title">Dual-harness Worker Routing (Ruflo 패턴)</div>
+      <p class="prose">
+        Skillify의 advisor strategy가 작업을 model tier뿐 아니라 harness tier로도 라우팅하도록 확장:
+      </p>
+      <pre class="code">skillify orchestrate \
+  --worker <span class="string">"claude:architect:Design the API schema"</span> \
+  --worker <span class="string">"codex:coder:Generate boilerplate from schema"</span> \
+  --worker <span class="string">"claude:reviewer:Verify schema consistency"</span> \
+  --namespace <span class="string">"api-v2"</span>
+
+<span class="comment"># Skillify 라우팅 규칙</span>
+{
+  <span class="string">"routing_rules"</span>: {
+    <span class="string">"bulk_codegen"</span>: <span class="string">"codex"</span>,        <span class="comment">// 대량 코드 생성 → Codex</span>
+    <span class="string">"architecture"</span>: <span class="string">"claude:opus"</span>,  <span class="comment">// 설계 → Claude Opus</span>
+    <span class="string">"test_writing"</span>: <span class="string">"claude:sonnet"</span>, <span class="comment">// 테스트 작성 → Claude Sonnet</span>
+    <span class="string">"refactor"</span>: <span class="string">"codex"</span>            <span class="comment">// 리팩토링 → Codex</span>
+  }
+}</pre>
+      <p class="prose">
+        <strong>강력한 시너지:</strong> Codex는 대량 코드 변환에, Claude는 복잡한 reasoning에 강점. 둘을 함께 쓰면 비용/품질이 최적화.
+      </p>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">★ 07</div>
+      <div class="rec-source">PHASE 3 · 프로덕션화</div>
+      <div class="rec-title">Skillify MCP Server (Cross-harness 진입점)</div>
+      <p class="prose">
+        Skillify 자체를 MCP server로 expose하면 Claude/Codex 둘 다에서 native하게 사용 가능:
+      </p>
+      <pre class="code"><span class="comment"># Claude Code (settings.json)</span>
+{
+  <span class="string">"mcpServers"</span>: {
+    <span class="string">"skillify"</span>: {
+      <span class="string">"command"</span>: <span class="string">"dotnet"</span>,
+      <span class="string">"args"</span>: [<span class="string">"/usr/local/lib/skillify/Skillify.Mcp.dll"</span>]
+    }
+  }
+}
+
+<span class="comment"># Codex CLI (~/.codex/config.toml)</span>
+[mcp_servers.skillify]
+command = <span class="string">"dotnet"</span>
+args = [<span class="string">"/usr/local/lib/skillify/Skillify.Mcp.dll"</span>]
+
+<span class="comment"># 양쪽 모두에서 노출되는 tools:</span>
+<span class="comment"># - mcp__skillify__instinct_list</span>
+<span class="comment"># - mcp__skillify__skill_invoke</span>
+<span class="comment"># - mcp__skillify__evolve</span>
+<span class="comment"># - mcp__skillify__promote</span></pre>
+      <p class="prose">
+        <strong>핵심 이득:</strong> Skillify는 단일 .NET 프로세스로 동작하면서 Claude/Codex 둘 다에게 같은 API 제공. 
+        Kim님의 source-generated JSON 패턴으로 MCP serialization도 zero-allocation.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- §12 FINAL TAKEAWAYS -->
+<section id="final">
+  <div class="container">
+    <div class="section-num">§ 12 · FINAL TAKEAWAYS</div>
+    <h2 class="section-title">최종 <em>정리</em>.</h2>
+    <p class="section-desc">
+      v1 (3-project) → v2 (+ECC, Skillify reference) → v3 (+Codex CLI, cross-harness) → 통합본. 핵심 발견 셋.
+    </p>
+
+    <div class="rec-card">
+      <div class="rec-num">①</div>
+      <div class="rec-source">FINDING 1</div>
+      <div class="rec-title">ECC는 Skillify의 살아 있는 reference이다</div>
+      <p class="prose">
+        4개 프로젝트 중 ECC만이 Skillify의 핵심 통찰("실패 → reusable skill artifact", "LLM-judgment vs deterministic-code 분리")을 
+        정확히 같은 방식으로 풀고 있다. Continuous Learning v2의 Instinct → Evolve → Skill 5-stage pipeline은 Skillify의 청사진이다. 
+        Kim님이 이미 매일 ECC를 쓰시기 때문에 학습 곡선도 zero. 
+        Skillify는 본질적으로 <strong>ECC의 .NET 진화형</strong>이 되어야 한다.
+      </p>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">②</div>
+      <div class="rec-source">FINDING 2</div>
+      <div class="rec-title">Codex CLI도 Claude Code와 거의 같은 primitives 보유</div>
+      <p class="prose">
+        AGENTS.md, MCP servers, hooks, skills, subagents, plugins, slash commands — Codex CLI는 더 이상 단순한 CLI가 아니다. 
+        이는 Skillify가 cross-harness로 설계해도 <strong>"두 harness용으로 두 번 만들지 않아도 된다"</strong>는 뜻. 
+        같은 core, 다른 manifest output. ECC가 이미 검증한 방식. 
+        ECC의 <code>sync-ecc-to-codex.sh</code>의 ADD-ONLY safe-merge 패턴이 핵심.
+      </p>
+    </div>
+
+    <div class="rec-card">
+      <div class="rec-num">③</div>
+      <div class="rec-source">FINDING 3</div>
+      <div class="rec-title">.NET native AOT는 cross-harness hooks의 비밀 무기</div>
+      <p class="prose">
+        ECC는 Node.js로 cross-platform hooks를 푼다 — startup latency가 ~50-100ms. 
+        Kim님이 .NET 10 native AOT로 hooks를 컴파일하면 <strong>~5ms로 단축</strong>되고, Bash/Node.js 의존성도 없다. 
+        같은 패턴, 10배 빠른 실행. ECC가 풀던 문제를 .NET이 더 깔끔하게 푼다. 
+        이게 Skillify의 진짜 차별화 포인트가 될 수 있다 — <strong>ECC의 진화된 후계자</strong>로서.
+      </p>
+    </div>
+
+    <div class="callout teal">
+      <div class="callout-label">⚡ ALL-IN-ONE 한 줄 요약 (v1 + v2 + v3 + 통합본)</div>
+      <p>
+        <strong>Skillify = ECC의 Continuous Learning v2를 .NET 10으로 cross-harness 포팅 + native AOT hooks + agentskills.io 표준 준수.</strong><br><br>
+        최종 가중치: <strong>ECC 65% · Hermes 20% · Agno 10% · Ruflo 5%</strong><br><br>
+        7가지 구체적 차용 우선순위 (Phase별 진행):<br>
+        ① ECC의 Continuous Learning v2 .NET 포팅 (Instinct → Evolve → Skill)<br>
+        ② ECC의 cross-harness 디렉토리 패턴 (<code>.claude/skillify/</code> + <code>.codex/skillify/</code>)<br>
+        ③ ECC의 safe-merge 동기화 스크립트 (<code>skillify sync --target codex</code>)<br>
+        ④ Hermes의 agentskills.io 표준 SKILL.md 포맷 + Progressive Disclosure<br>
+        ⑤ Hermes의 Codex CLI delegation 패턴 (병렬 워커 + git worktrees)<br>
+        ⑥ Agno의 3-layer 아키텍처 (SaaS화 시)<br>
+        ⑦ Ruflo의 dual harness orchestration (장기)<br><br>
+        Kim님이 이미 매일 ECC를 쓰시기 때문에 학습 곡선은 zero. 그저 ECC를 더 깊이 파보면서, 
+        .NET 10으로 더 빠르고 더 깨끗하게 같은 일을 하는 것 — 그것이 Skillify의 진짜 가치다.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- §13 · C# INTEGRATION ARCHITECTURE -->
+<section id="csharp-integration">
+  <div class="container">
+    <div class="section-num">§ 13 · C# 통합 아키텍처 · 실제 코드</div>
+    <h2 class="section-title">C# 제품에 <em>실제 붙이는 법</em>.</h2>
+    <p class="section-desc">
+      "Skillify를 어떻게 .NET으로 옮길 것인가"의 추상 전략을 넘어, 실제 코드 인터페이스와 Zero-copy 패턴까지. 
+      Kim님의 .NET 10 + native AOT + zero-allocation 컨텍스트에 맞춘 구체적 설계.
+    </p>
+
+    <div class="callout">
+      <div class="callout-label">⚡ 핵심 원칙 — Out-of-process Isolation</div>
+      <p>
+        Python/Node agent framework를 C# 프로세스 내부에 억지로 넣으면 안 된다. 
+        <strong>Agent runtime은 별도 프로세스 또는 컨테이너로 분리</strong>하고, 
+        C#은 고성능 host/gateway 역할만 맡는다. 이렇게 하면 GC, 보안, 장애 전파, 배포 복잡도를 모두 제어 가능.
+      </p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.1 · RECOMMENDED ARCHITECTURE</div>
+      <h3 class="sub-title">전체 권장 <em class="pink">아키텍처</em></h3>
+      <pre class="code">C# Product / Tool / Desktop App
+   │
+   ├─ UI: Blazor / WPF / WinUI / Avalonia / Web
+   ├─ Core: domain logic, rendering, simulation, business rules
+   ├─ Agent Gateway Adapter
+   │    ├─ HttpClient + SSE streaming
+   │    ├─ System.Text.Json source generation
+   │    ├─ bounded Channel&lt;AgentEvent&gt;
+   │    ├─ audit log / approval policy
+   │    └─ timeout / retry / circuit breaker
+   │
+   ├──────────────── internal network / local process boundary ─────────────┐
+   │                                                                          │
+   ▼                                                                          ▼
+Agno AgentOS Service                       Dev/Ops Agent Runtime
+   ├─ product agents                          ├─ ECC baseline in repo/devcontainer
+   ├─ workflows                               ├─ Ruflo dev swarm for selected tasks
+   ├─ memory/session DB                       ├─ Hermes internal ops assistant
+   └─ RBAC/HITL/tracing                       └─ sandbox terminal + hooks + skills
+
+Storage Layer
+   ├─ PostgreSQL: sessions, tenants, approvals, audit
+   ├─ Redis/NATS: event bus / job queue
+   ├─ Vector DB: knowledge search
+   └─ Object Store: artifacts/files</pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.2 · IAgentRuntime · CORE ABSTRACTION</div>
+      <h3 class="sub-title">C# <em class="pink">추상화</em> 인터페이스</h3>
+      <div class="prose">
+        <p>
+          Payload를 문자열 객체로 계속 변환하지 말고 <code>ReadOnlyMemory&lt;byte&gt;</code> 중심으로 두면 
+          JSON/SSE 파싱 경로에서 불필요한 allocation을 줄일 수 있다. UI에 표시할 때만 필요한 만큼 decode.
+        </p>
+      </div>
+      <pre class="code"><span class="keyword">public interface</span> <span class="func">IAgentRuntime</span>
+{
+    <span class="func">IAsyncEnumerable</span>&lt;AgentEvent&gt; RunAsync(
+        AgentRequest request,
+        CancellationToken cancellationToken = <span class="keyword">default</span>);
+
+    ValueTask&lt;AgentSession&gt; StartSessionAsync(
+        AgentSessionOptions options,
+        CancellationToken cancellationToken = <span class="keyword">default</span>);
+
+    ValueTask&lt;ApprovalDecision&gt; RequestApprovalAsync(
+        AgentApprovalRequest request,
+        CancellationToken cancellationToken = <span class="keyword">default</span>);
+}
+
+<span class="keyword">public readonly record struct</span> <span class="func">AgentRequest</span>(
+    <span class="keyword">string</span> Runtime,        <span class="comment">// "agno", "ruflo", "hermes", "ecc", "codex"</span>
+    <span class="keyword">string</span> AgentId,
+    <span class="keyword">string</span> UserId,
+    <span class="keyword">string</span> SessionId,
+    ReadOnlyMemory&lt;<span class="keyword">byte</span>&gt; PayloadUtf8);
+
+<span class="keyword">public readonly record struct</span> <span class="func">AgentEvent</span>(
+    AgentEventType Type,
+    <span class="keyword">long</span> Sequence,
+    ReadOnlyMemory&lt;<span class="keyword">byte</span>&gt; PayloadUtf8);
+
+<span class="keyword">public enum</span> AgentEventType
+{
+    TextDelta,
+    ToolCallRequested,
+    ToolCallApproved,
+    ToolResult,
+    MemoryWrite,
+    Error,
+    Completed
+}
+
+<span class="keyword">public enum</span> AgentPermissionProfile
+{
+    ReadOnly,
+    WorkspaceWriteNoNetwork,
+    WorkspaceWriteWithApproval,
+    FullAccessIsolatedContainer
+}</pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.3 · ZERO-COPY · 저할당 NETWORK 처리 6대 포인트</div>
+      <h3 class="sub-title">Kim님의 <em class="pink">zero-allocation</em> 패턴 적용</h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>System.Text.Json source generator</h5>
+          <p>Reflection 기반 serializer 대신 compile-time metadata 사용. <code>JsonSerializerContext</code> + <code>[JsonSerializable]</code>. AOT 친화적.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>Utf8JsonReader</h5>
+          <p>Hot path에서 DOM 파싱(<code>JsonDocument</code>) 남발 금지. Streaming parse. <code>ref struct</code> 형태로 stack-only, allocation 없음.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>PipeReader / System.IO.Pipelines</h5>
+          <p>SSE/streaming 응답을 chunk 단위로 읽고, line/event boundary만 잘라 처리. backpressure 자연스럽게.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>Channel&lt;T&gt; (System.Threading.Channels)</h5>
+          <p>Agent event를 bounded channel로 흘려 backpressure 명확히. producer/consumer 분리. <code>UnboundedChannelOptions</code> 절대 피하기.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>ArrayPool&lt;byte&gt; / MemoryPool&lt;byte&gt;</h5>
+          <p>대형 tool result, file diff, trace payload 처리 시 버퍼 재사용. <code>ArrayPool.Shared.Rent()</code> + try/finally로 안전 반환.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>ValueTask + 프로세스 격리</h5>
+          <p>동기 완료 잦은 adapter path에서 task allocation 감소. AI agent의 memory leak/GC를 C# 앱 성능 경로에서 분리.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.4 · FRAMEWORK별 C# 연결 방식</div>
+      <h3 class="sub-title">4개 프로젝트의 <em class="pink">.NET 어댑터</em></h3>
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>Framework</th>
+            <th>C# 연결 방식</th>
+            <th>권장 인터페이스</th>
+            <th>핫패스 주의점</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Agno</td>
+            <td>AgentOS HTTP/SSE API 호출. 제품 기능으로 가장 적합.</td>
+            <td><code>AgnoAgentRuntime : IAgentRuntime</code></td>
+            <td>SSE stream parser, timeout, cancellation, tenant auth, DB consistency.</td>
+          </tr>
+          <tr>
+            <td>Ruflo</td>
+            <td>CLI/MCP bridge. 개발 자동화나 내부 도구용.</td>
+            <td><code>RufloCliRuntime</code> 또는 <code>McpToolRuntime</code></td>
+            <td>작업 디렉터리 격리, git branch, tool approval, stdout/stderr streaming.</td>
+          </tr>
+          <tr>
+            <td>Hermes</td>
+            <td>OpenAI-compatible API/gateway/CLI. 내부 assistant나 sandbox 작업용.</td>
+            <td><code>HermesRuntime</code></td>
+            <td>Terminal 권한, sandbox lifecycle, memory/skill auto-update audit.</td>
+          </tr>
+          <tr class="highlight-cell">
+            <td><strong>ECC ★</strong></td>
+            <td>제품 runtime adapter가 아니라 <strong>repo/devcontainer/CI assets로 적용</strong></td>
+            <td><code>EccCiRuntime</code> 또는 <code>AgentHarnessPolicy</code></td>
+            <td>Hook 중복, rule context bloat, C# 전용 rule/skill 유지보수.</td>
+          </tr>
+          <tr class="codex-cell">
+            <td><strong>Codex CLI</strong></td>
+            <td>Process + JSONL 또는 app-server stdio. C# host가 권한·세션·diff·audit 통제.</td>
+            <td><code>CodexProcessAdapter</code></td>
+            <td>JSONL streaming parser, approval flow, diff preview, sandbox profile.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.5 · C# 전용 ECC 확장 아이디어</div>
+      <h3 class="sub-title">Kim님이 만들 4가지 <em class="pink">.NET-native ECC skills</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ SKILL ]</div>
+          <h5><code>skills/dotnet-zero-allocation/</code></h5>
+          <p><code>Span&lt;T&gt;</code>, <code>ReadOnlySpan&lt;T&gt;</code>, <code>Memory&lt;T&gt;</code>, pooling, source generator, ref struct, SIMD, <code>ValueTask</code>, async allocation 분석 절차를 skill화.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ AGENT ]</div>
+          <h5><code>agents/csharp-performance-reviewer.md</code></h5>
+          <p>PR diff에서 boxing, LINQ hot path, closure allocation, async state machine, per-frame allocation, <code>string</code> concat, collection growth를 리뷰하는 agent.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ HOOK ]</div>
+          <h5><code>hooks/dotnet-quality-gate</code></h5>
+          <p><code>dotnet build</code>, <code>dotnet test</code>, <code>dotnet format</code>, analyzer, BenchmarkDotNet baseline 비교를 hook/CI에 넣음. Native AOT로 컴파일하면 5ms 시작.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ RULE ]</div>
+          <h5><code>rules/csharp/performance.md</code></h5>
+          <p>GC 최소화, zero-copy API, OpenGL resource lifecycle, unsafe 사용 기준, exception hot path 금지, logging allocation 제한을 명문화. ECDIS 도메인 특화.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">13.6 · 4가지 적용 패턴</div>
+      <h3 class="sub-title">시나리오별 <em class="pink">적용 패턴</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ PATTERN A ]</div>
+          <h5>Product Agent Service (Agno 중심)</h5>
+          <p>C# 제품에서 "문서 Q&A", "업무 자동화", "고객 지원 agent" 제공 시. C# API Gateway가 인증/과금/권한 확인, Agno AgentOS가 agent run 수행, 승인 필요 tool은 C# UI로 approval event 전송, audit table 저장.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ PATTERN B ]</div>
+          <h5>Development Harness Baseline (ECC 중심)</h5>
+          <p>C# repo에 rules/skills/hooks 설치해 개발 품질 표준화. minimal profile부터 시작 → C# 전용 rules/skills 추가 → CI에서 AgentShield와 dotnet quality gate 실행 → hook false positive 측정하며 확대.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ PATTERN C ]</div>
+          <h5>Development Swarm (Ruflo 중심)</h5>
+          <p>설계/구현/테스트/리뷰 agent로 작업 분해. 작업 단위는 branch/worktree로 격리, Ruflo 결과는 patch proposal/PR comment로만 반영, 테스트/static analysis 통과해야 merge. 성능 변경은 benchmark job 필수.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ PATTERN D ]</div>
+          <h5>Personal Ops Agent (Hermes 중심)</h5>
+          <p>서버 상태 점검, 정기 리서치, 알림, 내부 봇. Telegram/Discord gateway는 whitelist user만 허용, shell은 Docker/SSH sandbox로 제한, cron 결과는 C# dashboard로 webhook 전송, skill/memory 변경은 주기적 diff review.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §14 · CODEX CLI STEP-BY-STEP -->
+<section id="codex-stepbystep">
+  <div class="container">
+    <div class="section-num">§ 14 · CODEX CLI 적용 단계별 가이드</div>
+    <h2 class="section-title">Codex CLI에 ECC <em>실제 옮기기</em>.</h2>
+    <p class="section-desc">
+      ECC 전체를 그대로 Codex에 복사하면 안 된다. Claude Code 전용 hook/command/agent 포맷과 Codex 포맷이 다르기 때문. 
+      ECC의 skills/rules/MCP/workflow <strong>"개념"</strong>을 Codex의 <code>AGENTS.md</code>, <code>.agents/skills</code>, 
+      <code>.codex/config.toml</code>, <code>.codex/hooks.json</code>으로 옮기는 9단계 절차.
+    </p>
+
+    <div class="callout teal">
+      <div class="callout-label">⚡ 한 줄 결론</div>
+      <p>
+        <strong>"ECC 전체 그대로 적용 = 비추천. ECC 개념을 Codex 표면으로 변환 = 권장."</strong> 
+        skills는 그대로 호환 (SKILL.md 표준), rules는 AGENTS.md로, hooks는 변환 필요, commands는 skill로 재구성, MCP는 그대로.
+      </p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">14.1 · ECC → CODEX 자산 매핑 표</div>
+      <h3 class="sub-title">자산별 <em class="teal">변환 가이드</em></h3>
+      <table class="comparison-table">
+        <thead>
+          <tr>
+            <th>ECC 자산</th>
+            <th>Codex CLI 대응</th>
+            <th>적용 방법</th>
+            <th>주의점</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>rules/common</strong> + <strong>rules/language</strong></td>
+            <td><code>AGENTS.md</code> + <code>.codex/config.toml</code> + approval</td>
+            <td>일반 원칙은 AGENTS.md에, 위험 명령 통제는 권한/승인/훅으로 분리</td>
+            <td>AGENTS.md는 지시문이지 강제 sandbox 아님. 보안은 config + hook에서 재차 확보.</td>
+          </tr>
+          <tr>
+            <td><strong>skills/*/SKILL.md</strong></td>
+            <td><code>.agents/skills/&lt;skill&gt;/SKILL.md</code></td>
+            <td>거의 그대로 가져오되 <code>name</code>/<code>description</code>을 Codex trigger 관점으로 다듬기</td>
+            <td>Skill 수 많으면 초기 skill list가 context 잡아먹음. 프로젝트당 5~15개부터 시작.</td>
+          </tr>
+          <tr>
+            <td><strong>agents/*.md</strong></td>
+            <td><code>.codex/agents/*.toml</code>, <code>[agents.&lt;name&gt;]</code></td>
+            <td>Claude subagent prompt를 Codex custom agent TOML로 변환</td>
+            <td>Codex subagent는 명시적으로 요청해야 spawn. 자동 분기 오케스트레이션 기대 금지.</td>
+          </tr>
+          <tr>
+            <td><strong>hooks/*.json</strong> + <strong>scripts/hooks/*</strong></td>
+            <td><code>.codex/hooks.json</code> + <code>[features] codex_hooks = true</code></td>
+            <td>Hook event/matcher를 Codex 포맷으로 변환, script는 Codex stdin JSON 읽도록 수정</td>
+            <td>PreToolUse는 완전한 보안 경계 아님. sandbox/approval/rules와 함께 사용.</td>
+          </tr>
+          <tr>
+            <td><strong>commands/*.md</strong></td>
+            <td>권장: skills로 / 보조: <code>~/.codex/prompts/*.md</code></td>
+            <td><code>/plan</code>, <code>/review</code>, <code>/security-scan</code>은 재사용 skill로 변환</td>
+            <td>Codex custom prompts는 deprecated. 개인 단축키 용도만 권장.</td>
+          </tr>
+          <tr>
+            <td><strong>mcp-configs/*</strong></td>
+            <td><code>[mcp_servers.&lt;name&gt;]</code> + plugin <code>.mcp.json</code></td>
+            <td>서버별 command/args/env를 <code>~/.codex/config.toml</code> 또는 <code>.codex/config.toml</code>에</td>
+            <td>토큰/API 키는 env allowlist 정책 + secret 관리로 분리.</td>
+          </tr>
+          <tr>
+            <td><strong>plugin packaging</strong></td>
+            <td><code>.codex-plugin/plugin.json</code> + marketplace JSON</td>
+            <td>안정화된 skills/MCP/hooks를 plugin으로 묶어 팀 배포</td>
+            <td>초기에는 plugin보다 repo-local skills/config가 단순.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">14.2 · 9단계 적용 절차</div>
+      <h3 class="sub-title">실제 <em class="teal">설치 → plugin 배포</em>까지</h3>
+
+      <h4 class="subsub-title">Step 1 — Codex CLI 설치 + 실행</h4>
+      <pre class="code teal"><span class="comment"># npm</span>
+npm i -g @openai/codex
+
+<span class="comment"># 또는 Homebrew</span>
+brew install --cask codex
+
+<span class="comment"># 프로젝트 루트에서 실행</span>
+cd /path/to/your-repo
+codex</pre>
+
+      <h4 class="subsub-title">Step 2 — Codex용 디렉토리 생성</h4>
+      <pre class="code teal">mkdir -p .codex/agents
+mkdir -p .codex/hooks
+mkdir -p .agents/skills
+mkdir -p .agents/plugins
+mkdir -p plugins
+
+<span class="comment"># .codex     → Codex 설정/agent/hook</span>
+<span class="comment"># .agents/skills  → repo-scoped skills</span>
+<span class="comment"># .agents/plugins → repo-scoped plugin marketplace</span></pre>
+
+      <h4 class="subsub-title">Step 3 — <code>.codex/config.toml</code> 안전 baseline</h4>
+      <pre class="code teal"><span class="comment"># 프로젝트에 commit 가능한 Codex baseline</span>
+model = <span class="string">"gpt-5.5"</span>
+approval_policy = <span class="string">"on-request"</span>
+sandbox_mode = <span class="string">"workspace-write"</span>
+allow_login_shell = <span class="keyword">false</span>
+
+[features]
+codex_hooks = <span class="keyword">true</span>
+
+[agents]
+max_threads = <span class="num">6</span>
+max_depth = <span class="num">1</span>
+
+[sandbox_workspace_write]
+network_access = <span class="keyword">false</span>
+
+[shell_environment_policy]
+inherit = <span class="string">"core"</span>
+ignore_default_excludes = <span class="keyword">false</span>
+exclude = [
+  <span class="string">"AWS_*"</span>,
+  <span class="string">"AZURE_*"</span>,
+  <span class="string">"GITHUB_TOKEN"</span>,
+  <span class="string">"OPENAI_API_KEY"</span>,
+  <span class="string">"*_TOKEN"</span>,
+  <span class="string">"*_SECRET"</span>,
+  <span class="string">"*_PASSWORD"</span>
+]
+
+<span class="comment"># 예: Context7 MCP</span>
+[mcp_servers.context7]
+command = <span class="string">"npx"</span>
+args = [<span class="string">"-y"</span>, <span class="string">"@upstash/context7-mcp"</span>]</pre>
+
+      <h4 class="subsub-title">Step 4 — <code>AGENTS.md</code>로 프로젝트 규칙 정의 (C# 기준)</h4>
+      <pre class="code teal"><span class="comment"># AGENTS.md</span>
+
+<span class="keyword">## Project identity</span>
+- This is a C#/.NET 10 project.
+- Prioritize correctness, deterministic behavior, allocation minimization, maintainability.
+- Do not introduce new production dependencies without explicit justification.
+
+<span class="keyword">## Build and verification</span>
+- After modifying C# files, run:
+  - dotnet build -c Release
+  - dotnet test -c Release
+- For performance-sensitive changes, add or update BenchmarkDotNet benchmarks.
+- For public APIs, update XML docs and usage examples.
+
+<span class="keyword">## C# performance policy</span>
+- Prefer Span&lt;T&gt;, ReadOnlySpan&lt;T&gt;, Memory&lt;T&gt;, ReadOnlyMemory&lt;T&gt; where ownership is clear.
+- Prefer ArrayPool&lt;T&gt; or ObjectPool&lt;T&gt; only when lifetime and clearing rules are explicit.
+- Avoid LINQ in hot paths.
+- Avoid hidden allocations from closures, async state machines, boxing,
+  string interpolation, and params arrays in hot paths.
+- Prefer System.Text.Json source generation for stable DTOs.
+- Use Utf8JsonReader/Utf8JsonWriter for zero-copy JSON parsing in high-throughput paths.
+- Use ValueTask only when measurably beneficial.
+- Do not use unsafe code unless there is a benchmark and a clear safety boundary.
+
+<span class="keyword">## Review behavior</span>
+- Before editing, state the plan and risk.
+- Make minimal diffs.
+- Never rewrite unrelated files.
+- If tests fail, report the failing test and isolate the cause before broad refactoring.</pre>
+
+      <h4 class="subsub-title">Step 5 — ECC skills를 Codex skill로 변환</h4>
+      <pre class="code teal"><span class="comment"># ECC의 verification-loop skill을 Codex로 그대로 복사</span>
+cp -R everything-claude-code/.agents/skills/verification-loop .agents/skills/verification-loop
+
+<span class="comment"># 또는 C# 전용 skill 직접 생성</span>
+mkdir -p .agents/skills/dotnet-performance-review
+cat &gt; .agents/skills/dotnet-performance-review/SKILL.md &lt;&lt;'EOF'
+---
+name: dotnet-performance-review
+description: Use for C#/.NET code review focused on allocations, GC pressure,
+  Span/Memory usage, async overhead, serialization, and BenchmarkDotNet validation.
+---
+
+<span class="keyword"># Dotnet Performance Review</span>
+
+Use this skill when reviewing C# code for performance-sensitive paths.
+
+<span class="keyword">## Workflow</span>
+1. Identify hot paths and expected throughput/latency constraints.
+2. Check for avoidable allocations:
+   - LINQ in loops
+   - closures and captures
+   - boxing
+   - string interpolation/logging allocations
+   - params array allocations
+   - async state machine overhead
+3. Prefer Span&lt;T&gt;/ReadOnlySpan&lt;T&gt; only when lifetime is safe.
+4. Prefer ArrayPool&lt;T&gt; only when buffers are returned in all paths.
+5. Require BenchmarkDotNet evidence for non-trivial optimization changes.
+6. Return findings grouped by correctness, allocation, CPU, API risk, test coverage.
+EOF</pre>
+
+      <div class="callout amber">
+        <div class="callout-label">⚠️ skill 선별 원칙</div>
+        <p>
+          <strong>처음부터 ECC 전체 skills를 넣지 마세요.</strong> 초기 skill 목록이 길어져 context와 선택 정확도를 떨어뜨림. 
+          프로젝트에 직접 효과 있는 것부터: <code>verification-loop</code>, <code>security-review</code>, <code>tdd-workflow</code>, 
+          <code>coding-standards</code>, <code>api-design</code>. 
+          C# 프로젝트라면 별도 <code>dotnet-performance-review</code>, <code>dotnet-api-contract-review</code>, 
+          <code>dotnet-test-repair</code>가 ECC 기본 skill보다 효과적.
+        </p>
+      </div>
+
+      <h4 class="subsub-title">Step 6 — Custom Agents (Codex subagents) TOML</h4>
+      <pre class="code teal"><span class="comment"># .codex/agents/dotnet_reviewer.toml</span>
+
+name = <span class="string">"dotnet_reviewer"</span>
+description = <span class="string">"Review C#/.NET code for correctness, allocations, GC, async, API, tests."</span>
+model = <span class="string">"gpt-5.5"</span>
+model_reasoning_effort = <span class="string">"high"</span>
+sandbox_mode = <span class="string">"read-only"</span>
+
+developer_instructions = <span class="string">"""
+You are a senior C# performance reviewer.
+
+Review priorities:
+1. Correctness and race conditions.
+2. Allocation and GC pressure.
+3. Span&lt;T&gt;, Memory&lt;T&gt;, ArrayPool&lt;T&gt;, ObjectPool&lt;T&gt; lifetime safety.
+4. Async/await overhead and synchronization context risk.
+5. System.Text.Json source-generation and zero-copy opportunities.
+6. Test and benchmark gaps.
+
+Do not edit files. Return a structured review with:
+- Critical issues
+- Performance issues
+- API/design issues
+- Suggested minimal patches
+- Benchmark/test recommendations
+"""</span>
+
+<span class="comment"># 사용 예시 prompt:</span>
+<span class="comment"># "Spawn dotnet_reviewer and security_reviewer subagents.</span>
+<span class="comment"># Ask them to inspect the current diff independently.</span>
+<span class="comment"># Then consolidate their findings into a prioritized fix plan."</span></pre>
+
+      <h4 class="subsub-title">Step 7 — Codex Hooks (위험 명령 차단)</h4>
+      <pre class="code teal"><span class="comment"># .codex/hooks.json</span>
+{
+  <span class="string">"hooks"</span>: {
+    <span class="string">"PreToolUse"</span>: [{
+      <span class="string">"matcher"</span>: <span class="string">"^Bash$"</span>,
+      <span class="string">"hooks"</span>: [{
+        <span class="string">"type"</span>: <span class="string">"command"</span>,
+        <span class="string">"command"</span>: <span class="string">"python3 .codex/hooks/pre_tool_policy.py"</span>,
+        <span class="string">"timeout"</span>: <span class="num">30</span>,
+        <span class="string">"statusMessage"</span>: <span class="string">"Checking Bash command policy"</span>
+      }]
+    }],
+    <span class="string">"Stop"</span>: [{
+      <span class="string">"hooks"</span>: [{
+        <span class="string">"type"</span>: <span class="string">"command"</span>,
+        <span class="string">"command"</span>: <span class="string">"python3 .codex/hooks/stop_quality_gate.py"</span>,
+        <span class="string">"timeout"</span>: <span class="num">60</span>
+      }]
+    }]
+  }
+}
+
+<span class="comment"># .codex/hooks/pre_tool_policy.py</span>
+<span class="comment">#!/usr/bin/env python3</span>
+<span class="keyword">import</span> json, re, sys
+
+payload = json.<span class="func">load</span>(sys.stdin)
+command = payload.<span class="func">get</span>(<span class="string">"tool_input"</span>, {}).<span class="func">get</span>(<span class="string">"command"</span>, <span class="string">""</span>)
+
+blocked_patterns = [
+    <span class="string">r"\brm\s+-rf\s+/"</span>,
+    <span class="string">r"\bgit\s+push\b"</span>,
+    <span class="string">r"\bdotnet\s+nuget\s+push\b"</span>,
+    <span class="string">r"\bchmod\s+-R\s+777\b"</span>,
+]
+
+<span class="keyword">for</span> pattern <span class="keyword">in</span> blocked_patterns:
+    <span class="keyword">if</span> re.<span class="func">search</span>(pattern, command):
+        <span class="func">print</span>(json.<span class="func">dumps</span>({
+            <span class="string">"hookSpecificOutput"</span>: {
+                <span class="string">"hookEventName"</span>: <span class="string">"PreToolUse"</span>,
+                <span class="string">"permissionDecision"</span>: <span class="string">"deny"</span>,
+                <span class="string">"permissionDecisionReason"</span>: <span class="string">f"Blocked by policy: {pattern}"</span>
+            }
+        }))
+        sys.<span class="func">exit</span>(<span class="num">0</span>)</pre>
+
+      <h4 class="subsub-title">Step 8 — <code>codex exec</code>로 CI 자동화</h4>
+      <pre class="code teal"><span class="comment"># 실패 테스트 자동 triage</span>
+codex exec \
+  --sandbox workspace-write \
+  --ask-for-approval on-request \
+  <span class="string">"Run dotnet test -c Release. If tests fail, identify the smallest failing area
+   and propose a minimal patch. Do not push or publish anything."</span>
+
+<span class="comment"># JSONL 이벤트 스트리밍 (C# adapter용)</span>
+codex exec --json \
+  <span class="string">"Review the current diff for C# allocation and API compatibility risks."</span> \
+  2&gt; codex-progress.log \
+  | tee codex-final.md</pre>
+
+      <h4 class="subsub-title">Step 9 — Plugin 패키징 (팀 배포)</h4>
+      <pre class="code teal">dotnet-performance-agent-plugin/
+  .codex-plugin/
+    plugin.json
+  skills/
+    dotnet-performance-review/SKILL.md
+    dotnet-test-repair/SKILL.md
+  .mcp.json
+  hooks/
+    hooks.json
+  assets/
+    icon.png
+
+<span class="comment"># plugin.json</span>
+{
+  <span class="string">"name"</span>: <span class="string">"dotnet-performance-agent"</span>,
+  <span class="string">"version"</span>: <span class="string">"0.1.0"</span>,
+  <span class="string">"description"</span>: <span class="string">"C#/.NET allocation-aware review, test repair, quality gate."</span>,
+  <span class="string">"skills"</span>: <span class="string">"./skills/"</span>,
+  <span class="string">"mcpServers"</span>: <span class="string">"./.mcp.json"</span>,
+  <span class="string">"hooks"</span>: <span class="string">"./hooks/hooks.json"</span>,
+  <span class="string">"interface"</span>: {
+    <span class="string">"displayName"</span>: <span class="string">"Dotnet Performance Agent"</span>,
+    <span class="string">"developerName"</span>: <span class="string">"Your Team"</span>,
+    <span class="string">"category"</span>: <span class="string">"Productivity"</span>,
+    <span class="string">"capabilities"</span>: [<span class="string">"Read"</span>, <span class="string">"Write"</span>]
+  }
+}</pre>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">14.3 · C# 제품에 Codex CLI 통합</div>
+      <h3 class="sub-title">CodexProcessAdapter — <em class="teal">최종 통합 구조</em></h3>
+      <div class="prose">
+        <p>
+          C# 앱에 Codex를 직접 library처럼 넣는 것보다 <strong>프로세스 격리 + JSONL/app-server adapter</strong> 방식이 현실적. 
+          C# 본체는 권한·세션·diff·audit를 통제하고, Codex는 작업 디렉토리 안에서만 agent 작업 수행.
+        </p>
+      </div>
+      <pre class="code teal">C# Product / IDE / Agent Workspace Terminal
+        │
+        ├─ IAgentRuntime
+        │   ├─ StartSessionAsync()
+        │   ├─ SendPromptAsync()
+        │   ├─ StreamEventsAsync()
+        │   ├─ RequestApprovalAsync()
+        │   └─ ApplyOrRejectPatchAsync()
+        │
+        ├─ CodexProcessAdapter
+        │   ├─ codex exec --json          <span class="comment"># one-shot automation</span>
+        │   ├─ codex app-server stdio     <span class="comment"># long-running integration</span>
+        │   └─ codex mcp-server           <span class="comment"># orchestration from another agent</span>
+        │
+        ├─ Policy Layer
+        │   ├─ sandbox profile
+        │   ├─ approval policy
+        │   ├─ command denylist/allowlist
+        │   ├─ secret redaction
+        │   └─ audit log
+        │
+        └─ Workspace Isolation
+            ├─ temp git worktree
+            ├─ container or restricted user
+            ├─ network disabled by default
+            └─ explicit diff review before merge</pre>
+    </div>
+  </div>
+</section>
+
+<!-- §15 · 4-WEEK POC PLAN -->
+<section id="poc-plan">
+  <div class="container">
+    <div class="section-num">§ 15 · 4주 POC 검증 계획</div>
+    <h2 class="section-title">한 번에 전체 도입 <em>금지</em>.</h2>
+    <p class="section-desc">
+      Skillify를 바로 풀스택으로 만들지 말고, 4주 POC로 검증한 후 단계적 확장. 
+      각 주차마다 명확한 합격 기준과 측정 지표.
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>주차</th>
+          <th>목표</th>
+          <th>작업</th>
+          <th>합격 기준</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1주차</strong></td>
+          <td>ECC minimal + C# custom rules 검증</td>
+          <td>테스트 repo에 ECC minimal 설치. <code>rules/csharp</code>, <code>skills/dotnet-zero-allocation</code> 초안 작성. Skillify 디렉터리 구조 제안.</td>
+          <td>개발 흐름 방해 없이 리뷰 품질 향상. Hook 없음. ECC instinct 캡처 시작.</td>
+        </tr>
+        <tr>
+          <td><strong>2주차</strong></td>
+          <td>Skillify Core 시작 + Instinct 모델 .NET 포팅</td>
+          <td>Skillify.Core.Instincts namespace 작성. SQLite per-project 구조. Confidence scoring (0.3→0.9). Background observer (BackgroundService).</td>
+          <td>5+ instincts가 자동 captured. Project hash 기반 격리 동작. 메인 컨텍스트 오염 없음.</td>
+        </tr>
+        <tr>
+          <td><strong>3주차</strong></td>
+          <td>Cross-harness 설치 스크립트 + Codex 통합</td>
+          <td><code>skillify sync --target codex</code> CLI 구현 (Tomlyn NuGet). ADD-ONLY safe-merge. <code>.codex/skillify/</code> 디렉토리 생성. AGENTS.md 자동 생성.</td>
+          <td>Codex CLI에서 Skillify skills 자동 로드. ECC와 충돌 없음. SKILLIFY_DISABLED_MCPS 동작.</td>
+        </tr>
+        <tr>
+          <td><strong>4주차</strong></td>
+          <td>운영 hardening + Native AOT 컴파일</td>
+          <td>Hooks를 .NET native AOT로 컴파일 (~5ms startup). AgentShield 통합 (외부 skill import 검증). Hook profile (minimal/standard/strict). 5-Layer self-observation guard.</td>
+          <td>Hook startup ≤ 10ms. 위험 작업이 승인 없이 실행되지 않음. 모든 tool call이 audit에 남음.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="subsection">
+      <div class="sub-num">15.1 · 측정 지표</div>
+      <h3 class="sub-title">5가지 차원의 <em class="pink">메트릭</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 품질 ]</div>
+          <h5>Quality Metrics</h5>
+          <p>테스트 통과율, PR review comment 정확도, bug escape 감소, 자동 captured instinct의 evolution rate.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 성능 ]</div>
+          <h5>Performance Metrics</h5>
+          <p>C# hot path allocation 변화, build/test 시간, agent response P95/P99 latency, hook startup 시간 (target ≤10ms).</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 비용 ]</div>
+          <h5>Cost Metrics</h5>
+          <p>Task당 token/model cost, 실패/재시도 비용, MCP tool context overhead, Background observer (Haiku) 비용.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 보안 ]</div>
+          <h5>Security Metrics</h5>
+          <p>승인 없이 실행된 shell/network/write 개수 = 0, secret 접근 = 0, sandbox escape = 0, 외부 skill 검증율 = 100%.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 운영 ]</div>
+          <h5>Operational Metrics</h5>
+          <p>재현성, audit completeness, rollback 시간, hook false positive rate (target ≤5%), 5-Layer guard 발동 횟수.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ Cross-harness ]</div>
+          <h5>Harness Coverage</h5>
+          <p>Claude/Codex 양쪽 skill 호환률, sync 스크립트 안전성 (사용자 설정 보존), Adapter drift 감지 횟수.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §16 · RISK CHECKLIST -->
+<section id="risk-checklist">
+  <div class="container">
+    <div class="section-num">§ 16 · 리스크 체크리스트</div>
+    <h2 class="section-title">예측되는 <em>함정</em>과 대응.</h2>
+    <p class="section-desc">
+      4개 프로젝트와 Codex CLI 통합 시 발생하는 7가지 운영 리스크. 각각 영향, 해당 프로젝트, 대응 방법.
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>리스크</th>
+          <th>영향</th>
+          <th>주로 해당</th>
+          <th>대응</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Hook/rule 과잉 적용</strong></td>
+          <td>정상 작업 차단, 개발자 불만, 우회 행동 증가</td>
+          <td>ECC, Ruflo</td>
+          <td>minimal profile부터 적용. False positive 로깅. Override path 제공. <code>SKILLIFY_HOOK_PROFILE</code> 환경변수로 조절.</td>
+        </tr>
+        <tr>
+          <td><strong>Tool 권한 과다</strong></td>
+          <td>파일 삭제, secret 유출, shell/network 악용</td>
+          <td>Hermes, Ruflo, ECC, Agno</td>
+          <td>Deny-by-default. Sandbox + approval policy. Short-lived scoped token. Codex의 <code>workspace-write</code> + <code>on-request</code> baseline.</td>
+        </tr>
+        <tr>
+          <td><strong>Memory poisoning</strong></td>
+          <td>장기적으로 잘못된 지침/악성 지침이 재사용</td>
+          <td>Hermes, ECC, Ruflo, Agno</td>
+          <td>Memory TTL. Source attribution. Review status. Untrusted workflow memory 격리. ECC의 confidence 감소 메커니즘 활용.</td>
+        </tr>
+        <tr>
+          <td><strong>MCP context/cost 폭증</strong></td>
+          <td>Context window 감소, 비용 증가, latency 증가</td>
+          <td>ECC, Ruflo, Agno</td>
+          <td>활성 MCP/tool 수 제한 (≤10 MCPs, ≤80 tools). CLI wrapper로 대체. 필요한 경우에만 enable. <code>ECC_DISABLED_MCPS</code> 활용.</td>
+        </tr>
+        <tr>
+          <td><strong>버전/문서 불일치</strong></td>
+          <td>설치 실패, 기능 누락, 자동화 스크립트 오류</td>
+          <td>Ruflo, ECC</td>
+          <td>Version pinning. <code>ecc doctor</code> / <code>ecc list-installed</code>. Lockfile. POC 설치 로그 저장.</td>
+        </tr>
+        <tr>
+          <td><strong>Python/Node 운영 복잡도</strong></td>
+          <td>C# 제품 장애 원인 증가</td>
+          <td>Agno, Hermes, Ruflo, ECC scripts</td>
+          <td>별도 컨테이너/프로세스. Health check. Resource limit. Circuit breaker. Skillify는 .NET native AOT로 우회.</td>
+        </tr>
+        <tr>
+          <td><strong>자동 agent 결과 무검증 merge</strong></td>
+          <td>품질/보안 사고</td>
+          <td>모두</td>
+          <td>Human review. CI gate. Test/benchmark/security scan. Staged rollout. 자동 commit/push 금지 (report artifact만).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout" style="background: rgba(255, 100, 120, 0.06); border-color: rgba(255, 100, 120, 0.2); border-left-color: var(--red);">
+      <div class="callout-label" style="color: var(--red);">🚨 절대 하지 말아야 할 것</div>
+      <p>
+        Agent에게 다음을 동시에 주지 마라: <strong>host machine root 권한 + 개인 GitHub/Gmail/Slack 계정 + production secret + unrestricted shell/network</strong>. 
+        Agent가 읽는 외부 문서/이슈/PR/첨부파일은 <strong>모두 prompt injection surface</strong>이다. 
+        Skillify는 처음부터 deny-by-default + workspace isolation + approval policy를 fundamentals로 둬야 한다.
+      </p>
+    </div>
+
+    <div class="subsection">
+      <div class="sub-num">16.1 · CODEX 적용 전용 리스크</div>
+      <h3 class="sub-title">Codex CLI 통합 시 <em class="teal">7가지 함정</em></h3>
+      <div class="feature-grid">
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 01 ]</div>
+          <h5>중복 instructions</h5>
+          <p><code>AGENTS.md</code> + skill + prompt + hook additional context가 같은 규칙을 반복하면 모델이 혼란. Skillify는 single source of truth 유지.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 02 ]</div>
+          <h5>Hook 과신</h5>
+          <p>Hook은 guardrail이며 sandbox를 대체하지 않음. PreToolUse는 Bash/apply_patch만 intercept. sandbox_mode + approval_policy와 함께 사용.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 03 ]</div>
+          <h5>Network/tool risk</h5>
+          <p>MCP와 web search는 prompt injection 경로. <code>network_access = false</code>를 기본으로. Codex의 <code>sandbox_workspace_write</code>에서 명시.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 04 ]</div>
+          <h5>Secret leakage</h5>
+          <p><code>shell_environment_policy</code>로 TOKEN/SECRET/KEY/PASSWORD 계열을 차단. <code>*_TOKEN</code>, <code>*_SECRET</code> glob 패턴 활용.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 05 ]</div>
+          <h5>Skill bloat</h5>
+          <p>ECC 전체 skills (182개)를 모두 넣지 말고 프로젝트별 curated subset 유지. 5~15개부터 시작. <code>fallback_for_toolsets</code>로 조건부 활성화.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 06 ]</div>
+          <h5>C# host 권한</h5>
+          <p>Codex process를 같은 권한으로 실행하면 host 앱의 모든 권한 상속. 별도 계정/worktree/container 권장.</p>
+        </div>
+        <div class="feature-card pink">
+          <div class="feature-icon">[ 07 ]</div>
+          <h5>CI 자동 수정</h5>
+          <p>초기에 자동 commit/push 금지. Report 생성과 patch proposal까지만 허용. 사람 review 후 merge.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- §17 · FINAL ADOPTION PRIORITY -->
+<section id="adoption-priority">
+  <div class="container">
+    <div class="section-num">§ 17 · 최종 적용 우선순위</div>
+    <h2 class="section-title">Kim님 기준 <em>8단계 적용안</em>.</h2>
+    <p class="section-desc">
+      "이제 어떻게 시작할 것인가." 모든 분석을 종합한 실용적 8단계. 각 단계의 목표, 완료 기준 명시.
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>우선순위</th>
+          <th>작업</th>
+          <th>목표</th>
+          <th>완료 기준</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>1</strong></td>
+          <td><code>AGENTS.md</code> 작성 (C# 프로젝트 baseline)</td>
+          <td>C# 프로젝트 규칙 + 검증 명령 고정</td>
+          <td>Codex/Claude가 작업 시작 시 build/test/perf 규칙을 요약 가능</td>
+        </tr>
+        <tr>
+          <td><strong>2</strong></td>
+          <td>핵심 skills 5~10개만 설치 (C# 전용 위주)</td>
+          <td>작업 품질 향상, context 낭비 방지</td>
+          <td><code>dotnet-performance-review</code> 등이 명시/암시 호출됨</td>
+        </tr>
+        <tr>
+          <td><strong>3</strong></td>
+          <td><code>.codex/config.toml</code> + Claude settings 안전 baseline</td>
+          <td>workspace-write, network off, 승인 정책 적용</td>
+          <td>위험 명령이 자동 실행되지 않음</td>
+        </tr>
+        <tr>
+          <td><strong>4</strong></td>
+          <td>PreToolUse/PermissionRequest hooks (Native AOT)</td>
+          <td>위험 Bash/MCP 실행 차단 + 5ms startup</td>
+          <td><code>git push</code>, <code>rm -rf /</code>, publish 명령 차단</td>
+        </tr>
+        <tr>
+          <td><strong>5</strong></td>
+          <td>Skillify Core · Instinct 모델 .NET 포팅</td>
+          <td>ECC v2의 핵심 메커니즘 .NET으로</td>
+          <td>Instinct → Confidence → Evolution 파이프라인 동작</td>
+        </tr>
+        <tr>
+          <td><strong>6</strong></td>
+          <td><code>skillify sync --target codex</code> · Safe-merge</td>
+          <td>Cross-harness 동기화 (Claude + Codex)</td>
+          <td>기존 사용자 설정 보존하며 Skillify skills 자동 로드</td>
+        </tr>
+        <tr>
+          <td><strong>7</strong></td>
+          <td>Custom subagents 3~5개 + <code>codex exec</code> CI</td>
+          <td>리뷰/보안/테스트 agent 분리 + 자동 report</td>
+          <td>명시적 subagent prompt로 병렬 리뷰. PR에 수정 없이 review artifact만 생성</td>
+        </tr>
+        <tr>
+          <td><strong>8</strong></td>
+          <td>C# CodexProcessAdapter + Skillify MCP Server</td>
+          <td>제품 통합 + 팀/다중 프로젝트 배포</td>
+          <td>JSONL stream + approval + diff preview + audit log 동작. Plugin marketplace 설치 가능.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout teal">
+      <div class="callout-label">⚡ 통합본 최종 결론 (v1 + v2 + v3 + 업로드 문서)</div>
+      <p>
+        <strong>Skillify = ECC v2의 .NET 진화형 + 4주 POC로 검증 + 8단계 점진적 적용.</strong><br><br>
+        분석 단계 (이전 4개 버전): <strong>ECC를 청사진으로</strong>.<br>
+        실행 단계 (이번 추가): <strong>Out-of-process isolation + zero-allocation + 단계적 도입</strong>.<br><br>
+        Kim님의 진정한 차별화 포인트는 두 가지:<br>
+        ① <strong>.NET native AOT</strong> — ECC가 Node.js로 푸는 문제를 5ms startup으로 푼다 (10배 빠름).<br>
+        ② <strong>Zero-allocation 패턴</strong> — <code>ReadOnlyMemory&lt;byte&gt;</code>, <code>Utf8JsonReader</code>, <code>PipeReader</code>, 
+        <code>Channel&lt;T&gt;</code>, <code>ArrayPool</code>, <code>ValueTask</code>로 ECC가 풀지 못한 GC 압박 문제를 해결.<br><br>
+        결과: Skillify는 <strong>"ECC의 진화된 후계자"</strong>가 되어, 
+        Cross-harness × Performance-first × Safety-by-default 세 마리 토끼를 잡는다.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="divider"></div>
+    <div>RESEARCH BRIEF · UNIFIED v4 · 2026.05.14</div>
+    <div style="margin-top: 8px; color: var(--ink-3);">
+      Sources: ruvnet/ruflo · agno-agi/agno · NousResearch/hermes-agent · affaan-m/everything-claude-code · OpenAI Codex CLI docs
+    </div>
+    <div style="margin-top: 8px; color: var(--ink-3);">
+      Version history: v1 (3-project) → v2 (+ECC) → v3 (+Codex CLI) → unified → v4 (+C# code · 9-step Codex · 4-week POC · risks · 8-step priority)
+    </div>
+    <div style="margin-top: 12px; color: var(--pink);">
+      Skillify = ECC v2의 .NET 진화형 · Native AOT cross-harness hooks · Zero-allocation patterns · agentskills.io 표준
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
