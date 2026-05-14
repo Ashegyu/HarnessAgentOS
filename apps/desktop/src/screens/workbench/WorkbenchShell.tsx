@@ -620,6 +620,7 @@ export const WorkbenchShell = (): JSX.Element => {
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error("orchestration.draftPlan failed", e);
+          if (usingPipeline) throw e;
         }
       }
       await refreshThreadDetail(selectedThreadId);
