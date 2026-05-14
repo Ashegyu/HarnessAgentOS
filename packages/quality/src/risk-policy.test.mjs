@@ -7,6 +7,7 @@ const empty = {
   artifacts: [],
   testEvidence: [],
   buildEvidence: [],
+  smokeEvidence: [],
   diffArtifactIds: [],
 };
 
@@ -36,9 +37,25 @@ test("failed build emits a 'build failed' risk", () => {
   assert.ok(risks.includes("build failed in this run"));
 });
 
-test("requireSmoke with no test evidence emits a smoke missing risk", () => {
+test("requireSmoke with no smoke evidence emits a smoke missing risk", () => {
   const risks = collectRisks(empty, { requireSmoke: true });
   assert.ok(risks.includes("smoke evidence is missing"));
+});
+
+test("unit test evidence does not satisfy requireSmoke", () => {
+  const risks = collectRisks(
+    { ...empty, testEvidence: [{ passed: true }] },
+    { requireSmoke: true },
+  );
+  assert.ok(risks.includes("smoke evidence is missing"));
+});
+
+test("failed smoke evidence emits a smoke failure risk", () => {
+  const risks = collectRisks(
+    { ...empty, smokeEvidence: [{ passed: false }] },
+    {},
+  );
+  assert.ok(risks.includes("smoke failed in this run"));
 });
 
 test("diff present without test evidence emits an untested-changes risk", () => {

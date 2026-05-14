@@ -116,6 +116,94 @@ test("evaluate + completion promotes to ready_for_review when passed", async () 
   }
 });
 
+test("evaluate requires dedicated smoke evidence when requireSmoke is true", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const testStep = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "test",
+      title: "vitest",
+      status: "running",
+    });
+    await state.setStepStatus(testStep.id, "succeeded");
+
+    const evaluator = new QualityEvaluator({ state });
+    const result = await evaluator.evaluate({
+      taskRunId: taskRun.id,
+      requireSmoke: true,
+    });
+    assert.equal(result.status, "warning");
+    assert.equal(result.testsPassed, true);
+    assert.equal(result.smokePassed, undefined);
+    assert.ok(result.knownRisks.includes("smoke evidence is missing"));
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("evaluate marks passing smoke evidence independently from unit tests", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const smokeStep = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "shell",
+      title: "npm run smoke",
+      status: "running",
+    });
+    await state.setStepStatus(smokeStep.id, "succeeded");
+
+    const evaluator = new QualityEvaluator({ state });
+    const result = await evaluator.evaluate({
+      taskRunId: taskRun.id,
+      requireSmoke: true,
+    });
+    assert.equal(result.status, "passed");
+    assert.equal(result.testsPassed, undefined);
+    assert.equal(result.smokePassed, true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("evaluate fails when smoke evidence failed", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const smokeStep = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "shell",
+      title: "playwright smoke",
+      status: "running",
+    });
+    await state.setStepStatus(smokeStep.id, "failed");
+
+    const evaluator = new QualityEvaluator({ state });
+    const result = await evaluator.evaluate({
+      taskRunId: taskRun.id,
+      requireSmoke: true,
+    });
+    assert.equal(result.status, "failed");
+    assert.equal(result.smokePassed, false);
+    assert.ok(result.knownRisks.includes("smoke failed in this run"));
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("markDone is blocked when latest gate is not passed", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

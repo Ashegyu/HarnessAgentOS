@@ -63,8 +63,8 @@ export class QualityEvaluator {
     if (evidence.testEvidence.length > 0) {
       result.testsPassed = evidence.testEvidence.every((e) => e.passed);
     }
-    if (input.requireSmoke && evidence.testEvidence.length > 0) {
-      result.smokePassed = evidence.testEvidence.some((e) => e.passed);
+    if (evidence.smokeEvidence.length > 0) {
+      result.smokePassed = evidence.smokeEvidence.every((e) => e.passed);
     }
     if (evidence.diffArtifactIds.length > 0) {
       result.changedFilesReviewed = true;
@@ -88,12 +88,14 @@ const computeStatus = (
   const hasAnyEvidence =
     evidence.testEvidence.length > 0 ||
     evidence.buildEvidence.length > 0 ||
+    evidence.smokeEvidence.length > 0 ||
     evidence.diffArtifactIds.length > 0;
 
   if (!requestedSomething && !hasAnyEvidence) return "not_run";
   if (
     evidence.testEvidence.some((e) => !e.passed) ||
-    evidence.buildEvidence.some((e) => !e.passed)
+    evidence.buildEvidence.some((e) => !e.passed) ||
+    evidence.smokeEvidence.some((e) => !e.passed)
   ) {
     return "failed";
   }
@@ -105,6 +107,7 @@ const computeStatus = (
 const collectEvidenceArtifactIds = (evidence: {
   testEvidence: { passed: boolean; artifactId?: string }[];
   buildEvidence: { passed: boolean; artifactId?: string }[];
+  smokeEvidence: { passed: boolean; artifactId?: string }[];
   diffArtifactIds: string[];
 }): string[] => {
   const ids: string[] = [];
@@ -112,6 +115,9 @@ const collectEvidenceArtifactIds = (evidence: {
     if (e.artifactId) ids.push(e.artifactId);
   }
   for (const e of evidence.buildEvidence) {
+    if (e.artifactId) ids.push(e.artifactId);
+  }
+  for (const e of evidence.smokeEvidence) {
     if (e.artifactId) ids.push(e.artifactId);
   }
   for (const id of evidence.diffArtifactIds) ids.push(id);

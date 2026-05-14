@@ -135,6 +135,55 @@ test("collectEvidence detects shell test invocations via output summary", () => 
   assert.equal(evidence.testEvidence[0].passed, true);
 });
 
+test("collectEvidence does not count unit tests as smoke evidence", () => {
+  const evidence = collectEvidence(
+    [
+      {
+        ...stepBase,
+        kind: "test",
+        title: "vitest",
+        status: "succeeded",
+      },
+    ],
+    [],
+  );
+  assert.equal(evidence.testEvidence.length, 1);
+  assert.equal(evidence.smokeEvidence.length, 0);
+});
+
+test("collectEvidence detects smoke shell steps", () => {
+  const evidence = collectEvidence(
+    [
+      {
+        ...stepBase,
+        kind: "shell",
+        title: "npm run smoke",
+        status: "succeeded",
+      },
+    ],
+    [],
+  );
+  assert.equal(evidence.smokeEvidence.length, 1);
+  assert.equal(evidence.smokeEvidence[0].passed, true);
+});
+
+test("collectEvidence detects smoke log artifacts via command title and exit code", () => {
+  const evidence = collectEvidence([], [
+    {
+      id: "art_s1",
+      taskRunId: "tsk_1",
+      kind: "log",
+      title: "shell: npm run smoke",
+      uri: "artifact://s/1",
+      createdAt: "2024-01-01T00:00:00.000Z",
+      summary: "exit=0, 500ms",
+    },
+  ]);
+  assert.equal(evidence.smokeEvidence.length, 1);
+  assert.equal(evidence.smokeEvidence[0].passed, true);
+  assert.equal(evidence.smokeEvidence[0].artifactId, "art_s1");
+});
+
 test("collectEvidence ignores pending shell steps", () => {
   const evidence = collectEvidence(
     [

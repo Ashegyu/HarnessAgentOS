@@ -5,6 +5,7 @@ export interface EvidenceBundle {
   artifacts: Artifact[];
   testEvidence: { passed: boolean; artifactId?: string }[];
   buildEvidence: { passed: boolean; artifactId?: string }[];
+  smokeEvidence: { passed: boolean; artifactId?: string }[];
   diffArtifactIds: string[];
 }
 

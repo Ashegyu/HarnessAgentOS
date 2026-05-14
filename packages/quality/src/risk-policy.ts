@@ -31,8 +31,14 @@ export const collectRisks = (
     risks.push("build failed in this run");
   }
 
-  if (req.requireSmoke && evidence.testEvidence.length === 0) {
+  if (req.requireSmoke && evidence.smokeEvidence.length === 0) {
     risks.push("smoke evidence is missing");
+  }
+  if (
+    evidence.smokeEvidence.length > 0 &&
+    evidence.smokeEvidence.some((e) => !e.passed)
+  ) {
+    risks.push("smoke failed in this run");
   }
 
   if (
