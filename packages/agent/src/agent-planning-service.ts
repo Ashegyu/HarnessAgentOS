@@ -619,10 +619,16 @@ export class AgentPlanningService {
    *
    * Differences vs `generatePlan`:
    *  - no TaskRun status mutation (worker-runner owns step rows)
-   *  - no agent_invocation row (lighter weight; cost/latency
-   *    tracking is a follow-up enhancement)
    *  - no plan parsing / proposed-action handling
    *  - errors bubble up so the worker-runner marks the step failed
+   *
+   * Persists an `agent_invocations` row keyed by the synthesized
+   * invocation id so the renderer's `InlineAgentStream` / right-panel
+   * `AgentStreamView` pick the worker call up and render its live
+   * stream in the central chat window — same surface as a normal
+   * agent-mode TaskRun. Without this row, the stream events would
+   * be emitted but the UI wouldn't know which TaskRun they belong
+   * to, so the user sees a silent run.
    */
   async invokeForWorker(input: {
     taskRunId: string;
@@ -688,15 +694,34 @@ export class AgentPlanningService {
     const systemPrompt = redactSecrets(input.profile.persona, 80_000);
     const userPrompt = redactSecrets(input.userRequest, 80_000);
 
-    // Synthetic invocation id — used by the queue for concurrency
-    // tracking only. Not persisted to the agent_invocations table.
-    const invocationId = `worker_${taskRun.id}_${Date.now()}_${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
+    // Persist prompt + invocation row so the renderer's
+    // `InlineAgentStream` can subscribe to stream events keyed by
+    // invocation.id, and so the worker call shows up in the
+    // right-panel Agent tab's invocation history alongside any
+    // generatePlan calls.
+    const promptArtifact = await this.deps.state.createArtifact({
+      taskRunId: taskRun.id,
+      kind: "log",
+      title: `Worker prompt — ${input.profile.name}`,
+      uri: `harness:worker-prompt/${taskRun.id}/${Date.now()}`,
+      summary: `[system]\n${systemPrompt}\n\n[user]\n${userPrompt}`,
+    });
+    const invocation = await this.deps.state.createAgentInvocation({
+      taskRunId: taskRun.id,
+      provider,
+      model,
+      promptArtifactId: promptArtifact.id,
+    });
+    const startedAt = new Date().toISOString();
+    await this.deps.state.updateAgentInvocation(invocation.id, {
+      status: "running",
+      startedAt,
+    });
 
+    const emit = this.deps.emitStreamEvent ?? (() => {});
     try {
       const request: ModelCliRequest = {
-        invocationId,
+        invocationId: invocation.id,
         taskRunId: taskRun.id,
         cwd: taskRun.targetDir,
         prompt: userPrompt,
@@ -715,10 +740,9 @@ export class AgentPlanningService {
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
       };
-      const emit = this.deps.emitStreamEvent ?? (() => {});
       const result = await this.queue.enqueue({
         provider,
-        invocationId,
+        invocationId: invocation.id,
         work: (signal) =>
           this.adapter.invoke(
             request,
@@ -741,7 +765,55 @@ export class AgentPlanningService {
           // tear down a successful worker invocation.
         }
       }
-      return { outputText: redactSecrets(result.stdout, 200_000) };
+      const redactedOutput = redactSecrets(result.stdout, 200_000);
+      const rawOutputArtifact = await this.deps.state.createArtifact({
+        taskRunId: taskRun.id,
+        kind: "log",
+        title: `Worker raw output — ${input.profile.name}`,
+        uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
+        summary: redactedOutput,
+      });
+      const finishedAt = new Date().toISOString();
+      await this.deps.state.updateAgentInvocation(invocation.id, {
+        status: "succeeded",
+        rawOutputArtifactId: rawOutputArtifact.id,
+        latencyMs: result.latencyMs,
+        finishedAt,
+      });
+      return { outputText: redactedOutput };
+    } catch (e) {
+      const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
+      const code = isCancelled
+        ? AGENT_CANCELLED
+        : e instanceof AgentCliError
+          ? e.code
+          : AGENT_PROVIDER_UNAVAILABLE;
+      const message = isHarnessError(e)
+        ? e.message
+        : e instanceof Error
+          ? e.message
+          : String(e);
+      const finishedAt = new Date().toISOString();
+      // Emit the failure as a stream event too — without this the
+      // InlineAgentStream sits at "응답 작성 중…" forever for a
+      // failed worker call.
+      if (isCancelled) {
+        emit({ type: "cancelled", invocationId: invocation.id });
+      } else {
+        emit({
+          type: "failed",
+          invocationId: invocation.id,
+          errorCode: code,
+          message,
+        });
+      }
+      await this.deps.state.updateAgentInvocation(invocation.id, {
+        status: isCancelled ? "cancelled" : "failed",
+        errorCode: code,
+        errorMessage: redactSecrets(message, 2_000),
+        finishedAt,
+      });
+      throw e;
     } finally {
       await mcpCleanup();
     }
