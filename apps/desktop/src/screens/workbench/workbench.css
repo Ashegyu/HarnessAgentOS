@@ -2565,39 +2565,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.conversation-input__mode {
-  display: inline-flex;
-  gap: 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  margin-bottom: var(--space-2);
-}
-
-.conversation-input__mode-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 12px;
-  padding: 4px var(--space-3);
-  cursor: pointer;
-}
-
-.conversation-input__mode-btn:not(:last-child) {
-  border-right: 1px solid var(--border-subtle);
-}
-
-.conversation-input__mode-btn--active {
-  background: var(--bg-panel-elev);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.conversation-input__mode-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
 .conversation-input__orch {
   margin-bottom: var(--space-2);
 }

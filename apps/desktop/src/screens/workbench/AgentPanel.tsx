@@ -122,9 +122,9 @@ export const AgentPanel = ({
             type="button"
             disabled={busy !== null}
             onClick={() => void handle("fallback", onUseFallback)}
-            title="템플릿 기반 plan으로 fallback (CLI 사용 안 함)"
+            title="CLI를 쓰지 않는 기본 plan으로 전환"
           >
-            {busy === "fallback" ? "템플릿 전환 중…" : "Template fallback"}
+            {busy === "fallback" ? "기본 plan 전환 중…" : "기본 plan 전환"}
           </button>
         )}
       </>
