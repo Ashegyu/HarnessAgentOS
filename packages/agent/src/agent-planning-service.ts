@@ -410,12 +410,13 @@ export class AgentPlanningService {
     let latencyMs = 0;
     let resultSessionId: string | undefined;
     try {
-      emitProgress("queued", "CLI 실행 대기열 등록", `${provider}:${model}`);
+      const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
+      emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
       const result = await this.queue.enqueue({
         provider,
         invocationId: invocation.id,
         work: (signal) => {
-          emitProgress("cli", "CLI 프로세스 시작", `${provider}:${model}`);
+          emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
           return this.adapter.invoke(
             request,
             (e) => {
@@ -933,12 +934,13 @@ export class AgentPlanningService {
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
       };
-      emitProgress("queued", "Worker CLI 실행 대기열 등록", `${provider}:${model}`);
+      const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
+      emitProgress("queued", "Worker CLI 실행 대기열 등록", cliProgressDetail);
       const result = await this.queue.enqueue({
         provider,
         invocationId: invocation.id,
         work: (signal) => {
-          emitProgress("cli", "Worker CLI 프로세스 시작", `${provider}:${model}`);
+          emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
           return this.adapter.invoke(
             request,
             (e) => emit(redactStreamEvent(e)),

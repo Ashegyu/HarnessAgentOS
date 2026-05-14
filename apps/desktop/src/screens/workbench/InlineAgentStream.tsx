@@ -138,7 +138,9 @@ export const InlineAgentStream = ({
     parsed.finalText ??
     (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
   const hasFinalAnswer = finalText !== null;
-  const hasDraftResponse = !hasFinalAnswer && responseDraftText.length > 0;
+  const showIntermediateResponse =
+    responseDraftText.length > 0 &&
+    (!hasFinalAnswer || responseDraftText !== finalText);
   const hasAnyOutput =
     hasFinalAnswer ||
     parsed.intermediateText.length > 0 ||
@@ -172,37 +174,54 @@ export const InlineAgentStream = ({
         </div>
       )}
 
-      {progress.length > 0 && (
-        <AgentProgressList items={progress} compact />
+      {(progress.length > 0 || parsed.toolUses.length > 0) && (
+        <AgentProgressList
+          items={progress}
+          compact
+          tools={parsed.toolUses}
+          terminal={isTerminal}
+        />
       )}
 
       {parsed.thinkingText.length > 0 && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--thinking">
-          <header className="inline-agent-stream__head">
+        <details
+          className="inline-agent-stream__section inline-agent-stream__section--thinking"
+          open={!isTerminal}
+        >
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               ✦
             </span>
-            <span className="inline-agent-stream__title">생각</span>
-          </header>
+            <span className="inline-agent-stream__title">생각 과정</span>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <div
             ref={thinkingBoxRef}
             className="inline-agent-stream__thinking"
           >
             {parsed.thinkingText}
           </div>
-        </section>
+        </details>
       )}
 
       {parsed.toolUses.length > 0 && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--tool">
-          <header className="inline-agent-stream__head">
+        <details
+          className="inline-agent-stream__section inline-agent-stream__section--tool"
+          open={!isTerminal}
+        >
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               ▷
             </span>
             <span className="inline-agent-stream__title">
               명령어 / 도구 호출 ({parsed.toolUses.length})
             </span>
-          </header>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <ul className="inline-agent-stream__tools">
             {parsed.toolUses.map((t, i) => (
               <li key={`${t.name}-${i}`}>
@@ -215,23 +234,29 @@ export const InlineAgentStream = ({
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       )}
 
-      {hasDraftResponse && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--live">
-          <header className="inline-agent-stream__head">
+      {showIntermediateResponse && (
+        <details
+          className="inline-agent-stream__section inline-agent-stream__section--live"
+          open={!hasFinalAnswer}
+        >
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               …
             </span>
             <span className="inline-agent-stream__title">
               중간 답변 / 응답 작성 중
             </span>
-          </header>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <div ref={liveBoxRef} className="inline-agent-stream__live">
             {responseDraftText}
           </div>
-        </section>
+        </details>
       )}
 
       {finalText !== null && (

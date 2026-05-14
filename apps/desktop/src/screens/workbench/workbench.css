@@ -2979,6 +2979,7 @@
 .agent-stream-section__head {
   display: flex;
   align-items: center;
+  gap: 6px;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2986,7 +2987,28 @@
 }
 .agent-stream-section__head--clickable { cursor: pointer; user-select: none; }
 
+details.agent-stream-section > summary.agent-stream-section__head {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+details.agent-stream-section > summary.agent-stream-section__head::-webkit-details-marker {
+  display: none;
+}
+
 .agent-stream-section__title { font-weight: 600; }
+
+.agent-stream-section__chevron {
+  margin-left: auto;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+details.agent-stream-section[open] .agent-stream-section__chevron {
+  transform: rotate(90deg);
+}
 
 .agent-stream-section__final {
   margin: 0;
@@ -3192,6 +3214,16 @@
   min-width: 0;
 }
 
+.agent-progress--collapsible .agent-progress__head {
+  grid-template-columns: 10px auto minmax(0, 1fr) auto auto;
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-progress--collapsible .agent-progress__head::-webkit-details-marker {
+  display: none;
+}
+
 .agent-progress__dot {
   width: 7px;
   height: 7px;
@@ -3222,6 +3254,17 @@
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 10px;
+}
+
+.agent-progress__chevron {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.agent-progress[open] .agent-progress__chevron {
+  transform: rotate(90deg);
 }
 
 .agent-progress__detail {
@@ -3258,6 +3301,50 @@
 }
 
 .agent-progress__step-message {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-progress__step-message > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-progress__step-detail {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-progress__step--tool {
+  color: var(--text-primary);
+}
+
+.agent-progress__step-message--tool {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.agent-progress__step-message--tool code {
+  color: var(--text-primary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  font-size: 10px;
+}
+
+.agent-progress__tool-input {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3282,6 +3369,21 @@
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
+
+details.inline-agent-stream__section > summary.inline-agent-stream__head {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+details.inline-agent-stream__section > summary.inline-agent-stream__head::-webkit-details-marker {
+  display: none;
+}
+
+details.inline-agent-stream__section:not([open]) {
+  gap: 0;
+}
+
 .inline-agent-stream__icon {
   font-size: 11px;
   line-height: 1;
@@ -3290,6 +3392,18 @@
   display: inline-block;
 }
 .inline-agent-stream__title { font-weight: 600; }
+
+.inline-agent-stream__chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
+  transform: rotate(90deg);
+}
 
 /* Thinking — muted, italic, distinctly "internal" feel. */
 .inline-agent-stream__section--thinking {

@@ -427,29 +427,35 @@ const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
       aria-label="Completed agent answer"
     >
       {parsed.thinkingText.length > 0 && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--thinking">
-          <header className="inline-agent-stream__head">
+        <details className="inline-agent-stream__section inline-agent-stream__section--thinking">
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               ✦
             </span>
-            <span className="inline-agent-stream__title">생각</span>
-          </header>
+            <span className="inline-agent-stream__title">생각 과정</span>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <div className="inline-agent-stream__thinking">
             {parsed.thinkingText}
           </div>
-        </section>
+        </details>
       )}
 
       {parsed.toolUses.length > 0 && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--tool">
-          <header className="inline-agent-stream__head">
+        <details className="inline-agent-stream__section inline-agent-stream__section--tool">
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               ▷
             </span>
             <span className="inline-agent-stream__title">
               명령어 / 도구 호출 ({parsed.toolUses.length})
             </span>
-          </header>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <ul className="inline-agent-stream__tools">
             {parsed.toolUses.map((t, i) => (
               <li key={`${t.name}-${i}`}>
@@ -462,21 +468,24 @@ const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
               </li>
             ))}
           </ul>
-        </section>
+        </details>
       )}
 
       {showDraft && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--live">
-          <header className="inline-agent-stream__head">
+        <details className="inline-agent-stream__section inline-agent-stream__section--live">
+          <summary className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               …
             </span>
             <span className="inline-agent-stream__title">
               중간 답변 / 응답 작성 중
             </span>
-          </header>
+            <span className="inline-agent-stream__chevron" aria-hidden>
+              ▸
+            </span>
+          </summary>
           <div className="inline-agent-stream__live">{responseDraftText}</div>
-        </section>
+        </details>
       )}
 
       <section className="inline-agent-stream__section inline-agent-stream__section--final">

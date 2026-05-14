@@ -130,6 +130,9 @@ export const AgentStreamView = ({
     parsed.finalText ??
     (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
   const hasFinalAnswer = finalText !== null;
+  const showIntermediateResponse =
+    responseDraftText.length > 0 &&
+    (!hasFinalAnswer || responseDraftText !== finalText);
   const hasAnyOutput =
     hasFinalAnswer ||
     parsed.intermediateText.length > 0 ||
@@ -187,28 +190,41 @@ export const AgentStreamView = ({
         </pre>
       ) : (
         <>
-          {progress.length > 0 && (
-            <AgentProgressList items={progress} />
+          {(progress.length > 0 || parsed.toolUses.length > 0) && (
+            <AgentProgressList
+              items={progress}
+              tools={parsed.toolUses}
+              terminal={isTerminal}
+            />
           )}
 
           {parsed.thinkingText.length > 0 && (
-            <section className="agent-stream-section agent-stream-section--thinking">
-              <header className="agent-stream-section__head">
-                <span className="agent-stream-section__title">생각</span>
-              </header>
+            <details
+              className="agent-stream-section agent-stream-section--thinking"
+              open={!isTerminal}
+            >
+              <summary className="agent-stream-section__head">
+                <span className="agent-stream-section__title">생각 과정</span>
+                <span className="agent-stream-section__chevron" aria-hidden>
+                  ▸
+                </span>
+              </summary>
               <div className="agent-stream-section__thinking">
                 {parsed.thinkingText}
               </div>
-            </section>
+            </details>
           )}
 
           {parsed.toolUses.length > 0 && (
-            <section className="agent-stream-section">
-              <header className="agent-stream-section__head">
+            <details className="agent-stream-section" open={!isTerminal}>
+              <summary className="agent-stream-section__head">
                 <span className="agent-stream-section__title">
                   명령어 / 도구 호출 ({parsed.toolUses.length})
                 </span>
-              </header>
+                <span className="agent-stream-section__chevron" aria-hidden>
+                  ▸
+                </span>
+              </summary>
               <ul className="agent-stream-section__tools">
                 {parsed.toolUses.map((t, i) => (
                   <li key={`${t.name}-${i}`}>
@@ -221,20 +237,23 @@ export const AgentStreamView = ({
                   </li>
                 ))}
               </ul>
-            </section>
+            </details>
           )}
 
-          {!hasFinalAnswer && responseDraftText.length > 0 ? (
-            <section className="agent-stream-section">
-              <header className="agent-stream-section__head">
+          {showIntermediateResponse ? (
+            <details className="agent-stream-section" open={!hasFinalAnswer}>
+              <summary className="agent-stream-section__head">
                 <span className="agent-stream-section__title">
                   중간 답변 / 응답 작성 중
                 </span>
-              </header>
+                <span className="agent-stream-section__chevron" aria-hidden>
+                  ▸
+                </span>
+              </summary>
               <div ref={liveBoxRef} className="agent-stream-section__live">
                 {responseDraftText}
               </div>
-            </section>
+            </details>
           ) : null}
 
           {finalText !== null && (
