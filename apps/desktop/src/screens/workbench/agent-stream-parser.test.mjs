@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   feedStreamChunk,
   flushStreamParser,
+  hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
   setIntermediateAssistantText,
@@ -249,6 +250,39 @@ test("result promotion moves intermediate assistant output to finalText", () => 
 
   assert.equal(s.parsed.finalText, "final after result");
   assert.equal(s.parsed.intermediateText, "final after result");
+});
+
+test("hydrateSavedAgentOutput preserves plain saved output as final text", () => {
+  const s = initStreamParserState();
+
+  hydrateSavedAgentOutput(s, "full saved answer\nwith details", {
+    terminal: true,
+    latencyMs: 1234,
+  });
+
+  assert.equal(s.parsed.finalText, "full saved answer\nwith details");
+  assert.equal(s.parsed.intermediateText, "full saved answer\nwith details");
+  assert.deepEqual(s.parsed.unknown, []);
+  assert.equal(s.parsed.resultMeta?.durationMs, 1234);
+});
+
+test("hydrateSavedAgentOutput replays saved stream json lines", () => {
+  const s = initStreamParserState();
+
+  hydrateSavedAgentOutput(
+    s,
+    line({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        delta: { type: "text_delta", text: "streamed answer" },
+      },
+    }),
+    { terminal: true },
+  );
+
+  assert.equal(s.parsed.liveText, "streamed answer");
+  assert.equal(s.parsed.finalText, "streamed answer");
 });
 
 test("codex delta events accumulate into liveText", () => {

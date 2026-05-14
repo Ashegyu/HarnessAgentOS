@@ -165,6 +165,34 @@ export const promoteIntermediateTextToFinal = (
   return state;
 };
 
+export const hydrateSavedAgentOutput = (
+  state: StreamParserState,
+  content: string,
+  options?: {
+    terminal?: boolean;
+    latencyMs?: number;
+    costEstimate?: number;
+  },
+): StreamParserState => {
+  const text = content.trim();
+  if (text.length === 0) return state;
+
+  if (looksLikeJsonLineStream(text)) {
+    feedStreamChunk(state, content.endsWith("\n") ? content : `${content}\n`);
+    flushStreamParser(state);
+  }
+
+  if (!hasStructuredResponse(state.parsed)) {
+    state.parsed.unknown = [];
+    setIntermediateAssistantText(state, content);
+  }
+
+  if (options?.terminal) {
+    promoteIntermediateTextToFinal(state, options);
+  }
+  return state;
+};
+
 /**
  * Replace the parser with an already-confirmed final assistant text.
  * Most renderer call sites should prefer `setIntermediateAssistantText`
@@ -284,6 +312,19 @@ const ingestLine = (state: StreamParserState, line: string): void => {
   if (ingestCodexLine(parsed, obj)) return;
   parsed.unknown.push(line);
 };
+
+const looksLikeJsonLineStream = (text: string): boolean => {
+  const firstLine = text.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return firstLine.startsWith("{") && firstLine.endsWith("}");
+};
+
+const hasStructuredResponse = (parsed: ParsedStream): boolean =>
+  parsed.finalText !== null ||
+  parsed.intermediateText.length > 0 ||
+  parsed.liveText.length > 0 ||
+  parsed.thinkingText.length > 0 ||
+  parsed.toolUses.length > 0 ||
+  parsed.resultMeta !== null;
 
 const ingestCodexLine = (
   parsed: ParsedStream,

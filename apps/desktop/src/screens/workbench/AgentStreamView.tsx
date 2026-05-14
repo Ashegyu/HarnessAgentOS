@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  AgentInvocation,
   AgentInvocationStatus,
   AgentStreamEvent,
 } from "@harness/core";
 import {
   feedStreamChunk,
   flushStreamParser,
+  hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
   setIntermediateAssistantText,
@@ -18,8 +20,7 @@ import {
 } from "./AgentProgressList";
 
 interface AgentStreamViewProps {
-  invocationId: string;
-  status: AgentInvocationStatus;
+  invocation: AgentInvocation;
 }
 
 /**
@@ -31,8 +32,7 @@ interface AgentStreamViewProps {
  * - Raw view   : opt-in fallback so unparsed lines stay debuggable
  */
 export const AgentStreamView = ({
-  invocationId,
-  status,
+  invocation,
 }: AgentStreamViewProps): JSX.Element => {
   const [parsed, setParsed] = useState<ParsedStream>(() =>
     initStreamParserState().parsed,
@@ -54,9 +54,37 @@ export const AgentStreamView = ({
     setShowRaw(false);
     setShowMeta(false);
 
+    const isTerminal = isTerminalStatus(invocation.status);
+    let cancelled = false;
+
+    if (invocation.rawOutputArtifactId) {
+      void window.harness.runner
+        .readArtifact({ artifactId: invocation.rawOutputArtifactId })
+        .then(({ content }) => {
+          if (cancelled) return;
+          hydrateSavedAgentOutput(stateRef.current, content, {
+            terminal: isTerminal,
+            ...(invocation.latencyMs !== undefined
+              ? { latencyMs: invocation.latencyMs }
+              : {}),
+            ...(invocation.costEstimate !== undefined
+              ? { costEstimate: invocation.costEstimate }
+              : {}),
+          });
+          setParsed({ ...stateRef.current.parsed });
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError({
+            code: "ARTIFACT_READ_FAILED",
+            message: e instanceof Error ? e.message : String(e),
+          });
+        });
+    }
+
     const off = window.harness.events.onAgentStreamEvent(
       (event: AgentStreamEvent) => {
-        if (event.invocationId !== invocationId) return;
+        if (event.invocationId !== invocation.id) return;
         if (event.type === "progress") {
           setProgress((items) => [...items, event].slice(-12));
         } else if (event.type === "raw") {
@@ -76,10 +104,17 @@ export const AgentStreamView = ({
       },
     );
     return () => {
+      cancelled = true;
       flushStreamParser(stateRef.current);
       off();
     };
-  }, [invocationId]);
+  }, [
+    invocation.id,
+    invocation.rawOutputArtifactId,
+    invocation.status,
+    invocation.latencyMs,
+    invocation.costEstimate,
+  ]);
 
   useEffect(() => {
     if (liveBoxRef.current) {
@@ -87,10 +122,8 @@ export const AgentStreamView = ({
     }
   }, [parsed.liveText, parsed.intermediateText, parsed.finalText]);
 
-  const isTerminal =
-    status === "succeeded" ||
-    status === "failed" ||
-    status === "cancelled";
+  const status = invocation.status;
+  const isTerminal = isTerminalStatus(status);
   const responseDraftText =
     parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
   const finalText =
@@ -114,8 +147,8 @@ export const AgentStreamView = ({
         <span className={`agent-stream-view__pill agent-stream-view__pill--${status}`}>
           {status}
         </span>
-        <span className="agent-stream-view__id" title={invocationId}>
-          {invocationId.slice(0, 16)}…
+        <span className="agent-stream-view__id" title={invocation.id}>
+          {invocation.id.slice(0, 16)}…
         </span>
         <span className="agent-stream-view__spacer" />
         {hasAnyOutput && (
@@ -266,6 +299,9 @@ export const AgentStreamView = ({
     </div>
   );
 };
+
+const isTerminalStatus = (status: AgentInvocationStatus): boolean =>
+  status === "succeeded" || status === "failed" || status === "cancelled";
 
 const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
   const out: Array<[string, string]> = [];

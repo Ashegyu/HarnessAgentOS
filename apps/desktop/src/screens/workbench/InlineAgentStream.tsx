@@ -3,6 +3,7 @@ import type { AgentInvocation, AgentStreamEvent } from "@harness/core";
 import {
   feedStreamChunk,
   flushStreamParser,
+  hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
   setIntermediateAssistantText,
@@ -54,6 +55,34 @@ export const InlineAgentStream = ({
     setError(null);
     setProgress([]);
 
+    const isTerminal = isTerminalStatus(invocation.status);
+    let cancelled = false;
+
+    if (invocation.rawOutputArtifactId) {
+      void window.harness.runner
+        .readArtifact({ artifactId: invocation.rawOutputArtifactId })
+        .then(({ content }) => {
+          if (cancelled) return;
+          hydrateSavedAgentOutput(stateRef.current, content, {
+            terminal: isTerminal,
+            ...(invocation.latencyMs !== undefined
+              ? { latencyMs: invocation.latencyMs }
+              : {}),
+            ...(invocation.costEstimate !== undefined
+              ? { costEstimate: invocation.costEstimate }
+              : {}),
+          });
+          setParsed({ ...stateRef.current.parsed });
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setError({
+            code: "ARTIFACT_READ_FAILED",
+            message: e instanceof Error ? e.message : String(e),
+          });
+        });
+    }
+
     const off = window.harness.events.onAgentStreamEvent(
       (event: AgentStreamEvent) => {
         if (event.invocationId !== invocation.id) return;
@@ -75,10 +104,17 @@ export const InlineAgentStream = ({
       },
     );
     return () => {
+      cancelled = true;
       flushStreamParser(stateRef.current);
       off();
     };
-  }, [invocation.id]);
+  }, [
+    invocation.id,
+    invocation.rawOutputArtifactId,
+    invocation.status,
+    invocation.latencyMs,
+    invocation.costEstimate,
+  ]);
 
   // Auto-scroll the two streaming sections so the most-recent content
   // stays visible while the model is still emitting tokens.
@@ -95,10 +131,7 @@ export const InlineAgentStream = ({
 
   const isRunning =
     invocation.status === "queued" || invocation.status === "running";
-  const isTerminal =
-    invocation.status === "succeeded" ||
-    invocation.status === "failed" ||
-    invocation.status === "cancelled";
+  const isTerminal = isTerminalStatus(invocation.status);
   const responseDraftText =
     parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
   const finalText =
@@ -215,3 +248,6 @@ export const InlineAgentStream = ({
     </div>
   );
 };
+
+const isTerminalStatus = (status: AgentInvocation["status"]): boolean =>
+  status === "succeeded" || status === "failed" || status === "cancelled";

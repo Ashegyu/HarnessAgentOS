@@ -143,7 +143,7 @@ export const AgentPanel = ({
       </header>
       <div className="panel-body panel-body--compact">
         {latest ? (
-          <AgentStreamView invocationId={latest.id} status={latest.status} />
+          <AgentStreamView invocation={latest} />
         ) : (
           <div className="empty-state">
             Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요.
