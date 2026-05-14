@@ -11,18 +11,36 @@ import { assertActionTypeAllowed } from "./orchestration-policy.ts";
 import { formatWorkerStepArtifact } from "./orchestration-trace.ts";
 
 /**
- * Phase 7 worker runner. Executes the worker steps of an approved
- * OrchestrationPlan in sequence. Each worker step produces a
- * `log` artifact summarizing what the worker proposed; if the worker
- * suggests a side-effecting action it MUST be persisted as a separate
- * approval — never executed directly here.
+ * Minimal CLI invocation contract that the worker-runner depends on.
+ * Implemented by `AgentPlanningService.invokeForWorker` in production;
+ * tests inject a fake that returns canned text without touching the CLI.
  *
- * Phase 7 keeps the worker bodies deterministic so MVP tests stay
- * stable. Real model invocation can replace `runWorkerStepBody` later
- * without changing the surrounding contract.
+ * Phase 2 policy (a): side-effect-free worker. The implementation MUST
+ * NOT execute file_write / shell / dependency_install / git_commit /
+ * network actions directly. If the model output proposes such an
+ * action, the implementation either ignores it or surfaces it as a
+ * separate pending approval — never as a side-effect inside this call.
+ */
+export interface WorkerCliInvoker {
+  invokeForWorker(input: {
+    taskRunId: string;
+    profile: AgentProfile;
+    userRequest: string;
+  }): Promise<{ outputText: string }>;
+}
+
+/**
+ * Worker runner deps.
+ *
+ * Phase 7 kept the worker body deterministic. Phase 2 replaces that
+ * stub with real CLI invocation when an `agentPlanning` invoker is
+ * provided AND the step references an AgentProfile. When either is
+ * absent (legacy mode-driven plans, unit tests) the runner falls back
+ * to the deterministic role-based body so the contract stays stable.
  */
 export interface WorkerRunnerDeps {
   state: LocalStateService;
+  agentPlanning?: WorkerCliInvoker;
 }
 
 export interface WorkerRunInput {
@@ -93,7 +111,11 @@ export class WorkerRunner {
       let body: string;
       let status: WorkerStep["status"] = "succeeded";
       try {
-        body = runWorkerStepBody(planStep, profile);
+        body = await this.runWorkerStepBody(
+          planStep,
+          profile,
+          input.plan.taskRunId,
+        );
       } catch (e) {
         body = e instanceof Error ? e.message : String(e);
         status = "failed";
@@ -126,27 +148,51 @@ export class WorkerRunner {
       proposedApprovalIds: [],
     };
   }
-}
 
-const runWorkerStepBody = (
-  step: WorkerStep,
-  profile: AgentProfile | null,
-): string => {
-  // Phase 7 deterministic worker. If a worker were to "propose" a
-  // side-effecting action, the runner must reject it — that's the
-  // policy boundary. Here we hard-fail any forbidden role intent so
-  // tests can verify policy enforcement.
-  //
-  // When the step came from a pipeline (profile is set), prefix the
-  // body with the profile's persona snippet so the artifact reflects
-  // who produced it. Full CLI invocation is a follow-up phase; for now
-  // the deterministic body is enriched, not replaced.
-  assertActionTypeAllowed(roleToActionIntent(step.role));
-  const personaLine = profile && profile.persona.length > 0
-    ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
-    : "";
-  return personaLine + roleBody(step.role);
-};
+  /**
+   * Phase 2 worker body. Two paths:
+   *
+   *   1. Pipeline-driven step + injected CLI invoker → invoke the agent
+   *      CLI with the profile's persona/tuning and the step's full
+   *      instruction. Capture the agent's text output as the worker
+   *      artifact body. Side-effect-free per policy (a): the invoker
+   *      MUST NOT execute file_write/shell directly.
+   *
+   *   2. Anything missing (no profile, no invoker, no instruction)
+   *      falls back to the Phase 7 deterministic role body so the
+   *      legacy mode-driven flow and unit tests keep working.
+   */
+  private async runWorkerStepBody(
+    step: WorkerStep,
+    profile: AgentProfile | null,
+    taskRunId: string,
+  ): Promise<string> {
+    assertActionTypeAllowed(roleToActionIntent(step.role));
+    const invoker = this.deps.agentPlanning;
+    const userRequest = step.instruction ?? step.inputSummary;
+    if (invoker && profile && userRequest.length > 0) {
+      const { outputText } = await invoker.invokeForWorker({
+        taskRunId,
+        profile,
+        userRequest,
+      });
+      // Prefix with a small attribution line so the artifact reader
+      // sees which profile produced the text. Persona snippet is kept
+      // short — full persona is the system prompt the CLI consumed.
+      const personaSnippet =
+        profile.persona.length > 0
+          ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
+          : `[${profile.name}]\n\n`;
+      return personaSnippet + outputText;
+    }
+    // Fallback: deterministic stub.
+    const personaLine =
+      profile && profile.persona.length > 0
+        ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
+        : "";
+    return personaLine + roleBody(step.role);
+  }
+}
 
 const roleBody = (role: WorkerRole): string => {
   switch (role) {

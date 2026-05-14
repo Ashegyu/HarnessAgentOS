@@ -12,6 +12,7 @@ import {
   type AgentInvocation,
   type AgentPlanningStateGateway,
   type AgentPlanOutput,
+  type AgentProfile,
   type AgentProposedAction,
   type AgentProvider,
   type AgentProviderStatusMap,
@@ -599,6 +600,151 @@ export class AgentPlanningService {
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.stallTimeoutMs !== undefined ? { stallTimeoutMs: input.stallTimeoutMs } : {}),
     });
+  }
+
+  /**
+   * Phase 2 — orchestration worker invocation.
+   *
+   * Slim CLI call that drives a single AgentPipeline step. Uses the
+   * step's bound `AgentProfile` for persona/tuning/MCP and the
+   * pipeline-author-written `instruction` as the user request. Returns
+   * the raw stdout text so the worker-runner can persist it as a log
+   * artifact.
+   *
+   * Side-effect-free per Phase 2 policy (a): this method does NOT
+   * create approvals, run shell commands, or write files. The model
+   * may *suggest* such actions inside its output text, but turning
+   * those into actionable approvals is a follow-up — Phase 2 only
+   * captures the text.
+   *
+   * Differences vs `generatePlan`:
+   *  - no TaskRun status mutation (worker-runner owns step rows)
+   *  - no agent_invocation row (lighter weight; cost/latency
+   *    tracking is a follow-up enhancement)
+   *  - no plan parsing / proposed-action handling
+   *  - errors bubble up so the worker-runner marks the step failed
+   */
+  async invokeForWorker(input: {
+    taskRunId: string;
+    profile: AgentProfile;
+    userRequest: string;
+  }): Promise<{ outputText: string }> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new AgentPlanningError(
+        AGENT_TASK_RUN_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+
+    const providers = this.deps.getProviderStatus();
+    let provider: AgentProvider;
+    if (input.profile.provider === "auto") {
+      const picked: "claude" | "codex" | null = providers?.claude?.available
+        ? "claude"
+        : providers?.codex?.available
+          ? "codex"
+          : null;
+      if (!picked) {
+        throw new AgentPlanningError(
+          AGENT_PROVIDER_UNAVAILABLE,
+          "No agent CLI provider is available for worker invocation",
+        );
+      }
+      provider = picked;
+    } else {
+      provider = input.profile.provider;
+    }
+    if (providers !== null) {
+      const probed = providers[provider];
+      if (!probed?.available) {
+        throw new AgentPlanningError(
+          AGENT_PROVIDER_UNAVAILABLE,
+          `Provider ${provider} is not available for worker invocation`,
+        );
+      }
+    }
+    const tuning = input.profile.tuning;
+    const model = resolveModel(provider, tuning.model);
+
+    // Resume the thread's prior claude session so worker shares
+    // conversation memory with the rest of the thread.
+    const thread = await this.deps.state.getThread(taskRun.threadId);
+    const existingSessionId =
+      provider === "claude" ? thread?.agentSessionId : undefined;
+
+    // Per-invocation MCP config (Phase 4b). Cleaned up via try/finally.
+    let mcpConfigPath: string | null = null;
+    let mcpCleanup: () => Promise<void> = async () => {};
+    if (this.deps.prepareMcpInvocation) {
+      const prep = await this.deps.prepareMcpInvocation({
+        profileId: input.profile.id,
+        provider,
+      });
+      mcpConfigPath = prep.mcpConfigPath;
+      mcpCleanup = prep.cleanup;
+    }
+
+    const systemPrompt = redactSecrets(input.profile.persona, 80_000);
+    const userPrompt = redactSecrets(input.userRequest, 80_000);
+
+    // Synthetic invocation id — used by the queue for concurrency
+    // tracking only. Not persisted to the agent_invocations table.
+    const invocationId = `worker_${taskRun.id}_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
+    try {
+      const request: ModelCliRequest = {
+        invocationId,
+        taskRunId: taskRun.id,
+        cwd: taskRun.targetDir,
+        prompt: userPrompt,
+        systemPrompt,
+        modelConfig: {
+          provider,
+          model,
+          timeoutMs: tuning.timeoutMs ?? this.defaults.timeoutMs,
+          stallTimeoutMs:
+            tuning.stallTimeoutMs ?? this.defaults.stallTimeoutMs,
+        },
+        sandbox: {
+          primaryDir: taskRun.targetDir,
+          enforceInPrompt: true,
+        },
+        ...(existingSessionId ? { sessionId: existingSessionId } : {}),
+        ...(mcpConfigPath ? { mcpConfigPath } : {}),
+      };
+      const emit = this.deps.emitStreamEvent ?? (() => {});
+      const result = await this.queue.enqueue({
+        provider,
+        invocationId,
+        work: (signal) =>
+          this.adapter.invoke(
+            request,
+            (e) => emit(redactStreamEvent(e)),
+            signal,
+          ),
+      });
+      if (
+        provider === "claude" &&
+        result.sessionId &&
+        result.sessionId !== existingSessionId
+      ) {
+        try {
+          await this.deps.state.setThreadAgentSession(
+            taskRun.threadId,
+            result.sessionId,
+          );
+        } catch {
+          // best-effort — failing to record the session id must not
+          // tear down a successful worker invocation.
+        }
+      }
+      return { outputText: redactSecrets(result.stdout, 200_000) };
+    } finally {
+      await mcpCleanup();
+    }
   }
 }
 

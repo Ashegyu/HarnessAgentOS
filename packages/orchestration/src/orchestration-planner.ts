@@ -185,6 +185,9 @@ export class OrchestrationPlanner {
         title: step.title,
         role: profile.role as WorkerRole,
         inputSummary: step.instruction.slice(0, 120),
+        // Preserve the full instruction so the runner can pass it
+        // verbatim to the CLI; only the display summary is truncated.
+        instruction: step.instruction,
         expectedArtifactKinds: [...step.expectedArtifactKinds],
         status: "pending",
         agentProfileId: step.agentProfileId,
@@ -199,8 +202,12 @@ const synthesizeWorkerSteps = (
   userRequest: string,
 ): WorkerStep[] => {
   const summary = userRequest.slice(0, 120);
+  // Legacy mode-driven plans share the same userRequest for every step —
+  // the deterministic stub never used the value but Phase 2 CLI workers
+  // (when injected) treat instruction as the agent's userRequest.
   const base = {
     inputSummary: summary,
+    instruction: userRequest,
     expectedArtifactKinds: ["log", "plan"] as string[],
     status: "pending" as const,
   };

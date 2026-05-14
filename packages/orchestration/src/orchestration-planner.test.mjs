@@ -122,6 +122,17 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
     assert.equal(drafted.plan.workerSteps[1].agentProfileId, reviewer.id);
     assert.equal(drafted.plan.workerSteps[1].role, "reviewer");
     assert.equal(drafted.plan.sourcePipelineId, pipeline.id);
+    // v12 / Phase 2 — pipeline step.instruction must round-trip into
+    // WorkerStep.instruction in full (no truncation). The inputSummary
+    // remains the 120-char display slice.
+    assert.equal(
+      drafted.plan.workerSteps[0].instruction,
+      "Write the change.",
+    );
+    assert.equal(
+      drafted.plan.workerSteps[1].instruction,
+      "Check for risks.",
+    );
   } finally {
     closeDb(db);
     t.cleanup();

@@ -10,7 +10,7 @@ import {
   OrchestrationPlanner,
   type DraftedOrchestration,
 } from "./orchestration-planner.ts";
-import { WorkerRunner } from "./worker-runner.ts";
+import { WorkerRunner, type WorkerCliInvoker } from "./worker-runner.ts";
 
 /**
  * Phase 7 service. Wraps the planner + runner with plan recovery so the
@@ -26,6 +26,13 @@ export interface OrchestrationServiceDeps {
    * live settings changes propagate without service recreation.
    */
   enabled: () => boolean;
+  /**
+   * Phase 2 CLI invoker. When provided, pipeline-driven worker steps
+   * run their bound AgentProfile through the real CLI instead of the
+   * deterministic stub. Omitted in tests and legacy environments so
+   * the existing contract stays intact.
+   */
+  agentPlanning?: WorkerCliInvoker;
 }
 
 export class OrchestrationService {
@@ -35,7 +42,10 @@ export class OrchestrationService {
   constructor(deps: OrchestrationServiceDeps) {
     this.deps = deps;
     this.planner = new OrchestrationPlanner({ state: deps.state });
-    this.worker = new WorkerRunner({ state: deps.state });
+    this.worker = new WorkerRunner({
+      state: deps.state,
+      ...(deps.agentPlanning ? { agentPlanning: deps.agentPlanning } : {}),
+    });
   }
 
   isEnabled(): boolean {

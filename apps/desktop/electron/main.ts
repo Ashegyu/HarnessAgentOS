@@ -127,12 +127,9 @@ const initServices = (): {
   // Phase 7 feature flag — defaults off per phase-07 spec.
   // Mutable ref is seeded from persisted settings in app.whenReady()
   // before IPC is registered; env var acts as OR override for devs.
+  // The OrchestrationService is constructed later (after agentPlanning)
+  // so the worker-runner can call back into the real CLI.
   let orchEnabledBySettings = false;
-  const orchestrationService = new OrchestrationService({
-    state,
-    enabled: () =>
-      process.env.HARNESS_ORCHESTRATION_ENABLED === "1" || orchEnabledBySettings,
-  });
   const onSettingsUpdate = (s: HarnessSettings): void => {
     orchEnabledBySettings = s.orchestration?.enabled ?? false;
   };
@@ -224,6 +221,17 @@ const initServices = (): {
     // prompt. Use a single overall timeout (5 min) and an equally long
     // stall budget so the stall check effectively never fires on its own.
     defaults: { timeoutMs: 5 * 60_000, stallTimeoutMs: 5 * 60_000 },
+  });
+
+  // Phase 2 — OrchestrationService is wired AFTER agentPlanning so the
+  // worker-runner can invoke the real CLI for pipeline-driven steps.
+  // The agentPlanning instance implements `WorkerCliInvoker` via its
+  // invokeForWorker method.
+  const orchestrationService = new OrchestrationService({
+    state,
+    enabled: () =>
+      process.env.HARNESS_ORCHESTRATION_ENABLED === "1" || orchEnabledBySettings,
+    agentPlanning,
   });
 
   // Phase 3 — path-policy registry hook. The skillSource IPC pushes

@@ -29,7 +29,22 @@ export interface WorkerStep {
   id: string;
   title: string;
   role: WorkerRole;
+  /**
+   * Display-only summary, truncated for the plan UI / artifact headers.
+   * The full user-request text used by the CLI lives in `instruction`.
+   */
   inputSummary: string;
+  /**
+   * Full text passed to the agent CLI as the worker's userRequest at
+   * runtime. For pipeline-driven plans this is `AgentPipelineStep
+   * .instruction` verbatim (no truncation). For legacy mode-driven
+   * plans this is the TaskRun.userRequest, also untruncated.
+   *
+   * Optional for backward compatibility with plans drafted before v12 —
+   * worker-runner falls back to `inputSummary` when `instruction` is
+   * missing.
+   */
+  instruction?: string;
   expectedArtifactKinds: string[];
   status: WorkerStepStatus;
   /**
