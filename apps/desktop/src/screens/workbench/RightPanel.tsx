@@ -201,6 +201,7 @@ export const RightPanel = ({
                     onRedirect={onRedirect}
                     onConfigure={onConfigure}
                     onExecute={onExecute}
+                    pipelineAutoLaunched={pipelineAutoLaunched}
                   />
                 </section>
               </div>

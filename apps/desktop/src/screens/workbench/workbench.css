@@ -1179,6 +1179,23 @@
   font-style: italic;
 }
 
+/* Replaces the action button row for pending approvals inside a
+   pipeline-auto TaskRun. The auto-approve effect in WorkbenchShell
+   will mark the approval approved+executed in the next tick — this
+   read-only hint keeps the audit information visible without
+   tempting the user to click a manual button that races the auto
+   path. */
+.approval-card__auto-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
 .approval-card__reject textarea,
 .approval-panel__redirect textarea {
   width: 100%;

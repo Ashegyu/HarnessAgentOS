@@ -17,6 +17,16 @@ interface ApprovalPanelProps {
     details: ProposedActionDetails;
   }) => Promise<void>;
   onExecute: (input: { approvalId: string }) => Promise<void>;
+  /**
+   * True when this TaskRun was created by picking a pipeline at submit
+   * time. Pipeline pick IS the user's consent for every approval the
+   * run produces (subject to the profile blocklist), so the auto-approve
+   * useEffect in WorkbenchShell will approve+execute them within
+   * milliseconds. We render pending cards as read-only "자동 처리 중…"
+   * audit rows so the user doesn't see — and accidentally click —
+   * manual 승인/거절/세부 지정 buttons that race with the auto path.
+   */
+  pipelineAutoLaunched: boolean;
 }
 
 const ACTION_RISK_HINT: Record<string, "low" | "medium" | "high"> = {
@@ -45,6 +55,7 @@ export const ApprovalPanel = ({
   onRedirect,
   onConfigure,
   onExecute,
+  pipelineAutoLaunched,
 }: ApprovalPanelProps): JSX.Element => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -164,7 +175,16 @@ export const ApprovalPanel = ({
             {JSON.stringify(a.proposedAction, null, 2)}
           </pre>
         )}
-        {mode === "pending" && rejectingId === a.id ? (
+        {mode === "pending" && pipelineAutoLaunched ? (
+          // Pipeline-pick consent already covers this approval; the
+          // auto-approve useEffect will mark it approved+executed in
+          // the next tick. Showing the manual buttons would race the
+          // auto path and confuse the user about whether they need
+          // to act. Render a read-only audit indicator instead.
+          <p className="approval-card__auto-hint">
+            자동 처리 중… (파이프라인 선택으로 사전 승인됨)
+          </p>
+        ) : mode === "pending" && rejectingId === a.id ? (
           <div className="approval-card__reject">
             <textarea
               placeholder="거절 이유 (필수)"
@@ -229,6 +249,10 @@ export const ApprovalPanel = ({
               거절
             </button>
           </div>
+        ) : mode === "approved" && pipelineAutoLaunched ? (
+          <p className="approval-card__auto-hint">
+            자동 실행 대기 중… (파이프라인 선택으로 사전 승인됨)
+          </p>
         ) : mode === "approved" ? (
           <div className="approval-card__actions">
             <button
@@ -273,6 +297,13 @@ export const ApprovalPanel = ({
       {pending.length > 0 && (
         <div className="approval-panel__list">
           {pending.map((a) => renderCard(a, "pending"))}
+          {/* "수정 지시" lets the user redirect the run with a fresh
+              instruction — useful when reviewing a manual approval.
+              For pipeline-auto runs the user already committed to the
+              pipeline at submit time, so showing this would race the
+              auto path. They can still cancel via the TaskRun-level
+              Cancel button. */}
+          {!pipelineAutoLaunched && (
           <div className="approval-panel__redirect">
             {redirecting ? (
               <>
@@ -316,6 +347,7 @@ export const ApprovalPanel = ({
               </button>
             )}
           </div>
+          )}
         </div>
       )}
 
