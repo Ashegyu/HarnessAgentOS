@@ -120,6 +120,9 @@ export class OrchestrationService {
       mode: plan.mode,
       workerSteps: plan.workerSteps,
       requiresApproval: true,
+      ...(plan.sourcePipelineId !== undefined
+        ? { sourcePipelineId: plan.sourcePipelineId }
+        : {}),
     };
   }
 
@@ -165,6 +168,9 @@ export class OrchestrationService {
       mode: parsed.mode,
       workerSteps: parsed.workerSteps,
       requiresApproval: true,
+      ...(parsed.sourcePipelineId !== undefined
+        ? { sourcePipelineId: parsed.sourcePipelineId }
+        : {}),
     };
   }
 
@@ -181,7 +187,14 @@ export class OrchestrationService {
 const planJsonRe = /```json\s*([\s\S]+?)\s*```/;
 const parseEmbeddedPlanJson = (
   summary: string,
-): { id: string; mode: OrchestrationPlan["mode"]; workerSteps: OrchestrationPlan["workerSteps"] } | null => {
+):
+  | {
+      id: string;
+      mode: OrchestrationPlan["mode"];
+      workerSteps: OrchestrationPlan["workerSteps"];
+      sourcePipelineId?: string;
+    }
+  | null => {
   const match = planJsonRe.exec(summary);
   if (!match) return null;
   try {
@@ -189,10 +202,29 @@ const parseEmbeddedPlanJson = (
       id: string;
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
+      sourcePipelineId?: unknown;
     };
     if (!parsed || !parsed.id || !parsed.mode || !Array.isArray(parsed.workerSteps))
       return null;
-    return parsed;
+    // `sourcePipelineId` is the marker for "this plan was generated
+    // from a pipeline template" — the renderer relies on it to know
+    // whether the user already consented to auto-run everything when
+    // they picked the pipeline at submit time. Drop it cleanly when
+    // the persisted payload is missing or shaped wrong rather than
+    // crashing the recovery flow.
+    return typeof parsed.sourcePipelineId === "string" &&
+      parsed.sourcePipelineId.length > 0
+      ? {
+          id: parsed.id,
+          mode: parsed.mode,
+          workerSteps: parsed.workerSteps,
+          sourcePipelineId: parsed.sourcePipelineId,
+        }
+      : {
+          id: parsed.id,
+          mode: parsed.mode,
+          workerSteps: parsed.workerSteps,
+        };
   } catch {
     return null;
   }

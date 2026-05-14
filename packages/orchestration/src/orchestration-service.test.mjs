@@ -162,8 +162,81 @@ test("getLatestPlan recovers plan JSON from artifact summary", async () => {
       recovered.workerSteps.length,
       drafted.plan.workerSteps.length,
     );
+    // Legacy mode plans have no pipeline source — the recovered field
+    // must remain absent so the renderer's `isPipelineDriven` stays
+    // false for them.
+    assert.equal(recovered.sourcePipelineId, undefined);
   } finally {
     closeDb(db);
     t.cleanup();
   }
 });
+
+// Regression: prior to this commit `parseEmbeddedPlanJson` dropped
+// `sourcePipelineId` when reading the artifact summary back, so
+// `getLatestPlan` and `recoverPlan` both returned plans without the
+// marker. The renderer's OrchestrationPanel then re-showed the manual
+// draft form / "Worker 실행" button for pipeline-driven runs because
+// `isPipelineDriven` was always false.
+test(
+  "getLatestPlan preserves sourcePipelineId for pipeline-driven plans",
+  async () => {
+    const t = tmp();
+    const db = openDb({ filePath: t.file });
+    const state = new LocalStateService(db);
+    try {
+      const taskRun = await seedTaskRun(state);
+      const profile = await state.agentProfiles.create({
+        name: "Coder",
+        description: "",
+        provider: "claude",
+        role: "coder",
+        persona: "",
+        tuning: {
+          model: "claude-sonnet-4-6",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+          systemPromptPrefix: "",
+          systemPromptSuffix: "",
+        },
+        cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+        permissions: {
+          autoApproveActions: [],
+          blockedActions: [],
+          allowedSkillIds: [],
+          toolAllowlist: [],
+          toolDenylist: [],
+        },
+        mcpServerIds: [],
+        skillSourceIds: [],
+        isDefault: false,
+      });
+      const pipeline = await state.agentPipelines.create({
+        name: "Code only",
+        description: "",
+        steps: [
+          {
+            id: "s1",
+            agentProfileId: profile.id,
+            title: "Implement",
+            instruction: "Do the thing.",
+            expectedArtifactKinds: ["plan"],
+          },
+        ],
+      });
+      const service = new OrchestrationService({ state, enabled: () => true });
+      await service.draftPlan({
+        taskRunId: taskRun.id,
+        mode: "single_worker",
+        pipelineId: pipeline.id,
+      });
+      const recovered = await service.getLatestPlan({ taskRunId: taskRun.id });
+      assert.ok(recovered);
+      assert.equal(recovered.sourcePipelineId, pipeline.id);
+    } finally {
+      closeDb(db);
+      t.cleanup();
+    }
+  },
+);

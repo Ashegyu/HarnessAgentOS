@@ -13,6 +13,16 @@ interface OrchestrationPanelProps {
   taskRun: TaskRun | null;
   approvals: Approval[];
   onRefreshTaskRun: () => Promise<void>;
+  /**
+   * True when this TaskRun was created via the chat-input Pipeline
+   * picker. WorkbenchShell is the source of truth (its localStorage-
+   * backed Set). We accept this as a render-time override so the
+   * manual draft form / "Worker 실행" section never flashes while
+   * `fetchPlan` is loading — the plan's `sourcePipelineId` field
+   * eventually carries the same signal once it's loaded, but during
+   * the race window we'd otherwise show the wrong controls.
+   */
+  pipelineAutoLaunched: boolean;
 }
 
 type PlanState =
@@ -41,6 +51,7 @@ export const OrchestrationPanel = ({
   taskRun,
   approvals,
   onRefreshTaskRun,
+  pipelineAutoLaunched,
 }: OrchestrationPanelProps): JSX.Element => {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [orchEnabled, setOrchEnabled] = useState<boolean | null>(null);
@@ -71,11 +82,21 @@ export const OrchestrationPanel = ({
   // plan's `sourcePipelineId` only; legacy mode-driven plans (no
   // sourcePipelineId, even if already executed) keep the existing
   // manual approval/run UX intact.
+  // Two sources can mark this TaskRun as pipeline-driven:
+  //   1. The persisted plan carries `sourcePipelineId` (canonical, works
+  //      after reload).
+  //   2. The parent told us so via `pipelineAutoLaunched` (covers the
+  //      race window where the plan hasn't been fetched yet, or where
+  //      `getLatestPlan` lost the field before the regression-fix
+  //      landed in storage).
+  // Either path means the manual draft form / Worker 실행 controls
+  // must stay hidden.
   const isPipelineDriven =
-    planState.kind === "ready" &&
-    planState.plan !== null &&
-    typeof planState.plan.sourcePipelineId === "string" &&
-    planState.plan.sourcePipelineId.length > 0;
+    pipelineAutoLaunched ||
+    (planState.kind === "ready" &&
+      planState.plan !== null &&
+      typeof planState.plan.sourcePipelineId === "string" &&
+      planState.plan.sourcePipelineId.length > 0);
 
   const refreshOrchEnabled = useCallback(async (): Promise<void> => {
     try {

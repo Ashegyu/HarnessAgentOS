@@ -514,9 +514,19 @@ export const WorkbenchShell = (): JSX.Element => {
       };
       if (input.targetDir !== undefined) payload.targetDir = input.targetDir;
       const draft = await window.harness.conversation.createTask(payload);
-      setSelectedTaskRunId(draft.taskRun.id);
       const usingPipeline =
         input.orchPipelineId !== undefined && input.orchPipelineId.length > 0;
+      // Mark this TaskRun as pipeline-auto BEFORE the render that
+      // mounts the detail panels. There's a race window between the
+      // setSelectedTaskRunId → first taskRunDetail fetch and the
+      // orchestration.draftPlan call below: if we only mark inside
+      // the draftPlan branch, the first render of AgentPanel sees
+      // no orchestration_plan approval and would show the "Agent
+      // plan 생성" button. Pre-marking lets RightPanel pass
+      // `pipelineAutoLaunched` through to AgentPanel on the very
+      // first render so the manual button never flashes.
+      if (usingPipeline) markPipelineAutoTaskRun(draft.taskRun.id);
+      setSelectedTaskRunId(draft.taskRun.id);
       // Agent mode: chain into generatePlan immediately so the user
       // sees streaming output instead of a sitting-still placeholder.
       // Skipped when the message routes through a pipeline —
@@ -568,14 +578,12 @@ export const WorkbenchShell = (): JSX.Element => {
           // global autoApprove: the user already opted in by selecting
           // a pipeline for this message.
           if (usingPipeline) {
-            // Mark this TaskRun as pipeline-auto BEFORE issuing any
-            // approve / runApproved call. The global auto-approve
-            // useEffect uses this flag (in addition to the
-            // autoInFlightRef) to silently approve every subsequent
-            // approval the workers produce — file_write, shell, etc.
-            // — without bothering the user. The user already opted in
-            // by picking the pipeline at submit time.
-            markPipelineAutoTaskRun(draft.taskRun.id);
+            // The TaskRun was already marked pipeline-auto before
+            // setSelectedTaskRunId (above) so AgentPanel could hide
+            // the manual button on the very first render. Here we
+            // just pre-claim the orchestration_plan approval id so
+            // the global auto-approve useEffect doesn't race with
+            // the explicit approve / runApproved call below.
             autoInFlightRef.current.add(drafted.approval.id);
             try {
               await window.harness.conversation.approve({
@@ -935,6 +943,10 @@ export const WorkbenchShell = (): JSX.Element => {
               onAgentCancel={handleAgentCancel}
               onAgentUseFallback={handleAgentUseFallback}
               agentAvailable={agentAvailable}
+              pipelineAutoLaunched={
+                selectedTaskRunId !== null &&
+                pipelineAutoTaskRunIdsRef.current.has(selectedTaskRunId)
+              }
             />
           </aside>
         </>

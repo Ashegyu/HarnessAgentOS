@@ -64,6 +64,16 @@ interface RightPanelProps {
   onAgentCancel: (invocationId: string) => Promise<void>;
   onAgentUseFallback: (taskRunId: string) => Promise<void>;
   agentAvailable: boolean;
+  /**
+   * True when this TaskRun was created by picking a pipeline at submit
+   * time. The pipeline pick IS the user's consent, so AgentPanel must
+   * hide the "Agent plan 생성" button regardless of whether the
+   * `orchestration_plan` approval row has landed yet. Without this
+   * signal, AgentPanel briefly renders the manual button between
+   * `setSelectedTaskRunId` and the eventual `taskRunChanged` event
+   * that carries the new approval.
+   */
+  pipelineAutoLaunched: boolean;
 }
 
 export const RightPanel = ({
@@ -80,6 +90,7 @@ export const RightPanel = ({
   onAgentCancel,
   onAgentUseFallback,
   agentAvailable,
+  pipelineAutoLaunched,
 }: RightPanelProps): JSX.Element => {
   const [activeTab, setActiveTab] = useState<RightPanelTab>("plan");
 
@@ -209,9 +220,12 @@ export const RightPanel = ({
                 onRetry={onAgentRetry}
                 onCancel={onAgentCancel}
                 onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
-                orchestrationDriven={state.detail.approvals.some(
-                  (a) => a.actionType === "orchestration_plan",
-                )}
+                orchestrationDriven={
+                  pipelineAutoLaunched ||
+                  state.detail.approvals.some(
+                    (a) => a.actionType === "orchestration_plan",
+                  )
+                }
               />
             </div>
 
@@ -295,6 +309,7 @@ export const RightPanel = ({
                 taskRun={state.detail.taskRun}
                 approvals={state.detail.approvals}
                 onRefreshTaskRun={onQualityChanged}
+                pipelineAutoLaunched={pipelineAutoLaunched}
               />
             </div>
           </div>
