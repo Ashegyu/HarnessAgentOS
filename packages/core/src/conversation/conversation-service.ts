@@ -94,7 +94,14 @@ export class ConversationService {
           "Parent thread has no targetDir; provide one with the request",
         );
       }
-      targetDir = parentThread.targetDir;
+      const v = validateAbsoluteTargetDir(parentThread.targetDir);
+      if (!v.ok) {
+        throw new ConversationServiceError(
+          "CONVERSATION_INVALID_TARGET_DIR",
+          v.reason,
+        );
+      }
+      targetDir = v.normalized;
     } else {
       const v = validateAbsoluteTargetDir(targetDirInput);
       if (!v.ok) {

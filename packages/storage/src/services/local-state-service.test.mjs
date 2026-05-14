@@ -42,6 +42,25 @@ test("createThread normalizes targetDir via path-policy", async () => {
   }
 });
 
+test("createThread rejects relative targetDir", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    await assert.rejects(
+      () =>
+        svc.createThread({
+          title: "x",
+          targetDir: "relative/path",
+        }),
+      /absolute path/,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 // v12 — pipeline binding goes through the service intact.
 test("createThread passes pipelineId through to the repository", async () => {
   const t = tmp();
@@ -130,6 +149,16 @@ test("createTaskRun requires existing thread and validates targetDir", async () 
         userRequest: "do",
         targetDir: "",
       }),
+    );
+
+    await assert.rejects(
+      () =>
+        svc.createTaskRun({
+          threadId: thread.id,
+          userRequest: "do",
+          targetDir: "relative/path",
+        }),
+      /absolute path/,
     );
   } finally {
     closeDb(db);

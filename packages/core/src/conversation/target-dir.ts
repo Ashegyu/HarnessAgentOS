@@ -1,4 +1,7 @@
-import { validateTargetDir, type TargetDirValidation } from "../path-policy.ts";
+import {
+  validateAbsoluteTargetDir as validateAbsoluteTargetDirBase,
+  type TargetDirValidation,
+} from "../path-policy.ts";
 
 /**
  * Extends path-policy with the Phase 2 contract: targetDir must be a
@@ -9,16 +12,7 @@ import { validateTargetDir, type TargetDirValidation } from "../path-policy.ts";
 export const validateAbsoluteTargetDir = (
   input: unknown,
 ): TargetDirValidation => {
-  const base = validateTargetDir(input);
-  if (!base.ok) return base;
-  // Accept Windows drive, POSIX absolute, or UNC paths only.
-  if (
-    !/^([a-zA-Z]:[\\/]|\/|\\\\)/.test(base.normalized) &&
-    !base.normalized.startsWith("\\\\")
-  ) {
-    return { ok: false, reason: "targetDir must be an absolute path" };
-  }
-  return base;
+  return validateAbsoluteTargetDirBase(input);
 };
 
 /**

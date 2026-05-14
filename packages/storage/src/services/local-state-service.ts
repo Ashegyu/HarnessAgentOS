@@ -1,5 +1,5 @@
 import {
-  validateTargetDir,
+  validateAbsoluteTargetDir,
   type AgentInvocation,
   type Approval,
   type ApprovalStatus,
@@ -121,7 +121,7 @@ export class LocalStateService implements ConversationStateGateway {
     }
     let normalizedTargetDir: string | undefined;
     if (input.targetDir !== undefined) {
-      const v = validateTargetDir(input.targetDir);
+      const v = validateAbsoluteTargetDir(input.targetDir);
       if (!v.ok) throw new Error(`Invalid targetDir: ${v.reason}`);
       normalizedTargetDir = v.normalized;
     }
@@ -191,7 +191,7 @@ export class LocalStateService implements ConversationStateGateway {
   }
 
   async createTaskRun(input: CreateTaskRunInput): Promise<TaskRun> {
-    const v = validateTargetDir(input.targetDir);
+    const v = validateAbsoluteTargetDir(input.targetDir);
     if (!v.ok) throw new Error(`Invalid targetDir: ${v.reason}`);
     if (typeof input.userRequest !== "string" || input.userRequest.trim().length === 0) {
       throw new Error("userRequest must be a non-empty string");

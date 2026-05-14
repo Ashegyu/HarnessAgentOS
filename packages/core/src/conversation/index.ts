@@ -1,5 +1,6 @@
 export * from "./types.ts";
-export * from "./target-dir.ts";
+export type { PathExistsFn } from "./target-dir.ts";
+export { noopPathExists } from "./target-dir.ts";
 export * from "./plan-drafter.ts";
 export * from "./approval-policy.ts";
 export * from "./state-gateway.ts";

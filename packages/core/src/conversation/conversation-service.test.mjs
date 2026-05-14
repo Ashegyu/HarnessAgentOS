@@ -187,6 +187,30 @@ test("createTask leaves no orphan TaskRun rows when targetDir is invalid", async
   }
 });
 
+test("createTask rejects legacy parent thread with relative targetDir", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const thread = await state.threads.create({
+      title: "legacy relative",
+      targetDir: "relative/path",
+    });
+    await assert.rejects(
+      () =>
+        conversation.createTask({
+          threadId: thread.id,
+          userRequest: "x",
+        }),
+      (e) =>
+        e.code === "CONVERSATION_INVALID_TARGET_DIR" &&
+        /absolute path/.test(e.message),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("pauseTask only allowed from running/waiting_for_approval", async () => {
   const t = tmp();
   const { db, state, conversation } = makeService(t);
