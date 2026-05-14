@@ -819,6 +819,24 @@
   white-space: nowrap;
 }
 
+/* Phase 1 — chip surfaced when the thread is pipeline-bound, so the
+   user can tell at a glance which threads auto-route through an
+   orchestration pipeline. Stays subtle to avoid competing with the
+   thread title. */
+.thread-list__pipeline {
+  font-size: 11px;
+  color: var(--accent, var(--text-secondary));
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 1px 8px;
+  align-self: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
 .thread-list__error {
   display: flex;
   flex-direction: column;
@@ -2535,6 +2553,26 @@
 
 .conversation-input__orch {
   margin-bottom: var(--space-2);
+}
+
+/* Phase 1 — static badge shown when the thread is pipeline-bound,
+   in place of the per-message Orchestration toggle. Communicates the
+   binding without inviting interaction. */
+.conversation-input__orch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-panel-elev);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 3px 8px;
+}
+
+.conversation-input__orch-badge strong {
+  color: var(--accent, var(--text-primary));
+  font-weight: 600;
 }
 
 .conversation-input__orch-toggle {

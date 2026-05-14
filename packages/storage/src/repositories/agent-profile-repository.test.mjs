@@ -159,15 +159,30 @@ test("AgentProfileRepository.ensureSeed is idempotent", async () => {
   }
 });
 
-test("AgentProfileRepository.ensureSeed skips seed when profiles already exist", async () => {
+test("AgentProfileRepository.ensureSeed fills only the missing canonical roles", async () => {
+  // ensureSeed's contract is "every canonical role has a row", not
+  // "no-op when any row exists". A pre-existing row that already
+  // covers one role must be preserved verbatim; the remaining 3 roles
+  // are seeded around it. This matches the docstring on ensureSeed
+  // and the migration path from legacy WorkerProfile rows.
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
     const repo = new SqliteAgentProfileRepository(db);
-    await repo.create(makeProfileInput({ name: "Existing" }));
+    // makeProfileInput defaults to role=reviewer.
+    const existing = await repo.create(makeProfileInput({ name: "Existing" }));
     await repo.ensureSeed();
     const all = await repo.list();
-    assert.equal(all.length, 1, "ensureSeed must not add profiles when table is non-empty");
+    // Existing reviewer row + 3 newly-seeded (planner, coder, tester).
+    assert.equal(all.length, 4, "ensureSeed fills the missing roles");
+    const roles = all.map((p) => p.role).sort();
+    assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
+    // The pre-existing row's id must survive — ensureSeed never
+    // overwrites a role that's already present.
+    const reviewerRows = all.filter((p) => p.role === "reviewer");
+    assert.equal(reviewerRows.length, 1, "no duplicate reviewer row");
+    assert.equal(reviewerRows[0].id, existing.id, "existing row preserved");
+    assert.equal(reviewerRows[0].name, "Existing", "existing name preserved");
   } finally {
     closeDb(db);
     t.cleanup();
