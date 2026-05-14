@@ -218,6 +218,11 @@ export class RunnerService {
         "executed",
         `Executed ${approval.actionType}; artifacts=${result.artifactIds.length}`,
       );
+      const approvals = await this.closeApprovalStepIfResolved({
+        taskRunId: taskRun.id,
+        checkpointId: approval.checkpointId,
+      });
+      await this.settleTaskRunAfterSuccessfulExecution(taskRun.id, approvals);
       result.finishedAt = nowIso();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -243,6 +248,47 @@ export class RunnerService {
     }
 
     return result;
+  }
+
+  private async closeApprovalStepIfResolved(input: {
+    taskRunId: string;
+    checkpointId: string;
+  }): Promise<Approval[]> {
+    const approvals = await this.deps.state.listApprovalsByTaskRun(
+      input.taskRunId,
+    );
+    const checkpointApprovals = approvals.filter(
+      (a) => a.checkpointId === input.checkpointId,
+    );
+    if (
+      checkpointApprovals.length === 0 ||
+      checkpointApprovals.some(isUnresolvedApproval)
+    ) {
+      return approvals;
+    }
+
+    const checkpoints = await this.deps.state.listCheckpointsByTaskRun(
+      input.taskRunId,
+    );
+    const checkpoint = checkpoints.find((c) => c.id === input.checkpointId);
+    if (!checkpoint) return approvals;
+
+    await this.deps.state.setStepStatus(checkpoint.stepId, "succeeded", {
+      outputSummary: summarizeResolvedApprovals(checkpointApprovals),
+    });
+    return approvals;
+  }
+
+  private async settleTaskRunAfterSuccessfulExecution(
+    taskRunId: string,
+    approvals: Approval[],
+  ): Promise<void> {
+    await this.deps.state.setTaskRunStatus(
+      taskRunId,
+      approvals.some(isUnresolvedApproval)
+        ? "waiting_for_approval"
+        : "ready_for_review",
+    );
   }
 
   // -- Runner dispatchers ------------------------------------------------
@@ -436,6 +482,22 @@ const summarizeStepOutput = (r: RunnerResult): string => {
   if (r.changedFiles?.length) bits.push(`changed=${r.changedFiles.length}`);
   bits.push(`artifacts=${r.artifactIds.length}`);
   return bits.join(", ");
+};
+
+const isUnresolvedApproval = (approval: Pick<Approval, "status">): boolean =>
+  approval.status === "pending" ||
+  approval.status === "approved" ||
+  approval.status === "always_approved_for_run";
+
+const summarizeResolvedApprovals = (
+  approvals: readonly Pick<Approval, "status">[],
+): string => {
+  const executed = approvals.filter((a) => a.status === "executed").length;
+  const rejected = approvals.filter((a) => a.status === "rejected").length;
+  const parts = [`executed=${executed}`];
+  if (rejected > 0) parts.push(`rejected=${rejected}`);
+  parts.push(`total=${approvals.length}`);
+  return `action approvals resolved; ${parts.join(", ")}`;
 };
 
 const formatShellLog = (

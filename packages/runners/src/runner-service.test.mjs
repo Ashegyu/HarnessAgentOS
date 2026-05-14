@@ -110,8 +110,62 @@ test("file_write writes inside targetDir and emits diff artifact", async () => {
       const executedApproval = await state.getApproval(approval.id);
       assert.equal(executedApproval.status, "executed");
 
+      const approvalStep = (await state.listStepsByTaskRun(approval.taskRunId))
+        .find((s) => s.id === draft.checkpoint.stepId);
+      assert.equal(approvalStep.status, "succeeded");
+
       const updatedTaskRun = await state.getTaskRun(approval.taskRunId);
-      assert.notEqual(updatedTaskRun.status, "blocked");
+      assert.equal(updatedTaskRun.status, "ready_for_review");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("executeApproved keeps approval step pending until sibling approvals resolve", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const first = draft.approvals[0];
+      const second = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_write",
+        actionSummary: "second file",
+      });
+      await conversation.setProposedAction(first.id, {
+        type: "file_write",
+        filePatch: { path: "one.txt", after: "one\n" },
+      });
+      await conversation.setProposedAction(second.id, {
+        type: "file_write",
+        filePatch: { path: "two.txt", after: "two\n" },
+      });
+      await conversation.approve({ approvalId: first.id });
+      await conversation.approve({ approvalId: second.id });
+
+      await runner.executeApproved(first.id);
+
+      let approvalStep = (await state.listStepsByTaskRun(draft.taskRun.id))
+        .find((s) => s.id === draft.checkpoint.stepId);
+      assert.equal(approvalStep.status, "pending");
+      let updatedTaskRun = await state.getTaskRun(draft.taskRun.id);
+      assert.equal(updatedTaskRun.status, "waiting_for_approval");
+
+      await runner.executeApproved(second.id);
+
+      approvalStep = (await state.listStepsByTaskRun(draft.taskRun.id))
+        .find((s) => s.id === draft.checkpoint.stepId);
+      assert.equal(approvalStep.status, "succeeded");
+      updatedTaskRun = await state.getTaskRun(draft.taskRun.id);
+      assert.equal(updatedTaskRun.status, "ready_for_review");
     } finally {
       closeDb(db);
     }
