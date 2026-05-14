@@ -483,7 +483,7 @@ export const WorkbenchShell = (): JSX.Element => {
         : input.orchMode;
       if (effectiveOrchMode) {
         try {
-          await window.harness.orchestration.draftPlan({
+          const drafted = await window.harness.orchestration.draftPlan({
             taskRunId: draft.taskRun.id,
             mode: effectiveOrchMode,
             ...(input.orchInstruction
@@ -493,6 +493,37 @@ export const WorkbenchShell = (): JSX.Element => {
               ? { pipelineId: input.orchPipelineId }
               : {}),
           });
+          // Picking a pipeline from ConversationInput IS the user's
+          // approval — they explicitly chose to run this pipeline for
+          // this message. Skip the extra "approve the plan?" friction
+          // and run immediately. The orchestration_plan approval row
+          // is still created (audit trail) and decideApproval marks it
+          // executed via runApproved's tail. Legacy orchMode (no
+          // pipeline) keeps the manual approval flow so the existing
+          // OrchestrationPanel UX is unchanged.
+          //
+          // When the global `settings.approval.autoApprove` is ON the
+          // pending-approval useEffect (above) already handles every
+          // approval including this one; skip so the two paths don't
+          // race on the same approval id.
+          if (usingPipeline && !autoApprove) {
+            try {
+              await window.harness.conversation.approve({
+                approvalId: drafted.approval.id,
+                message: "auto-approved (per-message pipeline pick)",
+              });
+              await window.harness.orchestration.runApproved({
+                approvalId: drafted.approval.id,
+              });
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.error(
+                "auto-run after pipeline draftPlan failed",
+                drafted.approval.id,
+                e,
+              );
+            }
+          }
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error("orchestration.draftPlan failed", e);
@@ -507,6 +538,7 @@ export const WorkbenchShell = (): JSX.Element => {
       refreshTaskRunDetail,
       selectedTaskRunId,
       selectedThreadId,
+      autoApprove,
     ],
   );
 
