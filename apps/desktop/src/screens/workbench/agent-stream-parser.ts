@@ -1,7 +1,14 @@
+import type { AgentProgressEvent, AgentProgressStage } from "@harness/core";
+
 // Parses raw stdout chunks from claude --output-format=stream-json into
 // structured events the UI can render. Each JSON-per-line event becomes
 // one parsed entry; partial chunks across multiple `raw` stream events
 // are buffered.
+
+export type ParsedProgressItem = Pick<
+  AgentProgressEvent,
+  "stage" | "message" | "detail" | "at"
+>;
 
 export type ParsedStreamEntry =
   | { kind: "text_delta"; text: string }
@@ -53,6 +60,8 @@ export interface ParsedStream {
    * response → tool.
    */
   sections: ParsedStreamSection[];
+  /** Persisted progress events replayed from saved Harness stream logs. */
+  progress: ParsedProgressItem[];
   /** Most recent post_turn_summary (last one wins). */
   turnSummary: { status: string; detail: string } | null;
   /** Hooks observed (compact list, both start + response). */
@@ -80,6 +89,7 @@ const EMPTY: ParsedStream = {
   thinkingText: "",
   toolUses: [],
   sections: [],
+  progress: [],
   turnSummary: null,
   hooks: [],
   rateLimit: null,
@@ -91,6 +101,7 @@ export const emptyParsedStream = (): ParsedStream => ({
   ...EMPTY,
   toolUses: [],
   sections: [],
+  progress: [],
   hooks: [],
   unknown: [],
 });
@@ -98,6 +109,8 @@ export const emptyParsedStream = (): ParsedStream => ({
 export interface StreamParserState {
   /** Bytes accumulated but not yet terminated by a newline. */
   pending: string;
+  /** Provider raw chunks replayed from persisted Harness `raw` events. */
+  pendingRaw: string;
   /** Parsed accumulator. */
   parsed: ParsedStream;
   /** Tracks in-progress tool_use input JSON: blockIndex → parsed indexes + accumulated partial_json */
@@ -113,6 +126,7 @@ export interface StreamParserState {
 
 export const initStreamParserState = (): StreamParserState => ({
   pending: "",
+  pendingRaw: "",
   parsed: emptyParsedStream(),
   pendingToolInputs: new Map(),
   pendingFinalText: null,
@@ -146,6 +160,9 @@ export const flushStreamParser = (state: StreamParserState): StreamParserState =
   const tail = state.pending.trim();
   state.pending = "";
   if (tail.length > 0) ingestLine(state, tail);
+  const rawTail = state.pendingRaw.trim();
+  state.pendingRaw = "";
+  if (rawTail.length > 0) ingestLine(state, rawTail);
   return state;
 };
 
@@ -245,6 +262,7 @@ const ingestLine = (state: StreamParserState, line: string): void => {
     return;
   }
   const type = obj["type"];
+  if (ingestPersistedHarnessStreamEvent(state, obj)) return;
   if (type === "result") {
     if (typeof obj["result"] === "string") {
       applyFinalAssistantText(state, obj["result"] as string);
@@ -369,7 +387,103 @@ const hasStructuredResponse = (parsed: ParsedStream): boolean =>
   parsed.liveText.length > 0 ||
   parsed.thinkingText.length > 0 ||
   parsed.toolUses.length > 0 ||
+  parsed.sections.length > 0 ||
+  parsed.progress.length > 0 ||
   parsed.resultMeta !== null;
+
+const ingestPersistedHarnessStreamEvent = (
+  state: StreamParserState,
+  obj: Record<string, unknown>,
+): boolean => {
+  const type = typeof obj["type"] === "string" ? obj["type"] : "";
+  const hasInvocation = typeof obj["invocationId"] === "string";
+  if (type === "progress" && hasInvocation) {
+    const stage = obj["stage"];
+    const message = obj["message"];
+    const at = obj["at"];
+    if (
+      isProgressStage(stage) &&
+      typeof message === "string" &&
+      typeof at === "string"
+    ) {
+      state.parsed.progress.push({
+        stage,
+        message,
+        ...(typeof obj["detail"] === "string"
+          ? { detail: obj["detail"] as string }
+          : {}),
+        at,
+      });
+    }
+    return true;
+  }
+  if (type === "raw" && hasInvocation) {
+    if (typeof obj["text"] === "string") {
+      feedPersistedRawChunk(state, obj["text"] as string);
+    }
+    return true;
+  }
+  if (type === "assistant_text" && hasInvocation) {
+    if (typeof obj["text"] === "string") {
+      applyIntermediateAssistantText(state, obj["text"] as string);
+    }
+    return true;
+  }
+  if (type === "result" && hasInvocation) {
+    promoteIntermediateTextToFinal(state, {
+      ...(typeof obj["latencyMs"] === "number"
+        ? { latencyMs: obj["latencyMs"] as number }
+        : {}),
+      ...(typeof obj["costEstimate"] === "number"
+        ? { costEstimate: obj["costEstimate"] as number }
+        : {}),
+    });
+    return true;
+  }
+  if (type === "failed" && hasInvocation) {
+    state.parsed.turnSummary = {
+      status: "failed",
+      detail: typeof obj["message"] === "string" ? (obj["message"] as string) : "",
+    };
+    state.parsed.resultMeta = {
+      isError: true,
+      durationMs: 0,
+      durationApiMs: 0,
+    };
+    return true;
+  }
+  return (type === "started" || type === "cancelled") && hasInvocation;
+};
+
+const feedPersistedRawChunk = (
+  state: StreamParserState,
+  chunk: string,
+): void => {
+  state.pendingRaw += chunk;
+  let nl = state.pendingRaw.indexOf("\n");
+  while (nl >= 0) {
+    const line = state.pendingRaw.slice(0, nl).trim();
+    state.pendingRaw = state.pendingRaw.slice(nl + 1);
+    if (line.length > 0) ingestLine(state, line);
+    nl = state.pendingRaw.indexOf("\n");
+  }
+};
+
+const PROGRESS_STAGES: ReadonlySet<string> = new Set([
+  "context",
+  "profile",
+  "prompt",
+  "session",
+  "mcp",
+  "queued",
+  "cli",
+  "parse",
+  "approval",
+  "complete",
+]);
+
+const isProgressStage = (value: unknown): value is AgentProgressStage =>
+  typeof value === "string" && PROGRESS_STAGES.has(value);
 
 interface HarnessAgentPlanDisplay {
   summary: string;

@@ -291,13 +291,18 @@ export class AgentPlanningService {
       startedAt,
     });
     const emit = this.deps.emitStreamEvent ?? (() => {});
+    const persistedStreamEvents: AgentStreamEvent[] = [];
+    const emitCaptured = (event: AgentStreamEvent): void => {
+      const redacted = redactStreamEvent(event);
+      persistedStreamEvents.push(redacted);
+      emit(redacted);
+    };
     const emitProgress = (
       stage: AgentProgressStage,
       message: string,
       detail?: string,
     ): void => {
-      emit(
-        redactStreamEvent({
+      emitCaptured({
           type: "progress",
           invocationId: invocation.id,
           taskRunId: taskRun.id,
@@ -305,8 +310,7 @@ export class AgentPlanningService {
           message,
           ...(detail !== undefined ? { detail } : {}),
           at: new Date().toISOString(),
-        }),
-      );
+      });
     };
     emitProgress(
       "context",
@@ -408,6 +412,7 @@ export class AgentPlanningService {
     let assistantOutput = "";
     let rawProviderOutput = "";
     let latencyMs = 0;
+    let costEstimate: number | undefined;
     let resultSessionId: string | undefined;
     try {
       const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
@@ -419,9 +424,7 @@ export class AgentPlanningService {
           emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
           return this.adapter.invoke(
             request,
-            (e) => {
-              emit(redactStreamEvent(e));
-            },
+            emitCaptured,
             signal,
           );
         },
@@ -429,6 +432,7 @@ export class AgentPlanningService {
       assistantOutput = result.stdout;
       rawProviderOutput = result.rawStdout ?? result.stdout;
       latencyMs = result.latencyMs;
+      costEstimate = result.costEstimate;
       resultSessionId = result.sessionId;
     } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
@@ -457,7 +461,7 @@ export class AgentPlanningService {
         ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
       });
       if (isCancelled) {
-        emit({ type: "cancelled", invocationId: invocation.id });
+        emitCaptured({ type: "cancelled", invocationId: invocation.id });
         await this.deps.state.updateAgentInvocation(invocation.id, {
           status: "cancelled",
           errorCode: AGENT_CANCELLED,
@@ -472,7 +476,12 @@ export class AgentPlanningService {
         });
         throw new AgentPlanningError(AGENT_CANCELLED, message);
       }
-      emit({ type: "failed", invocationId: invocation.id, errorCode: code, message });
+      emitCaptured({
+        type: "failed",
+        invocationId: invocation.id,
+        errorCode: code,
+        message,
+      });
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
         errorCode: code,
@@ -494,17 +503,26 @@ export class AgentPlanningService {
     // the same thinking/tool/intermediate/final sections as the live UI.
     const redactedOutput = redactSecrets(assistantOutput, 200_000);
     const redactedRawOutput = redactSecrets(rawProviderOutput, 200_000);
+    const persistedStreamTranscript = buildPersistedStreamTranscript({
+      events: persistedStreamEvents,
+      invocationId: invocation.id,
+      rawOutput: redactedRawOutput,
+      assistantText: redactedOutput,
+      latencyMs,
+      ...(costEstimate !== undefined ? { costEstimate } : {}),
+    });
     const rawOutputArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
       stepId: planStep.id,
       kind: "log",
       title: "Agent raw output",
       uri: `harness:agent-output/${taskRun.id}/${Date.now()}`,
-      summary: redactedRawOutput,
+      summary: persistedStreamTranscript,
     });
     await this.deps.state.updateAgentInvocation(invocation.id, {
       rawOutputArtifactId: rawOutputArtifact.id,
       latencyMs,
+      ...(costEstimate !== undefined ? { costEstimate } : {}),
     });
 
     // Persist the claude session id on the thread so subsequent
@@ -874,13 +892,18 @@ export class AgentPlanningService {
     });
 
     const emit = this.deps.emitStreamEvent ?? (() => {});
+    const persistedStreamEvents: AgentStreamEvent[] = [];
+    const emitCaptured = (event: AgentStreamEvent): void => {
+      const redacted = redactStreamEvent(event);
+      persistedStreamEvents.push(redacted);
+      emit(redacted);
+    };
     const emitProgress = (
       stage: AgentProgressStage,
       message: string,
       detail?: string,
     ): void => {
-      emit(
-        redactStreamEvent({
+      emitCaptured({
           type: "progress",
           invocationId: invocation.id,
           taskRunId: taskRun.id,
@@ -888,8 +911,7 @@ export class AgentPlanningService {
           message,
           ...(detail !== undefined ? { detail } : {}),
           at: new Date().toISOString(),
-        }),
-      );
+      });
     };
     emitProgress(
       "profile",
@@ -943,7 +965,7 @@ export class AgentPlanningService {
           emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
           return this.adapter.invoke(
             request,
-            (e) => emit(redactStreamEvent(e)),
+            emitCaptured,
             signal,
           );
         },
@@ -969,6 +991,16 @@ export class AgentPlanningService {
         result.rawStdout ?? result.stdout,
         200_000,
       );
+      const persistedStreamTranscript = buildPersistedStreamTranscript({
+        events: persistedStreamEvents,
+        invocationId: invocation.id,
+        rawOutput: redactedRawOutput,
+        assistantText: redactedOutput,
+        latencyMs: result.latencyMs,
+        ...(result.costEstimate !== undefined
+          ? { costEstimate: result.costEstimate }
+          : {}),
+      });
       const parsedPlan = parseAgentPlan(redactedOutput);
       const proposedActions = parsedPlan.ok
         ? parsedPlan.plan.proposedActions
@@ -978,13 +1010,16 @@ export class AgentPlanningService {
         kind: "log",
         title: `Worker raw output — ${input.profile.name}`,
         uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
-        summary: redactedRawOutput,
+        summary: persistedStreamTranscript,
       });
       const finishedAt = new Date().toISOString();
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "succeeded",
         rawOutputArtifactId: rawOutputArtifact.id,
         latencyMs: result.latencyMs,
+        ...(result.costEstimate !== undefined
+          ? { costEstimate: result.costEstimate }
+          : {}),
         finishedAt,
       });
       emitProgress(
@@ -1027,9 +1062,9 @@ export class AgentPlanningService {
       // InlineAgentStream sits at "응답 작성 중…" forever for a
       // failed worker call.
       if (isCancelled) {
-        emit({ type: "cancelled", invocationId: invocation.id });
+        emitCaptured({ type: "cancelled", invocationId: invocation.id });
       } else {
-        emit({
+        emitCaptured({
           type: "failed",
           invocationId: invocation.id,
           errorCode: code,
@@ -1246,4 +1281,51 @@ const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {
     return { ...e, message: redactSecrets(e.message, 2_000) };
   }
   return e;
+};
+
+const buildPersistedStreamTranscript = (input: {
+  events: readonly AgentStreamEvent[];
+  invocationId: string;
+  rawOutput: string;
+  assistantText: string;
+  latencyMs: number;
+  costEstimate?: number;
+}): string => {
+  const events = [...input.events];
+  if (!events.some((event) => event.type === "raw") && input.rawOutput.length > 0) {
+    events.push({
+      type: "raw",
+      invocationId: input.invocationId,
+      source: "stdout",
+      text: input.rawOutput,
+    });
+  }
+  if (
+    !events.some((event) => event.type === "assistant_text") &&
+    input.assistantText.length > 0
+  ) {
+    events.push({
+      type: "assistant_text",
+      invocationId: input.invocationId,
+      text: input.assistantText,
+    });
+  }
+  if (!events.some((event) => event.type === "result")) {
+    events.push({
+      type: "result",
+      invocationId: input.invocationId,
+      latencyMs: input.latencyMs,
+      ...(input.costEstimate !== undefined
+        ? { costEstimate: input.costEstimate }
+        : {}),
+    });
+  }
+  return serializePersistedStreamEvents(events) || input.rawOutput;
+};
+
+const serializePersistedStreamEvents = (
+  events: readonly AgentStreamEvent[],
+): string => {
+  if (events.length === 0) return "";
+  return events.map((event) => JSON.stringify(event)).join("\n");
 };

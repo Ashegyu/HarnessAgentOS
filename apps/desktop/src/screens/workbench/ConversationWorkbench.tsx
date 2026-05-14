@@ -425,6 +425,9 @@ const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
       className="inline-agent-stream inline-agent-stream--saved"
       aria-label="Completed agent answer"
     >
+      {parsed.progress.length > 0 && (
+        <AgentProgressList items={parsed.progress} compact terminal />
+      )}
       <AgentStreamSections
         sections={parsed.sections}
         surface="inline"

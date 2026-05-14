@@ -127,12 +127,14 @@ export const AgentStreamView = ({
   const hasAnyOutput =
     hasFinalAnswer ||
     parsed.sections.length > 0 ||
+    parsed.progress.length > 0 ||
     parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0 ||
     parsed.unknown.length > 0 ||
     progress.length > 0;
+  const progressItems = progress.length > 0 ? progress : parsed.progress;
 
   const metaItems = useMemo(() => buildMetaItems(parsed), [parsed]);
 
@@ -182,9 +184,9 @@ export const AgentStreamView = ({
         </pre>
       ) : (
         <>
-          {progress.length > 0 && (
+          {progressItems.length > 0 && (
             <AgentProgressList
-              items={progress}
+              items={progressItems}
               terminal={isTerminal}
             />
           )}
@@ -198,7 +200,7 @@ export const AgentStreamView = ({
 
           {!hasFinalAnswer &&
             responseDraftText.length === 0 &&
-            progress.length === 0 &&
+            progressItems.length === 0 &&
             parsed.sections.length === 0 &&
             parsed.thinkingText.length === 0 &&
             parsed.toolUses.length === 0 && (

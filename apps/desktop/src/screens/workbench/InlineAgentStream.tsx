@@ -127,10 +127,12 @@ export const InlineAgentStream = ({
   const hasAnyOutput =
     hasFinalAnswer ||
     parsed.sections.length > 0 ||
+    parsed.progress.length > 0 ||
     parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0;
+  const progressItems = progress.length > 0 ? progress : parsed.progress;
 
   return (
     <div className="inline-agent-stream" aria-label="Agent stream">
@@ -152,15 +154,15 @@ export const InlineAgentStream = ({
         </div>
       )}
 
-      {!hasAnyOutput && progress.length === 0 && (
+      {!hasAnyOutput && progressItems.length === 0 && (
         <div className="inline-agent-stream__placeholder">
           {isRunning ? "에이전트 응답 대기 중…" : "출력 없음"}
         </div>
       )}
 
-      {progress.length > 0 && (
+      {progressItems.length > 0 && (
         <AgentProgressList
-          items={progress}
+          items={progressItems}
           compact
           terminal={isTerminal}
         />

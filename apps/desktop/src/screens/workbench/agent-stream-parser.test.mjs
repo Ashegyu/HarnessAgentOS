@@ -448,6 +448,64 @@ test("hydrateSavedAgentOutput replays saved stream json lines", () => {
   assert.equal(s.parsed.finalText, "streamed answer");
 });
 
+test("hydrateSavedAgentOutput replays persisted Harness stream events", () => {
+  const s = initStreamParserState();
+
+  hydrateSavedAgentOutput(
+    s,
+    line({
+      type: "progress",
+      invocationId: "inv-1",
+      taskRunId: "tr-1",
+      stage: "cli",
+      message: "CLI 프로세스 시작",
+      detail: "codex:gpt-5.5 · cwd C:/work",
+      at: "2026-05-15T00:00:00.000Z",
+    }) +
+      line({
+        type: "raw",
+        invocationId: "inv-1",
+        source: "stdout",
+        text: line({
+          type: "item.delta",
+          delta: "작성 중 ",
+        }),
+      }) +
+      line({
+        type: "raw",
+        invocationId: "inv-1",
+        source: "stdout",
+        text: line({
+          type: "item.completed",
+          item: {
+            type: "local_shell_call",
+            command: "npm run check",
+          },
+        }),
+      }) +
+      line({
+        type: "assistant_text",
+        invocationId: "inv-1",
+        text: "최종 정리",
+      }) +
+      line({
+        type: "result",
+        invocationId: "inv-1",
+        latencyMs: 42,
+      }),
+    { terminal: true },
+  );
+
+  assert.equal(s.parsed.progress.length, 1);
+  assert.equal(s.parsed.progress[0].stage, "cli");
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["response", "tool", "response", "final"],
+  );
+  assert.equal(s.parsed.finalText, "최종 정리");
+  assert.equal(s.parsed.resultMeta?.durationMs, 42);
+});
+
 test("hydrateSavedAgentOutput preserves completed stream sections", () => {
   const s = initStreamParserState();
 

@@ -55,6 +55,12 @@ const makeGateway = (overrides = {}) => ({
   ...overrides,
 });
 
+const parseJsonLines = (text) =>
+  text
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line));
+
 test("cancelInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FOUND", async () => {
   const svc = new AgentPlanningService({
     state: makeGateway(),
@@ -432,10 +438,24 @@ test("generatePlan emits progress events before and after CLI invocation", async
   );
   assert.ok(progress.every((event) => event.taskRunId === "tr-progress"));
   assert.ok(progress.every((event) => event.invocationId === "inv-progress"));
-  assert.equal(
-    artifacts.find((artifact) => artifact.title === "Agent raw output")?.summary,
-    rawProviderOutput,
+  const persisted = parseJsonLines(
+    artifacts.find((artifact) => artifact.title === "Agent raw output")?.summary ?? "",
   );
+  assert.deepEqual(
+    persisted.filter((event) => event.type === "progress").map((event) => event.stage),
+    ["context", "profile", "prompt", "session", "mcp", "queued", "cli"],
+  );
+  assert.ok(
+    persisted.some(
+      (event) => event.type === "raw" && event.text === rawProviderOutput,
+    ),
+  );
+  assert.ok(
+    persisted.some(
+      (event) => event.type === "assistant_text" && event.text.includes("Project explained"),
+    ),
+  );
+  assert.ok(persisted.some((event) => event.type === "result"));
 });
 
 test("generatePlan uses approved Learner model recommendation when no explicit model is supplied", async () => {
@@ -694,9 +714,20 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
   assert.match(lastRequest.prompt, /create a file/);
-  assert.equal(
+  const persisted = parseJsonLines(
     artifacts.find((artifact) => artifact.title === "Worker raw output — Worker")
-      ?.summary,
-    rawProviderOutput,
+      ?.summary ?? "",
   );
+  assert.ok(
+    persisted.some(
+      (event) => event.type === "raw" && event.text === rawProviderOutput,
+    ),
+  );
+  assert.ok(
+    persisted.some(
+      (event) =>
+        event.type === "assistant_text" && event.text.includes("created.txt"),
+    ),
+  );
+  assert.ok(persisted.some((event) => event.type === "result"));
 });
