@@ -149,13 +149,51 @@ export class LocalStateService implements ConversationStateGateway {
     if (!thread) return null;
     const taskRuns = await this.taskRuns.listByThread(threadId);
 
-    // Attach the most recent `plan` artifact summary for each TaskRun so
-    // the conversation workbench can render an agent reply bubble in
-    // a single fetch. Plan artifacts live in `summary` (URI scheme is
-    // a placeholder, see runner-ipc.readArtifact for the read path).
+    // Attach the most recent persisted agent answer for each TaskRun so
+    // the conversation workbench can render an agent reply bubble in a
+    // single fetch. Prefer raw provider output logs because they can be
+    // rehydrated into thinking/tool/intermediate/final stream sections;
+    // fall back to the latest plan summary for older runs.
     const agentAnswers: Record<string, string> = {};
     if (taskRuns.length > 0) {
       const placeholders = taskRuns.map(() => "?").join(",");
+      const rawRows = this.db
+        .prepare(
+          `SELECT
+             a.task_run_id AS taskRunId,
+             a.title AS title,
+             a.summary AS summary
+           FROM artifacts a
+           WHERE a.kind = 'log'
+             AND a.task_run_id IN (${placeholders})
+             AND (
+               a.title = 'Agent raw output'
+               OR a.title LIKE 'Worker raw output%'
+             )
+             AND a.rowid = (
+               SELECT a2.rowid
+               FROM artifacts a2
+               WHERE a2.kind = 'log'
+                 AND a2.task_run_id = a.task_run_id
+                 AND (
+                   a2.title = 'Agent raw output'
+                   OR a2.title LIKE 'Worker raw output%'
+                 )
+               ORDER BY datetime(a2.created_at) DESC, a2.rowid DESC
+               LIMIT 1
+             )`,
+        )
+        .all(...taskRuns.map((t) => t.id)) as Array<{
+        taskRunId: string;
+        title: string | null;
+        summary: string | null;
+      }>;
+      for (const r of rawRows) {
+        if (r.summary !== null && r.summary.length > 0) {
+          agentAnswers[r.taskRunId] = r.summary;
+        }
+      }
+
       const rows = this.db
         .prepare(
           `SELECT
@@ -180,7 +218,11 @@ export class LocalStateService implements ConversationStateGateway {
         summary: string | null;
       }>;
       for (const r of rows) {
-        if (r.summary !== null && !isAgentPlanPlaceholder(r.title, r.summary)) {
+        if (
+          agentAnswers[r.taskRunId] === undefined &&
+          r.summary !== null &&
+          !isAgentPlanPlaceholder(r.title, r.summary)
+        ) {
           agentAnswers[r.taskRunId] = r.summary;
         }
       }

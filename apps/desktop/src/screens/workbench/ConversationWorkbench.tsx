@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentInvocation,
   Approval,
@@ -14,6 +14,10 @@ import {
   AgentProgressList,
   type AgentProgressItem,
 } from "./AgentProgressList";
+import {
+  hydrateSavedAgentOutput,
+  initStreamParserState,
+} from "./agent-stream-parser";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 
 type DetailState =
@@ -342,8 +346,7 @@ const ChatTurn = ({
   // INSIDE the agent bubble's body. This keeps the chat-turn structure
   // intact (one user bubble + one agent bubble + inline approval card)
   // and lets the stream sections own their own scroll without breaking
-  // the parent transcript scroll. We still surface the final answer
-  // separately so the chat reads like a chat once streaming completes.
+  // the parent transcript scroll.
   const hasInvocation = invocation !== undefined;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
 
@@ -385,7 +388,8 @@ const ChatTurn = ({
           ) : hasFinalAnswer ? (
             // No live invocation on this turn (older turn, or backend
             // didn't go through the agent path) — fall back to the
-            // persisted plan-summary text so the bubble isn't empty.
+            // persisted agent output so completed runs keep the same
+            // sectioned shape as the live stream.
             <ChatBubbleAnswer text={answer} />
           ) : (
             <span className="chat-bubble__pending">
@@ -403,22 +407,88 @@ const ChatTurn = ({
   );
 };
 
-// Plan summaries are markdown but rendering full markdown is overkill —
-// preserve line breaks and clip overly long bodies with a "더 보기" toggle.
 const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
-  const LIMIT = 1200;
   const displayText = stripEmbeddedOrchestrationPlanJson(text);
-  const tooLong = displayText.length > LIMIT;
-  return tooLong ? (
-    <details>
-      <summary className="chat-bubble__more">
-        {displayText.slice(0, LIMIT)}…{" "}
-        <span className="chat-bubble__more-cta">더 보기</span>
-      </summary>
-      <pre className="chat-bubble__full">{displayText}</pre>
-    </details>
-  ) : (
-    <pre className="chat-bubble__full">{displayText}</pre>
+  const parsed = useMemo(() => {
+    const state = initStreamParserState();
+    hydrateSavedAgentOutput(state, displayText, { terminal: true });
+    return state.parsed;
+  }, [displayText]);
+  const responseDraftText =
+    parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
+  const finalText =
+    parsed.finalText ?? (responseDraftText.length > 0 ? responseDraftText : displayText);
+  const showDraft =
+    responseDraftText.length > 0 && responseDraftText !== finalText;
+
+  return (
+    <div
+      className="inline-agent-stream inline-agent-stream--saved"
+      aria-label="Completed agent answer"
+    >
+      {parsed.thinkingText.length > 0 && (
+        <section className="inline-agent-stream__section inline-agent-stream__section--thinking">
+          <header className="inline-agent-stream__head">
+            <span className="inline-agent-stream__icon" aria-hidden>
+              ✦
+            </span>
+            <span className="inline-agent-stream__title">생각</span>
+          </header>
+          <div className="inline-agent-stream__thinking">
+            {parsed.thinkingText}
+          </div>
+        </section>
+      )}
+
+      {parsed.toolUses.length > 0 && (
+        <section className="inline-agent-stream__section inline-agent-stream__section--tool">
+          <header className="inline-agent-stream__head">
+            <span className="inline-agent-stream__icon" aria-hidden>
+              ▷
+            </span>
+            <span className="inline-agent-stream__title">
+              명령어 / 도구 호출 ({parsed.toolUses.length})
+            </span>
+          </header>
+          <ul className="inline-agent-stream__tools">
+            {parsed.toolUses.map((t, i) => (
+              <li key={`${t.name}-${i}`}>
+                <code>{t.name}</code>
+                {t.input ? (
+                  <span className="inline-agent-stream__tool-input">
+                    {JSON.stringify(t.input).slice(0, 160)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {showDraft && (
+        <section className="inline-agent-stream__section inline-agent-stream__section--live">
+          <header className="inline-agent-stream__head">
+            <span className="inline-agent-stream__icon" aria-hidden>
+              …
+            </span>
+            <span className="inline-agent-stream__title">
+              중간 답변 / 응답 작성 중
+            </span>
+          </header>
+          <div className="inline-agent-stream__live">{responseDraftText}</div>
+        </section>
+      )}
+
+      <section className="inline-agent-stream__section inline-agent-stream__section--final">
+        <header className="inline-agent-stream__head">
+          <span className="inline-agent-stream__icon" aria-hidden>
+            ✓
+          </span>
+          <span className="inline-agent-stream__title">최종 답변</span>
+        </header>
+        <pre className="inline-agent-stream__final">{finalText}</pre>
+      </section>
+    </div>
   );
 };
 

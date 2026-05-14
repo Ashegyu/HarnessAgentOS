@@ -224,6 +224,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       model,
       exitCode,
       stdout: finalText,
+      rawStdout: stdout,
       stderr,
       normalizedEvents: [],
       latencyMs,

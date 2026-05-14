@@ -405,7 +405,8 @@ export class AgentPlanningService {
           }
         : {}),
     });
-    let rawStdout = "";
+    let assistantOutput = "";
+    let rawProviderOutput = "";
     let latencyMs = 0;
     let resultSessionId: string | undefined;
     try {
@@ -424,7 +425,8 @@ export class AgentPlanningService {
           );
         },
       });
-      rawStdout = result.stdout;
+      assistantOutput = result.stdout;
+      rawProviderOutput = result.rawStdout ?? result.stdout;
       latencyMs = result.latencyMs;
       resultSessionId = result.sessionId;
     } catch (e) {
@@ -486,15 +488,18 @@ export class AgentPlanningService {
       throw new AgentPlanningError(code, message);
     }
 
-    // 5. raw output artifact (redacted)
-    const redactedOutput = redactSecrets(rawStdout, 200_000);
+    // 5. raw output artifact (redacted). Persist the original provider
+    // stream when available so completed TaskRuns can hydrate back into
+    // the same thinking/tool/intermediate/final sections as the live UI.
+    const redactedOutput = redactSecrets(assistantOutput, 200_000);
+    const redactedRawOutput = redactSecrets(rawProviderOutput, 200_000);
     const rawOutputArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
       stepId: planStep.id,
       kind: "log",
       title: "Agent raw output",
       uri: `harness:agent-output/${taskRun.id}/${Date.now()}`,
-      summary: redactedOutput,
+      summary: redactedRawOutput,
     });
     await this.deps.state.updateAgentInvocation(invocation.id, {
       rawOutputArtifactId: rawOutputArtifact.id,
@@ -958,6 +963,10 @@ export class AgentPlanningService {
         }
       }
       const redactedOutput = redactSecrets(result.stdout, 200_000);
+      const redactedRawOutput = redactSecrets(
+        result.rawStdout ?? result.stdout,
+        200_000,
+      );
       const parsedPlan = parseAgentPlan(redactedOutput);
       const proposedActions = parsedPlan.ok
         ? parsedPlan.plan.proposedActions
@@ -967,7 +976,7 @@ export class AgentPlanningService {
         kind: "log",
         title: `Worker raw output — ${input.profile.name}`,
         uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
-        summary: redactedOutput,
+        summary: redactedRawOutput,
       });
       const finishedAt = new Date().toISOString();
       await this.deps.state.updateAgentInvocation(invocation.id, {

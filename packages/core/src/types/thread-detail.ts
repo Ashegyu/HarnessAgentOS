@@ -5,11 +5,10 @@ export interface ThreadDetail {
   thread: Thread;
   taskRuns: TaskRun[];
   /**
-   * taskRunId → latest plan artifact summary, when present. Lets the
-   * conversation workbench render an agent reply bubble next to each
-   * user request without doing N additional IPC round-trips. Absent
-   * entries mean the TaskRun has not produced (or has not yet produced)
-   * a plan artifact.
+   * taskRunId → latest persisted agent answer stream/output, when present.
+   * Lets the conversation workbench render an agent reply bubble next to
+   * each user request without doing N additional IPC round-trips. Older
+   * runs may fall back to the latest plan artifact summary.
    */
   agentAnswers?: Record<string, string>;
 }

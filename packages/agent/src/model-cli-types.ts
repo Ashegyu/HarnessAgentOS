@@ -56,7 +56,17 @@ export interface ModelCliResult {
   provider: AgentProvider;
   model: string;
   exitCode: number;
+  /**
+   * Extracted assistant text. Downstream parsers use this for the
+   * harness_agent_plan contract.
+   */
   stdout: string;
+  /**
+   * Original provider stdout before payload extraction. UI persistence
+   * uses this so completed TaskRuns can be rehydrated into the same
+   * thinking/tool/intermediate/final sections as the live stream.
+   */
+  rawStdout?: string;
   stderr: string;
   normalizedEvents: AgentStreamEvent[];
   latencyMs: number;

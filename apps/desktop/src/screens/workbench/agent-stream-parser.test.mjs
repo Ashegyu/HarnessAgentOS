@@ -285,6 +285,53 @@ test("hydrateSavedAgentOutput replays saved stream json lines", () => {
   assert.equal(s.parsed.finalText, "streamed answer");
 });
 
+test("hydrateSavedAgentOutput preserves completed stream sections", () => {
+  const s = initStreamParserState();
+
+  hydrateSavedAgentOutput(
+    s,
+    line({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "checking context" },
+      },
+    }) +
+      line({
+        type: "item.completed",
+        item: {
+          type: "local_shell_call",
+          command: "npm run check",
+        },
+      }) +
+      line({
+        type: "item.completed",
+        item: {
+          type: "assistant_message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "draft answer" }],
+        },
+      }) +
+      line({
+        type: "result",
+        is_error: false,
+        duration_ms: 1200,
+        duration_api_ms: 900,
+        result: "final answer",
+      }),
+    { terminal: true },
+  );
+
+  assert.equal(s.parsed.thinkingText, "checking context");
+  assert.deepEqual(s.parsed.toolUses, [
+    { name: "local_shell_call", input: "npm run check" },
+  ]);
+  assert.equal(s.parsed.intermediateText, "draft answer");
+  assert.equal(s.parsed.finalText, "final answer");
+  assert.equal(s.parsed.resultMeta?.durationMs, 1200);
+});
+
 test("codex delta events accumulate into liveText", () => {
   const s = initStreamParserState();
   feedStreamChunk(

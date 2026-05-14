@@ -332,6 +332,9 @@ test("generatePlan emits progress events before and after CLI invocation", async
   let artifactSeq = 0;
   let stepSeq = 0;
   const events = [];
+  const artifacts = [];
+  const rawProviderOutput =
+    '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"raw stream answer"}]}}\n';
   const planOutput = {
     summary: "Project explained",
     assumptions: [],
@@ -353,17 +356,21 @@ test("generatePlan emits progress events before and after CLI invocation", async
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
-      createArtifact: async (input) => ({
-        id: `art-${++artifactSeq}`,
-        taskRunId: input.taskRunId,
-        stepId: input.stepId,
-        kind: input.kind,
-        title: input.title,
-        uri: input.uri,
-        summary: input.summary,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
+      createArtifact: async (input) => {
+        const artifact = {
+          id: `art-${++artifactSeq}`,
+          taskRunId: input.taskRunId,
+          stepId: input.stepId,
+          kind: input.kind,
+          title: input.title,
+          uri: input.uri,
+          summary: input.summary,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        artifacts.push(artifact);
+        return artifact;
+      },
       createAgentInvocation: async () => baseInvocation,
       updateAgentInvocation: async (_id, patch) => ({
         ...baseInvocation,
@@ -407,6 +414,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
           model: request.modelConfig.model,
           exitCode: 0,
           stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          rawStdout: rawProviderOutput,
           stderr: "",
           normalizedEvents: [],
           latencyMs: 10,
@@ -424,6 +432,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
   );
   assert.ok(progress.every((event) => event.taskRunId === "tr-progress"));
   assert.ok(progress.every((event) => event.invocationId === "inv-progress"));
+  assert.equal(
+    artifacts.find((artifact) => artifact.title === "Agent raw output")?.summary,
+    rawProviderOutput,
+  );
 });
 
 test("generatePlan uses approved Learner model recommendation when no explicit model is supplied", async () => {
@@ -605,6 +617,9 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   };
   let lastRequest = null;
   let artifactSeq = 0;
+  const artifacts = [];
+  const rawProviderOutput =
+    '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"worker raw stream answer"}]}}\n';
   const planOutput = {
     summary: "Create file",
     assumptions: [],
@@ -629,17 +644,21 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
-      createArtifact: async (input) => ({
-        id: `art-${++artifactSeq}`,
-        taskRunId: input.taskRunId,
-        stepId: input.stepId,
-        kind: input.kind,
-        title: input.title,
-        uri: input.uri,
-        summary: input.summary,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
+      createArtifact: async (input) => {
+        const artifact = {
+          id: `art-${++artifactSeq}`,
+          taskRunId: input.taskRunId,
+          stepId: input.stepId,
+          kind: input.kind,
+          title: input.title,
+          uri: input.uri,
+          summary: input.summary,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        artifacts.push(artifact);
+        return artifact;
+      },
       createAgentInvocation: async () => invocation,
       updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
     }),
@@ -653,6 +672,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
           model: request.modelConfig.model,
           exitCode: 0,
           stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          rawStdout: rawProviderOutput,
           stderr: "",
           normalizedEvents: [],
           latencyMs: 12,
@@ -674,4 +694,9 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
   assert.match(lastRequest.prompt, /create a file/);
+  assert.equal(
+    artifacts.find((artifact) => artifact.title === "Worker raw output — Worker")
+      ?.summary,
+    rawProviderOutput,
+  );
 });
