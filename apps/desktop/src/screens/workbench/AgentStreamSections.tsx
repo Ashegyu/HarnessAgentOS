@@ -268,12 +268,18 @@ const formatToolInput = (input: unknown): string => {
 const formatToolRunDetail = (input: unknown): string => {
   if (input && typeof input === "object") {
     const record = input as Record<string, unknown>;
+    const command =
+      stringValue(record["command"]) ??
+      stringValue(record["cmd"]) ??
+      stringValue(record["path"]) ??
+      stringValue(record["filePath"]);
     const status = stringValue(record["status"]);
     const exitCode = numberValue(record["exitCode"]) ?? numberValue(record["exit_code"]);
     const output =
       stringValue(record["outputPreview"]) ??
       stringValue(record["aggregated_output"]);
     const parts = [
+      command ? oneLine(command) : null,
       status ? `status: ${status}` : null,
       exitCode !== null ? `exit: ${exitCode}` : null,
       output ? `output: ${oneLine(output)}` : null,

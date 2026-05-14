@@ -29,6 +29,27 @@ test("groups adjacent tool sections with the same command", () => {
   });
 });
 
+test("groups adjacent powershell commands with the same cmdlet", () => {
+  const grouped = groupConsecutiveToolSections([
+    tool(
+      "s1",
+      "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'Get-Content -Raw -Path index.html'",
+    ),
+    tool(
+      "s2",
+      "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'Get-Content -Raw -Path app.js'",
+    ),
+    tool(
+      "s3",
+      "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'Get-Content -First 80 -Path style.css'",
+    ),
+  ]);
+
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].kind, "tool_group");
+  assert.equal(grouped[0].tools.length, 3);
+});
+
 test("does not group the same command when another section is between them", () => {
   const grouped = groupConsecutiveToolSections([
     tool("s1", "rg --files"),
@@ -44,8 +65,26 @@ test("does not group the same command when another section is between them", () 
 
 test("does not group adjacent tools with different commands", () => {
   const grouped = groupConsecutiveToolSections([
-    tool("s1", "rg --files"),
-    tool("s2", "npm run check"),
+    tool("s1", "git status --short"),
+    tool("s2", "git diff --name-only"),
+  ]);
+
+  assert.deepEqual(
+    grouped.map((section) => section.kind),
+    ["tool", "tool"],
+  );
+});
+
+test("does not group adjacent powershell commands with different cmdlets", () => {
+  const grouped = groupConsecutiveToolSections([
+    tool(
+      "s1",
+      "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'Get-Content -Raw -Path index.html'",
+    ),
+    tool(
+      "s2",
+      "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command \"Select-String -Path index.html -Pattern '<title>'\"",
+    ),
   ]);
 
   assert.deepEqual(
