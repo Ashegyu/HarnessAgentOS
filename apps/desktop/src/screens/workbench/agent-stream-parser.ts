@@ -231,5 +231,176 @@ const ingestLine = (state: StreamParserState, line: string): void => {
     }
     return;
   }
+  if (ingestCodexLine(parsed, obj)) return;
   parsed.unknown.push(line);
 };
+
+const ingestCodexLine = (
+  parsed: ParsedStream,
+  obj: Record<string, unknown>,
+): boolean => {
+  const type = typeof obj["type"] === "string" ? (obj["type"] as string) : "";
+  if (type === "thread.started" || type === "turn.started") {
+    parsed.turnSummary = {
+      status: type,
+      detail: typeof obj["thread_id"] === "string" ? (obj["thread_id"] as string) : "",
+    };
+    return true;
+  }
+  if (type === "turn.completed") {
+    parsed.resultMeta = {
+      isError: false,
+      durationMs: 0,
+      durationApiMs: 0,
+    };
+    return true;
+  }
+  if (type === "turn.failed") {
+    parsed.turnSummary = {
+      status: "turn.failed",
+      detail: extractCodexErrorMessage(obj),
+    };
+    parsed.resultMeta = {
+      isError: true,
+      durationMs: 0,
+      durationApiMs: 0,
+    };
+    return true;
+  }
+  if (type === "error") {
+    parsed.turnSummary = {
+      status: "error",
+      detail: typeof obj["message"] === "string" ? (obj["message"] as string) : "",
+    };
+    return true;
+  }
+
+  const delta = extractCodexDeltaText(obj);
+  if (delta !== null) {
+    parsed.liveText += delta;
+    return true;
+  }
+
+  const assistantText = extractCodexAssistantText(obj);
+  if (assistantText !== null) {
+    parsed.finalText = assistantText;
+    return true;
+  }
+
+  const toolUse = extractCodexToolUse(obj);
+  if (toolUse !== null) {
+    parsed.toolUses.push(toolUse);
+    return true;
+  }
+
+  return false;
+};
+
+const extractCodexErrorMessage = (obj: Record<string, unknown>): string => {
+  const error = obj["error"];
+  if (isRecord(error) && typeof error["message"] === "string") {
+    return error["message"] as string;
+  }
+  return typeof obj["message"] === "string" ? (obj["message"] as string) : "";
+};
+
+const extractCodexDeltaText = (
+  obj: Record<string, unknown>,
+): string | null => {
+  if (typeof obj["delta"] === "string") return obj["delta"] as string;
+  if (isRecord(obj["delta"])) {
+    const text = extractText(obj["delta"]);
+    if (text.length > 0) return text;
+  }
+  if (typeof obj["text"] === "string" && isDeltaLike(obj)) {
+    return obj["text"] as string;
+  }
+  if (typeof obj["output_text"] === "string" && isDeltaLike(obj)) {
+    return obj["output_text"] as string;
+  }
+  const item = obj["item"];
+  if (isRecord(item)) {
+    if (typeof item["delta"] === "string") return item["delta"] as string;
+    if (isRecord(item["delta"])) {
+      const text = extractText(item["delta"]);
+      if (text.length > 0) return text;
+    }
+  }
+  return null;
+};
+
+const isDeltaLike = (obj: Record<string, unknown>): boolean => {
+  const type = typeof obj["type"] === "string" ? obj["type"] : "";
+  return type.includes("delta");
+};
+
+const extractCodexAssistantText = (
+  obj: Record<string, unknown>,
+): string | null => {
+  const candidates = [obj["item"], obj["message"], obj["response"], obj];
+  for (const candidate of candidates) {
+    if (!isRecord(candidate) || !looksLikeAssistantMessage(candidate)) continue;
+    const text = extractText(candidate);
+    if (text.length > 0) return text;
+  }
+  return null;
+};
+
+const looksLikeAssistantMessage = (obj: Record<string, unknown>): boolean => {
+  if (obj["role"] === "assistant") return true;
+  const type = typeof obj["type"] === "string" ? obj["type"] : "";
+  return (
+    type === "assistant_message" ||
+    type === "agent_message" ||
+    (type.includes("assistant") && !type.includes("delta"))
+  );
+};
+
+const extractText = (obj: Record<string, unknown>): string => {
+  if (typeof obj["text"] === "string") return obj["text"] as string;
+  if (typeof obj["output_text"] === "string") return obj["output_text"] as string;
+  if (typeof obj["content"] === "string") return obj["content"] as string;
+  const content = obj["content"];
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (typeof block === "string") {
+      parts.push(block);
+      continue;
+    }
+    if (!isRecord(block)) continue;
+    const text = extractText(block);
+    if (text.length > 0) parts.push(text);
+  }
+  return parts.join("");
+};
+
+const extractCodexToolUse = (
+  obj: Record<string, unknown>,
+): { name: string; input: unknown } | null => {
+  const candidate = isRecord(obj["item"]) ? obj["item"] : obj;
+  const type = typeof candidate["type"] === "string" ? candidate["type"] : "";
+  if (
+    !type.includes("tool") &&
+    !type.includes("function_call") &&
+    !type.includes("local_shell_call")
+  ) {
+    return null;
+  }
+  const name =
+    typeof candidate["name"] === "string"
+      ? (candidate["name"] as string)
+      : typeof candidate["tool_name"] === "string"
+        ? (candidate["tool_name"] as string)
+        : type || "tool";
+  const input =
+    candidate["input"] ??
+    candidate["arguments"] ??
+    candidate["args"] ??
+    candidate["command"] ??
+    null;
+  return { name, input };
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;

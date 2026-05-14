@@ -237,3 +237,68 @@ test("setFinalAssistantText overrides finalText without losing liveText", () => 
   assert.equal(s.parsed.finalText, "FINAL");
   assert.equal(s.parsed.liveText, "partial");
 });
+
+test("codex delta events accumulate into liveText", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({ type: "item.delta", delta: "hello " }) +
+      line({ type: "item_delta", item: { delta: { text: "codex" } } }),
+  );
+  assert.equal(s.parsed.liveText, "hello codex");
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
+test("codex completed assistant item populates finalText", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({ type: "thread.started", thread_id: "thr-1" }) +
+      line({ type: "turn.started" }) +
+      line({
+        type: "item.completed",
+        item: {
+          type: "assistant_message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "final answer" }],
+        },
+      }) +
+      line({ type: "turn.completed" }),
+  );
+  assert.equal(s.parsed.finalText, "final answer");
+  assert.equal(s.parsed.resultMeta?.isError, false);
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
+test("codex tool item is captured as tool use", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "item.completed",
+      item: {
+        type: "local_shell_call",
+        command: "npm test",
+      },
+    }),
+  );
+  assert.deepEqual(s.parsed.toolUses, [
+    { name: "local_shell_call", input: "npm test" },
+  ]);
+});
+
+test("codex failed turn records error summary", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "turn.failed",
+      error: { message: "The model is not supported" },
+    }),
+  );
+  assert.deepEqual(s.parsed.turnSummary, {
+    status: "turn.failed",
+    detail: "The model is not supported",
+  });
+  assert.equal(s.parsed.resultMeta?.isError, true);
+});
