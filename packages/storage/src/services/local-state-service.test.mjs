@@ -167,6 +167,43 @@ test("getThreadDetail picks latest plan deterministically when timestamps tie", 
   }
 });
 
+test("getThreadDetail does not expose agent placeholder plan as chat answer", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "x" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id,
+      userRequest: "do",
+      targetDir: "/tmp/x",
+      status: "blocked",
+    });
+    const step = await svc.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "plan",
+      title: "Agent plan 대기",
+      status: "pending",
+    });
+    await svc.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "plan",
+      title: "Awaiting agent plan",
+      uri: "artifact://plan/placeholder",
+      summary:
+        "Agent mode TaskRun — call `agent.generatePlan(taskRunId)` to produce a plan and approvals.",
+    });
+
+    const detail = await svc.getThreadDetail(thread.id);
+    assert.equal(detail?.agentAnswers[taskRun.id], undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("createTaskRun requires existing thread and validates targetDir", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

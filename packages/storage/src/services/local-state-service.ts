@@ -62,6 +62,9 @@ import {
   type ThreadRepository,
 } from "../repositories/index.ts";
 
+const AGENT_PLAN_PLACEHOLDER_TITLE = "Awaiting agent plan";
+const AGENT_PLAN_PLACEHOLDER_SUMMARY_PREFIX = "Agent mode TaskRun";
+
 /**
  * LocalStateService is the single business-logic gateway over the
  * SQLite repositories. IPC handlers and downstream services depend on
@@ -155,7 +158,10 @@ export class LocalStateService implements ConversationStateGateway {
       const placeholders = taskRuns.map(() => "?").join(",");
       const rows = this.db
         .prepare(
-          `SELECT a.task_run_id AS taskRunId, a.summary AS summary
+          `SELECT
+             a.task_run_id AS taskRunId,
+             a.title AS title,
+             a.summary AS summary
            FROM artifacts a
            WHERE a.kind = 'plan'
              AND a.task_run_id IN (${placeholders})
@@ -170,10 +176,13 @@ export class LocalStateService implements ConversationStateGateway {
         )
         .all(...taskRuns.map((t) => t.id)) as Array<{
         taskRunId: string;
+        title: string | null;
         summary: string | null;
       }>;
       for (const r of rows) {
-        if (r.summary !== null) agentAnswers[r.taskRunId] = r.summary;
+        if (r.summary !== null && !isAgentPlanPlaceholder(r.title, r.summary)) {
+          agentAnswers[r.taskRunId] = r.summary;
+        }
       }
     }
     return { thread, taskRuns, agentAnswers };
@@ -413,3 +422,10 @@ export class LocalStateService implements ConversationStateGateway {
     return this.agentProfiles.list();
   }
 }
+
+const isAgentPlanPlaceholder = (
+  title: string | null,
+  summary: string,
+): boolean =>
+  title === AGENT_PLAN_PLACEHOLDER_TITLE ||
+  summary.startsWith(AGENT_PLAN_PLACEHOLDER_SUMMARY_PREFIX);
