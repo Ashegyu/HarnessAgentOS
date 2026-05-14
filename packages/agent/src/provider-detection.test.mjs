@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { providerForModel, defaultModelFor } from "./provider-detection.ts";
+import {
+  providerForModel,
+  defaultModelFor,
+  normalizeModelForProvider,
+} from "./provider-detection.ts";
 import {
   getProviderCommandCandidates,
   resolveProviderCommand,
@@ -25,7 +29,12 @@ test("unknown models do not resolve to a provider", () => {
 
 test("defaultModelFor returns a sensible default per provider", () => {
   assert.match(defaultModelFor("claude"), /^claude/);
-  assert.match(defaultModelFor("codex"), /^gpt|^codex|^o/);
+  assert.equal(defaultModelFor("codex"), "gpt-5.5");
+});
+
+test("normalizeModelForProvider upgrades unsupported Codex ChatGPT gpt-5 model", () => {
+  assert.equal(normalizeModelForProvider("codex", "gpt-5"), "gpt-5.5");
+  assert.equal(normalizeModelForProvider("codex", "gpt-5.5"), "gpt-5.5");
 });
 
 test("codex command candidates include the Windows app executable before PATH lookup", () => {

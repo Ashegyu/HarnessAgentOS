@@ -4,6 +4,7 @@ import type {
   AgentProviderProbe,
   AgentProviderStatusMap,
 } from "@harness/core";
+import { DEFAULT_CLAUDE_MODEL, DEFAULT_CODEX_MODEL } from "@harness/core";
 import { getProviderCommandCandidates } from "./provider-executable.ts";
 
 /**
@@ -22,7 +23,23 @@ export const providerForModel = (model: string): AgentProvider | null => {
 };
 
 export const defaultModelFor = (provider: AgentProvider): string =>
-  provider === "claude" ? "claude-sonnet-4-6" : "gpt-5";
+  provider === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+
+export const normalizeModelForProvider = (
+  provider: AgentProvider,
+  preferred: string | undefined,
+): string => {
+  const model = preferred?.trim();
+  if (!model) return defaultModelFor(provider);
+  if (provider === "codex" && isUnsupportedCodexChatGptModel(model)) {
+    return defaultModelFor(provider);
+  }
+  if (providerForModel(model) === provider) return model;
+  return defaultModelFor(provider);
+};
+
+const isUnsupportedCodexChatGptModel = (model: string): boolean =>
+  model.trim().toLowerCase() === "gpt-5";
 
 /**
  * Probe a single CLI binary with `<bin> --version`. Returns availability

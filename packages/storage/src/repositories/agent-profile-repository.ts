@@ -7,6 +7,7 @@ import type {
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
@@ -58,7 +59,10 @@ const rowToProfile = (row: ProfileRow): AgentProfile => ({
   provider: row.provider as AgentProfile["provider"],
   role: row.role as AgentProfile["role"],
   persona: row.persona,
-  tuning: normalizeTuning(JSON.parse(row.tuning_json) as AgentModelTuning),
+  tuning: normalizeTuning(
+    JSON.parse(row.tuning_json) as AgentModelTuning,
+    row.provider as AgentProfile["provider"],
+  ),
   cli: JSON.parse(row.cli_json) as AgentCliEnv,
   permissions: JSON.parse(row.permissions_json) as AgentPermissions,
   mcpServerIds: JSON.parse(row.mcp_server_ids_json) as string[],
@@ -73,8 +77,15 @@ const rowToProfile = (row: ProfileRow): AgentProfile => ({
  * (120s hard / 30s stall). Profiles win over global settings during
  * invocation, so normalize them at the repository boundary too.
  */
-const normalizeTuning = (tuning: AgentModelTuning): AgentModelTuning => ({
+const normalizeTuning = (
+  tuning: AgentModelTuning,
+  provider: AgentProfile["provider"],
+): AgentModelTuning => ({
   ...tuning,
+  model:
+    provider === "codex" && tuning.model.trim().toLowerCase() === "gpt-5"
+      ? DEFAULT_CODEX_MODEL
+      : tuning.model,
   timeoutMs:
     !tuning.timeoutMs || tuning.timeoutMs < DEFAULT_AGENT_TIMEOUT_MS
       ? DEFAULT_AGENT_TIMEOUT_MS
@@ -88,7 +99,7 @@ const normalizeTuning = (tuning: AgentModelTuning): AgentModelTuning => ({
 
 const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
   ...profile,
-  tuning: normalizeTuning(profile.tuning),
+  tuning: normalizeTuning(profile.tuning, profile.provider),
 });
 
 const SELECT = `SELECT id, name, description, provider, role, persona,

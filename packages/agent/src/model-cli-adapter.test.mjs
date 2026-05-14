@@ -54,7 +54,7 @@ test("buildCliInvocation uses Codex exec syntax and folds system prompt into std
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5",
+        model: "gpt-5.5",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
       },
@@ -67,7 +67,7 @@ test("buildCliInvocation uses Codex exec syntax and folds system prompt into std
   assert.equal(plan.command, "codex");
   assert.deepEqual(plan.args, [
     "--model",
-    "gpt-5",
+    "gpt-5.5",
     "--cd",
     "C:\\repo",
     "--sandbox",

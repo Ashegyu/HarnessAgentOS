@@ -31,7 +31,7 @@ import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
-import { defaultModelFor, providerForModel } from "./provider-detection.ts";
+import { normalizeModelForProvider } from "./provider-detection.ts";
 import { AgentInvocationQueue } from "./agent-invocation-queue.ts";
 import type {
   ModelCliAdapter,
@@ -1033,8 +1033,7 @@ const resolveModel = (
   provider: AgentProvider,
   preferred: string | undefined,
 ): string => {
-  if (preferred && providerForModel(preferred) === provider) return preferred;
-  return defaultModelFor(provider);
+  return normalizeModelForProvider(provider, preferred);
 };
 
 const shortRationale = (a: AgentProposedAction): string => {

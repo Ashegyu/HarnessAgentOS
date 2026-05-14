@@ -6,6 +6,9 @@ import {
 
 export type AgentProvider = "auto" | "claude" | "codex";
 
+export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+
 export interface AgentSettings {
   provider: AgentProvider;
   model: string;

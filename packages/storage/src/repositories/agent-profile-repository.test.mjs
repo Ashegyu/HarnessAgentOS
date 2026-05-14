@@ -8,6 +8,7 @@ import { SqliteAgentProfileRepository } from "./agent-profile-repository.ts";
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 
 const tmp = () => {
@@ -278,6 +279,49 @@ test("AgentProfileRepository.list upgrades legacy profile timeout values below d
     const fetched = await repo.get(profile.id);
     assert.equal(fetched.tuning.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
     assert.equal(fetched.tuning.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository upgrades unsupported legacy Codex gpt-5 model", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const created = await repo.create(
+      makeProfileInput({
+        name: "Codex Worker",
+        provider: "codex",
+        role: "coder",
+        tuning: {
+          model: "gpt-5",
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+          stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+          contextDepth: 5,
+          systemPromptPrefix: "",
+          systemPromptSuffix: "",
+        },
+      }),
+    );
+
+    assert.equal(created.tuning.model, DEFAULT_CODEX_MODEL);
+
+    db.prepare("UPDATE agent_profiles SET tuning_json = ? WHERE id = ?").run(
+      JSON.stringify({
+        model: "gpt-5",
+        timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+        stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+        contextDepth: 5,
+        systemPromptPrefix: "",
+        systemPromptSuffix: "",
+      }),
+      created.id,
+    );
+
+    const fetched = await repo.get(created.id);
+    assert.equal(fetched.tuning.model, DEFAULT_CODEX_MODEL);
   } finally {
     closeDb(db);
     t.cleanup();
