@@ -95,7 +95,25 @@ test("result line normalizes harness_agent_plan output to the plan summary", () 
   );
 
   assert.equal(s.parsed.finalText, planOutput.summary);
-  assert.equal(s.parsed.intermediateText, planOutput.summary);
+  assert.equal(s.parsed.intermediateText, "설명");
+  assert.match(s.parsed.thinkingText, /분석: 요청 처리/);
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "file_write",
+      input: {
+        path: "report.html",
+        rationale: "보고서 저장",
+        contentLength: "<html>large report</html>".length,
+      },
+    },
+    {
+      name: "quality_check",
+      input: {
+        command: "start report.html",
+        reason: "브라우저 렌더링 확인",
+      },
+    },
+  ]);
   assert.doesNotMatch(s.parsed.finalText, /proposedActions/);
   assert.doesNotMatch(s.parsed.finalText, /<html>/);
 });
@@ -329,6 +347,16 @@ test("hydrateSavedAgentOutput normalizes saved harness_agent_plan text", () => {
 
   assert.equal(s.parsed.intermediateText, planOutput.summary);
   assert.equal(s.parsed.finalText, planOutput.summary);
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "file_write",
+      input: {
+        path: "report.html",
+        rationale: "보고서 저장",
+        contentLength: "<html>raw file body</html>".length,
+      },
+    },
+  ]);
   assert.doesNotMatch(s.parsed.finalText, /raw file body/);
 });
 
@@ -428,6 +456,55 @@ test("codex completed assistant item stays intermediate while running", () => {
   assert.equal(s.parsed.finalText, null);
   assert.equal(s.parsed.resultMeta, null);
   assert.deepEqual(s.parsed.unknown, []);
+});
+
+test("codex completed harness_agent_plan keeps sections while running", () => {
+  const s = initStreamParserState();
+  const planOutput = {
+    summary: "최종 요약",
+    assumptions: ["저장소 구조를 기준으로 판단"],
+    steps: [{ title: "검토", rationale: "파일을 확인", risk: "low" }],
+    proposedActions: [
+      {
+        type: "shell",
+        command: "npm run check",
+        rationale: "타입 체크",
+      },
+    ],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+
+  feedStreamChunk(
+    s,
+    line({
+      type: "item.completed",
+      item: {
+        type: "assistant_message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: `작성 중 설명\n\n\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          },
+        ],
+      },
+    }),
+  );
+
+  assert.equal(s.parsed.intermediateText, "작성 중 설명");
+  assert.equal(s.parsed.finalText, null);
+  assert.match(s.parsed.thinkingText, /저장소 구조를 기준으로 판단/);
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "shell",
+      input: {
+        command: "npm run check",
+        args: undefined,
+        rationale: "타입 체크",
+      },
+    },
+  ]);
 });
 
 test("codex completed assistant item is final only after result promotion", () => {
