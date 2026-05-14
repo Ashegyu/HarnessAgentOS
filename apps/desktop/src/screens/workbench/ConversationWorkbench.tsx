@@ -18,6 +18,7 @@ import {
   hydrateSavedAgentOutput,
   initStreamParserState,
 } from "./agent-stream-parser";
+import { AgentStreamSections } from "./AgentStreamSections";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 
 type DetailState =
@@ -418,85 +419,18 @@ const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
     parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
   const finalText =
     parsed.finalText ?? (responseDraftText.length > 0 ? responseDraftText : displayText);
-  const showDraft =
-    responseDraftText.length > 0 && responseDraftText !== finalText;
 
   return (
     <div
       className="inline-agent-stream inline-agent-stream--saved"
       aria-label="Completed agent answer"
     >
-      {parsed.thinkingText.length > 0 && (
-        <details className="inline-agent-stream__section inline-agent-stream__section--thinking">
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              ✦
-            </span>
-            <span className="inline-agent-stream__title">생각 과정</span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <div className="inline-agent-stream__thinking">
-            {parsed.thinkingText}
-          </div>
-        </details>
-      )}
-
-      {parsed.toolUses.length > 0 && (
-        <details className="inline-agent-stream__section inline-agent-stream__section--tool">
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              ▷
-            </span>
-            <span className="inline-agent-stream__title">
-              명령어 / 도구 호출 ({parsed.toolUses.length})
-            </span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <ul className="inline-agent-stream__tools">
-            {parsed.toolUses.map((t, i) => (
-              <li key={`${t.name}-${i}`}>
-                <code>{t.name}</code>
-                {t.input ? (
-                  <span className="inline-agent-stream__tool-input">
-                    {JSON.stringify(t.input).slice(0, 160)}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {showDraft && (
-        <details className="inline-agent-stream__section inline-agent-stream__section--live">
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              …
-            </span>
-            <span className="inline-agent-stream__title">
-              중간 답변 / 응답 작성 중
-            </span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <div className="inline-agent-stream__live">{responseDraftText}</div>
-        </details>
-      )}
-
-      <section className="inline-agent-stream__section inline-agent-stream__section--final">
-        <header className="inline-agent-stream__head">
-          <span className="inline-agent-stream__icon" aria-hidden>
-            ✓
-          </span>
-          <span className="inline-agent-stream__title">최종 답변</span>
-        </header>
-        <pre className="inline-agent-stream__final">{finalText}</pre>
-      </section>
+      <AgentStreamSections
+        sections={parsed.sections}
+        surface="inline"
+        terminal
+        fallbackFinalText={finalText}
+      />
     </div>
   );
 };

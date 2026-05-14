@@ -22,6 +22,12 @@ export type ParsedStreamEntry =
     }
   | { kind: "unknown"; raw: string };
 
+export type ParsedStreamSection =
+  | { id: string; kind: "thinking"; text: string }
+  | { id: string; kind: "response"; text: string; phase: "live" | "intermediate" }
+  | { id: string; kind: "tool"; name: string; input: unknown }
+  | { id: string; kind: "final"; text: string };
+
 export interface ParsedStream {
   /** Final assistant answer (from `type:"result"`). Null if not yet seen. */
   finalText: string | null;
@@ -41,6 +47,12 @@ export interface ParsedStream {
   thinkingText: string;
   /** Recorded tool calls in arrival order. */
   toolUses: Array<{ name: string; input: unknown }>;
+  /**
+   * Chronological stream sections in arrival order. Unlike the aggregate
+   * fields above, this preserves interleaving such as thinking → tool →
+   * response → tool.
+   */
+  sections: ParsedStreamSection[];
   /** Most recent post_turn_summary (last one wins). */
   turnSummary: { status: string; detail: string } | null;
   /** Hooks observed (compact list, both start + response). */
@@ -67,6 +79,7 @@ const EMPTY: ParsedStream = {
   liveText: "",
   thinkingText: "",
   toolUses: [],
+  sections: [],
   turnSummary: null,
   hooks: [],
   rateLimit: null,
@@ -77,6 +90,7 @@ const EMPTY: ParsedStream = {
 export const emptyParsedStream = (): ParsedStream => ({
   ...EMPTY,
   toolUses: [],
+  sections: [],
   hooks: [],
   unknown: [],
 });
@@ -86,10 +100,15 @@ export interface StreamParserState {
   pending: string;
   /** Parsed accumulator. */
   parsed: ParsedStream;
-  /** Tracks in-progress tool_use input JSON: blockIndex → { toolUseIndex, accumulated partial_json } */
-  pendingToolInputs: Map<number, { toolUseIndex: number; json: string }>;
+  /** Tracks in-progress tool_use input JSON: blockIndex → parsed indexes + accumulated partial_json */
+  pendingToolInputs: Map<
+    number,
+    { toolUseIndex: number; sectionIndex: number; json: string }
+  >;
   /** Confirmed final text extracted from structured agent-plan output. */
   pendingFinalText: string | null;
+  /** Monotonic id source for chronological render sections. */
+  nextSectionId: number;
 }
 
 export const initStreamParserState = (): StreamParserState => ({
@@ -97,6 +116,7 @@ export const initStreamParserState = (): StreamParserState => ({
   parsed: emptyParsedStream(),
   pendingToolInputs: new Map(),
   pendingFinalText: null,
+  nextSectionId: 1,
 });
 
 /**
@@ -151,8 +171,12 @@ export const promoteIntermediateTextToFinal = (
     const text = state.pendingFinalText ??
       (parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText);
     if (text.length > 0) {
-      parsed.finalText = normalizeAssistantDisplayText(text);
+      const finalText = normalizeAssistantDisplayText(text);
+      parsed.finalText = finalText;
+      appendFinalSection(state, finalText);
     }
+  } else {
+    appendFinalSection(state, parsed.finalText);
   }
   parsed.resultMeta = {
     isError: false,
@@ -247,20 +271,31 @@ const ingestLine = (state: StreamParserState, line: string): void => {
     if (evType === "content_block_start") {
       const block = ev?.["content_block"] as Record<string, unknown> | undefined;
       if (block && block["type"] === "tool_use" && typeof block["name"] === "string") {
-        const toolUseIndex = parsed.toolUses.length;
-        parsed.toolUses.push({ name: block["name"] as string, input: null });
+        const toolUseIndex = appendToolUseSection(state, {
+          name: block["name"] as string,
+          input: null,
+        });
+        const sectionIndex = parsed.sections.length - 1;
         if (blockIndex >= 0) {
-          state.pendingToolInputs.set(blockIndex, { toolUseIndex, json: "" });
+          state.pendingToolInputs.set(blockIndex, {
+            toolUseIndex,
+            sectionIndex,
+            json: "",
+          });
         }
       }
     } else if (evType === "content_block_delta") {
       const delta = ev?.["delta"] as Record<string, unknown> | undefined;
       if (delta && delta["type"] === "text_delta" && typeof delta["text"] === "string") {
-        parsed.liveText += delta["text"] as string;
+        const text = delta["text"] as string;
+        parsed.liveText += text;
+        appendTextDeltaSection(state, "response", text, "live");
       } else if (delta && delta["type"] === "thinking_delta" && typeof delta["thinking"] === "string") {
         // Extended thinking block — accumulated separately so the UI can
         // render the model's reasoning in its own section.
-        parsed.thinkingText += delta["thinking"] as string;
+        const thinking = delta["thinking"] as string;
+        parsed.thinkingText += thinking;
+        appendTextDeltaSection(state, "thinking", thinking);
       } else if (delta && delta["type"] === "input_json_delta" && typeof delta["partial_json"] === "string") {
         const pending = state.pendingToolInputs.get(blockIndex);
         if (pending) pending.json += delta["partial_json"] as string;
@@ -273,7 +308,12 @@ const ingestLine = (state: StreamParserState, line: string): void => {
           const toolEntry = parsed.toolUses[pending.toolUseIndex];
           if (toolEntry) {
             try {
-              toolEntry.input = JSON.parse(pending.json);
+              const input = JSON.parse(pending.json);
+              toolEntry.input = input;
+              const section = parsed.sections[pending.sectionIndex];
+              if (section?.kind === "tool") {
+                section.input = input;
+              }
             } catch {
               // keep input as null if JSON is malformed
             }
@@ -346,10 +386,16 @@ const applyIntermediateAssistantText = (
   if (!plan) {
     state.pendingFinalText = null;
     state.parsed.intermediateText = text;
+    appendResponseSnapshotSection(state, text, "intermediate");
     return;
   }
-  applyHarnessAgentPlanDisplay(state, plan);
   state.parsed.intermediateText = plan.prose || plan.summary;
+  appendUniqueResponseSnapshotSection(
+    state,
+    state.parsed.intermediateText,
+    "intermediate",
+  );
+  applyHarnessAgentPlanDisplay(state, plan);
 };
 
 const applyFinalAssistantText = (
@@ -360,13 +406,20 @@ const applyFinalAssistantText = (
   if (!plan) {
     state.pendingFinalText = null;
     state.parsed.finalText = text;
+    appendFinalSection(state, text);
     return;
+  }
+  if (state.parsed.intermediateText.length === 0) {
+    state.parsed.intermediateText = plan.prose || plan.summary;
+    appendUniqueResponseSnapshotSection(
+      state,
+      state.parsed.intermediateText,
+      "intermediate",
+    );
   }
   applyHarnessAgentPlanDisplay(state, plan);
   state.parsed.finalText = plan.summary;
-  if (state.parsed.intermediateText.length === 0) {
-    state.parsed.intermediateText = plan.prose || plan.summary;
-  }
+  appendFinalSection(state, plan.summary);
 };
 
 const applyHarnessAgentPlanDisplay = (
@@ -374,8 +427,8 @@ const applyHarnessAgentPlanDisplay = (
   plan: HarnessAgentPlanDisplay,
 ): void => {
   state.pendingFinalText = plan.summary;
-  appendUniqueThinkingText(state.parsed, plan.thinkingText);
-  appendUniqueToolUses(state.parsed, plan.toolUses);
+  appendUniqueThinkingText(state, plan.thinkingText);
+  appendUniqueToolUses(state, plan.toolUses);
 };
 
 const normalizeAssistantDisplayText = (text: string): string => {
@@ -502,28 +555,125 @@ const buildHarnessPlanToolUses = (
 };
 
 const appendUniqueThinkingText = (
-  parsed: ParsedStream,
+  state: StreamParserState,
   text: string,
 ): void => {
+  const parsed = state.parsed;
   const trimmed = text.trim();
   if (trimmed.length === 0 || parsed.thinkingText.includes(trimmed)) return;
   parsed.thinkingText = parsed.thinkingText.length > 0
     ? `${parsed.thinkingText}\n\n${trimmed}`
     : trimmed;
+  appendTextDeltaSection(state, "thinking", trimmed);
 };
 
 const appendUniqueToolUses = (
-  parsed: ParsedStream,
+  state: StreamParserState,
   toolUses: Array<{ name: string; input: unknown }>,
 ): void => {
+  const parsed = state.parsed;
   for (const toolUse of toolUses) {
     const key = `${toolUse.name}:${JSON.stringify(toolUse.input)}`;
     const exists = parsed.toolUses.some(
       (existing) => `${existing.name}:${JSON.stringify(existing.input)}` === key,
     );
-    if (!exists) parsed.toolUses.push(toolUse);
+    if (!exists) appendToolUseSection(state, toolUse);
   }
 };
+
+const appendTextDeltaSection = (
+  state: StreamParserState,
+  kind: "thinking" | "response",
+  text: string,
+  phase: "live" | "intermediate" = "live",
+): void => {
+  if (text.length === 0) return;
+  const sections = state.parsed.sections;
+  const last = sections[sections.length - 1];
+  if (kind === "thinking") {
+    if (last?.kind === "thinking") {
+      last.text += text;
+      return;
+    }
+    sections.push({ id: nextSectionId(state), kind: "thinking", text });
+    return;
+  }
+  if (last?.kind === "response" && last.phase === phase) {
+    last.text += text;
+    return;
+  }
+  sections.push({ id: nextSectionId(state), kind: "response", phase, text });
+};
+
+const appendResponseSnapshotSection = (
+  state: StreamParserState,
+  text: string,
+  phase: "live" | "intermediate",
+): void => {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return;
+  const sections = state.parsed.sections;
+  const last = sections[sections.length - 1];
+  if (last?.kind === "response" && last.phase === phase) {
+    last.text = text;
+    return;
+  }
+  sections.push({ id: nextSectionId(state), kind: "response", phase, text });
+};
+
+const appendUniqueResponseSnapshotSection = (
+  state: StreamParserState,
+  text: string,
+  phase: "live" | "intermediate",
+): void => {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return;
+  const exists = state.parsed.sections.some(
+    (section) =>
+      section.kind === "response" &&
+      section.phase === phase &&
+      section.text.trim() === trimmed,
+  );
+  if (!exists) appendResponseSnapshotSection(state, text, phase);
+};
+
+const appendToolUseSection = (
+  state: StreamParserState,
+  toolUse: { name: string; input: unknown },
+): number => {
+  const parsed = state.parsed;
+  const toolUseIndex = parsed.toolUses.length;
+  parsed.toolUses.push(toolUse);
+  parsed.sections.push({
+    id: nextSectionId(state),
+    kind: "tool",
+    name: toolUse.name,
+    input: toolUse.input,
+  });
+  return toolUseIndex;
+};
+
+const appendFinalSection = (
+  state: StreamParserState,
+  text: string | null,
+): void => {
+  if (text === null || text.trim().length === 0) return;
+  const sections = state.parsed.sections;
+  const last = sections[sections.length - 1];
+  if (last?.kind === "final") {
+    last.text = text;
+    return;
+  }
+  const exists = sections.some(
+    (section) => section.kind === "final" && section.text.trim() === text.trim(),
+  );
+  if (!exists) {
+    sections.push({ id: nextSectionId(state), kind: "final", text });
+  }
+};
+
+const nextSectionId = (state: StreamParserState): string =>
+  `stream-section-${state.nextSectionId++}`;
 
 const stringArray = (value: unknown): string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string")
@@ -574,6 +724,7 @@ const ingestCodexLine = (
   const delta = extractCodexDeltaText(obj);
   if (delta !== null) {
     parsed.liveText += delta;
+    appendTextDeltaSection(state, "response", delta, "live");
     return true;
   }
 
@@ -585,7 +736,7 @@ const ingestCodexLine = (
 
   const toolUse = extractCodexToolUse(obj);
   if (toolUse !== null) {
-    parsed.toolUses.push(toolUse);
+    appendToolUseSection(state, toolUse);
     return true;
   }
 

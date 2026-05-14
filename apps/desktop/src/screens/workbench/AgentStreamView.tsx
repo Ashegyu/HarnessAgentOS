@@ -18,6 +18,7 @@ import {
   AgentProgressList,
   type AgentProgressItem,
 } from "./AgentProgressList";
+import { AgentStreamSections } from "./AgentStreamSections";
 
 interface AgentStreamViewProps {
   invocation: AgentInvocation;
@@ -44,7 +45,6 @@ export const AgentStreamView = ({
   const [showRaw, setShowRaw] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
   const stateRef = useRef<StreamParserState>(initStreamParserState());
-  const liveBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     stateRef.current = initStreamParserState();
@@ -116,12 +116,6 @@ export const AgentStreamView = ({
     invocation.costEstimate,
   ]);
 
-  useEffect(() => {
-    if (liveBoxRef.current) {
-      liveBoxRef.current.scrollTop = liveBoxRef.current.scrollHeight;
-    }
-  }, [parsed.liveText, parsed.intermediateText, parsed.finalText]);
-
   const status = invocation.status;
   const isTerminal = isTerminalStatus(status);
   const responseDraftText =
@@ -130,11 +124,9 @@ export const AgentStreamView = ({
     parsed.finalText ??
     (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
   const hasFinalAnswer = finalText !== null;
-  const showIntermediateResponse =
-    responseDraftText.length > 0 &&
-    (!hasFinalAnswer || responseDraftText !== finalText);
   const hasAnyOutput =
     hasFinalAnswer ||
+    parsed.sections.length > 0 ||
     parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
@@ -190,84 +182,24 @@ export const AgentStreamView = ({
         </pre>
       ) : (
         <>
-          {(progress.length > 0 || parsed.toolUses.length > 0) && (
+          {progress.length > 0 && (
             <AgentProgressList
               items={progress}
-              tools={parsed.toolUses}
               terminal={isTerminal}
             />
           )}
 
-          {parsed.thinkingText.length > 0 && (
-            <details
-              className="agent-stream-section agent-stream-section--thinking"
-              open={!isTerminal}
-            >
-              <summary className="agent-stream-section__head">
-                <span className="agent-stream-section__title">생각 과정</span>
-                <span className="agent-stream-section__chevron" aria-hidden>
-                  ▸
-                </span>
-              </summary>
-              <div className="agent-stream-section__thinking">
-                {parsed.thinkingText}
-              </div>
-            </details>
-          )}
-
-          {parsed.toolUses.length > 0 && (
-            <details className="agent-stream-section" open={!isTerminal}>
-              <summary className="agent-stream-section__head">
-                <span className="agent-stream-section__title">
-                  명령어 / 도구 호출 ({parsed.toolUses.length})
-                </span>
-                <span className="agent-stream-section__chevron" aria-hidden>
-                  ▸
-                </span>
-              </summary>
-              <ul className="agent-stream-section__tools">
-                {parsed.toolUses.map((t, i) => (
-                  <li key={`${t.name}-${i}`}>
-                    <code>{t.name}</code>
-                    {t.input ? (
-                      <span className="agent-stream-section__tool-input">
-                        {JSON.stringify(t.input).slice(0, 120)}
-                      </span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {showIntermediateResponse ? (
-            <details className="agent-stream-section" open={!hasFinalAnswer}>
-              <summary className="agent-stream-section__head">
-                <span className="agent-stream-section__title">
-                  중간 답변 / 응답 작성 중
-                </span>
-                <span className="agent-stream-section__chevron" aria-hidden>
-                  ▸
-                </span>
-              </summary>
-              <div ref={liveBoxRef} className="agent-stream-section__live">
-                {responseDraftText}
-              </div>
-            </details>
-          ) : null}
-
-          {finalText !== null && (
-            <section className="agent-stream-section">
-              <header className="agent-stream-section__head">
-                <span className="agent-stream-section__title">최종 답변</span>
-              </header>
-              <pre className="agent-stream-section__final">{finalText}</pre>
-            </section>
-          )}
+          <AgentStreamSections
+            sections={parsed.sections}
+            surface="panel"
+            terminal={isTerminal}
+            fallbackFinalText={finalText}
+          />
 
           {!hasFinalAnswer &&
             responseDraftText.length === 0 &&
             progress.length === 0 &&
+            parsed.sections.length === 0 &&
             parsed.thinkingText.length === 0 &&
             parsed.toolUses.length === 0 && (
               <section className="agent-stream-section">

@@ -114,6 +114,10 @@ test("result line normalizes harness_agent_plan output to the plan summary", () 
       },
     },
   ]);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["response", "thinking", "tool", "tool", "final"],
+  );
   assert.doesNotMatch(s.parsed.finalText, /proposedActions/);
   assert.doesNotMatch(s.parsed.finalText, /<html>/);
 });
@@ -276,6 +280,71 @@ test("thinking_delta events accumulate into thinkingText, separate from liveText
   assert.equal(s.parsed.thinkingText, "Let me think about this...");
   assert.equal(s.parsed.liveText, "Answer.");
   assert.equal(s.parsed.finalText, null);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["thinking", "response"],
+  );
+});
+
+test("stream sections preserve arrival order across repeated section kinds", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "inspect " },
+      },
+    }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "I will check " },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 2,
+          content_block: { type: "tool_use", name: "Shell", input: {} },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 2,
+          delta: { type: "input_json_delta", partial_json: '{"command":"npm test"}' },
+        },
+      }) +
+      line({
+        type: "stream_event",
+        event: { type: "content_block_stop", index: 2 },
+      }) +
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 3,
+          delta: { type: "text_delta", text: "then summarize." },
+        },
+      }),
+  );
+
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["thinking", "response", "tool", "response"],
+  );
+  assert.equal(s.parsed.sections[0].text, "inspect ");
+  assert.equal(s.parsed.sections[1].text, "I will check ");
+  assert.equal(s.parsed.sections[2].name, "Shell");
+  assert.deepEqual(s.parsed.sections[2].input, { command: "npm test" });
+  assert.equal(s.parsed.sections[3].text, "then summarize.");
 });
 
 test("setIntermediateAssistantText records draft output without losing liveText", () => {
@@ -423,6 +492,10 @@ test("hydrateSavedAgentOutput preserves completed stream sections", () => {
   ]);
   assert.equal(s.parsed.intermediateText, "draft answer");
   assert.equal(s.parsed.finalText, "final answer");
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["thinking", "tool", "response", "final"],
+  );
   assert.equal(s.parsed.resultMeta?.durationMs, 1200);
 });
 
@@ -505,6 +578,10 @@ test("codex completed harness_agent_plan keeps sections while running", () => {
       },
     },
   ]);
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["response", "thinking", "tool"],
+  );
 });
 
 test("codex completed assistant item is final only after result promotion", () => {

@@ -14,6 +14,7 @@ import {
   AgentProgressList,
   type AgentProgressItem,
 } from "./AgentProgressList";
+import { AgentStreamSections } from "./AgentStreamSections";
 
 interface InlineAgentStreamProps {
   /**
@@ -46,8 +47,6 @@ export const InlineAgentStream = ({
   );
   const [progress, setProgress] = useState<AgentProgressItem[]>([]);
   const stateRef = useRef<StreamParserState>(initStreamParserState());
-  const liveBoxRef = useRef<HTMLDivElement | null>(null);
-  const thinkingBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     stateRef.current = initStreamParserState();
@@ -116,19 +115,6 @@ export const InlineAgentStream = ({
     invocation.costEstimate,
   ]);
 
-  // Auto-scroll the two streaming sections so the most-recent content
-  // stays visible while the model is still emitting tokens.
-  useEffect(() => {
-    if (liveBoxRef.current) {
-      liveBoxRef.current.scrollTop = liveBoxRef.current.scrollHeight;
-    }
-  }, [parsed.liveText, parsed.intermediateText]);
-  useEffect(() => {
-    if (thinkingBoxRef.current) {
-      thinkingBoxRef.current.scrollTop = thinkingBoxRef.current.scrollHeight;
-    }
-  }, [parsed.thinkingText]);
-
   const isRunning =
     invocation.status === "queued" || invocation.status === "running";
   const isTerminal = isTerminalStatus(invocation.status);
@@ -138,11 +124,9 @@ export const InlineAgentStream = ({
     parsed.finalText ??
     (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
   const hasFinalAnswer = finalText !== null;
-  const showIntermediateResponse =
-    responseDraftText.length > 0 &&
-    (!hasFinalAnswer || responseDraftText !== finalText);
   const hasAnyOutput =
     hasFinalAnswer ||
+    parsed.sections.length > 0 ||
     parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
@@ -174,102 +158,20 @@ export const InlineAgentStream = ({
         </div>
       )}
 
-      {(progress.length > 0 || parsed.toolUses.length > 0) && (
+      {progress.length > 0 && (
         <AgentProgressList
           items={progress}
           compact
-          tools={parsed.toolUses}
           terminal={isTerminal}
         />
       )}
 
-      {parsed.thinkingText.length > 0 && (
-        <details
-          className="inline-agent-stream__section inline-agent-stream__section--thinking"
-          open={!isTerminal}
-        >
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              ✦
-            </span>
-            <span className="inline-agent-stream__title">생각 과정</span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <div
-            ref={thinkingBoxRef}
-            className="inline-agent-stream__thinking"
-          >
-            {parsed.thinkingText}
-          </div>
-        </details>
-      )}
-
-      {parsed.toolUses.length > 0 && (
-        <details
-          className="inline-agent-stream__section inline-agent-stream__section--tool"
-          open={!isTerminal}
-        >
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              ▷
-            </span>
-            <span className="inline-agent-stream__title">
-              명령어 / 도구 호출 ({parsed.toolUses.length})
-            </span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <ul className="inline-agent-stream__tools">
-            {parsed.toolUses.map((t, i) => (
-              <li key={`${t.name}-${i}`}>
-                <code>{t.name}</code>
-                {t.input ? (
-                  <span className="inline-agent-stream__tool-input">
-                    {JSON.stringify(t.input).slice(0, 160)}
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-
-      {showIntermediateResponse && (
-        <details
-          className="inline-agent-stream__section inline-agent-stream__section--live"
-          open={!hasFinalAnswer}
-        >
-          <summary className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              …
-            </span>
-            <span className="inline-agent-stream__title">
-              중간 답변 / 응답 작성 중
-            </span>
-            <span className="inline-agent-stream__chevron" aria-hidden>
-              ▸
-            </span>
-          </summary>
-          <div ref={liveBoxRef} className="inline-agent-stream__live">
-            {responseDraftText}
-          </div>
-        </details>
-      )}
-
-      {finalText !== null && (
-        <section className="inline-agent-stream__section inline-agent-stream__section--final">
-          <header className="inline-agent-stream__head">
-            <span className="inline-agent-stream__icon" aria-hidden>
-              ✓
-            </span>
-            <span className="inline-agent-stream__title">최종 답변</span>
-          </header>
-          <pre className="inline-agent-stream__final">{finalText}</pre>
-        </section>
-      )}
+      <AgentStreamSections
+        sections={parsed.sections}
+        surface="inline"
+        terminal={isTerminal}
+        fallbackFinalText={finalText}
+      />
     </div>
   );
 };
