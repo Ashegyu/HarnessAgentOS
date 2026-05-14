@@ -32,9 +32,9 @@ export interface ModelCliRequest {
    */
   sessionId?: string;
   /**
-   * When set, passed via `--system-prompt` so the model receives it in
-   * the system channel rather than as part of the user message. Keeps
-   * format instructions authoritative even across `--resume` sessions.
+   * Claude: passed via `--system-prompt` so the model receives it in
+   * the system channel. Codex CLI has no equivalent flag in `exec`,
+   * so the adapter folds it into the stdin prompt before the user request.
    */
   systemPrompt?: string;
   /**
