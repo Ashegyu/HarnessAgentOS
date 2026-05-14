@@ -4,7 +4,8 @@ import {
   feedStreamChunk,
   flushStreamParser,
   initStreamParserState,
-  setFinalAssistantText,
+  promoteIntermediateTextToFinal,
+  setIntermediateAssistantText,
   type ParsedStream,
   type StreamParserState,
 } from "./agent-stream-parser";
@@ -62,10 +63,11 @@ export const InlineAgentStream = ({
           feedStreamChunk(stateRef.current, event.text);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
-          setFinalAssistantText(stateRef.current, event.text);
+          setIntermediateAssistantText(stateRef.current, event.text);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "result") {
           flushStreamParser(stateRef.current);
+          promoteIntermediateTextToFinal(stateRef.current, event);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "failed") {
           setError({ code: event.errorCode, message: event.message });
@@ -84,7 +86,7 @@ export const InlineAgentStream = ({
     if (liveBoxRef.current) {
       liveBoxRef.current.scrollTop = liveBoxRef.current.scrollHeight;
     }
-  }, [parsed.liveText]);
+  }, [parsed.liveText, parsed.intermediateText]);
   useEffect(() => {
     if (thinkingBoxRef.current) {
       thinkingBoxRef.current.scrollTop = thinkingBoxRef.current.scrollHeight;
@@ -93,8 +95,20 @@ export const InlineAgentStream = ({
 
   const isRunning =
     invocation.status === "queued" || invocation.status === "running";
+  const isTerminal =
+    invocation.status === "succeeded" ||
+    invocation.status === "failed" ||
+    invocation.status === "cancelled";
+  const responseDraftText =
+    parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
+  const finalText =
+    parsed.finalText ??
+    (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
+  const hasFinalAnswer = finalText !== null;
+  const hasDraftResponse = !hasFinalAnswer && responseDraftText.length > 0;
   const hasAnyOutput =
-    parsed.finalText !== null ||
+    hasFinalAnswer ||
+    parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0;
@@ -125,7 +139,7 @@ export const InlineAgentStream = ({
         </div>
       )}
 
-      {progress.length > 0 && parsed.finalText === null && (
+      {progress.length > 0 && (
         <AgentProgressList items={progress} compact />
       )}
 
@@ -153,7 +167,7 @@ export const InlineAgentStream = ({
               ▷
             </span>
             <span className="inline-agent-stream__title">
-              명령어 ({parsed.toolUses.length})
+              명령어 / 도구 호출 ({parsed.toolUses.length})
             </span>
           </header>
           <ul className="inline-agent-stream__tools">
@@ -171,23 +185,23 @@ export const InlineAgentStream = ({
         </section>
       )}
 
-      {parsed.finalText === null && parsed.liveText.length > 0 && (
+      {hasDraftResponse && (
         <section className="inline-agent-stream__section inline-agent-stream__section--live">
           <header className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
               …
             </span>
             <span className="inline-agent-stream__title">
-              응답 작성 중
+              중간 답변 / 응답 작성 중
             </span>
           </header>
           <div ref={liveBoxRef} className="inline-agent-stream__live">
-            {parsed.liveText}
+            {responseDraftText}
           </div>
         </section>
       )}
 
-      {parsed.finalText !== null && (
+      {finalText !== null && (
         <section className="inline-agent-stream__section inline-agent-stream__section--final">
           <header className="inline-agent-stream__head">
             <span className="inline-agent-stream__icon" aria-hidden>
@@ -195,7 +209,7 @@ export const InlineAgentStream = ({
             </span>
             <span className="inline-agent-stream__title">최종 답변</span>
           </header>
-          <pre className="inline-agent-stream__final">{parsed.finalText}</pre>
+          <pre className="inline-agent-stream__final">{finalText}</pre>
         </section>
       )}
     </div>

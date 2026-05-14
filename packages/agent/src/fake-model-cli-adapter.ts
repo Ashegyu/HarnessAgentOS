@@ -12,8 +12,8 @@ import type {
 /**
  * Phase 8 — deterministic adapter for smoke tests, CI, and developer
  * loops without a real CLI. Each scripted scenario emits one or more
- * `raw` chunks followed by an `assistant_text` event containing the
- * harness_agent_plan fenced JSON.
+ * `raw` chunks followed by an intermediate `assistant_text` event containing
+ * the harness_agent_plan fenced JSON, then a `result` event that commits it.
  *
  * Scenarios:
  * - `ok-file-write` — one file_write action, accepted.

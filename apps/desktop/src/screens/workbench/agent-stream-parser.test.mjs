@@ -4,7 +4,8 @@ import {
   feedStreamChunk,
   flushStreamParser,
   initStreamParserState,
-  setFinalAssistantText,
+  promoteIntermediateTextToFinal,
+  setIntermediateAssistantText,
 } from "./agent-stream-parser.ts";
 
 const line = (obj) => JSON.stringify(obj) + "\n";
@@ -221,7 +222,7 @@ test("thinking_delta events accumulate into thinkingText, separate from liveText
   assert.equal(s.parsed.finalText, null);
 });
 
-test("setFinalAssistantText overrides finalText without losing liveText", () => {
+test("setIntermediateAssistantText records draft output without losing liveText", () => {
   const s = initStreamParserState();
   feedStreamChunk(
     s,
@@ -233,9 +234,21 @@ test("setFinalAssistantText overrides finalText without losing liveText", () => 
       },
     }),
   );
-  setFinalAssistantText(s, "FINAL");
-  assert.equal(s.parsed.finalText, "FINAL");
+  setIntermediateAssistantText(s, "draft answer");
+  assert.equal(s.parsed.intermediateText, "draft answer");
+  assert.equal(s.parsed.finalText, null);
   assert.equal(s.parsed.liveText, "partial");
+});
+
+test("result promotion moves intermediate assistant output to finalText", () => {
+  const s = initStreamParserState();
+  setIntermediateAssistantText(s, "final after result");
+  assert.equal(s.parsed.finalText, null);
+
+  promoteIntermediateTextToFinal(s);
+
+  assert.equal(s.parsed.finalText, "final after result");
+  assert.equal(s.parsed.intermediateText, "final after result");
 });
 
 test("codex delta events accumulate into liveText", () => {
@@ -249,7 +262,7 @@ test("codex delta events accumulate into liveText", () => {
   assert.deepEqual(s.parsed.unknown, []);
 });
 
-test("codex completed assistant item populates finalText", () => {
+test("codex completed assistant item stays intermediate while running", () => {
   const s = initStreamParserState();
   feedStreamChunk(
     s,
@@ -262,9 +275,31 @@ test("codex completed assistant item populates finalText", () => {
           role: "assistant",
           content: [{ type: "output_text", text: "final answer" }],
         },
-      }) +
-      line({ type: "turn.completed" }),
+      }),
   );
+  assert.equal(s.parsed.intermediateText, "final answer");
+  assert.equal(s.parsed.finalText, null);
+  assert.equal(s.parsed.resultMeta, null);
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
+test("codex completed assistant item is final only after result promotion", () => {
+  const s = initStreamParserState();
+  feedStreamChunk(
+    s,
+    line({
+      type: "item.completed",
+      item: {
+        type: "assistant_message",
+        role: "assistant",
+        content: [{ type: "output_text", text: "final answer" }],
+      },
+    }),
+  );
+  assert.equal(s.parsed.finalText, null);
+
+  promoteIntermediateTextToFinal(s);
+
   assert.equal(s.parsed.finalText, "final answer");
   assert.equal(s.parsed.resultMeta?.isError, false);
   assert.deepEqual(s.parsed.unknown, []);

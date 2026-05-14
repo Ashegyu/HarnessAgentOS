@@ -7,7 +7,8 @@ import {
   feedStreamChunk,
   flushStreamParser,
   initStreamParserState,
-  setFinalAssistantText,
+  promoteIntermediateTextToFinal,
+  setIntermediateAssistantText,
   type ParsedStream,
   type StreamParserState,
 } from "./agent-stream-parser";
@@ -63,10 +64,11 @@ export const AgentStreamView = ({
           // Trigger a render with a fresh object so React picks it up.
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
-          setFinalAssistantText(stateRef.current, event.text);
+          setIntermediateAssistantText(stateRef.current, event.text);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "result") {
           flushStreamParser(stateRef.current);
+          promoteIntermediateTextToFinal(stateRef.current, event);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "failed") {
           setError({ code: event.errorCode, message: event.message });
@@ -83,14 +85,21 @@ export const AgentStreamView = ({
     if (liveBoxRef.current) {
       liveBoxRef.current.scrollTop = liveBoxRef.current.scrollHeight;
     }
-  }, [parsed.liveText, parsed.finalText]);
+  }, [parsed.liveText, parsed.intermediateText, parsed.finalText]);
 
   const isTerminal =
     status === "succeeded" ||
     status === "failed" ||
     status === "cancelled";
+  const responseDraftText =
+    parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
+  const finalText =
+    parsed.finalText ??
+    (isTerminal && responseDraftText.length > 0 ? responseDraftText : null);
+  const hasFinalAnswer = finalText !== null;
   const hasAnyOutput =
-    parsed.finalText !== null ||
+    hasFinalAnswer ||
+    parsed.intermediateText.length > 0 ||
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0 ||
@@ -130,7 +139,10 @@ export const AgentStreamView = ({
       {showRaw ? (
         <pre className="agent-stream-view__body">
           {[
-            parsed.finalText ? `# result\n${parsed.finalText}` : null,
+            finalText ? `# result\n${finalText}` : null,
+            parsed.intermediateText
+              ? `# intermediate\n${parsed.intermediateText}`
+              : null,
             parsed.thinkingText ? `# thinking\n${parsed.thinkingText}` : null,
             parsed.liveText ? `# live\n${parsed.liveText}` : null,
             parsed.unknown.length > 0
@@ -142,6 +154,10 @@ export const AgentStreamView = ({
         </pre>
       ) : (
         <>
+          {progress.length > 0 && (
+            <AgentProgressList items={progress} />
+          )}
+
           {parsed.thinkingText.length > 0 && (
             <section className="agent-stream-section agent-stream-section--thinking">
               <header className="agent-stream-section__head">
@@ -152,42 +168,12 @@ export const AgentStreamView = ({
               </div>
             </section>
           )}
-          {progress.length > 0 && parsed.finalText === null && (
-            <AgentProgressList items={progress} />
-          )}
-          {parsed.finalText !== null ? (
-            <section className="agent-stream-section">
-              <header className="agent-stream-section__head">
-                <span className="agent-stream-section__title">최종 답변</span>
-              </header>
-              <pre className="agent-stream-section__final">{parsed.finalText}</pre>
-            </section>
-          ) : parsed.liveText.length > 0 ? (
-            <section className="agent-stream-section">
-              <header className="agent-stream-section__head">
-                <span className="agent-stream-section__title">응답 중…</span>
-              </header>
-              <div ref={liveBoxRef} className="agent-stream-section__live">
-                {parsed.liveText}
-              </div>
-            </section>
-          ) : progress.length === 0 ? (
-            <section className="agent-stream-section">
-              <div className="agent-stream-section__placeholder">
-                {status === "queued"
-                  ? "큐에 대기 중…"
-                  : status === "running"
-                    ? "스트리밍 대기 중…"
-                  : "출력 없음"}
-              </div>
-            </section>
-          ) : null}
 
           {parsed.toolUses.length > 0 && (
             <section className="agent-stream-section">
               <header className="agent-stream-section__head">
                 <span className="agent-stream-section__title">
-                  도구 호출 ({parsed.toolUses.length})
+                  명령어 / 도구 호출 ({parsed.toolUses.length})
                 </span>
               </header>
               <ul className="agent-stream-section__tools">
@@ -205,6 +191,43 @@ export const AgentStreamView = ({
             </section>
           )}
 
+          {!hasFinalAnswer && responseDraftText.length > 0 ? (
+            <section className="agent-stream-section">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">
+                  중간 답변 / 응답 작성 중
+                </span>
+              </header>
+              <div ref={liveBoxRef} className="agent-stream-section__live">
+                {responseDraftText}
+              </div>
+            </section>
+          ) : null}
+
+          {finalText !== null && (
+            <section className="agent-stream-section">
+              <header className="agent-stream-section__head">
+                <span className="agent-stream-section__title">최종 답변</span>
+              </header>
+              <pre className="agent-stream-section__final">{finalText}</pre>
+            </section>
+          )}
+
+          {!hasFinalAnswer &&
+            responseDraftText.length === 0 &&
+            progress.length === 0 &&
+            parsed.thinkingText.length === 0 &&
+            parsed.toolUses.length === 0 && (
+              <section className="agent-stream-section">
+                <div className="agent-stream-section__placeholder">
+                  {status === "queued"
+                    ? "큐에 대기 중…"
+                    : status === "running"
+                      ? "스트리밍 대기 중…"
+                      : "출력 없음"}
+                </div>
+              </section>
+            )}
           {metaItems.length > 0 && (
             <section className="agent-stream-section">
               <header

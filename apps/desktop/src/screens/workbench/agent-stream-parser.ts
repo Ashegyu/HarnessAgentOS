@@ -25,6 +25,12 @@ export type ParsedStreamEntry =
 export interface ParsedStream {
   /** Final assistant answer (from `type:"result"`). Null if not yet seen. */
   finalText: string | null;
+  /**
+   * Completed assistant text that arrived before the invocation is terminal.
+   * Codex can emit completed assistant items while the app-level invocation is
+   * still running, so this must not be treated as final until promoted.
+   */
+  intermediateText: string;
   /** Incremental text accumulated from text_delta events. */
   liveText: string;
   /**
@@ -57,6 +63,7 @@ export interface ParsedStream {
 
 const EMPTY: ParsedStream = {
   finalText: null,
+  intermediateText: "",
   liveText: "",
   thinkingText: "",
   toolUses: [],
@@ -120,9 +127,48 @@ export const flushStreamParser = (state: StreamParserState): StreamParserState =
 };
 
 /**
- * Replace the parser with the canonical assistant text — used when the
- * IPC layer emits `type: "assistant_text"`. The adapter already extracts
- * the final string, so we accept it verbatim as the authoritative answer.
+ * Record a completed assistant message that is not yet app-terminal.
+ * The UI renders this as "응답 작성 중" until a result event or terminal
+ * invocation status promotes it to the final answer.
+ */
+export const setIntermediateAssistantText = (
+  state: StreamParserState,
+  text: string,
+): StreamParserState => {
+  state.parsed.intermediateText = text;
+  return state;
+};
+
+export const promoteIntermediateTextToFinal = (
+  state: StreamParserState,
+  meta?: { latencyMs?: number; costEstimate?: number },
+): StreamParserState => {
+  const parsed = state.parsed;
+  if (parsed.finalText === null) {
+    const text =
+      parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText;
+    if (text.length > 0) parsed.finalText = text;
+  }
+  parsed.resultMeta = {
+    isError: false,
+    durationMs: meta?.latencyMs ?? parsed.resultMeta?.durationMs ?? 0,
+    durationApiMs: parsed.resultMeta?.durationApiMs ?? 0,
+    ...(parsed.resultMeta?.stopReason ? { stopReason: parsed.resultMeta.stopReason } : {}),
+    ...(meta?.costEstimate !== undefined
+      ? { costUsd: meta.costEstimate }
+      : parsed.resultMeta?.costUsd !== undefined
+        ? { costUsd: parsed.resultMeta.costUsd }
+        : {}),
+    ...(parsed.resultMeta?.usage ? { usage: parsed.resultMeta.usage } : {}),
+    ...(parsed.resultMeta?.sessionId ? { sessionId: parsed.resultMeta.sessionId } : {}),
+  };
+  return state;
+};
+
+/**
+ * Replace the parser with an already-confirmed final assistant text.
+ * Most renderer call sites should prefer `setIntermediateAssistantText`
+ * followed by `promoteIntermediateTextToFinal` on app-level result.
  */
 export const setFinalAssistantText = (
   state: StreamParserState,
@@ -143,7 +189,11 @@ const ingestLine = (state: StreamParserState, line: string): void => {
   }
   const type = obj["type"];
   if (type === "result") {
-    parsed.finalText = typeof obj["result"] === "string" ? (obj["result"] as string) : parsed.finalText;
+    if (typeof obj["result"] === "string") {
+      parsed.finalText = obj["result"] as string;
+    } else if (parsed.finalText === null) {
+      promoteIntermediateTextToFinal(state);
+    }
     parsed.resultMeta = {
       isError: Boolean(obj["is_error"]),
       durationMs: Number(obj["duration_ms"] ?? 0),
@@ -283,7 +333,7 @@ const ingestCodexLine = (
 
   const assistantText = extractCodexAssistantText(obj);
   if (assistantText !== null) {
-    parsed.finalText = assistantText;
+    parsed.intermediateText = assistantText;
     return true;
   }
 

@@ -113,7 +113,16 @@ export type AgentStreamEvent =
       provider: AgentProvider;
       model: string;
     }
-  | { type: "assistant_text"; invocationId: string; text: string }
+  | {
+      /**
+       * Completed assistant text observed before the app-level invocation
+       * result is committed. Renderers should treat it as intermediate until
+       * a `result` event arrives or the invocation reaches a terminal status.
+       */
+      type: "assistant_text";
+      invocationId: string;
+      text: string;
+    }
   | {
       type: "raw";
       invocationId: string;

@@ -31,11 +31,10 @@ import { resolveProviderCommand } from "./provider-executable.ts";
  * folds system instructions into the stdin prompt. timeoutMs and stallTimeoutMs come
  * from AgentModelConfig — exceeding either yields an AgentCliError.
  *
- * Phase 8 MVP does NOT implement provider-specific streaming protocols —
- * the renderer sees raw stdout chunks as `raw` events, plus a synthetic
+ * The renderer sees raw stdout chunks as `raw` events, plus a synthetic
  * `assistant_text` event at the end with the full text (already redacted
- * upstream by the IPC layer). Streaming-aware variants are a Phase 9+
- * refinement.
+ * upstream by the IPC layer). The following `result` event is what commits
+ * that assistant text as final in the UI.
  */
 export class DefaultModelCliAdapter implements ModelCliAdapter {
   async invoke(

@@ -45,6 +45,7 @@ export const AgentProgressList = ({
     <section className="agent-progress" aria-label="Agent progress">
       <header className="agent-progress__head">
         <span className="agent-progress__dot" aria-hidden />
+        <span className="agent-progress__label">진행 사항</span>
         <span className="agent-progress__title">{latest.message}</span>
         <span className="agent-progress__stage">
           {STAGE_LABELS[latest.stage]}
