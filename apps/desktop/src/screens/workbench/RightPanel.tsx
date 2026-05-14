@@ -209,6 +209,9 @@ export const RightPanel = ({
                 onRetry={onAgentRetry}
                 onCancel={onAgentCancel}
                 onUseFallback={() => onAgentUseFallback(state.detail.taskRun.id)}
+                orchestrationDriven={state.detail.approvals.some(
+                  (a) => a.actionType === "orchestration_plan",
+                )}
               />
             </div>
 

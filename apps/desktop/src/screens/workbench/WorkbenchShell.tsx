@@ -502,11 +502,15 @@ export const WorkbenchShell = (): JSX.Element => {
           // pipeline) keeps the manual approval flow so the existing
           // OrchestrationPanel UX is unchanged.
           //
-          // When the global `settings.approval.autoApprove` is ON the
-          // pending-approval useEffect (above) already handles every
-          // approval including this one; skip so the two paths don't
-          // race on the same approval id.
-          if (usingPipeline && !autoApprove) {
+          // Pre-claim the approval id in autoInFlightRef so the global
+          // auto-approve useEffect skips it — otherwise both paths can
+          // race on the same id when `settings.approval.autoApprove`
+          // is on, and the second runApproved fails with "approval is
+          // executed". Always run for pipeline picks regardless of
+          // global autoApprove: the user already opted in by selecting
+          // a pipeline for this message.
+          if (usingPipeline) {
+            autoInFlightRef.current.add(drafted.approval.id);
             try {
               await window.harness.conversation.approve({
                 approvalId: drafted.approval.id,
@@ -516,11 +520,26 @@ export const WorkbenchShell = (): JSX.Element => {
                 approvalId: drafted.approval.id,
               });
             } catch (e) {
+              // Drop the claim so the global handler / a user retry can
+              // pick it back up. Re-throw so ConversationInput's error
+              // surface tells the user the auto-flow failed (instead of
+              // silently leaving them looking at a "still working…"
+              // placeholder while the task is actually stuck). The
+              // user's recovery action is re-submitting the same
+              // message: that creates a fresh TaskRun + plan +
+              // approval and the auto-flow tries again on a clean
+              // slate. Cleaner than wiring a retry button into the
+              // orchestration panel that we've just hidden.
+              autoInFlightRef.current.delete(drafted.approval.id);
+              const message = e instanceof Error ? e.message : String(e);
               // eslint-disable-next-line no-console
               console.error(
                 "auto-run after pipeline draftPlan failed",
                 drafted.approval.id,
                 e,
+              );
+              throw new Error(
+                `파이프라인 자동 실행 실패 (${drafted.approval.id.slice(0, 8)}…): ${message}`,
               );
             }
           }

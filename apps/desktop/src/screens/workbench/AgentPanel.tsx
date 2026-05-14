@@ -11,6 +11,16 @@ interface AgentPanelProps {
   onGenerate: () => Promise<void>;
   /** When false, Generate / Retry buttons are disabled with a tooltip. */
   agentAvailable: boolean;
+  /**
+   * True when this TaskRun is being driven by orchestration (pipeline
+   * pick or legacy orch mode). In that mode the user must NOT see the
+   * "Agent plan 생성" button — orchestration owns the agent calls via
+   * its worker steps, so the standalone agent.generatePlan path is the
+   * wrong handle to pull. We still surface stream/retry/cancel for
+   * individual worker invocations because each worker step DOES create
+   * an AgentInvocation.
+   */
+  orchestrationDriven: boolean;
 }
 
 const formatLatency = (ms: number | undefined): string => {
@@ -32,13 +42,21 @@ export const AgentPanel = ({
   onUseFallback,
   onGenerate,
   agentAvailable,
+  orchestrationDriven,
 }: AgentPanelProps): JSX.Element | null => {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const latest = invocations[0];
+  // Show this panel whenever there is at least one invocation (agent
+  // mode OR pipeline workers), or when the task is still in `drafting`
+  // and the user can still trigger an agent plan. Orchestration-driven
+  // drafting tasks that haven't spun up a worker yet show nothing —
+  // the central main window already displays the live stream once a
+  // worker invocation lands.
   const isAgentMode = invocations.length > 0 || taskRun.status === "drafting";
   if (!isAgentMode) return null;
+  if (orchestrationDriven && invocations.length === 0) return null;
 
   const handle = async (label: string, fn: () => Promise<void>): Promise<void> => {
     setBusy(label);
@@ -54,7 +72,16 @@ export const AgentPanel = ({
 
   const renderControls = (): JSX.Element => {
     if (!latest) {
-      // drafting state, no invocation yet
+      // drafting state, no invocation yet. Suppress the explicit
+      // "Agent plan 생성" button when the run is orchestration-driven —
+      // that's the wrong handle for pipelines (the worker auto-runs).
+      if (orchestrationDriven) {
+        return (
+          <span className="agent-panel__hint">
+            파이프라인 / 오케스트레이션이 워커 호출을 자동 실행합니다.
+          </span>
+        );
+      }
       return (
         <button
           type="button"

@@ -2107,6 +2107,25 @@
   opacity: 0.75;
 }
 
+.orchestration-panel__pipeline-notice {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.10);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.agent-panel__hint {
+  display: block;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  padding: 4px 0;
+  font-style: italic;
+}
+
 .orchestration-panel__form {
   display: flex;
   flex-direction: column;

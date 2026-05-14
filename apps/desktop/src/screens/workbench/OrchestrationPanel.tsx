@@ -63,6 +63,19 @@ export const OrchestrationPanel = ({
     () => approvals.find(isPendingPlanApproval) ?? null,
     [approvals],
   );
+  // Pipeline-driven plans are auto-approved and auto-run by the central
+  // workbench flow when the user picks a pipeline at submit time. The
+  // OrchestrationPanel must NOT offer manual "Worker 실행" controls in
+  // that case — clicking them would either be a no-op (approval already
+  // executed) or race with the auto-run. Detect pipeline-mode by the
+  // plan's `sourcePipelineId` only; legacy mode-driven plans (no
+  // sourcePipelineId, even if already executed) keep the existing
+  // manual approval/run UX intact.
+  const isPipelineDriven =
+    planState.kind === "ready" &&
+    planState.plan !== null &&
+    typeof planState.plan.sourcePipelineId === "string" &&
+    planState.plan.sourcePipelineId.length > 0;
 
   const refreshOrchEnabled = useCallback(async (): Promise<void> => {
     try {
@@ -225,6 +238,16 @@ export const OrchestrationPanel = ({
               하세요.
             </div>
           )}
+          {isPipelineDriven && (
+            <div className="orchestration-panel__pipeline-notice">
+              이 TaskRun은 채팅 입력의 Pipeline 선택으로 자동 실행됩니다.
+              <br />
+              플랜 초안·승인·Worker 실행은 모두 자동 처리됩니다 — 아래의
+              플랜 단계만 참고하세요. 다른 파이프라인으로 재실행하려면
+              새 메시지를 보내고 다른 Pipeline을 선택하세요.
+            </div>
+          )}
+          {!isPipelineDriven && (
           <div className="orchestration-panel__form">
             {pipelines.length > 0 && (
               <label className="form-field">
@@ -301,6 +324,7 @@ export const OrchestrationPanel = ({
               <div className="error-message">{actionError}</div>
             ) : null}
           </div>
+          )}
 
           {planState.kind === "loading" ? (
             <div className="empty-state">불러오는 중…</div>
@@ -328,57 +352,59 @@ export const OrchestrationPanel = ({
             </div>
           ) : null}
 
-          <section className="orchestration-panel__run">
-            <header className="orchestration-panel__plan-header">
-              <span>승인된 plan 실행</span>
-              <span className="muted">
-                {runnableApprovals.length} approved · {pendingPlanApproval ? "1 pending" : "0 pending"}
-              </span>
-            </header>
-            {pendingPlanApproval ? (
-              <p className="muted">
-                Approvals 패널에서 plan approval(<code>{pendingPlanApproval.id}</code>)을
-                먼저 승인하세요.
-              </p>
-            ) : null}
-            {runnableApprovals.length === 0 ? (
-              <div className="empty-state">
-                승인된 orchestration plan이 없습니다.
-              </div>
-            ) : (
-              <ul className="orchestration-panel__approvals">
-                {runnableApprovals.map((a) => (
-                  <li key={a.id} className="orchestration-panel__approval">
-                    <div className="orchestration-panel__approval-info">
-                      <code>{a.id}</code>
-                      <span className="muted">{a.actionSummary}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn--primary"
-                      onClick={() => void handleRun(a.id)}
-                      disabled={runningId !== null}
-                    >
-                      {runningId === a.id ? "실행 중…" : "Worker 실행"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {lastRun ? (
-              <div className="orchestration-panel__last-run">
+          {!isPipelineDriven && (
+            <section className="orchestration-panel__run">
+              <header className="orchestration-panel__plan-header">
+                <span>승인된 plan 실행</span>
+                <span className="muted">
+                  {runnableApprovals.length} approved · {pendingPlanApproval ? "1 pending" : "0 pending"}
+                </span>
+              </header>
+              {pendingPlanApproval ? (
                 <p className="muted">
-                  실행 완료 — {lastRun.workerSteps.length} step,{" "}
-                  {lastRun.workerStepArtifactIds.length} artifact
+                  Approvals 패널에서 plan approval(<code>{pendingPlanApproval.id}</code>)을
+                  먼저 승인하세요.
                 </p>
-                <ul className="orchestration-panel__steps">
-                  {lastRun.workerSteps.map((s) => (
-                    <WorkerStepView key={s.id} step={s} />
+              ) : null}
+              {runnableApprovals.length === 0 ? (
+                <div className="empty-state">
+                  승인된 orchestration plan이 없습니다.
+                </div>
+              ) : (
+                <ul className="orchestration-panel__approvals">
+                  {runnableApprovals.map((a) => (
+                    <li key={a.id} className="orchestration-panel__approval">
+                      <div className="orchestration-panel__approval-info">
+                        <code>{a.id}</code>
+                        <span className="muted">{a.actionSummary}</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn--primary"
+                        onClick={() => void handleRun(a.id)}
+                        disabled={runningId !== null}
+                      >
+                        {runningId === a.id ? "실행 중…" : "Worker 실행"}
+                      </button>
+                    </li>
                   ))}
                 </ul>
-              </div>
-            ) : null}
-          </section>
+              )}
+              {lastRun ? (
+                <div className="orchestration-panel__last-run">
+                  <p className="muted">
+                    실행 완료 — {lastRun.workerSteps.length} step,{" "}
+                    {lastRun.workerStepArtifactIds.length} artifact
+                  </p>
+                  <ul className="orchestration-panel__steps">
+                    {lastRun.workerSteps.map((s) => (
+                      <WorkerStepView key={s.id} step={s} />
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </section>
+          )}
         </>
       ) : null}
     </div>
