@@ -215,3 +215,213 @@ test("generatePlan throws AGENT_PROVIDER_UNAVAILABLE (not TypeError) when provid
     },
   );
 });
+
+test("generatePlan persists a diagnostic log artifact when CLI invocation fails", async () => {
+  const draftingTaskRun = {
+    id: "tr-cli-fail",
+    threadId: "th-1",
+    userRequest: "do something",
+    targetDir: "/tmp",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const baseInvocation = {
+    id: "inv-cli-fail",
+    taskRunId: "tr-cli-fail",
+    provider: "claude",
+    model: "claude-opus-4-5",
+    status: "running",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+  };
+  let artifactSeq = 0;
+  const artifacts = [];
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => draftingTaskRun,
+      createStep: async () => ({
+        id: "step-cli-fail",
+        taskRunId: "tr-cli-fail",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status: "running",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => {
+        const artifact = {
+          id: `art-${++artifactSeq}`,
+          taskRunId: input.taskRunId,
+          stepId: input.stepId,
+          kind: input.kind,
+          title: input.title,
+          uri: input.uri,
+          summary: input.summary,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        artifacts.push(artifact);
+        return artifact;
+      },
+      createAgentInvocation: async () => baseInvocation,
+      updateAgentInvocation: async (_id, patch) => ({
+        ...baseInvocation,
+        ...patch,
+      }),
+      setStepStatus: async () => ({
+        id: "step-cli-fail",
+        taskRunId: "tr-cli-fail",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status: "failed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    adapter: {
+      invoke: async () => {
+        throw new Error("spawn failed with api_key=super-secret-value");
+      },
+    },
+    defaults: { timeoutMs: 100, stallTimeoutMs: 50 },
+  });
+
+  await assert.rejects(
+    () => svc.generatePlan({ taskRunId: "tr-cli-fail", provider: "claude" }),
+    (err) => err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE",
+  );
+
+  const diagnostic = artifacts.find(
+    (artifact) =>
+      artifact.kind === "log" && artifact.title === "Agent diagnostic log",
+  );
+  assert.ok(diagnostic, "diagnostic log artifact must be persisted");
+  assert.match(diagnostic.summary ?? "", /agent.generatePlan.cli/);
+  assert.match(diagnostic.summary ?? "", /AGENT_PROVIDER_UNAVAILABLE/);
+  assert.doesNotMatch(diagnostic.summary ?? "", /super-secret-value/);
+});
+
+test("generatePlan emits progress events before and after CLI invocation", async () => {
+  const draftingTaskRun = {
+    id: "tr-progress",
+    threadId: "th-progress",
+    userRequest: "explain current project",
+    targetDir: "/tmp",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const baseInvocation = {
+    id: "inv-progress",
+    taskRunId: "tr-progress",
+    provider: "claude",
+    model: "claude-opus-4-5",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  let artifactSeq = 0;
+  let stepSeq = 0;
+  const events = [];
+  const planOutput = {
+    summary: "Project explained",
+    assumptions: [],
+    steps: [{ title: "Explain", rationale: "answer only", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => draftingTaskRun,
+      createStep: async (input) => ({
+        id: `step-${++stepSeq}`,
+        taskRunId: input.taskRunId,
+        index: input.index,
+        kind: input.kind,
+        title: input.title,
+        status: input.status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async () => baseInvocation,
+      updateAgentInvocation: async (_id, patch) => ({
+        ...baseInvocation,
+        ...patch,
+      }),
+      setStepStatus: async (id, status) => ({
+        id,
+        taskRunId: "tr-progress",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+      setTaskRunCurrentStep: async () => {},
+      createCheckpoint: async (input) => ({
+        id: "cp-1",
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        reason: input.reason,
+        stateRef: input.stateRef,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    emitStreamEvent: (event) => events.push(event),
+    adapter: {
+      invoke: async (request, onEvent) => {
+        onEvent({
+          type: "started",
+          invocationId: request.invocationId,
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+        });
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 10,
+        };
+      },
+    },
+  });
+
+  await svc.generatePlan({ taskRunId: "tr-progress", provider: "claude" });
+
+  const progress = events.filter((event) => event.type === "progress");
+  assert.deepEqual(
+    progress.map((event) => event.stage),
+    ["context", "profile", "prompt", "session", "mcp", "queued", "cli", "parse", "approval", "complete"],
+  );
+  assert.ok(progress.every((event) => event.taskRunId === "tr-progress"));
+  assert.ok(progress.every((event) => event.invocationId === "inv-progress"));
+});

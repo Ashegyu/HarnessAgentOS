@@ -11,6 +11,10 @@ import {
   type ParsedStream,
   type StreamParserState,
 } from "./agent-stream-parser";
+import {
+  AgentProgressList,
+  type AgentProgressItem,
+} from "./AgentProgressList";
 
 interface AgentStreamViewProps {
   invocationId: string;
@@ -35,6 +39,7 @@ export const AgentStreamView = ({
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
+  const [progress, setProgress] = useState<AgentProgressItem[]>([]);
   const [showRaw, setShowRaw] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
   const stateRef = useRef<StreamParserState>(initStreamParserState());
@@ -44,13 +49,16 @@ export const AgentStreamView = ({
     stateRef.current = initStreamParserState();
     setParsed(stateRef.current.parsed);
     setError(null);
+    setProgress([]);
     setShowRaw(false);
     setShowMeta(false);
 
     const off = window.harness.events.onAgentStreamEvent(
       (event: AgentStreamEvent) => {
         if (event.invocationId !== invocationId) return;
-        if (event.type === "raw") {
+        if (event.type === "progress") {
+          setProgress((items) => [...items, event].slice(-12));
+        } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
           // Trigger a render with a fresh object so React picks it up.
           setParsed({ ...stateRef.current.parsed });
@@ -86,7 +94,8 @@ export const AgentStreamView = ({
     parsed.liveText.length > 0 ||
     parsed.thinkingText.length > 0 ||
     parsed.toolUses.length > 0 ||
-    parsed.unknown.length > 0;
+    parsed.unknown.length > 0 ||
+    progress.length > 0;
 
   const metaItems = useMemo(() => buildMetaItems(parsed), [parsed]);
 
@@ -143,6 +152,9 @@ export const AgentStreamView = ({
               </div>
             </section>
           )}
+          {progress.length > 0 && parsed.finalText === null && (
+            <AgentProgressList items={progress} />
+          )}
           {parsed.finalText !== null ? (
             <section className="agent-stream-section">
               <header className="agent-stream-section__head">
@@ -159,17 +171,17 @@ export const AgentStreamView = ({
                 {parsed.liveText}
               </div>
             </section>
-          ) : (
+          ) : progress.length === 0 ? (
             <section className="agent-stream-section">
               <div className="agent-stream-section__placeholder">
                 {status === "queued"
                   ? "큐에 대기 중…"
                   : status === "running"
                     ? "스트리밍 대기 중…"
-                    : "출력 없음"}
+                  : "출력 없음"}
               </div>
             </section>
-          )}
+          ) : null}
 
           {parsed.toolUses.length > 0 && (
             <section className="agent-stream-section">

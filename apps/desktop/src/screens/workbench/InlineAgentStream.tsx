@@ -8,6 +8,10 @@ import {
   type ParsedStream,
   type StreamParserState,
 } from "./agent-stream-parser";
+import {
+  AgentProgressList,
+  type AgentProgressItem,
+} from "./AgentProgressList";
 
 interface InlineAgentStreamProps {
   /**
@@ -38,6 +42,7 @@ export const InlineAgentStream = ({
   const [error, setError] = useState<{ code: string; message: string } | null>(
     null,
   );
+  const [progress, setProgress] = useState<AgentProgressItem[]>([]);
   const stateRef = useRef<StreamParserState>(initStreamParserState());
   const liveBoxRef = useRef<HTMLDivElement | null>(null);
   const thinkingBoxRef = useRef<HTMLDivElement | null>(null);
@@ -46,11 +51,14 @@ export const InlineAgentStream = ({
     stateRef.current = initStreamParserState();
     setParsed(stateRef.current.parsed);
     setError(null);
+    setProgress([]);
 
     const off = window.harness.events.onAgentStreamEvent(
       (event: AgentStreamEvent) => {
         if (event.invocationId !== invocation.id) return;
-        if (event.type === "raw") {
+        if (event.type === "progress") {
+          setProgress((items) => [...items, event].slice(-12));
+        } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
@@ -111,10 +119,14 @@ export const InlineAgentStream = ({
         </div>
       )}
 
-      {!hasAnyOutput && (
+      {!hasAnyOutput && progress.length === 0 && (
         <div className="inline-agent-stream__placeholder">
           {isRunning ? "에이전트 응답 대기 중…" : "출력 없음"}
         </div>
+      )}
+
+      {progress.length > 0 && parsed.finalText === null && (
+        <AgentProgressList items={progress} compact />
       )}
 
       {parsed.thinkingText.length > 0 && (

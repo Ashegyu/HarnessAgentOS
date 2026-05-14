@@ -9,11 +9,13 @@ import {
   AGENT_TASK_RUN_NOT_FOUND,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  formatDiagnosticLog,
   isHarnessError,
   validateProposedActionDetails,
   type AgentInvocation,
   type AgentPlanningStateGateway,
   type AgentPlanOutput,
+  type AgentProgressStage,
   type AgentProfile,
   type AgentProposedAction,
   type AgentProvider,
@@ -249,6 +251,41 @@ export class AgentPlanningService {
       status: "running",
       startedAt,
     });
+    const emit = this.deps.emitStreamEvent ?? (() => {});
+    const emitProgress = (
+      stage: AgentProgressStage,
+      message: string,
+      detail?: string,
+    ): void => {
+      emit(
+        redactStreamEvent({
+          type: "progress",
+          invocationId: invocation.id,
+          taskRunId: taskRun.id,
+          stage,
+          message,
+          ...(detail !== undefined ? { detail } : {}),
+          at: new Date().toISOString(),
+        }),
+      );
+    };
+    emitProgress(
+      "context",
+      "컨텍스트 수집 완료",
+      `${recentArtifacts.length}개 artifact, 품질 리포트 ${qualityRisks ? "있음" : "없음"}`,
+    );
+    emitProgress(
+      "profile",
+      "에이전트 프로필 선택",
+      resolved.profile
+        ? `${resolved.profile.name} (${resolved.source})`
+        : "전역 agent 설정 사용",
+    );
+    emitProgress(
+      "prompt",
+      "프롬프트 구성 완료",
+      `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자`,
+    );
 
     // 4. invoke CLI through the per-provider queue. The queue serializes
     // claude/codex work and exposes an AbortSignal so cancel/retry can
@@ -258,6 +295,11 @@ export class AgentPlanningService {
     const thread = await this.deps.state.getThread(taskRun.threadId);
     const existingSessionId =
       provider === "claude" ? thread?.agentSessionId : undefined;
+    emitProgress(
+      "session",
+      existingSessionId ? "이전 CLI 세션 이어가기" : "새 CLI 세션 준비",
+      provider,
+    );
     // Phase 4b — synthesize a temporary MCP config file when enabled
     // servers exist for the resolved profile. `null` => omit --mcp-config.
     let mcpConfigPath: string | null = null;
@@ -270,6 +312,10 @@ export class AgentPlanningService {
       mcpConfigPath = prep.mcpConfigPath;
       mcpCleanup = prep.cleanup;
     }
+    emitProgress(
+      "mcp",
+      mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+    );
 
     try {
     const request: ModelCliRequest = {
@@ -299,22 +345,24 @@ export class AgentPlanningService {
       ...(existingSessionId ? { sessionId: existingSessionId } : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
     };
-    const emit = this.deps.emitStreamEvent ?? (() => {});
     let rawStdout = "";
     let latencyMs = 0;
     let resultSessionId: string | undefined;
     try {
+      emitProgress("queued", "CLI 실행 대기열 등록", `${provider}:${model}`);
       const result = await this.queue.enqueue({
         provider,
         invocationId: invocation.id,
-        work: (signal) =>
-          this.adapter.invoke(
+        work: (signal) => {
+          emitProgress("cli", "CLI 프로세스 시작", `${provider}:${model}`);
+          return this.adapter.invoke(
             request,
             (e) => {
               emit(redactStreamEvent(e));
             },
             signal,
-          ),
+          );
+        },
       });
       rawStdout = result.stdout;
       latencyMs = result.latencyMs;
@@ -332,6 +380,19 @@ export class AgentPlanningService {
           ? e.message
           : String(e);
       const finishedAt = new Date().toISOString();
+      const diagnosticArtifact = await this.writeDiagnosticLog({
+        title: "Agent diagnostic log",
+        taskRunId: taskRun.id,
+        stepId: planStep.id,
+        invocationId: invocation.id,
+        phase: "agent.generatePlan.cli",
+        severity: isCancelled ? "warn" : "error",
+        errorCode: code,
+        message,
+        provider,
+        model,
+        ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
+      });
       if (isCancelled) {
         emit({ type: "cancelled", invocationId: invocation.id });
         await this.deps.state.updateAgentInvocation(invocation.id, {
@@ -339,6 +400,9 @@ export class AgentPlanningService {
           errorCode: AGENT_CANCELLED,
           errorMessage: redactSecrets(message, 2_000),
           finishedAt,
+          ...(diagnosticArtifact
+            ? { rawOutputArtifactId: diagnosticArtifact.id }
+            : {}),
         });
         await this.deps.state.setStepStatus(planStep.id, "failed", {
           outputSummary: `cancelled: ${message.slice(0, 200)}`,
@@ -351,6 +415,9 @@ export class AgentPlanningService {
         errorCode: code,
         errorMessage: redactSecrets(message, 2_000),
         finishedAt,
+        ...(diagnosticArtifact
+          ? { rawOutputArtifactId: diagnosticArtifact.id }
+          : {}),
       });
       await this.deps.state.setStepStatus(planStep.id, "failed", {
         outputSummary: `${code}: ${message.slice(0, 200)}`,
@@ -393,6 +460,7 @@ export class AgentPlanningService {
     }
 
     // 6. parse
+    emitProgress("parse", "응답 파싱 중", `${redactedOutput.length}자 출력`);
     const parsed = parseAgentPlan(redactedOutput);
     if (!parsed.ok) {
       const finishedAt = new Date().toISOString();
@@ -478,6 +546,13 @@ export class AgentPlanningService {
     }
 
     // 9. checkpoint + approvals
+    emitProgress(
+      "approval",
+      acceptedActions.length > 0
+        ? "승인 항목 생성 중"
+        : "승인 없이 답변 완료 처리 중",
+      `${acceptedActions.length}/${plan.proposedActions.length}개 action accepted`,
+    );
     const approvalStep = await this.deps.state.createStep({
       taskRunId: taskRun.id,
       index: stepIndex + 1,
@@ -534,6 +609,7 @@ export class AgentPlanningService {
         parsedPlanArtifactId: planArtifact.id,
       },
     );
+    emitProgress("complete", "에이전트 응답 처리 완료");
     return {
       invocation: finalInvocation,
       planArtifact,
@@ -722,6 +798,42 @@ export class AgentPlanningService {
     });
 
     const emit = this.deps.emitStreamEvent ?? (() => {});
+    const emitProgress = (
+      stage: AgentProgressStage,
+      message: string,
+      detail?: string,
+    ): void => {
+      emit(
+        redactStreamEvent({
+          type: "progress",
+          invocationId: invocation.id,
+          taskRunId: taskRun.id,
+          stage,
+          message,
+          ...(detail !== undefined ? { detail } : {}),
+          at: new Date().toISOString(),
+        }),
+      );
+    };
+    emitProgress(
+      "profile",
+      "Worker 프로필 준비",
+      `${input.profile.name} (${input.profile.role})`,
+    );
+    emitProgress(
+      "prompt",
+      "Worker 프롬프트 구성 완료",
+      `system ${systemPrompt.length}자, user ${userPrompt.length}자`,
+    );
+    emitProgress(
+      "session",
+      existingSessionId ? "이전 CLI 세션 이어가기" : "새 CLI 세션 준비",
+      provider,
+    );
+    emitProgress(
+      "mcp",
+      mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+    );
     try {
       const request: ModelCliRequest = {
         invocationId: invocation.id,
@@ -743,16 +855,20 @@ export class AgentPlanningService {
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
       };
+      emitProgress("queued", "Worker CLI 실행 대기열 등록", `${provider}:${model}`);
       const result = await this.queue.enqueue({
         provider,
         invocationId: invocation.id,
-        work: (signal) =>
-          this.adapter.invoke(
+        work: (signal) => {
+          emitProgress("cli", "Worker CLI 프로세스 시작", `${provider}:${model}`);
+          return this.adapter.invoke(
             request,
             (e) => emit(redactStreamEvent(e)),
             signal,
-          ),
+          );
+        },
       });
+      emitProgress("parse", "Worker 응답 정리 중", `${result.stdout.length}자 출력`);
       if (
         provider === "claude" &&
         result.sessionId &&
@@ -783,6 +899,7 @@ export class AgentPlanningService {
         latencyMs: result.latencyMs,
         finishedAt,
       });
+      emitProgress("complete", "Worker 응답 처리 완료");
       return { outputText: redactedOutput };
     } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
@@ -797,6 +914,18 @@ export class AgentPlanningService {
           ? e.message
           : String(e);
       const finishedAt = new Date().toISOString();
+      const diagnosticArtifact = await this.writeDiagnosticLog({
+        title: `Worker diagnostic log — ${input.profile.name}`,
+        taskRunId: taskRun.id,
+        invocationId: invocation.id,
+        phase: "agent.invokeForWorker.cli",
+        severity: isCancelled ? "warn" : "error",
+        errorCode: code,
+        message,
+        provider,
+        model,
+        ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
+      });
       // Emit the failure as a stream event too — without this the
       // InlineAgentStream sits at "응답 작성 중…" forever for a
       // failed worker call.
@@ -815,10 +944,60 @@ export class AgentPlanningService {
         errorCode: code,
         errorMessage: redactSecrets(message, 2_000),
         finishedAt,
+        ...(diagnosticArtifact
+          ? { rawOutputArtifactId: diagnosticArtifact.id }
+          : {}),
       });
       throw e;
     } finally {
       await mcpCleanup();
+    }
+  }
+
+  private async writeDiagnosticLog(input: {
+    title: string;
+    taskRunId: string;
+    stepId?: string;
+    invocationId?: string;
+    phase: string;
+    severity: "warn" | "error";
+    errorCode: string;
+    message: string;
+    provider: AgentProvider;
+    model: string;
+    detail?: string;
+  }): Promise<Artifact | null> {
+    try {
+      const message = redactSecrets(input.message, 4_000);
+      const detail = input.detail
+        ? redactSecrets(input.detail, 20_000)
+        : undefined;
+      return await this.deps.state.createArtifact({
+        taskRunId: input.taskRunId,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
+        kind: "log",
+        title: input.title,
+        uri: `harness:diagnostic/${input.taskRunId}/${Date.now()}`,
+        summary: formatDiagnosticLog({
+          severity: input.severity,
+          subsystem: "agent",
+          phase: input.phase,
+          taskRunId: input.taskRunId,
+          ...(input.stepId ? { stepId: input.stepId } : {}),
+          ...(input.invocationId ? { invocationId: input.invocationId } : {}),
+          errorCode: input.errorCode,
+          message,
+          detail: [
+            `provider=${input.provider}`,
+            `model=${input.model}`,
+            detail ?? "",
+          ]
+            .filter((line) => line.length > 0)
+            .join("\n"),
+        }),
+      });
+    } catch {
+      return null;
     }
   }
 }
@@ -906,6 +1085,15 @@ const renderPlanMarkdown = (
 };
 
 const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {
+  if (e.type === "progress") {
+    return {
+      ...e,
+      message: redactSecrets(e.message, 1_000),
+      ...(e.detail !== undefined
+        ? { detail: redactSecrets(e.detail, 1_000) }
+        : {}),
+    };
+  }
   if (e.type === "assistant_text") {
     return { ...e, text: redactSecrets(e.text, 8_000) };
   }

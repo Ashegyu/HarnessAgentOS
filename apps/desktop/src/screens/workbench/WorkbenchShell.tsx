@@ -18,6 +18,7 @@ import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import { SettingsPanel } from "./SettingsPanel";
 import { SlimRail } from "./SlimRail";
 import { HeroEmpty } from "./HeroEmpty";
+import type { AgentProgressItem } from "./AgentProgressList";
 import "./workbench.css";
 
 type ThreadsState =
@@ -58,10 +59,40 @@ export const WorkbenchShell = (): JSX.Element => {
   const [autoApprove, setAutoApprove] = useState(false);
   const [activeAgentProfile, setActiveAgentProfile] =
     useState<AgentProfile | null>(null);
+  const [agentProgressByTaskRunId, setAgentProgressByTaskRunId] = useState<
+    Record<string, AgentProgressItem[]>
+  >({});
   // Tracks approval IDs that the auto-approver has already kicked off so
   // the effect doesn't double-fire on the eventual taskRunChanged event
   // before the row's status flips out of "pending".
   const autoInFlightRef = useRef<Set<string>>(new Set());
+
+  const pushAgentProgress = useCallback(
+    (taskRunId: string, item: AgentProgressItem): void => {
+      setAgentProgressByTaskRunId((prev) => {
+        const nextItems = [...(prev[taskRunId] ?? []), item].slice(-12);
+        return { ...prev, [taskRunId]: nextItems };
+      });
+    },
+    [],
+  );
+
+  const noteAgentProgress = useCallback(
+    (
+      taskRunId: string,
+      stage: AgentProgressItem["stage"],
+      message: string,
+      detail?: string,
+    ): void => {
+      pushAgentProgress(taskRunId, {
+        stage,
+        message,
+        ...(detail !== undefined ? { detail } : {}),
+        at: new Date().toISOString(),
+      });
+    },
+    [pushAgentProgress],
+  );
 
   // Tracks TaskRun IDs that were created via pipeline-pick at submit
   // time. For these runs we auto-approve EVERY approval — the
@@ -349,6 +380,15 @@ export const WorkbenchShell = (): JSX.Element => {
   useEffect(() => {
     void refreshProviders();
     const off = window.harness.events.onAgentStreamEvent((event) => {
+      if (event.type === "progress") {
+        pushAgentProgress(event.taskRunId, event);
+        if (selectedTaskRunId === event.taskRunId) {
+          void refreshTaskRunDetail(event.taskRunId);
+        }
+        if (selectedThreadId) {
+          void refreshThreadDetail(selectedThreadId);
+        }
+      }
       if (
         event.type === "started" ||
         event.type === "result" ||
@@ -358,7 +398,14 @@ export const WorkbenchShell = (): JSX.Element => {
       }
     });
     return off;
-  }, [refreshProviders]);
+  }, [
+    pushAgentProgress,
+    refreshProviders,
+    refreshTaskRunDetail,
+    refreshThreadDetail,
+    selectedTaskRunId,
+    selectedThreadId,
+  ]);
 
   useEffect(() => {
     if (selectedThreadId === null) {
@@ -502,6 +549,8 @@ export const WorkbenchShell = (): JSX.Element => {
       // `Thread.pipelineId` only seeds the dropdown's initial value
       // (so threads "remember" the user's last choice). The user
       // freely changes it for every submission.
+      const usingPipeline =
+        input.orchPipelineId !== undefined && input.orchPipelineId.length > 0;
       const payload: {
         threadId: string;
         userRequest: string;
@@ -514,8 +563,6 @@ export const WorkbenchShell = (): JSX.Element => {
       };
       if (input.targetDir !== undefined) payload.targetDir = input.targetDir;
       const draft = await window.harness.conversation.createTask(payload);
-      const usingPipeline =
-        input.orchPipelineId !== undefined && input.orchPipelineId.length > 0;
       // Mark this TaskRun as pipeline-auto BEFORE the render that
       // mounts the detail panels. There's a race window between the
       // setSelectedTaskRunId → first taskRunDetail fetch and the
@@ -532,11 +579,23 @@ export const WorkbenchShell = (): JSX.Element => {
       // Skipped when the message routes through a pipeline —
       // orchestration owns the response generation in that case.
       if (input.mode === "agent" && !usingPipeline) {
+        noteAgentProgress(
+          draft.taskRun.id,
+          "context",
+          "에이전트 시작 준비",
+          "Provider 상태, 프로필, 최근 컨텍스트를 확인하는 중",
+        );
         try {
           await window.harness.agent.generatePlan({
             taskRunId: draft.taskRun.id,
           });
         } catch (e) {
+          noteAgentProgress(
+            draft.taskRun.id,
+            "cli",
+            "에이전트 실행 실패",
+            errorMessage(e),
+          );
           // Surface but don't unwind — the placeholder TaskRun stays
           // around so the user can retry or fall back manually.
           // eslint-disable-next-line no-console
@@ -633,23 +692,38 @@ export const WorkbenchShell = (): JSX.Element => {
       selectedTaskRunId,
       selectedThreadId,
       autoApprove,
+      noteAgentProgress,
     ],
   );
 
   const handleAgentGenerate = useCallback(
     async (taskRunId: string): Promise<void> => {
+      noteAgentProgress(
+        taskRunId,
+        "context",
+        "에이전트 시작 준비",
+        "Provider 상태, 프로필, 최근 컨텍스트를 확인하는 중",
+      );
       await window.harness.agent.generatePlan({ taskRunId });
       if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
     },
-    [refreshTaskRunDetail, selectedTaskRunId],
+    [noteAgentProgress, refreshTaskRunDetail, selectedTaskRunId],
   );
 
   const handleAgentRetry = useCallback(
     async (invocationId: string): Promise<void> => {
+      if (selectedTaskRunId) {
+        noteAgentProgress(
+          selectedTaskRunId,
+          "queued",
+          "에이전트 재시도 준비",
+          invocationId,
+        );
+      }
       await window.harness.agent.retryInvocation({ invocationId });
       if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
     },
-    [refreshTaskRunDetail, selectedTaskRunId],
+    [noteAgentProgress, refreshTaskRunDetail, selectedTaskRunId],
   );
 
   const handleAgentCancel = useCallback(
@@ -924,6 +998,7 @@ export const WorkbenchShell = (): JSX.Element => {
                   ? taskRunDetail.detail.agentInvocations
                   : []
               }
+              agentProgressByTaskRunId={agentProgressByTaskRunId}
             />
           )}
           <aside

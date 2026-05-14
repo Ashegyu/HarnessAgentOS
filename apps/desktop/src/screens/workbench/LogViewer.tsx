@@ -1,3 +1,5 @@
+import { parseLogContent } from "./log-viewer-model";
+
 interface LogViewerProps {
   content: string;
 }
@@ -8,28 +10,34 @@ interface LogViewerProps {
  * separately so the user can spot stderr at a glance.
  */
 export const LogViewer = ({ content }: LogViewerProps): JSX.Element => {
-  const stdoutMatch = content.match(/## stdout\s*\n+([\s\S]*?)(?:\n##|$)/);
-  const stderrMatch = content.match(/## stderr\s*\n+([\s\S]*?)$/);
-  const exitMatch = content.match(/exit=(-?\d+)/);
-  const stdout = (stdoutMatch?.[1] ?? "").trim();
-  const stderr = (stderrMatch?.[1] ?? "").trim();
-  const exit = exitMatch?.[1];
+  const parsed = parseLogContent(content);
+
+  if (parsed.kind === "plain") {
+    return (
+      <div className="log-viewer">
+        <section>
+          <header className="log-viewer__title">log</header>
+          <pre className="log-viewer__body">{parsed.content || "(empty)"}</pre>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="log-viewer">
-      {exit !== undefined && (
-        <div className={`log-viewer__exit log-viewer__exit--${exit === "0" ? "ok" : "err"}`}>
-          exit code: {exit}
+      {parsed.exitCode !== undefined && (
+        <div className={`log-viewer__exit log-viewer__exit--${parsed.exitCode === "0" ? "ok" : "err"}`}>
+          exit code: {parsed.exitCode}
         </div>
       )}
       <section>
         <header className="log-viewer__title">stdout</header>
-        <pre className="log-viewer__body">{stdout || "(empty)"}</pre>
+        <pre className="log-viewer__body">{parsed.stdout || "(empty)"}</pre>
       </section>
       <section>
         <header className="log-viewer__title log-viewer__title--err">stderr</header>
         <pre className="log-viewer__body log-viewer__body--err">
-          {stderr || "(empty)"}
+          {parsed.stderr || "(empty)"}
         </pre>
       </section>
     </div>

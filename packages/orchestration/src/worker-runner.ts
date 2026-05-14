@@ -108,6 +108,11 @@ export class WorkerRunner {
         status: "running",
         inputSummary: planStep.inputSummary,
       });
+      await this.deps.state.setTaskRunCurrentStep(
+        input.plan.taskRunId,
+        dbStep.id,
+      );
+      await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
       let body: string;
       let status: WorkerStep["status"] = "succeeded";
       try {
@@ -139,6 +144,12 @@ export class WorkerRunner {
       updatedSteps.push({ ...planStep, status });
       if (status === "failed") break;
     }
+    await this.deps.state.setTaskRunStatus(
+      input.plan.taskRunId,
+      updatedSteps.some((s) => s.status === "failed")
+        ? "blocked"
+        : "ready_for_review",
+    );
 
     return {
       planId: input.plan.id,

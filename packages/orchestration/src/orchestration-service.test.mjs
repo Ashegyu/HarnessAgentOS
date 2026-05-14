@@ -32,6 +32,34 @@ const seedTaskRun = async (state) => {
   });
 };
 
+const validProfileInput = (overrides = {}) => ({
+  name: "Coder",
+  description: "",
+  provider: "claude",
+  role: "coder",
+  persona: "",
+  tuning: {
+    model: "claude-sonnet-4-6",
+    timeoutMs: 300_000,
+    stallTimeoutMs: 60_000,
+    contextDepth: 5,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  ...overrides,
+});
+
 test("draftPlan refuses when feature flag is off", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -66,6 +94,55 @@ test("draftPlan creates artifact + checkpoint + approval (orchestration_plan)", 
     assert.equal(drafted.artifact.kind, "orchestration_plan");
     assert.equal(drafted.approval.actionType, "orchestration_plan");
     assert.equal(drafted.approval.status, "pending");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("draftPlan writes a diagnostic log and blocks the TaskRun when pipeline expansion fails", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const pipeline = await state.agentPipelines.create({
+      name: "Broken pipeline",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Implement",
+          instruction: "Do the thing.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    await state.agentProfiles.delete(profile.id);
+    const service = new OrchestrationService({ state, enabled: () => true });
+
+    await assert.rejects(
+      () =>
+        service.draftPlan({
+          taskRunId: taskRun.id,
+          mode: "single_worker",
+          pipelineId: pipeline.id,
+        }),
+      (e) => e.code === "PIPELINE_REFERENCED_PROFILE_MISSING",
+    );
+
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const diagnostic = artifacts.find(
+      (a) => a.kind === "log" && a.title === "Diagnostic: orchestration.draftPlan",
+    );
+    assert.ok(diagnostic, "diagnostic log artifact must be persisted");
+    assert.match(diagnostic.summary ?? "", /PIPELINE_REFERENCED_PROFILE_MISSING/);
+    assert.match(diagnostic.summary ?? "", /Broken pipeline/);
+
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun?.status, "blocked");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -116,6 +193,61 @@ test("runApproved produces worker artifacts after approval", async () => {
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const workerLogs = artifacts.filter((a) => a.kind === "log");
     assert.equal(workerLogs.length, 1);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved updates task and approval/worker steps for visible auto-run progress", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const agentPlaceholder = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 1,
+      kind: "plan",
+      title: "Agent plan 대기",
+      status: "pending",
+      inputSummary: "agent mode placeholder",
+    });
+    await state.setTaskRunCurrentStep(taskRun.id, agentPlaceholder.id);
+    await state.setTaskRunStatus(taskRun.id, "drafting");
+    const service = new OrchestrationService({ state, enabled: () => true });
+    const drafted = await service.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+    });
+    await state.decideApproval(drafted.approval.id, "approved");
+
+    const result = await service.runApproved({
+      approvalId: drafted.approval.id,
+    });
+
+    const steps = await state.listStepsByTaskRun(taskRun.id);
+    const approvalStep = steps.find(
+      (s) => s.title === "Orchestration plan 승인 대기",
+    );
+    assert.ok(approvalStep, "orchestration approval step must exist");
+    assert.equal(approvalStep.status, "succeeded");
+
+    const updatedAgentPlaceholder = steps.find(
+      (s) => s.id === agentPlaceholder.id,
+    );
+    assert.ok(updatedAgentPlaceholder, "agent placeholder step must exist");
+    assert.equal(updatedAgentPlaceholder.status, "skipped");
+
+    const workerStep = steps.find((s) => s.title.startsWith("Worker["));
+    assert.ok(workerStep, "worker step must exist");
+    assert.equal(workerStep.status, "succeeded");
+
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.ok(updatedTaskRun, "task run must exist");
+    assert.equal(updatedTaskRun.status, "ready_for_review");
+    assert.equal(updatedTaskRun.currentStepId, workerStep.id);
+    assert.equal(result.workerStepArtifactIds.length, 1);
   } finally {
     closeDb(db);
     t.cleanup();

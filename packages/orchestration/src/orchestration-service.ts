@@ -1,5 +1,10 @@
 import type { LocalStateService } from "@harness/storage";
-import type { Approval } from "@harness/core";
+import {
+  diagnosticErrorCode,
+  diagnosticErrorMessage,
+  formatDiagnosticLog,
+  type Approval,
+} from "@harness/core";
 import {
   OrchestrationError,
   type OrchestrationDraftInput,
@@ -54,7 +59,17 @@ export class OrchestrationService {
 
   async draftPlan(input: OrchestrationDraftInput): Promise<DraftedOrchestration> {
     this.assertEnabled();
-    return this.planner.draftPlan(input);
+    try {
+      return await this.planner.draftPlan(input);
+    } catch (e) {
+      await this.writeDiagnosticLog({
+        taskRunId: input.taskRunId,
+        phase: "orchestration.draftPlan",
+        error: e,
+      });
+      await this.markTaskBlocked(input.taskRunId);
+      throw e;
+    }
   }
 
   async runApproved(input: {
@@ -84,7 +99,21 @@ export class OrchestrationService {
       );
     }
     const plan = await this.recoverPlan(approval);
-    const result = await this.worker.runApproved({ approval, plan });
+    const approvalStepId = await this.markApprovalExecutionStarted(approval);
+    let result: OrchestrationRunResult;
+    try {
+      result = await this.worker.runApproved({ approval, plan });
+    } catch (e) {
+      await this.writeDiagnosticLog({
+        taskRunId: approval.taskRunId,
+        stepId: approvalStepId,
+        approvalId: approval.id,
+        phase: "orchestration.runApproved",
+        error: e,
+      });
+      await this.markTaskBlocked(approval.taskRunId);
+      throw e;
+    }
     try {
       await this.deps.state.decideApproval(
         input.approvalId,
@@ -95,6 +124,78 @@ export class OrchestrationService {
       // non-fatal: status update is best-effort
     }
     return result;
+  }
+
+  private async markApprovalExecutionStarted(
+    approval: Approval,
+  ): Promise<string | undefined> {
+    const checkpoints = await this.deps.state.listCheckpointsByTaskRun(
+      approval.taskRunId,
+    );
+    const checkpoint = checkpoints.find((c) => c.id === approval.checkpointId);
+    if (checkpoint) {
+      await this.deps.state.setStepStatus(checkpoint.stepId, "succeeded", {
+        outputSummary: "orchestration plan approved; worker execution started",
+      });
+    }
+    const steps = await this.deps.state.listStepsByTaskRun(approval.taskRunId);
+    await Promise.all(
+      steps
+        .filter(
+          (step) =>
+            step.title === "Agent plan 대기" && step.status === "pending",
+        )
+        .map((step) =>
+          this.deps.state.setStepStatus(step.id, "skipped", {
+            outputSummary: "skipped because orchestration pipeline owns this run",
+          }),
+        ),
+    );
+    await this.deps.state.setTaskRunStatus(approval.taskRunId, "running");
+    return checkpoint?.stepId;
+  }
+
+  private async markTaskBlocked(taskRunId: string): Promise<void> {
+    try {
+      await this.deps.state.setTaskRunStatus(taskRunId, "blocked");
+    } catch {
+      // non-fatal: the original worker error is more useful to callers
+    }
+  }
+
+  private async writeDiagnosticLog(input: {
+    taskRunId: string;
+    stepId?: string;
+    approvalId?: string;
+    phase: string;
+    error: unknown;
+  }): Promise<void> {
+    try {
+      const errorCode = diagnosticErrorCode(
+        input.error,
+        "ORCHESTRATION_ERROR",
+      );
+      const message = diagnosticErrorMessage(input.error);
+      await this.deps.state.createArtifact({
+        taskRunId: input.taskRunId,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
+        kind: "log",
+        title: `Diagnostic: ${input.phase}`,
+        uri: `harness:diagnostic/${input.taskRunId}/${Date.now()}`,
+        summary: formatDiagnosticLog({
+          severity: "error",
+          subsystem: "orchestration",
+          phase: input.phase,
+          taskRunId: input.taskRunId,
+          ...(input.stepId ? { stepId: input.stepId } : {}),
+          ...(input.approvalId ? { approvalId: input.approvalId } : {}),
+          errorCode,
+          message,
+        }),
+      });
+    } catch {
+      // Logging is diagnostic only; never hide the original failure.
+    }
   }
 
   /**

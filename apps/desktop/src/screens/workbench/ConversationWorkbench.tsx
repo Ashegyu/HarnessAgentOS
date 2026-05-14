@@ -10,6 +10,10 @@ import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
 import { HeroEmpty } from "./HeroEmpty";
 import { InlineApprovalCard } from "./InlineApprovalCard";
 import { InlineAgentStream } from "./InlineAgentStream";
+import {
+  AgentProgressList,
+  type AgentProgressItem,
+} from "./AgentProgressList";
 
 type DetailState =
   | { kind: "idle" }
@@ -51,6 +55,7 @@ interface ConversationWorkbenchProps {
    * before the worker step starts in pipeline mode).
    */
   activeTaskRunInvocations: AgentInvocation[];
+  agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
 }
 
 const formatTime = (iso: string): string => {
@@ -77,6 +82,7 @@ export const ConversationWorkbench = ({
   activeTaskRunApprovals,
   activeTaskRunId,
   activeTaskRunInvocations,
+  agentProgressByTaskRunId,
 }: ConversationWorkbenchProps): JSX.Element => {
   const [composerSeed, setComposerSeed] = useState<
     { text: string; key: number } | null
@@ -145,6 +151,7 @@ export const ConversationWorkbench = ({
         activeTaskRunId={activeTaskRunId}
         activeTaskRunApprovals={activeTaskRunApprovals}
         activeTaskRunInvocations={activeTaskRunInvocations}
+        agentProgressByTaskRunId={agentProgressByTaskRunId}
         autoApprove={autoApprove}
         contextDrawerOpen={contextDrawerOpen}
         onOpenContextDrawer={() => {
@@ -218,6 +225,7 @@ const ChatTranscript = ({
   activeTaskRunId,
   activeTaskRunApprovals,
   activeTaskRunInvocations,
+  agentProgressByTaskRunId,
   autoApprove,
   contextDrawerOpen,
   onOpenContextDrawer,
@@ -230,6 +238,7 @@ const ChatTranscript = ({
   activeTaskRunId: string | null;
   activeTaskRunApprovals: Approval[];
   activeTaskRunInvocations: AgentInvocation[];
+  agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
   autoApprove: boolean;
   contextDrawerOpen: boolean;
   onOpenContextDrawer: () => void;
@@ -292,6 +301,7 @@ const ChatTranscript = ({
           invocation={
             activeTaskRunId === tr.id ? latestInvocation : undefined
           }
+          progress={agentProgressByTaskRunId[tr.id] ?? []}
           inlineApprovalCard={
             activeTaskRunId === tr.id ? (
               <InlineApprovalCard
@@ -315,6 +325,7 @@ const ChatTurn = ({
   onSelect,
   onDelete,
   invocation,
+  progress,
   inlineApprovalCard,
 }: {
   taskRun: TaskRun;
@@ -323,6 +334,7 @@ const ChatTurn = ({
   onSelect: () => void;
   onDelete: () => void;
   invocation: AgentInvocation | undefined;
+  progress: readonly AgentProgressItem[];
   inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
   // When this turn has a live invocation we render the streaming view
@@ -367,6 +379,8 @@ const ChatTurn = ({
             // lives in the right panel's Plan tab, so duplicating it
             // here would just confuse "which one is canonical?".
             <InlineAgentStream invocation={invocation} />
+          ) : progress.length > 0 && !hasFinalAnswer ? (
+            <AgentProgressList items={progress} compact />
           ) : hasFinalAnswer ? (
             // No live invocation on this turn (older turn, or backend
             // didn't go through the agent path) — fall back to the

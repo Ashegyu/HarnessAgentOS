@@ -79,11 +79,34 @@ export interface AgentProviderStatusMap {
   codex: AgentProviderProbe;
 }
 
+export type AgentProgressStage =
+  | "context"
+  | "profile"
+  | "prompt"
+  | "session"
+  | "mcp"
+  | "queued"
+  | "cli"
+  | "parse"
+  | "approval"
+  | "complete";
+
+export interface AgentProgressEvent {
+  type: "progress";
+  invocationId: string;
+  taskRunId: string;
+  stage: AgentProgressStage;
+  message: string;
+  detail?: string;
+  at: string;
+}
+
 /**
  * Stream chunks normalized across providers. Renderer subscribes to
  * `events:agentStreamEvent` and filters by `invocationId`.
  */
 export type AgentStreamEvent =
+  | AgentProgressEvent
   | {
       type: "started";
       invocationId: string;

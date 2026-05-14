@@ -18,6 +18,8 @@ export type {
   AgentInvocation,
   AgentProviderProbe,
   AgentProviderStatusMap,
+  AgentProgressEvent,
+  AgentProgressStage,
   AgentStreamEvent,
 } from "./agent-invocation.ts";
 export * from "./agent-plan-output.ts";

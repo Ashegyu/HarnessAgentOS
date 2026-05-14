@@ -2,6 +2,7 @@ export * from "./result.ts";
 export * from "./error.ts";
 export * from "./runtime.ts";
 export * from "./execution-timeouts.ts";
+export * from "./diagnostic-log.ts";
 export * from "./api.ts";
 export * from "./ipc-channels.ts";
 export * from "./path-policy.ts";

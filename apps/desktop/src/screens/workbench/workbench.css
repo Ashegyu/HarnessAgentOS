@@ -3177,6 +3177,87 @@
   padding: 4px 0;
 }
 
+.agent-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(59, 130, 246, 0.26);
+  border-left: 2px solid rgba(59, 130, 246, 0.72);
+  background: rgba(59, 130, 246, 0.07);
+}
+
+.agent-progress__head {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.agent-progress__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgb(96, 165, 250);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.16);
+}
+
+.agent-progress__title {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-progress__stage {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.agent-progress__detail {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.agent-progress__steps {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 2px 0 0 0;
+}
+
+.agent-progress__steps li {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.agent-progress__step-stage,
+.agent-progress__time {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.agent-progress__step-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .inline-agent-stream__section {
   display: flex;
   flex-direction: column;
