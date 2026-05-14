@@ -5,6 +5,7 @@ import {
   type AgentProposedAction,
   type Approval,
   type ProposedActionDetails,
+  workerActionCheckpointSummary,
 } from "@harness/core";
 import {
   OrchestrationError,
@@ -221,7 +222,7 @@ export class WorkerRunner {
           artifactIds: stepArtifactIds,
           orchestrationPlanId: input.plan.id,
         }),
-        summary: `worker action checkpoint (${acceptedActions.length} actions)`,
+        summary: workerActionCheckpointSummary(acceptedActions.length),
       });
       for (const { action, details, workerTitle } of acceptedActions) {
         const approval = await this.deps.state.createApproval({

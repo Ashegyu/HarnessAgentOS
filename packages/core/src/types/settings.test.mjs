@@ -14,6 +14,7 @@ test("DEFAULT_HARNESS_SETTINGS is frozen (immutable)", () => {
   assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS));
   assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS.agent));
   assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS.orchestration));
+  assert.ok(Object.isFrozen(DEFAULT_HARNESS_SETTINGS.approval));
 });
 
 test("DEFAULT_HARNESS_SETTINGS has expected orchestration defaults", () => {
@@ -25,4 +26,12 @@ test("DEFAULT_HARNESS_SETTINGS leaves activeAgentProfileId undefined", () => {
   // the row marked isDefault, or the legacy agent settings when no
   // AgentProfile rows exist yet.
   assert.equal(DEFAULT_HARNESS_SETTINGS.activeAgentProfileId, undefined);
+});
+
+test("DEFAULT_HARNESS_SETTINGS keeps narrow worker file auto-run off", () => {
+  assert.equal(DEFAULT_HARNESS_SETTINGS.approval.autoApprove, false);
+  assert.equal(
+    DEFAULT_HARNESS_SETTINGS.approval.autoExecuteWorkerFileActions,
+    false,
+  );
 });

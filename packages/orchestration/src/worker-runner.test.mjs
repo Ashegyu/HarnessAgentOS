@@ -317,9 +317,13 @@ test("runApproved creates downstream approvals for worker file_write proposals",
 
     assert.equal(result.proposedApprovalIds.length, 2);
     const approvals = await state.listApprovalsByTaskRun(taskRun.id);
-    const downstream = approvals.filter((a) =>
-      result.proposedApprovalIds.includes(a.id),
-    );
+    const downstream = approvals
+      .filter((a) => result.proposedApprovalIds.includes(a.id))
+      .sort((a, b) =>
+        a.proposedAction.filePatch.path.localeCompare(
+          b.proposedAction.filePatch.path,
+        ),
+      );
     assert.equal(downstream.length, 2);
     assert.deepEqual(
       downstream.map((a) => a.status),

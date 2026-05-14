@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { shouldAutoApprove } from "./auto-approve-policy.ts";
+import {
+  isWorkerFileActionApproval,
+  shouldAutoApprove,
+  workerActionCheckpointSummary,
+} from "./auto-approve-policy.ts";
 
 const makeApproval = (actionType) => ({
   id: "apv_1",
@@ -27,6 +31,78 @@ test("shouldAutoApprove returns false when global autoApprove is off and no prof
     activeProfile: null,
   });
   assert.equal(r, false);
+});
+
+test("shouldAutoApprove can auto-run only worker-proposed file writes", () => {
+  const r = shouldAutoApprove({
+    approval: makeApproval("file_write"),
+    globalAutoApprove: false,
+    activeProfile: null,
+    workerFileActionAutoApprove: true,
+    isWorkerFileAction: true,
+  });
+  assert.equal(r, true);
+});
+
+test("shouldAutoApprove does not treat non-worker file writes as worker auto actions", () => {
+  const r = shouldAutoApprove({
+    approval: makeApproval("file_write"),
+    globalAutoApprove: false,
+    activeProfile: null,
+    workerFileActionAutoApprove: true,
+    isWorkerFileAction: false,
+  });
+  assert.equal(r, false);
+});
+
+test("shouldAutoApprove worker file auto-run stays under profile block list", () => {
+  const r = shouldAutoApprove({
+    approval: makeApproval("file_write"),
+    globalAutoApprove: false,
+    activeProfile: {
+      permissions: {
+        autoApproveActions: [],
+        blockedActions: ["file_write"],
+        allowedSkillIds: [],
+        toolAllowlist: [],
+        toolDenylist: [],
+      },
+    },
+    workerFileActionAutoApprove: true,
+    isWorkerFileAction: true,
+  });
+  assert.equal(r, false);
+});
+
+test("isWorkerFileActionApproval recognizes worker checkpoint file writes", () => {
+  const approval = makeApproval("file_write");
+  assert.equal(
+    isWorkerFileActionApproval({
+      approval,
+      checkpoints: [
+        {
+          id: "ckp_1",
+          summary: workerActionCheckpointSummary(2),
+        },
+      ],
+    }),
+    true,
+  );
+});
+
+test("isWorkerFileActionApproval rejects same checkpoint for non-file actions", () => {
+  assert.equal(
+    isWorkerFileActionApproval({
+      approval: makeApproval("shell"),
+      checkpoints: [
+        {
+          id: "ckp_1",
+          summary: workerActionCheckpointSummary(1),
+        },
+      ],
+    }),
+    false,
+  );
 });
 
 test("shouldAutoApprove honors profile.permissions.autoApproveActions even when global is off", () => {

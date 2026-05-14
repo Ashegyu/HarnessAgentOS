@@ -55,6 +55,7 @@ type Action =
   | { type: "setDefaultInstructions"; value: string }
   | { type: "setDefaultPipelineId"; value: string }
   | { type: "setAutoApprove"; value: boolean }
+  | { type: "setAutoExecuteWorkerFileActions"; value: boolean }
   | { type: "saving" }
   | { type: "saved"; settings: HarnessSettings }
   | { type: "saveError"; message: string };
@@ -96,6 +97,9 @@ const reducer = (state: FormState, action: Action): FormState => {
   }
   if (action.type === "setAutoApprove") {
     return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoApprove: action.value } } };
+  }
+  if (action.type === "setAutoExecuteWorkerFileActions") {
+    return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoExecuteWorkerFileActions: action.value } } };
   }
   if (action.type === "saving") {
     return { ...state, saving: true, error: null };
@@ -406,6 +410,28 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
               </label>
               <p className="settings-field__hint" style={{ color: "var(--status-failed)" }}>
                 ⚠ 켜면 file_write·shell뿐 아니라 dependency_install·git_commit·skill_script·network·orchestration_plan까지 사람의 확인 없이 자동 실행됩니다. orchestration_plan을 자동 승인하면 worker가 만드는 후속 approval도 연쇄적으로 자동 처리됩니다.
+              </p>
+
+              <label className="settings-field settings-field--checkbox">
+                <input
+                  type="checkbox"
+                  checked={state.draft.approval.autoExecuteWorkerFileActions}
+                  disabled={state.saving}
+                  onChange={(e) =>
+                    dispatch({
+                      type: "setAutoExecuteWorkerFileActions",
+                      value: e.target.checked,
+                    })
+                  }
+                />
+                <span className="settings-field__label">
+                  Worker 파일 생성/수정 자동 승인 및 실행
+                </span>
+              </label>
+              <p className="settings-field__hint">
+                Worker가 제안한 file_write approval만 자동 처리합니다. 일반 file_write,
+                shell, network, git_commit, orchestration_plan은 포함하지 않으며 Agent
+                Profile의 Block 설정이 계속 우선합니다.
               </p>
             </fieldset>
 

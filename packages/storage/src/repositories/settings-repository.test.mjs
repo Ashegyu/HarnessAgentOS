@@ -124,13 +124,18 @@ test("SettingsRepository defaults approval.autoApprove to false when missing", a
       .run("harness_settings", JSON.stringify({ agent: { provider: "auto", timeoutMs: 300_000, stallTimeoutMs: 60_000, model: "", contextDepth: 5 } }));
     const retrieved = await repo.get();
     assert.equal(retrieved.approval.autoApprove, false, "legacy row defaults approval.autoApprove to false");
+    assert.equal(
+      retrieved.approval.autoExecuteWorkerFileActions,
+      false,
+      "legacy row defaults approval.autoExecuteWorkerFileActions to false",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
   }
 });
 
-test("SettingsRepository round-trips approval.autoApprove=true", async () => {
+test("SettingsRepository round-trips approval automation flags", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
@@ -138,10 +143,15 @@ test("SettingsRepository round-trips approval.autoApprove=true", async () => {
     await repo.update({
       agent: { provider: "auto", timeoutMs: 300_000, stallTimeoutMs: 60_000, model: "", contextDepth: 5 },
       orchestration: { enabled: false, defaultMode: "single_worker", defaultInstructions: "", workerProfiles: [] },
-      approval: { autoApprove: true },
+      approval: { autoApprove: true, autoExecuteWorkerFileActions: true },
     });
     const retrieved = await repo.get();
     assert.equal(retrieved.approval.autoApprove, true, "approval.autoApprove preserved");
+    assert.equal(
+      retrieved.approval.autoExecuteWorkerFileActions,
+      true,
+      "approval.autoExecuteWorkerFileActions preserved",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -157,6 +167,11 @@ test("SettingsRepository.get() coerces malformed approval to default", async () 
       .run("harness_settings", JSON.stringify({ agent: { provider: "auto", timeoutMs: 300_000, stallTimeoutMs: 60_000, model: "", contextDepth: 5 }, approval: "bad_value" }));
     const retrieved = await repo.get();
     assert.equal(retrieved.approval.autoApprove, false, "malformed approval coerced to false");
+    assert.equal(
+      retrieved.approval.autoExecuteWorkerFileActions,
+      false,
+      "malformed approval autoExecuteWorkerFileActions coerced to false",
+    );
   } finally {
     closeDb(db);
     t.cleanup();

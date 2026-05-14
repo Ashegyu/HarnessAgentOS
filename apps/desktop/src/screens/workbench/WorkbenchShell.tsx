@@ -9,7 +9,7 @@ import type {
   ThreadDetail,
   TaskRunDetail,
 } from "@harness/core";
-import { shouldAutoApprove } from "@harness/core";
+import { isWorkerFileActionApproval, shouldAutoApprove } from "@harness/core";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
 import type { ConversationMode } from "./ConversationInput";
@@ -57,6 +57,8 @@ export const WorkbenchShell = (): JSX.Element => {
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
+  const [autoExecuteWorkerFileActions, setAutoExecuteWorkerFileActions] =
+    useState(false);
   const [activeAgentProfile, setActiveAgentProfile] =
     useState<AgentProfile | null>(null);
   const [agentProgressByTaskRunId, setAgentProgressByTaskRunId] = useState<
@@ -358,6 +360,9 @@ export const WorkbenchShell = (): JSX.Element => {
     try {
       const s = await window.harness.settings.get();
       setAutoApprove(s.approval.autoApprove);
+      setAutoExecuteWorkerFileActions(
+        s.approval.autoExecuteWorkerFileActions,
+      );
       // Also resolve which AgentProfile is active so the auto-approve
       // policy can layer per-profile permissions on top of the global flag.
       const profiles = await window.harness.agents.list();
@@ -369,6 +374,7 @@ export const WorkbenchShell = (): JSX.Element => {
       setActiveAgentProfile(next);
     } catch {
       setAutoApprove(false);
+      setAutoExecuteWorkerFileActions(false);
       setActiveAgentProfile(null);
     }
   }, []);
@@ -447,7 +453,8 @@ export const WorkbenchShell = (): JSX.Element => {
   // Auto-approve + auto-execute. Combines three triggers:
   //   1. The global `approval.autoApprove` toggle.
   //   2. The active AgentProfile's per-action permissions.
-  //   3. Pipeline-pick consent (this TaskRun was started by picking a
+  //   3. The narrow worker-file automation toggle.
+  //   4. Pipeline-pick consent (this TaskRun was started by picking a
   //      pipeline in ConversationInput — every approval it produces is
   //      pre-approved, including downstream worker actions).
   //
@@ -465,6 +472,21 @@ export const WorkbenchShell = (): JSX.Element => {
     );
     const blockedActions =
       activeAgentProfile?.permissions.blockedActions ?? [];
+    const isWorkerFileAction = (approval: Approval): boolean =>
+      isWorkerFileActionApproval({
+        approval,
+        checkpoints: taskRunDetail.detail.checkpoints,
+      });
+    const autoApproveMessage = (approval: Approval): string => {
+      if (isPipelineAutoTask) return "auto-approved (pipeline task)";
+      if (
+        autoExecuteWorkerFileActions &&
+        isWorkerFileAction(approval)
+      ) {
+        return "auto-approved (settings.approval.autoExecuteWorkerFileActions)";
+      }
+      return "auto-approved (settings.approval.autoApprove)";
+    };
     const pending = taskRunDetail.detail.approvals.filter(
       (a: Approval): boolean => {
         if (a.status !== "pending") return false;
@@ -476,6 +498,8 @@ export const WorkbenchShell = (): JSX.Element => {
           approval: a,
           globalAutoApprove: autoApprove,
           activeProfile: activeAgentProfile,
+          workerFileActionAutoApprove: autoExecuteWorkerFileActions,
+          isWorkerFileAction: isWorkerFileAction(a),
         });
       },
     );
@@ -486,7 +510,7 @@ export const WorkbenchShell = (): JSX.Element => {
         try {
           await window.harness.conversation.approve({
             approvalId: approval.id,
-            message: "auto-approved (settings.approval.autoApprove)",
+            message: autoApproveMessage(approval),
           });
           if (approval.actionType === "orchestration_plan") {
             await window.harness.orchestration.runApproved({
@@ -510,6 +534,7 @@ export const WorkbenchShell = (): JSX.Element => {
     })();
   }, [
     autoApprove,
+    autoExecuteWorkerFileActions,
     activeAgentProfile,
     taskRunDetail,
     selectedTaskRunId,

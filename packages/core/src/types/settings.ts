@@ -49,6 +49,13 @@ export interface OrchestrationSettings {
  */
 export interface ApprovalSettings {
   autoApprove: boolean;
+  /**
+   * Narrow automation for worker-proposed `file_write` approvals only.
+   * This does not approve general file_write approvals or any shell /
+   * network / git / orchestration actions. The renderer still honors the
+   * active AgentProfile block list before approving and executing.
+   */
+  autoExecuteWorkerFileActions: boolean;
 }
 
 export interface HarnessSettings {
@@ -82,5 +89,6 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
     }),
     approval: Object.freeze({
       autoApprove: false,
+      autoExecuteWorkerFileActions: false,
     }),
   });

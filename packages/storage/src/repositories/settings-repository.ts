@@ -75,6 +75,10 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
   const ap = s.approval as Partial<ApprovalSettings> | null | undefined;
   const approval: ApprovalSettings = {
     autoApprove: typeof ap?.autoApprove === "boolean" ? ap.autoApprove : false,
+    autoExecuteWorkerFileActions:
+      typeof ap?.autoExecuteWorkerFileActions === "boolean"
+        ? ap.autoExecuteWorkerFileActions
+        : false,
   };
   return { ...s, agent, orchestration, approval };
 };

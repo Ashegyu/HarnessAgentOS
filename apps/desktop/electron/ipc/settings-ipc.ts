@@ -86,6 +86,10 @@ const validateSettingsInput = (
       : {};
   const autoApprove =
     typeof ap.autoApprove === "boolean" ? ap.autoApprove : false;
+  const autoExecuteWorkerFileActions =
+    typeof ap.autoExecuteWorkerFileActions === "boolean"
+      ? ap.autoExecuteWorkerFileActions
+      : false;
   return {
     ok: true,
     value: {
@@ -105,6 +109,7 @@ const validateSettingsInput = (
       },
       approval: {
         autoApprove,
+        autoExecuteWorkerFileActions,
       },
     },
   };
