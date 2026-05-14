@@ -1,4 +1,5 @@
 import type { Artifact } from "@harness/core";
+import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 
 interface PlanArtifactViewProps {
   artifacts: Artifact[];
@@ -28,7 +29,9 @@ export const PlanArtifactView = ({
           {new Date(latest.createdAt).toLocaleString()}
         </span>
       </header>
-      <pre className="plan-view__body">{latest.summary ?? "(빈 계획)"}</pre>
+      <pre className="plan-view__body">
+        {stripEmbeddedOrchestrationPlanJson(latest.summary ?? "(빈 계획)")}
+      </pre>
       {planArtifacts.length > 1 && (
         <details className="plan-view__history">
           <summary>이전 계획 {planArtifacts.length - 1}개</summary>
@@ -36,7 +39,7 @@ export const PlanArtifactView = ({
             {planArtifacts.slice(0, -1).reverse().map((a) => (
               <li key={a.id}>
                 <strong>{a.title}</strong>
-                <pre>{a.summary ?? ""}</pre>
+                <pre>{stripEmbeddedOrchestrationPlanJson(a.summary ?? "")}</pre>
               </li>
             ))}
           </ul>

@@ -14,6 +14,7 @@ import {
   AgentProgressList,
   type AgentProgressItem,
 } from "./AgentProgressList";
+import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 
 type DetailState =
   | { kind: "idle" }
@@ -406,17 +407,18 @@ const ChatTurn = ({
 // preserve line breaks and clip overly long bodies with a "더 보기" toggle.
 const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
   const LIMIT = 1200;
-  const tooLong = text.length > LIMIT;
+  const displayText = stripEmbeddedOrchestrationPlanJson(text);
+  const tooLong = displayText.length > LIMIT;
   return tooLong ? (
     <details>
       <summary className="chat-bubble__more">
-        {text.slice(0, LIMIT)}…{" "}
+        {displayText.slice(0, LIMIT)}…{" "}
         <span className="chat-bubble__more-cta">더 보기</span>
       </summary>
-      <pre className="chat-bubble__full">{text}</pre>
+      <pre className="chat-bubble__full">{displayText}</pre>
     </details>
   ) : (
-    <pre className="chat-bubble__full">{text}</pre>
+    <pre className="chat-bubble__full">{displayText}</pre>
   );
 };
 

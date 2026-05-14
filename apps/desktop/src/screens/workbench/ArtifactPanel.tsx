@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Artifact, ArtifactKind } from "@harness/core";
 import { DiffViewer } from "./DiffViewer";
 import { LogViewer } from "./LogViewer";
+import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 
 interface ArtifactPanelProps {
   artifacts: Artifact[];
@@ -65,6 +66,10 @@ export const ArtifactPanel = ({
   const opened = openId
     ? artifacts.find((a) => a.id === openId) ?? null
     : null;
+  const displayContent =
+    opened?.kind === "orchestration_plan" && content !== null
+      ? stripEmbeddedOrchestrationPlanJson(content)
+      : content;
   const groups = groupByKind(artifacts);
   const visibleKinds = Array.from(groups.keys());
 
@@ -114,23 +119,23 @@ export const ArtifactPanel = ({
               {error}
             </div>
           )}
-          {!error && content === null && (
+          {!error && displayContent === null && (
             <div className="empty-state">불러오는 중…</div>
           )}
-          {!error && content !== null && opened.kind === "diff" && (
-            <DiffViewer content={content} />
+          {!error && displayContent !== null && opened.kind === "diff" && (
+            <DiffViewer content={displayContent} />
           )}
           {!error &&
-            content !== null &&
+            displayContent !== null &&
             (opened.kind === "log" || opened.kind === "test_result") && (
-              <LogViewer content={content} />
+              <LogViewer content={displayContent} />
             )}
           {!error &&
-            content !== null &&
+            displayContent !== null &&
             opened.kind !== "diff" &&
             opened.kind !== "log" &&
             opened.kind !== "test_result" && (
-              <pre className="artifact-panel__plain">{content}</pre>
+              <pre className="artifact-panel__plain">{displayContent}</pre>
             )}
         </div>
       )}
