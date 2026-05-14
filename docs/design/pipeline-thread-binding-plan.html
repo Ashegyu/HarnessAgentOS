@@ -44,6 +44,9 @@
   .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #e9eef5; color: #2b3848; font-size: 12px; font-weight: 600; margin-right: 6px; }
   .pill--phase1 { background: #e2f0fb; color: #1d4d7a; }
   .pill--phase2 { background: #fbe9e3; color: #7a3c1f; }
+  .pill--done { background: #d8efd9; color: #205a26; }
+  .status-banner { background: #d8efd9; border: 1px solid #2c8c3a; border-radius: 6px; padding: 14px 20px; margin: 20px 0; color: #205a26; }
+  .status-banner strong { color: #14431a; }
   ul { margin: 6px 0; padding-left: 22px; }
   ul li { margin: 4px 0; }
   .diagram { font-family: var(--mono); font-size: 12.5px; line-height: 1.45; white-space: pre; background: var(--code-bg); padding: 14px 16px; border-radius: 6px; overflow-x: auto; }
@@ -58,15 +61,26 @@
   파이프라인은 사용자가 명시적으로 원할 때만 거치도록 하고, 그 선택을 스레드 생성 시점에 한 번만 받는다.
   본 문서는 그 변경에 필요한 모든 파일·필드·테스트를 두 페이즈로 나누어 기술한다.
 </p>
-<p class="meta">Path: <code>docs/design/pipeline-thread-binding-plan.html</code> · 작성일: 2026-05-13 · 기준 커밋: <code>fbb9859</code></p>
+<p class="meta">Path: <code>docs/design/pipeline-thread-binding-plan.html</code> · 작성일: 2026-05-13 · 기준 커밋: <code>fbb9859</code> · <strong>Phase 1·2 완료 (e45ebc5)</strong></p>
+
+<div class="status-banner">
+  <strong>상태: 양 페이즈 완료 / 사용자 검증 통과.</strong>
+  <ul>
+    <li><code>3893b28</code> — Phase 1: 스레드 단위 파이프라인 바인딩 (UX 라우팅)</li>
+    <li><code>8d3fdee</code> — Phase 2: worker가 실제 에이전트 CLI를 호출 (side-effect-free 정책 (a))</li>
+    <li><code>e45ebc5</code> — Phase 1 UI 요소 CSS 스타일링 + pre-existing ensureSeed 테스트 정정</li>
+  </ul>
+  실제 구현과 본 계획서 사이의 차이 사항은 §5에 정리되어 있다.
+</div>
 
 <div class="toc">
   <strong>목차</strong>
   <ol>
     <li><a href="#current">현재 아키텍처 요약</a></li>
-    <li><a href="#phase1">Phase 1 — 스레드 단위 파이프라인 바인딩 (UX)</a></li>
-    <li><a href="#phase2">Phase 2 — Worker가 실제 에이전트를 호출</a></li>
+    <li><a href="#phase1">Phase 1 — 스레드 단위 파이프라인 바인딩 (UX)</a> <span class="pill pill--done">완료</span></li>
+    <li><a href="#phase2">Phase 2 — Worker가 실제 에이전트를 호출</a> <span class="pill pill--done">완료</span></li>
     <li><a href="#sequence">실행 순서 및 백워드 호환성</a></li>
+    <li><a href="#delta">실제 구현과의 차이 및 Follow-up</a></li>
   </ol>
 </div>
 
@@ -359,11 +373,93 @@ private async runWorkerStepBody(
   <li>Phase 1 / Phase 2 사이에 사용자가 앱을 빌드해도 깨지지 않음 — Phase 1은 stub을 그대로 호출.</li>
 </ul>
 
+<h2 id="delta">5. 실제 구현과의 차이 및 Follow-up</h2>
+
+<h3>5.1 계획서 대비 변경 사항</h3>
+
+<table>
+<tr><th>항목</th><th>계획서</th><th>실제 구현</th><th>이유</th></tr>
+<tr>
+  <td><code>WorkerStep.instruction</code></td>
+  <td>필수 <code>string</code></td>
+  <td>옵셔널 <code>string?</code></td>
+  <td>v12 이전 plan artifact JSON에는 instruction 필드가 없다. 옵셔널로 두고 runner에서 <code>inputSummary</code> 폴백을 처리해 레거시 plan 행도 안전하게 실행.</td>
+</tr>
+<tr>
+  <td><code>WorkerRunner.deps.agentPlanning</code></td>
+  <td>필수 주입</td>
+  <td>옵셔널 (<code>WorkerCliInvoker?</code>)</td>
+  <td>tests가 <code>{state}</code>만으로 runner를 생성하는 기존 패턴을 그대로 유지. 미주입 시 Phase 7 결정적 stub 폴백.</td>
+</tr>
+<tr>
+  <td>새 인터페이스 이름</td>
+  <td>(언급 없음)</td>
+  <td><code>WorkerCliInvoker</code></td>
+  <td><code>orchestration</code> 패키지가 <code>agent</code> 전체에 의존하지 않도록 좁은 인터페이스만 노출. <code>AgentPlanningService.invokeForWorker</code> 가 구조적으로 만족.</td>
+</tr>
+<tr>
+  <td>agent_invocations 행 생성</td>
+  <td>계획서에 명시 없음</td>
+  <td>worker 호출에서는 생성 안 함</td>
+  <td>cost/latency 추적은 follow-up. worker는 step + log artifact만 만들고, 합성 invocationId를 큐 동시성용으로만 사용.</td>
+</tr>
+<tr>
+  <td>main.ts 생성 순서</td>
+  <td>(언급 없음)</td>
+  <td><code>agentPlanning</code> 먼저, 그 다음 <code>OrchestrationService</code></td>
+  <td>의존성 방향이 <code>OrchestrationService → agentPlanning</code>으로 바뀌어 기존 순서가 깨졌다. <code>orchEnabledBySettings</code> 클로저는 그대로 작동.</td>
+</tr>
+<tr>
+  <td>"+ 새 스레드" 다이얼로그</td>
+  <td>별도 다이얼로그 mockup</td>
+  <td>기존 ThreadSidebar 인라인 폼에 Pipeline 드롭다운 추가</td>
+  <td>현재 코드의 인라인 폼이 잘 동작하고 있어 굳이 다이얼로그로 분리할 필요 없음.</td>
+</tr>
+</table>
+
+<h3>5.2 Approval 정책 (a) Side-effect-free 의 운영상 의미</h3>
+
+<p>
+  Phase 2의 <code>invokeForWorker</code>는 정책 (a)에 따라 file_write / shell / dependency_install / git_commit
+  / network 같은 액션을 <strong>실행하지 않는다</strong>. 모델 출력에 그런 액션 제안이 텍스트로 들어와도
+  현재는 단순히 worker artifact의 본문으로만 저장된다. action approval로 변환·큐잉하는 흐름은 follow-up이다.
+</p>
+
+<h3>5.3 알려진 Follow-up</h3>
+
+<table>
+<tr><th>우선순위</th><th>항목</th><th>설명</th></tr>
+<tr>
+  <td>중</td>
+  <td>Worker invocation cost/latency 추적</td>
+  <td><code>agent_invocations</code> 행 + prompt artifact를 worker 호출에서도 생성해 RuntimeStatusBar와 finance 리포트가 워커 비용도 반영하게 만든다.</td>
+</tr>
+<tr>
+  <td>중</td>
+  <td>Action 제안 → 별도 approval 큐잉</td>
+  <td>모델이 출력 텍스트에서 제안한 file_write/shell을 파싱해 <code>action_type</code> approval로 큐잉. 정책 (a)의 자연스러운 확장.</td>
+</tr>
+<tr>
+  <td>저</td>
+  <td>스레드 헤더 배지 + 파이프라인 정의 팝오버</td>
+  <td>현재는 사이드바 행과 ConversationInput 위에만 배지가 있다. WorkbenchShell 상단 헤더에도 표시하고 클릭 시 파이프라인 step 목록 팝오버를 띄우면 디스커버리가 좋아진다.</td>
+</tr>
+<tr>
+  <td>저</td>
+  <td>스레드 생성 후 pipelineId 변경 UI</td>
+  <td>현재는 생성 시 한 번만 선택 가능. 스레드 detail 패널에서 "Pipeline 변경" 액션을 노출하면 사용자가 스레드를 새로 만들지 않고도 라우팅을 바꿀 수 있다. UpdateThreadInput.pipelineId는 이미 지원함.</td>
+</tr>
+<tr>
+  <td>저</td>
+  <td>ConversationInput 토글 코드 제거</td>
+  <td>현재는 unbound 스레드를 위해 <code>▸ Orchestration</code> 토글 + Legacy mode 드롭다운 코드가 남아 있다. 사용자가 unbound 스레드에서도 thread 단위 바인딩만 사용하면 토글 자체를 제거해 코드 단순화 가능.</td>
+</tr>
+</table>
+
 <hr />
 
 <p class="meta">
-  본 문서는 advisor 리뷰를 반영해 작성되었다. 실제 코드 작업은 Phase 1부터 시작하되,
-  §3.1의 approval 정책 결정 없이 Phase 2를 시작하지 않는다.
+  본 문서는 advisor 리뷰를 반영해 작성되었으며, 양 페이즈가 실제 코드 변경으로 완료된 후 §5 가 추가되었다.
 </p>
 
 </main>
