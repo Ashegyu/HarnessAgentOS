@@ -1,94 +1,66 @@
-# A2A Phase F Operational Verification Report
+# A2A Phase F Serverless Boundary Report
 
-Date: 2026-05-15
-Workspace: `C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS`
+Date: 2026-05-16
 
 ## Scope
 
-This report covers the Phase F local operational smoke for the opt-in A2A companion wrapper.
+This report supersedes the earlier local loopback companion smoke. The A2A
+companion listener was retired so the repository stays aligned with the core
+HarnessAgentOS constraint:
 
-Verified commits:
+- no Express server
+- no localhost API server
+- no WebSocket server
+- no automatic inbound listener from Electron main, preload, renderer, or IPC
 
-- `708c80c` - `feat(agent): add opt-in A2A server gateway`
-- `97e3eff` - `test(agent): cover A2A companion ops wrapper`
-- `9fed09f` - `feat(agent): add A2A companion ops wrapper`
-- `db74e21` - `test(agent): cover A2A realpath boundary escapes`
-- `096cc14` - `feat(agent): enforce A2A realpath workspace boundary`
+The remaining A2A surface is serverless from the desktop app perspective:
+`packages/agent/src/a2a-server-gateway.ts` is a pure request handler used by
+tests and future embedding code. It does not bind a port or start a listener.
 
-## Verified Surface
+## Removed Surface
 
-- `packages/agent/src/a2a-server-gateway.ts`
 - `packages/agent/src/a2a-server-companion.ts`
 - `packages/agent/src/a2a-server-companion.test.mjs`
+- `createA2ACompanionServer` export from `packages/agent/src/index.ts`
 
-The companion wrapper is not registered in Electron main, preload, renderer, or desktop IPC. It only starts a listener when a caller explicitly invokes `createA2ACompanionServer(...).start()`.
+The previous companion wrapper served an Agent Card and JSON-RPC endpoint over
+`127.0.0.1`. Even though it was opt-in and not registered in the desktop app,
+keeping it in the package conflicted with the documented no-localhost-server
+architecture, so it has been removed.
 
-## Companion Contract
+## Current Verified Surface
 
-- Default bind host: `127.0.0.1`
-- Default port: `0` so tests receive an OS-assigned ephemeral port
-- Agent Card route: `GET /.well-known/agent-card.json`
-- JSON-RPC route: `POST /a2a/jsonrpc`
-- Default body limit: 128 KiB
-- Transport advertised in Agent Card: `JSONRPC`
-- Supported operational smoke method: `message/send`
-
-## Smoke Matrix
-
-| Case | Expected | Result |
-| --- | --- | --- |
-| Agent Card fetch | `200`, JSON card with loopback JSON-RPC URL | Passed |
-| Authenticated `message/send` | `200`, A2A task response, `completed` state | Passed |
-| Missing bearer token | `401`, `A2A_SERVER_UNAUTHORIZED`, handler not invoked | Passed |
-| Oversized request body | `413`, `A2A_COMPANION_BODY_TOO_LARGE`, handler not invoked | Passed |
-| Gateway feature flag default | `404`, `A2A_SERVER_DISABLED` | Passed in gateway contract test |
-| Workspace boundary | `403`, `A2A_SERVER_WORKSPACE_DENIED` outside allowed roots | Passed in gateway contract test |
-| Realpath-style workspace boundary | `403`, `A2A_SERVER_WORKSPACE_DENIED` after resolver maps a symlink-like path outside the root | Passed in gateway contract test |
-| Rate limiting | `429`, `A2A_SERVER_RATE_LIMITED` after per-client limit | Passed in gateway contract test |
+- `packages/agent/src/a2a-server-gateway.ts`
+- `packages/agent/src/a2a-server-gateway.test.mjs`
+- A2A client/worker adapter paths that call remote endpoints outbound only
 
 ## Verification Commands
 
 ```bash
-node --import tsx --test --test-force-exit packages\agent\src\a2a-server-companion.test.mjs
-node --import tsx --test --test-force-exit packages\agent\src\a2a-server-gateway.test.mjs
-node --import tsx --test --test-force-exit packages\agent\src\a2a-server-gateway.test.mjs packages\agent\src\a2a-server-companion.test.mjs
+node --import tsx --test --test-force-exit packages\agent\src\a2a-server-gateway.test.mjs packages\agent\src\a2a-worker-invoker.test.mjs packages\agent\src\a2a-invocation-adapter.test.mjs packages\agent\src\a2a-sdk-client.test.mjs
 npm run check
 npm run test
 npm run build
-Get-ChildItem -Path node_modules\.bin
-npm ls --depth=0
 ```
-
-Observed results:
-
-- Companion wrapper target test: 3 passed, 0 failed
-- Gateway target test after realpath boundary: 7 passed, 0 failed
-- Gateway + companion target tests before realpath boundary: 9 passed, 0 failed
-- `npm run check`: passed
-- `npm run test`: 634 passed, 0 failed
-- `npm run build`: passed
-- A2A Inspector/TCK local executable: not found in `node_modules\.bin`
-- A2A Inspector/TCK package dependency: not found in `npm ls --depth=0`
 
 ## Safety Checks
 
-- No Express dependency was added.
-- No WebSocket server was added.
-- No Electron main process listener was added.
+- No Express dependency was added by this cleanup.
+- No WebSocket server is present.
+- No Electron main process listener is registered.
 - No renderer network call path was added.
-- No automatic startup path was added.
-- Bearer auth is checked before work is invoked.
-- Body size is capped before JSON parsing.
-- Workspace boundary validation remains in the gateway.
-- Gateway callers can provide `resolveWorkspacePath`; `resolveWorkspacePathWithRealpath` is available for realpath-backed boundary checks.
-- Audit events remain in the gateway for accepted and denied work decisions.
+- No automatic startup path exists.
+- Gateway bearer auth, rate limiting, workspace boundary checks, realpath-backed
+  boundary checks, and audit events remain in the pure gateway tests.
 
 ## Remaining Operational Gaps
 
-- Official A2A Inspector/TCK was not run in this local smoke. No compatible executable/package is installed in this workspace.
-- The companion wrapper currently covers JSON-RPC `message/send` only. Streaming, push notification, task resubscribe, cancellation, and long-lived task store behavior remain out of scope.
-- TLS, OS service registration, fixed port allocation, and external network exposure are intentionally not implemented.
+- Official A2A Inspector/TCK is still not part of this workspace.
+- Inbound A2A serving is out of scope for the current desktop MVP. If it is
+  needed later, it must be designed as a separate, explicitly approved phase
+  with an updated architecture decision.
 
 ## Verdict
 
-Phase F local operational smoke is passed for the opt-in loopback companion wrapper. The symlink escape gap is closed at the gateway boundary when a realpath resolver is configured. The implementation remains local-only and not-ready for external exposure until Inspector/TCK, TLS, and lifecycle checks are completed.
+The A2A Phase F exception is closed by removing the loopback companion listener.
+HarnessAgentOS remains a serverless Electron IPC workbench at runtime.
