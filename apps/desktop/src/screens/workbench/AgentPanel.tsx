@@ -1,6 +1,12 @@
-import { useState } from "react";
-import type { A2ARemoteTaskRef, AgentInvocation, TaskRun } from "@harness/core";
+import { useMemo, useState } from "react";
+import type {
+  A2ARemoteTaskRef,
+  AgentInvocation,
+  Artifact,
+  TaskRun,
+} from "@harness/core";
 import { AgentStreamView } from "./AgentStreamView";
+import { InternalHandoffPanel } from "./InternalHandoffPanel";
 import {
   formatRemoteTaskLabel,
   remoteTaskAttentionLabel,
@@ -8,10 +14,12 @@ import {
   remoteTaskNeedsAttention,
   remoteTaskTitle,
 } from "./agent-remote-task";
+import { deriveInternalAgentHandoffs } from "./agent-handoff-display";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
   invocations: AgentInvocation[]; // newest-first
+  artifacts: Artifact[];
   remoteTaskRefs?: A2ARemoteTaskRef[];
   onRetry: (invocationId: string) => Promise<void>;
   onCancel: (invocationId: string) => Promise<void>;
@@ -47,6 +55,7 @@ const formatLatency = (ms: number | undefined): string => {
 export const AgentPanel = ({
   taskRun,
   invocations,
+  artifacts,
   remoteTaskRefs = [],
   onRetry,
   onCancel,
@@ -58,6 +67,10 @@ export const AgentPanel = ({
 }: AgentPanelProps): JSX.Element | null => {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const handoffs = useMemo(
+    () => deriveInternalAgentHandoffs(artifacts),
+    [artifacts],
+  );
 
   const latest = invocations[0];
   const latestRemoteTask = latest
@@ -188,6 +201,7 @@ export const AgentPanel = ({
             Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요.
           </div>
         )}
+        <InternalHandoffPanel handoffs={handoffs} />
         {latest?.errorCode && latest.status !== "succeeded" && (
           <div className="agent-panel__error">
             <strong>{latest.errorCode}</strong>

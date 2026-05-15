@@ -2776,6 +2776,140 @@
   min-width: 0;
 }
 
+.agent-handoff {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: var(--space-2);
+  min-width: 0;
+}
+
+.agent-handoff__summary,
+.agent-handoff__route {
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-handoff__summary::-webkit-details-marker,
+.agent-handoff__route::-webkit-details-marker {
+  display: none;
+}
+
+.agent-handoff__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.agent-handoff__summary::before,
+.agent-handoff__route::before {
+  content: "▸";
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.agent-handoff[open] > .agent-handoff__summary::before,
+.agent-handoff__delivery[open] > .agent-handoff__route::before {
+  content: "▾";
+}
+
+.agent-handoff__title {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.agent-handoff__count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.agent-handoff__deliveries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  min-width: 0;
+}
+
+.agent-handoff__delivery {
+  border-left: 2px solid var(--status-running-edge);
+  padding-left: var(--space-2);
+  min-width: 0;
+}
+
+.agent-handoff__route {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.agent-handoff__route-main {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-handoff__route code,
+.agent-handoff__entry code {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.agent-handoff__entries {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.agent-handoff__entry {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.agent-handoff__entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.agent-handoff__entry-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.agent-handoff__entry time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-handoff__entry p {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .agent-panel__error {
   color: var(--status-failed);
   font-size: 12px;

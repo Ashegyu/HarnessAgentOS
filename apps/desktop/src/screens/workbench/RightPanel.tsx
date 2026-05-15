@@ -216,6 +216,7 @@ export const RightPanel = ({
               <AgentPanel
                 taskRun={state.detail.taskRun}
                 invocations={state.detail.agentInvocations}
+                artifacts={state.detail.artifacts}
                 remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
                 agentAvailable={agentAvailable}
                 onGenerate={() => onAgentGenerate(state.detail.taskRun.id)}
