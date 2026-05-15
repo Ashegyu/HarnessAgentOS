@@ -5,6 +5,7 @@ export * from "./model-cli-types";
 export * from "./model-cli-errors";
 export * from "./model-cli-adapter";
 export * from "./fake-model-cli-adapter";
+export * from "./a2a-invocation-adapter";
 export * from "./agent-invocation-queue";
 export * from "./agent-planning-service";
 export * from "./agent-profile-resolver";
