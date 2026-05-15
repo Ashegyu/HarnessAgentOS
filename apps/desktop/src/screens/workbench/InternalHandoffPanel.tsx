@@ -1,4 +1,7 @@
-import type { AgentHandoffDelivery } from "./agent-handoff-display";
+import {
+  handoffEntryDisplayText,
+  type AgentHandoffDelivery,
+} from "./agent-handoff-display";
 
 interface InternalHandoffPanelProps {
   handoffs: AgentHandoffDelivery[];
@@ -56,7 +59,7 @@ export const InternalHandoffPanel = ({
                       {new Date(entry.createdAt).toLocaleString()}
                     </time>
                   )}
-                  <p>{entry.preview || "(내용 없음)"}</p>
+                  <p>{handoffEntryDisplayText(entry)}</p>
                 </article>
               ))}
             </div>

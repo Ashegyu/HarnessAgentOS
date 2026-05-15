@@ -48,6 +48,10 @@ export const deriveInternalAgentHandoffs = (
   return deliveries;
 };
 
+export const handoffEntryDisplayText = (
+  entry: AgentHandoffDisplayEntry,
+): string => entry.content || "(내용 없음)";
+
 const parseHandoffEntries = (summary: string): AgentHandoffDisplayEntry[] => {
   const lines = summary.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === HANDOFF_SECTION_HEADING);
