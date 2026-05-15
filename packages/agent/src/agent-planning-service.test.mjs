@@ -701,10 +701,20 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     },
   });
 
+  const handoffMessages = [
+    {
+      fromRole: "planner",
+      fromTitle: "Plan",
+      content: "Planner handoff: inspect the worker prompt path before coding.",
+      artifactId: "art_handoff_1",
+      createdAt: "2026-05-15T00:00:00.000Z",
+    },
+  ];
   const result = await svc.invokeForWorker({
     taskRunId: taskRun.id,
     profile,
     userRequest: "create a file",
+    handoffMessages,
   });
 
   assert.equal(result.proposedActions?.length, 1);
@@ -714,6 +724,14 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
   assert.match(lastRequest.prompt, /create a file/);
+  assert.match(lastRequest.prompt, /INTERNAL AGENT HANDOFF/);
+  assert.match(lastRequest.prompt, /planner: Plan/);
+  assert.match(lastRequest.prompt, /Planner handoff: inspect the worker prompt path before coding/);
+  const promptArtifact = artifacts.find(
+    (artifact) => artifact.title === "Worker prompt — Worker",
+  );
+  assert.match(promptArtifact?.summary ?? "", /INTERNAL AGENT HANDOFF/);
+  assert.match(promptArtifact?.summary ?? "", /art_handoff_1/);
   const persisted = parseJsonLines(
     artifacts.find((artifact) => artifact.title === "Worker raw output — Worker")
       ?.summary ?? "",

@@ -77,6 +77,25 @@ test("buildSplitAgentPrompt includes recentArtifacts when provided", () => {
   assert.ok(userPrompt.includes("Previous plan"));
 });
 
+test("buildSplitAgentPrompt includes internal handoff messages when provided", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    handoffMessages: [
+      {
+        fromRole: "planner",
+        fromTitle: "Plan",
+        content: "Planner says inspect the worker prompt path before coding.",
+        artifactId: "art_handoff_1",
+        createdAt: "2026-05-15T00:00:00.000Z",
+      },
+    ],
+  });
+  assert.ok(userPrompt.includes("INTERNAL AGENT HANDOFF"));
+  assert.ok(userPrompt.includes("planner: Plan"));
+  assert.ok(userPrompt.includes("art_handoff_1"));
+  assert.ok(userPrompt.includes("Planner says inspect the worker prompt path before coding."));
+});
+
 test("buildSplitAgentPrompt includes approved capability context", () => {
   const { userPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,
