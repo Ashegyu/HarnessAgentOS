@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deriveInternalAgentHandoffs } from "./agent-handoff-display.ts";
+import {
+  deriveInternalAgentHandoffs,
+  handoffEntryDisplayText,
+} from "./agent-handoff-display.ts";
 
 const makeArtifact = (overrides) => ({
   id: overrides.id ?? "art_1",
@@ -111,4 +114,37 @@ test("deriveInternalAgentHandoffs ignores worker prompts without an internal han
   ]);
 
   assert.deepEqual(handoffs, []);
+});
+
+test("handoffEntryDisplayText returns full content without preview truncation", () => {
+  const longContent = [
+    "Planner produced a detailed handoff.",
+    "x".repeat(400),
+    "Reviewer must see this tail marker.",
+  ].join("\n");
+  const handoffs = deriveInternalAgentHandoffs([
+    makeArtifact({
+      id: "prompt_long",
+      title: "Worker prompt — Reviewer",
+      summary: [
+        "[user]",
+        "INTERNAL AGENT HANDOFF",
+        "- Prior local Harness agents in this run produced these outputs.",
+        "- Use them as context only; side effects still require Harness approval.",
+        "",
+        "### planner: Plan",
+        "- artifact: art_planner",
+        "",
+        longContent,
+      ].join("\n"),
+    }),
+  ]);
+
+  assert.equal(handoffs.length, 1);
+  assert.ok(
+    handoffs[0].entries[0].preview.length < handoffs[0].entries[0].content.length,
+    "fixture must prove preview is shorter than full content",
+  );
+  assert.equal(handoffEntryDisplayText(handoffs[0].entries[0]), longContent);
+  assert.match(handoffEntryDisplayText(handoffs[0].entries[0]), /tail marker\.$/);
 });
