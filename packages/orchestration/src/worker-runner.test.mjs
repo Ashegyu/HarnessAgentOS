@@ -267,6 +267,95 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
   }
 });
 
+test("runApproved passes prior worker outputs as internal handoff messages", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({
+        name: "LocalPlanner",
+        role: "planner",
+        persona: "Plan local work.",
+      }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({
+        name: "LocalCoder",
+        role: "coder",
+        persona: "Implement from handoff.",
+      }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Internal handoff",
+      description: "",
+      steps: [
+        {
+          id: "planner",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan the parser change.",
+          expectedArtifactKinds: ["log"],
+        },
+        {
+          id: "coder",
+          agentProfileId: coderProfile.id,
+          title: "Implement",
+          instruction: "Implement from the planner handoff.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "planner_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          userRequest: input.userRequest,
+          handoffMessages: input.handoffMessages ?? [],
+        });
+        return {
+          outputText:
+            input.profile.name === "LocalPlanner"
+              ? "Planner handoff: inspect worker-runner first."
+              : "Coder consumed planner handoff.",
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.workerSteps.length, 2);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].profileName, "LocalPlanner");
+    assert.deepEqual(calls[0].handoffMessages, []);
+    assert.equal(calls[1].profileName, "LocalCoder");
+    assert.equal(calls[1].handoffMessages.length, 1);
+    assert.equal(calls[1].handoffMessages[0].fromRole, "planner");
+    assert.equal(calls[1].handoffMessages[0].fromTitle, "Plan");
+    assert.match(
+      calls[1].handoffMessages[0].content,
+      /Planner handoff: inspect worker-runner first/,
+    );
+    assert.match(calls[1].handoffMessages[0].artifactId, /^artifact_/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved forwards remoteEndpointId to the worker invoker", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
