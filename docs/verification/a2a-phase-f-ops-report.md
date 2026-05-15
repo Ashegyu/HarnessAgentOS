@@ -12,6 +12,8 @@ Verified commits:
 - `708c80c` - `feat(agent): add opt-in A2A server gateway`
 - `97e3eff` - `test(agent): cover A2A companion ops wrapper`
 - `9fed09f` - `feat(agent): add A2A companion ops wrapper`
+- `db74e21` - `test(agent): cover A2A realpath boundary escapes`
+- `096cc14` - `feat(agent): enforce A2A realpath workspace boundary`
 
 ## Verified Surface
 
@@ -41,25 +43,32 @@ The companion wrapper is not registered in Electron main, preload, renderer, or 
 | Oversized request body | `413`, `A2A_COMPANION_BODY_TOO_LARGE`, handler not invoked | Passed |
 | Gateway feature flag default | `404`, `A2A_SERVER_DISABLED` | Passed in gateway contract test |
 | Workspace boundary | `403`, `A2A_SERVER_WORKSPACE_DENIED` outside allowed roots | Passed in gateway contract test |
+| Realpath-style workspace boundary | `403`, `A2A_SERVER_WORKSPACE_DENIED` after resolver maps a symlink-like path outside the root | Passed in gateway contract test |
 | Rate limiting | `429`, `A2A_SERVER_RATE_LIMITED` after per-client limit | Passed in gateway contract test |
 
 ## Verification Commands
 
 ```bash
 node --import tsx --test --test-force-exit packages\agent\src\a2a-server-companion.test.mjs
+node --import tsx --test --test-force-exit packages\agent\src\a2a-server-gateway.test.mjs
 node --import tsx --test --test-force-exit packages\agent\src\a2a-server-gateway.test.mjs packages\agent\src\a2a-server-companion.test.mjs
 npm run check
 npm run test
 npm run build
+Get-ChildItem -Path node_modules\.bin
+npm ls --depth=0
 ```
 
 Observed results:
 
 - Companion wrapper target test: 3 passed, 0 failed
-- Gateway + companion target tests: 9 passed, 0 failed
+- Gateway target test after realpath boundary: 7 passed, 0 failed
+- Gateway + companion target tests before realpath boundary: 9 passed, 0 failed
 - `npm run check`: passed
 - `npm run test`: 634 passed, 0 failed
 - `npm run build`: passed
+- A2A Inspector/TCK local executable: not found in `node_modules\.bin`
+- A2A Inspector/TCK package dependency: not found in `npm ls --depth=0`
 
 ## Safety Checks
 
@@ -71,15 +80,15 @@ Observed results:
 - Bearer auth is checked before work is invoked.
 - Body size is capped before JSON parsing.
 - Workspace boundary validation remains in the gateway.
+- Gateway callers can provide `resolveWorkspacePath`; `resolveWorkspacePathWithRealpath` is available for realpath-backed boundary checks.
 - Audit events remain in the gateway for accepted and denied work decisions.
 
 ## Remaining Operational Gaps
 
-- Official A2A Inspector/TCK was not run in this local smoke. A compatible external tool must be installed or provided before that check can be completed.
+- Official A2A Inspector/TCK was not run in this local smoke. No compatible executable/package is installed in this workspace.
 - The companion wrapper currently covers JSON-RPC `message/send` only. Streaming, push notification, task resubscribe, cancellation, and long-lived task store behavior remain out of scope.
-- Workspace boundary validation is path-string based in the gateway. Before exposing this beyond local trusted use, add a `realpath`/symlink escape check.
 - TLS, OS service registration, fixed port allocation, and external network exposure are intentionally not implemented.
 
 ## Verdict
 
-Phase F local operational smoke is passed for the opt-in loopback companion wrapper. The implementation remains local-only and not-ready for external exposure until Inspector/TCK, symlink boundary, TLS, and lifecycle checks are completed.
+Phase F local operational smoke is passed for the opt-in loopback companion wrapper. The symlink escape gap is closed at the gateway boundary when a realpath resolver is configured. The implementation remains local-only and not-ready for external exposure until Inspector/TCK, TLS, and lifecycle checks are completed.
