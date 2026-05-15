@@ -578,7 +578,8 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
   - `completed` -> result event
   - `failed`/`rejected` -> failed event
 - [x] remote artifact normalization 테스트를 추가한다.
-- [ ] proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
+- [x] proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
+- [x] remote task reference 저장 범위를 `a2a_remote_tasks.invocation_id` 연결로 고정한다.
 - [ ] 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
 
 현재 완료 범위:
@@ -587,19 +588,29 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
   - `A2AClientPort`
   - `A2AInvocationAdapter`
   - `A2AInvocationError`
+  - `parseA2AInvocationPlan`
+  - `a2aInvocationToWorkerOutcome`
   - remote artifact normalization
 - `packages/agent/src/a2a-invocation-adapter.test.mjs`
   - state mapping
   - input-required pause semantics
   - failed/rejected rejection semantics
   - normalized `AgentStreamEvent` capture
+  - `harness_agent_plan` parser 재사용
+  - artifact payload을 proposed action으로 승격하지 않는 계약
+  - unsupported high-risk remote action type 거부
 - `packages/agent/src/index.ts` export
+- `SqliteA2ARemoteAgentRepository`
+  - `getRemoteTaskRef(invocationId)`
+  - `listRemoteTaskRefsByEndpoint(endpointId)`
+  - `upsertRemoteTaskRef(ref)`
 
 다음 즉시 진행:
 
-1. remote message text에서 기존 `harness_agent_plan` fenced JSON을 재사용해 `AgentPlanOutput`으로 파싱 가능한지 확인한다.
-2. remote proposed action이 file/shell/git/dependency/network 실행으로 바로 이어지지 않고 기존 approval 생성 경로로만 들어가는지 contract test를 추가한다.
-3. 실제 호출 API를 기존 `agent.generatePlan`에 통합할지 별도 내부 service seam으로 둘지 결정한 뒤, DB remote task reference 저장 범위를 확정한다.
+1. 실제 호출 API를 기존 `agent.generatePlan`에 통합할지 별도 내부 service seam으로 둘지 최종 결정한다.
+2. `A2AInvocationAdapter` 결과를 `AgentPlanningService` 또는 orchestration worker flow에 연결하는 contract test를 추가한다.
+3. remote proposed action이 최종적으로 pending `Approval` row로만 생성되고 runner가 approval 없이 실행하지 않는지 integration test로 확인한다.
+4. 실제 `@a2a-js/sdk` 도입 전 timeout/cancellation/redaction 정책을 기존 CLI adapter 정책과 비교한다.
 
 ### 16.3 Phase C-2 구현 순서
 
