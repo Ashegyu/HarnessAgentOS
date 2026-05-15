@@ -3,6 +3,7 @@ import type {
   A2ARemoteTaskRef,
   AgentInvocation,
   Artifact,
+  Step,
   TaskRun,
 } from "@harness/core";
 import { AgentStreamView } from "./AgentStreamView";
@@ -16,11 +17,15 @@ import {
 } from "./agent-remote-task";
 import { deriveInternalAgentHandoffs } from "./agent-handoff-display";
 import { shouldRenderAgentPanel } from "./agent-panel-visibility";
-import { orderedAgentInvocationsForDisplay } from "./agent-invocation-display";
+import {
+  describeAgentInvocationForDisplay,
+  orderedAgentInvocationsForDisplay,
+} from "./agent-invocation-display";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
   invocations: AgentInvocation[]; // newest-first
+  steps: Step[];
   artifacts: Artifact[];
   remoteTaskRefs?: A2ARemoteTaskRef[];
   onRetry: (invocationId: string) => Promise<void>;
@@ -57,6 +62,7 @@ const formatLatency = (ms: number | undefined): string => {
 export const AgentPanel = ({
   taskRun,
   invocations,
+  steps,
   artifacts,
   remoteTaskRefs = [],
   onRetry,
@@ -210,7 +216,14 @@ export const AgentPanel = ({
       </header>
       <div className="panel-body panel-body--compact">
         {latest ? (
-          <AgentStreamView invocation={latest} />
+          <>
+            <AgentAnswerLabel
+              invocation={latest}
+              steps={steps}
+              ordinal={displayInvocations.length}
+            />
+            <AgentStreamView invocation={latest} />
+          </>
         ) : (
           <div className="empty-state">
             Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요.
@@ -229,10 +242,15 @@ export const AgentPanel = ({
           <details className="agent-panel__history" open>
             <summary>이전 Agent 응답 ({previousInvocations.length})</summary>
             <div className="agent-panel__history-streams">
-              {previousInvocations.map((inv) => {
+              {previousInvocations.map((inv, index) => {
                 const remote = remoteTaskForInvocation(remoteTaskRefs, inv.id);
                 return (
                   <section key={inv.id} className="agent-panel__history-stream">
+                    <AgentAnswerLabel
+                      invocation={inv}
+                      steps={steps}
+                      ordinal={index + 1}
+                    />
                     <header className="agent-panel__history-stream-head">
                       <code title={inv.id}>{inv.id.slice(0, 16)}…</code>
                       <span>
@@ -250,5 +268,29 @@ export const AgentPanel = ({
         )}
       </div>
     </section>
+  );
+};
+
+const AgentAnswerLabel = ({
+  invocation,
+  steps,
+  ordinal,
+}: {
+  invocation: AgentInvocation;
+  steps: readonly Step[];
+  ordinal: number;
+}): JSX.Element => {
+  const display = describeAgentInvocationForDisplay(invocation, steps);
+  return (
+    <header className="agent-answer-label agent-answer-label--panel">
+      <div className="agent-answer-label__main">
+        <span className="agent-answer-label__caption">Agent {ordinal}</span>
+        <strong>{display.agentName}</strong>
+        <code>{display.providerLabel}</code>
+      </div>
+      <span className="agent-answer-label__detail" title={display.detail}>
+        {display.detail}
+      </span>
+    </header>
   );
 };

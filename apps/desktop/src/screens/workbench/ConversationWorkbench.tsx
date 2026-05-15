@@ -4,6 +4,7 @@ import type {
   Approval,
   TaskRun,
   ThreadDetail,
+  Step,
 } from "@harness/core";
 import { ConversationInput, type ConversationMode } from "./ConversationInput";
 import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
@@ -25,6 +26,7 @@ import {
   taskRunWithActiveOverride,
 } from "./chat-turn-status";
 import {
+  describeAgentInvocationForDisplay,
   orderedAgentInvocationsForDisplay,
 } from "./agent-invocation-display";
 
@@ -61,6 +63,7 @@ interface ConversationWorkbenchProps {
   activeTaskRunApprovals: Approval[];
   activeTaskRunId: string | null;
   activeTaskRun: TaskRun | null;
+  activeTaskRunSteps: Step[];
   /**
    * AgentInvocations for the currently-selected TaskRun. Used to render
    * the central-window streaming view inline next to its ChatTurn. Empty
@@ -96,6 +99,7 @@ export const ConversationWorkbench = ({
   activeTaskRunApprovals,
   activeTaskRunId,
   activeTaskRun,
+  activeTaskRunSteps,
   activeTaskRunInvocations,
   agentProgressByTaskRunId,
 }: ConversationWorkbenchProps): JSX.Element => {
@@ -173,6 +177,7 @@ export const ConversationWorkbench = ({
           if (!contextDrawerOpen) onToggleContextDrawer();
         }}
         activeTaskRun={activeTaskRun}
+        activeTaskRunSteps={activeTaskRunSteps}
       />
       <ConversationInput
         threadId={threadId}
@@ -246,6 +251,7 @@ const ChatTranscript = ({
   contextDrawerOpen,
   onOpenContextDrawer,
   activeTaskRun,
+  activeTaskRunSteps,
 }: {
   detail: ThreadDetail;
   selectedTaskRunId: string | null;
@@ -254,6 +260,7 @@ const ChatTranscript = ({
   onSuggest: (text: string) => void;
   activeTaskRunId: string | null;
   activeTaskRun: TaskRun | null;
+  activeTaskRunSteps: Step[];
   activeTaskRunApprovals: Approval[];
   activeTaskRunInvocations: AgentInvocation[];
   agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
@@ -312,6 +319,7 @@ const ChatTranscript = ({
             onSelect={() => onSelectTaskRun(tr.id)}
             onDelete={() => void onDeleteTask(tr.id)}
             invocations={isActive ? displayInvocations : []}
+            steps={isActive ? activeTaskRunSteps : []}
             approvals={isActive ? activeTaskRunApprovals : []}
             progress={agentProgressByTaskRunId[tr.id] ?? []}
             inlineApprovalCard={
@@ -338,6 +346,7 @@ const ChatTurn = ({
   onSelect,
   onDelete,
   invocations,
+  steps,
   approvals,
   progress,
   inlineApprovalCard,
@@ -348,6 +357,7 @@ const ChatTurn = ({
   onSelect: () => void;
   onDelete: () => void;
   invocations: readonly AgentInvocation[];
+  steps: readonly Step[];
   approvals: readonly Approval[];
   progress: readonly AgentProgressItem[];
   inlineApprovalCard: JSX.Element | null;
@@ -407,6 +417,11 @@ const ChatTurn = ({
                   className="inline-agent-stream-stack__item"
                   aria-label={`Agent invocation ${index + 1}`}
                 >
+                  <AgentAnswerLabel
+                    invocation={invocation}
+                    steps={steps}
+                    ordinal={index + 1}
+                  />
                   <InlineAgentStream invocation={invocation} />
                 </section>
               ))}
@@ -436,6 +451,30 @@ const ChatTurn = ({
       </div>
       {inlineApprovalCard}
     </div>
+  );
+};
+
+const AgentAnswerLabel = ({
+  invocation,
+  steps,
+  ordinal,
+}: {
+  invocation: AgentInvocation;
+  steps: readonly Step[];
+  ordinal: number;
+}): JSX.Element => {
+  const display = describeAgentInvocationForDisplay(invocation, steps);
+  return (
+    <header className="agent-answer-label">
+      <div className="agent-answer-label__main">
+        <span className="agent-answer-label__caption">Agent {ordinal}</span>
+        <strong>{display.agentName}</strong>
+        <code>{display.providerLabel}</code>
+      </div>
+      <span className="agent-answer-label__detail" title={display.detail}>
+        {display.detail}
+      </span>
+    </header>
   );
 };
 

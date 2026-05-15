@@ -216,6 +216,7 @@ export const RightPanel = ({
               <AgentPanel
                 taskRun={state.detail.taskRun}
                 invocations={state.detail.agentInvocations}
+                steps={state.detail.steps}
                 artifacts={state.detail.artifacts}
                 remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
                 agentAvailable={agentAvailable}

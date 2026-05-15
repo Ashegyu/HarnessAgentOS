@@ -1129,6 +1129,9 @@ export const WorkbenchShell = (): JSX.Element => {
                   ? taskRunDetail.detail.taskRun
                   : null
               }
+              activeTaskRunSteps={
+                taskRunDetail.kind === "ready" ? taskRunDetail.detail.steps : []
+              }
               activeTaskRunApprovals={
                 taskRunDetail.kind === "ready"
                   ? taskRunDetail.detail.approvals
