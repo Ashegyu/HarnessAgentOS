@@ -68,7 +68,20 @@ export interface A2AInvocationResult {
 export interface A2AWorkerOutcome {
   outputText: string;
   proposedActions?: AgentProposedAction[];
+  lifecycle?: A2AWorkerLifecycleInterruption;
 }
+
+export type A2AWorkerLifecycleInterruption =
+  | {
+      kind: "requires_input";
+      remoteState: "input-required";
+      message: "Remote A2A worker requires user input";
+    }
+  | {
+      kind: "requires_auth";
+      remoteState: "auth-required";
+      message: "Remote A2A worker requires authentication";
+    };
 
 export type A2AInvocationErrorCode =
   | "A2A_REMOTE_FAILED"
@@ -222,8 +235,31 @@ export const parseA2AInvocationPlan = (
  * that turns these into pending Approval rows.
  */
 export const a2aInvocationToWorkerOutcome = (
-  result: Pick<A2AInvocationResult, "outputText">,
+  result: Pick<
+    A2AInvocationResult,
+    "outputText" | "requiresInput" | "requiresAuth"
+  >,
 ): A2AWorkerOutcome => {
+  if (result.requiresInput) {
+    return {
+      outputText: result.outputText,
+      lifecycle: {
+        kind: "requires_input",
+        remoteState: "input-required",
+        message: "Remote A2A worker requires user input",
+      },
+    };
+  }
+  if (result.requiresAuth) {
+    return {
+      outputText: result.outputText,
+      lifecycle: {
+        kind: "requires_auth",
+        remoteState: "auth-required",
+        message: "Remote A2A worker requires authentication",
+      },
+    };
+  }
   const parsed = parseA2AInvocationPlan(result);
   if (!parsed.ok || parsed.plan.proposedActions.length === 0) {
     return { outputText: result.outputText };

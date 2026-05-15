@@ -3,7 +3,9 @@ import type { A2ARemoteTaskRef, AgentInvocation, TaskRun } from "@harness/core";
 import { AgentStreamView } from "./AgentStreamView";
 import {
   formatRemoteTaskLabel,
+  remoteTaskAttentionLabel,
   remoteTaskForInvocation,
+  remoteTaskNeedsAttention,
   remoteTaskTitle,
 } from "./agent-remote-task";
 
@@ -160,8 +162,17 @@ export const AgentPanel = ({
             {latest.provider}:{latest.model} · {formatLatency(latest.latencyMs)}
             {latestRemoteTask && (
               <span
-                className="agent-panel__remote"
-                title={remoteTaskTitle(latestRemoteTask)}
+                className={`agent-panel__remote${
+                  remoteTaskNeedsAttention(latestRemoteTask)
+                    ? " agent-panel__remote--attention"
+                    : ""
+                }`}
+                title={[
+                  remoteTaskAttentionLabel(latestRemoteTask),
+                  remoteTaskTitle(latestRemoteTask),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               >
                 {formatRemoteTaskLabel(latestRemoteTask)}
               </span>

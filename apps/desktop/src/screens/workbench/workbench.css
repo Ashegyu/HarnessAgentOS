@@ -2763,6 +2763,12 @@
   text-overflow: ellipsis;
 }
 
+.agent-panel__remote--attention {
+  border-color: rgba(245, 158, 11, 0.55);
+  color: var(--status-warning);
+  background: rgba(245, 158, 11, 0.12);
+}
+
 .agent-panel__actions {
   display: flex;
   flex-wrap: wrap;

@@ -712,18 +712,51 @@ Phase C-2 이후 다음 큰 단계는 Phase D다. Phase D에서는 pipeline step
 
 Phase D는 inbound webhook, remote push notification server, renderer direct fetch, remote side-effect auto execution을 추가하지 않는다. remote worker output은 여전히 기존 proposed action parser와 approval gate를 통해서만 side effect 후보가 된다.
 
-### 16.5 Phase C/D 검증 명령
+### 16.5 Phase E 구현 순서
+
+1. [x] A2A `input-required`를 worker success로 취급하지 않는다.
+2. [x] A2A `auth-required`를 worker success로 취급하지 않는다.
+3. [x] lifecycle interruption 발생 시 remote proposed action parsing을 중단한다.
+4. [x] persistent A2A invocation row에 terminal status/error code를 기록한다.
+5. [x] orchestration TaskRun을 `ready_for_review`/`blocked`가 아니라 `paused`로 전환한다.
+6. [x] Agent 탭의 remote task badge에 input/auth attention 상태를 표시한다.
+7. [ ] 실제 remote endpoint 기반 cancellation/retry smoke를 수행한다.
+8. [ ] A2A Inspector/TCK 검증을 별도 외부 endpoint 준비 후 수행한다.
+
+### 16.5.1 Phase E 완료 범위
+
+- `packages/agent/src/a2a-invocation-adapter.ts`
+  - `A2AWorkerOutcome.lifecycle`
+  - `requiresInput` -> `requires_input`
+  - `requiresAuth` -> `requires_auth`
+  - lifecycle 상태에서는 proposed action을 생성하지 않음
+- `apps/desktop/electron/a2a-worker-composition.ts`
+  - lifecycle interruption 시 `AgentInvocation.status = failed`
+  - `A2A_REMOTE_INPUT_REQUIRED` / `A2A_REMOTE_AUTH_REQUIRED` error code 기록
+  - raw output artifact와 remote task ref는 기존처럼 보존
+- `packages/orchestration/src/worker-runner.ts`
+  - lifecycle interruption을 worker artifact에 기록
+  - downstream approval 생성 없이 TaskRun을 `paused`로 전환
+- `apps/desktop/src/screens/workbench/agent-remote-task.ts`
+  - `input-required` / `auth-required` attention helper
+- `apps/desktop/src/screens/workbench/AgentPanel.tsx`
+  - attention badge styling과 tooltip 표시
+
+Phase E의 local contract는 완료했다. 다만 실제 A2A Inspector/TCK와 원격 cancellation/retry smoke는 네트워크 접근 가능한 compatible endpoint가 필요하므로 코드 커밋 범위 밖의 운영 검증으로 남긴다.
+
+### 16.6 Phase C/D/E 검증 명령
 
 ```bash
 node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/electron/ipc/remote-agents-ipc.test.mjs packages/storage/src/repositories/a2a-remote-agent-repository.test.mjs
 node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs packages/orchestration/src/orchestration-planner.test.mjs packages/orchestration/src/worker-runner.test.mjs apps/desktop/electron/a2a-worker-integration.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs apps/desktop/src/screens/workbench/agent-remote-task.test.mjs
+node --import tsx --test --test-force-exit packages/agent/src/a2a-worker-invoker.test.mjs apps/desktop/electron/a2a-worker-integration.test.mjs apps/desktop/src/screens/workbench/agent-remote-task.test.mjs
 npm run check
 npm run test
 npm run build
 ```
 
-### 16.6 Phase C/D 금지 사항
+### 16.7 Phase C/D/E 금지 사항
 
 - Electron main process 안에 Express server를 추가하지 않는다.
 - renderer에서 A2A SDK 또는 remote fetch를 직접 호출하지 않는다.

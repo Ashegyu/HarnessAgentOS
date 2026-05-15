@@ -123,12 +123,24 @@ export const createPersistentA2AWorkerInvoker = (
           uri: `harness:a2a-output/${input.taskRunId}/${invocation.id}/${createArtifactUriNonce()}`,
           summary: outcome.outputText,
         });
-        await options.state.updateAgentInvocation(invocation.id, {
-          status: "succeeded",
-          rawOutputArtifactId: rawOutputArtifact.id,
-          finishedAt,
-          latencyMs: elapsedMs(startedAt, finishedAt),
-        });
+        await options.state.updateAgentInvocation(
+          invocation.id,
+          outcome.lifecycle
+            ? {
+                status: "failed",
+                rawOutputArtifactId: rawOutputArtifact.id,
+                errorCode: lifecycleErrorCode(outcome.lifecycle.kind),
+                errorMessage: outcome.lifecycle.message,
+                finishedAt,
+                latencyMs: elapsedMs(startedAt, finishedAt),
+              }
+            : {
+                status: "succeeded",
+                rawOutputArtifactId: rawOutputArtifact.id,
+                finishedAt,
+                latencyMs: elapsedMs(startedAt, finishedAt),
+              },
+        );
         return outcome;
       } catch (error) {
         const finishedAt = now();
@@ -169,6 +181,13 @@ const elapsedMs = (startedAt: string, finishedAt: string): number | null => {
   if (!Number.isFinite(started) || !Number.isFinite(finished)) return null;
   return Math.max(0, finished - started);
 };
+
+const lifecycleErrorCode = (
+  kind: NonNullable<A2AWorkerOutcome["lifecycle"]>["kind"],
+): string =>
+  kind === "requires_input"
+    ? "A2A_REMOTE_INPUT_REQUIRED"
+    : "A2A_REMOTE_AUTH_REQUIRED";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);

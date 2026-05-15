@@ -35,8 +35,24 @@ export interface WorkerCliInvoker {
     profile: AgentProfile;
     userRequest: string;
     remoteEndpointId?: string;
-  }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }>;
+  }): Promise<{
+    outputText: string;
+    proposedActions?: AgentProposedAction[];
+    lifecycle?: WorkerLifecycleInterruption;
+  }>;
 }
+
+export type WorkerLifecycleInterruption =
+  | {
+      kind: "requires_input";
+      remoteState?: "input-required";
+      message: string;
+    }
+  | {
+      kind: "requires_auth";
+      remoteState?: "auth-required";
+      message: string;
+    };
 
 /**
  * Worker runner deps.
@@ -91,6 +107,7 @@ export class WorkerRunner {
       workerTitle: string;
     }> = [];
     const policyReport: string[] = [];
+    let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
     const baseStepIndex = (
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
@@ -163,6 +180,12 @@ export class WorkerRunner {
         );
         body = outcome.body;
         proposedActions = outcome.proposedActions;
+        if (outcome.lifecycle) {
+          lifecycleInterruption = outcome.lifecycle;
+          body = lifecycleBody(outcome.lifecycle, body);
+          status = "failed";
+          proposedActions = [];
+        }
       } catch (e) {
         body = e instanceof Error ? e.message : String(e);
         status = "failed";
@@ -270,11 +293,13 @@ export class WorkerRunner {
     }
     await this.deps.state.setTaskRunStatus(
       input.plan.taskRunId,
-      updatedSteps.some((s) => s.status === "failed")
-        ? "blocked"
-        : proposedApprovalIds.length > 0
-          ? "waiting_for_approval"
-          : "ready_for_review",
+      lifecycleInterruption !== null
+        ? "paused"
+        : updatedSteps.some((s) => s.status === "failed")
+          ? "blocked"
+          : proposedApprovalIds.length > 0
+            ? "waiting_for_approval"
+            : "ready_for_review",
     );
 
     return {
@@ -304,19 +329,24 @@ export class WorkerRunner {
     profile: AgentProfile | null,
     taskRunId: string,
     remoteEndpoint: A2AEndpoint | null,
-  ): Promise<{ body: string; proposedActions: AgentProposedAction[] }> {
+  ): Promise<{
+    body: string;
+    proposedActions: AgentProposedAction[];
+    lifecycle?: WorkerLifecycleInterruption;
+  }> {
     assertActionTypeAllowed(roleToActionIntent(step.role));
     const invoker = this.deps.agentPlanning;
     const userRequest = step.instruction ?? step.inputSummary;
     if (invoker && profile && userRequest.length > 0) {
-      const { outputText, proposedActions } = await invoker.invokeForWorker({
-        taskRunId,
-        profile,
-        userRequest,
-        ...(step.remoteEndpointId !== undefined
-          ? { remoteEndpointId: step.remoteEndpointId }
-          : {}),
-      });
+      const { outputText, proposedActions, lifecycle } =
+        await invoker.invokeForWorker({
+          taskRunId,
+          profile,
+          userRequest,
+          ...(step.remoteEndpointId !== undefined
+            ? { remoteEndpointId: step.remoteEndpointId }
+            : {}),
+        });
       // Prefix with a small attribution line so the artifact reader
       // sees which profile produced the text. Persona snippet is kept
       // short — full persona is the system prompt the CLI consumed.
@@ -327,6 +357,7 @@ export class WorkerRunner {
       return {
         body: personaSnippet + outputText,
         proposedActions: proposedActions ?? [],
+        ...(lifecycle ? { lifecycle } : {}),
       };
     }
     // Fallback: deterministic stub.
@@ -369,6 +400,22 @@ const roleBody = (role: WorkerRole): string => {
     default:
       return `Unknown worker role`;
   }
+};
+
+const lifecycleBody = (
+  lifecycle: WorkerLifecycleInterruption,
+  output: string,
+): string => {
+  const lines = [
+    lifecycle.message,
+    lifecycle.kind === "requires_input"
+      ? "Remote worker paused because it requires user input."
+      : "Remote worker paused because it requires authentication setup.",
+  ];
+  if (output.trim().length > 0) {
+    lines.push("", output.trim());
+  }
+  return lines.join("\n");
 };
 
 const roleToActionIntent = (role: WorkerRole): string => {
