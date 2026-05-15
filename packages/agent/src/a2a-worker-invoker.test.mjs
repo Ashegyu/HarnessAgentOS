@@ -102,3 +102,81 @@ test("A2AWorkerInvoker wraps A2AInvocationAdapter as a WorkerCliInvoker", async 
     },
   ]);
 });
+
+test("A2AWorkerInvoker surfaces input-required as a lifecycle interruption", async () => {
+  const remoteRefs = [];
+  const invoker = new A2AWorkerInvoker({
+    endpointId: "endpoint_input",
+    adapter: {
+      async invoke(request) {
+        return {
+          outputText: "Need target branch before continuing.",
+          remoteTask: {
+            invocationId: request.invocationId,
+            endpointId: request.endpointId,
+            remoteTaskId: "remote-task-input",
+            state: "input-required",
+            lastEventAt: "2026-05-15T00:00:00.000Z",
+          },
+          artifacts: [],
+          normalizedEvents: [],
+          requiresInput: true,
+          requiresAuth: false,
+        };
+      },
+    },
+    createInvocationId: () => "inv_a2a_input",
+    onRemoteTaskRef: (ref) => remoteRefs.push(ref),
+  });
+
+  const outcome = await invoker.invokeForWorker({
+    taskRunId: "task_run_input",
+    profile,
+    userRequest: "Continue remote work.",
+  });
+
+  assert.deepEqual(outcome.lifecycle, {
+    kind: "requires_input",
+    remoteState: "input-required",
+    message: "Remote A2A worker requires user input",
+  });
+  assert.equal(outcome.proposedActions, undefined);
+  assert.equal(remoteRefs[0].state, "input-required");
+});
+
+test("A2AWorkerInvoker surfaces auth-required as a lifecycle interruption", async () => {
+  const invoker = new A2AWorkerInvoker({
+    endpointId: "endpoint_auth",
+    adapter: {
+      async invoke(request) {
+        return {
+          outputText: "",
+          remoteTask: {
+            invocationId: request.invocationId,
+            endpointId: request.endpointId,
+            remoteTaskId: "remote-task-auth",
+            state: "auth-required",
+            lastEventAt: "2026-05-15T00:00:00.000Z",
+          },
+          artifacts: [],
+          normalizedEvents: [],
+          requiresInput: false,
+          requiresAuth: true,
+        };
+      },
+    },
+    createInvocationId: () => "inv_a2a_auth",
+  });
+
+  const outcome = await invoker.invokeForWorker({
+    taskRunId: "task_run_auth",
+    profile,
+    userRequest: "Continue remote work.",
+  });
+
+  assert.deepEqual(outcome.lifecycle, {
+    kind: "requires_auth",
+    remoteState: "auth-required",
+    message: "Remote A2A worker requires authentication",
+  });
+});

@@ -278,6 +278,92 @@ test("persistent A2A worker composition records invocation, raw output, and remo
   }
 });
 
+test("persistent A2A worker pauses orchestration when remote input is required", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, t.dir);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({
+      name: "Remote Reviewer",
+      baseUrl: "https://agents.example.com/reviewer",
+      agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+      preferredTransport: "json-rpc",
+      enabled: true,
+      trusted: true,
+    });
+    const pipeline = await state.agentPipelines.create({
+      name: "Persistent remote input pipeline",
+      description: "",
+      steps: [
+        {
+          id: "remote-review",
+          agentProfileId: profile.id,
+          remoteEndpointId: endpoint.id,
+          title: "Remote review",
+          instruction: "Review and ask for missing input if needed.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await state.decideApproval(drafted.approval.id, "approved", "ok");
+    const invoker = createPersistentA2AWorkerInvoker({
+      state,
+      endpoint,
+      adapter: {
+        async invoke(request) {
+          return {
+            outputText: "Which target branch should I use?",
+            remoteTask: {
+              invocationId: request.invocationId,
+              endpointId: request.endpointId,
+              remoteTaskId: "remote-task-input",
+              remoteContextId: "remote-context-input",
+              state: "input-required",
+              lastEventAt: "2026-05-15T00:00:00.000Z",
+            },
+            artifacts: [],
+            normalizedEvents: [],
+            requiresInput: true,
+            requiresAuth: false,
+          };
+        },
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+      createArtifactUriNonce: () => "nonce-input",
+    });
+    const runner = new WorkerRunner({ state, agentPlanning: invoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.deepEqual(result.proposedApprovalIds, []);
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun.status, "paused");
+    const invocations = await state.listAgentInvocationsByTaskRun(taskRun.id);
+    assert.equal(invocations[0].status, "failed");
+    assert.equal(invocations[0].errorCode, "A2A_REMOTE_INPUT_REQUIRED");
+    const remoteTask = await state.a2aRemoteAgents.getRemoteTaskRef(invocations[0].id);
+    assert.equal(remoteTask.state, "input-required");
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const workerArtifact = artifacts.find((a) => a.title === "Worker output: Remote review");
+    assert.match(workerArtifact?.summary ?? "", /requires user input/i);
+    assert.match(workerArtifact?.summary ?? "", /Which target branch/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("A2A worker router dispatches remote steps to endpoint invoker and keeps local steps local", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
