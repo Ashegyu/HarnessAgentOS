@@ -37,6 +37,7 @@ export interface AgentTopologyNode {
   id: string;
   kind: AgentTopologyNodeKind;
   label: string;
+  displayLabel: string;
   sublabel: string;
   status: AgentTopologyStatus;
   x: number;
@@ -88,6 +89,7 @@ export const buildAgentTopology = ({
       id: `request:${taskRun.id}`,
       kind: "request",
       label: "User Request",
+      displayLabel: "User Request",
       sublabel: taskRun.userRequest,
       status: taskRunStatusToTopologyStatus(taskRun.status),
       x: 50,
@@ -105,6 +107,7 @@ export const buildAgentTopology = ({
       id: agentNodeId(invocation.id),
       kind: "agent",
       label: display.agentName,
+      displayLabel: `Agent: ${display.agentName}`,
       sublabel: display.detail,
       status: invocationStatusToTopologyStatus(invocation.status),
       x: flowX(index),
@@ -122,6 +125,7 @@ export const buildAgentTopology = ({
         id: stepNodeId(step.id),
         kind: "step",
         label: step.title,
+        displayLabel: `Step: ${step.title}`,
         sublabel: step.kind,
         status: stepStatusToTopologyStatus(step.status),
         x: flowX(index),
@@ -159,6 +163,7 @@ export const buildAgentTopology = ({
       id: remoteNodeId(ref.invocationId),
       kind: "remote",
       label: `A2A ${ref.endpointId}`,
+      displayLabel: `Remote: A2A ${ref.endpointId}`,
       sublabel: ref.remoteTaskId ? `${ref.state} · ${ref.remoteTaskId}` : ref.state,
       status,
       x: 82,
@@ -190,6 +195,7 @@ export const buildAgentTopology = ({
       id: approvalNodeId(approval.id),
       kind: "approval",
       label: approval.actionType,
+      displayLabel: `Approval: ${approval.actionType}`,
       sublabel: approval.actionSummary,
       status,
       x: approvalX(index, approvals.length),

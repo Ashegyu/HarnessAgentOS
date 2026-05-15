@@ -138,7 +138,7 @@ const TopologyNode = ({ node }: { node: AgentTopologyNode }): JSX.Element => (
     title={node.title}
   >
     <span className="agent-topology__node-kind">{node.kind}</span>
-    <strong>{node.label}</strong>
+    <strong>{node.displayLabel}</strong>
     <span>{node.sublabel}</span>
   </div>
 );
