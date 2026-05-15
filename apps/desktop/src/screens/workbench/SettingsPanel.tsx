@@ -203,7 +203,19 @@ export const SettingsPanel = ({
 
         {activeTab === "pipelines" && (
           <div className="settings-dialog__body settings-dialog__body--flush">
-            <PipelinesTab initialTopologyTaskRunId={initialTopologyTaskRunId} />
+            <PipelinesTab
+              initialTopologyTaskRunId={initialTopologyTaskRunId}
+              onDefaultPipelineChanged={(pipelineId) => {
+                dispatch({ type: "setOrchestrationEnabled", value: true });
+                dispatch({ type: "setDefaultPipelineId", value: pipelineId });
+                void window.harness.pipeline
+                  .list()
+                  .then((list) => setPipelines(list))
+                  .catch(() => {
+                    // General tab dropdown is optional; Pipelines tab remains authoritative.
+                  });
+              }}
+            />
           </div>
         )}
 

@@ -6,6 +6,7 @@ import {
   serializePipelineDraft,
   pipelineToDraft,
   pipelineInputToDraft,
+  settingsWithDefaultPipeline,
   topologyTaskRunOptionsFromThreadDetails,
   moveStep,
 } from "./pipeline-form.ts";
@@ -392,6 +393,35 @@ test("topologyTaskRunOptionsFromThreadDetails flattens recent task runs", () => 
   assert.equal(options[0].id, "tsk_new");
   assert.equal(options[0].threadTitle, "Thread B");
   assert.match(options[0].label, /new request/);
+});
+
+test("settingsWithDefaultPipeline enables orchestration and stores the pipeline id", () => {
+  const settings = {
+    agent: {
+      provider: "auto",
+      model: "",
+      timeoutMs: 120000,
+      stallTimeoutMs: 30000,
+      contextDepth: 3,
+    },
+    approval: {
+      autoApprove: false,
+      autoExecuteWorkerFileActions: false,
+    },
+    orchestration: {
+      enabled: false,
+      defaultMode: "single_worker",
+      defaultInstructions: "",
+      defaultPipelineId: "",
+    },
+  };
+
+  const next = settingsWithDefaultPipeline(settings, "pipe_1");
+
+  assert.equal(next.orchestration.enabled, true);
+  assert.equal(next.orchestration.defaultPipelineId, "pipe_1");
+  assert.equal(next.orchestration.defaultMode, "single_worker");
+  assert.equal(next.agent.provider, "auto");
 });
 
 test("moveStep shifts a step up by one position", () => {

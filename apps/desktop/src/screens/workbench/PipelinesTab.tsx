@@ -15,6 +15,7 @@ import {
   pipelineInputToDraft,
   pipelineToDraft,
   serializePipelineDraft,
+  settingsWithDefaultPipeline,
   topologyTaskRunOptionsFromThreadDetails,
   validatePipelineDraft,
   type PipelineDraft,
@@ -30,11 +31,13 @@ type ListState =
       profiles: AgentProfile[];
       remoteEntries: A2ARegistryEntry[];
       taskRuns: TopologyTaskRunOption[];
+      defaultPipelineId: string;
     }
   | { kind: "error"; message: string };
 
 interface PipelinesTabProps {
   initialTopologyTaskRunId?: string | null;
+  onDefaultPipelineChanged?: (pipelineId: string) => void;
 }
 
 const errorMessage = (e: unknown): string =>
@@ -60,6 +63,7 @@ const newStep = (
 
 export const PipelinesTab = ({
   initialTopologyTaskRunId = null,
+  onDefaultPipelineChanged,
 }: PipelinesTabProps): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -78,12 +82,14 @@ export const PipelinesTab = ({
 
   const refresh = useCallback(async () => {
     try {
-      const [pipelines, profiles, remoteEntries, threads] = await Promise.all([
-        window.harness.pipeline.list(),
-        window.harness.agents.list(),
-        window.harness.remoteAgents.list(),
-        window.harness.state.listThreads(),
-      ]);
+      const [pipelines, profiles, remoteEntries, threads, settings] =
+        await Promise.all([
+          window.harness.pipeline.list(),
+          window.harness.agents.list(),
+          window.harness.remoteAgents.list(),
+          window.harness.state.listThreads(),
+          window.harness.settings.get(),
+        ]);
       const details = await Promise.all(
         threads.slice(0, 25).map(async (thread) => {
           try {
@@ -102,6 +108,7 @@ export const PipelinesTab = ({
         profiles,
         remoteEntries,
         taskRuns,
+        defaultPipelineId: settings.orchestration.defaultPipelineId,
       });
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
@@ -142,6 +149,8 @@ export const PipelinesTab = ({
   const profiles = list.kind === "ready" ? list.profiles : [];
   const remoteEntries = list.kind === "ready" ? list.remoteEntries : [];
   const taskRunOptions = list.kind === "ready" ? list.taskRuns : [];
+  const defaultPipelineId =
+    list.kind === "ready" ? list.defaultPipelineId : "";
   const selectedTaskRunOption = taskRunOptions.find(
     (option) => option.id === recommendTaskRunId.trim(),
   );
@@ -264,6 +273,25 @@ export const PipelinesTab = ({
     if (checked) current.add(dependencyId);
     else current.delete(dependencyId);
     updateStep(index, { dependsOn: [...current] });
+  };
+
+  const handleSetDefaultPipeline = async (): Promise<void> => {
+    if (!draft || draft.id === null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const settings = await window.harness.settings.get();
+      await window.harness.settings.update(
+        settingsWithDefaultPipeline(settings, draft.id),
+      );
+      onDefaultPipelineChanged?.(draft.id);
+      await refresh();
+      setSelectedId(draft.id);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleRecommend = async (): Promise<void> => {
@@ -400,6 +428,7 @@ export const PipelinesTab = ({
                     <span className="pipelines-tab__item-name">{p.name}</span>
                     <span className="pipelines-tab__item-meta">
                       {p.steps.length} step{p.steps.length === 1 ? "" : "s"}
+                      {p.id === defaultPipelineId ? " · 기본" : ""}
                     </span>
                   </button>
                 </li>
@@ -850,6 +879,18 @@ export const PipelinesTab = ({
                       ? "생성"
                       : "저장"}
                 </button>
+                {draft.id !== null && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => void handleSetDefaultPipeline()}
+                    disabled={saving || draft.id === defaultPipelineId}
+                  >
+                    {draft.id === defaultPipelineId
+                      ? "기본 실행 pipeline"
+                      : "기본 실행 pipeline으로 지정"}
+                  </button>
+                )}
                 {draft.id !== null && (
                   <button
                     type="button"

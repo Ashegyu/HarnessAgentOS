@@ -6,6 +6,7 @@ import type {
   ArtifactKind,
   CreateAgentPipelineInput,
   ApprovalActionType,
+  HarnessSettings,
   ThreadDetail,
   WorkerOutputContract,
 } from "@harness/core";
@@ -127,6 +128,18 @@ export const topologyTaskRunOptionsFromThreadDetails = (
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, limit);
+
+export const settingsWithDefaultPipeline = (
+  settings: HarnessSettings,
+  pipelineId: string,
+): HarnessSettings => ({
+  ...settings,
+  orchestration: {
+    ...settings.orchestration,
+    enabled: true,
+    defaultPipelineId: pipelineId,
+  },
+});
 
 interface ProfileLite {
   id: string;

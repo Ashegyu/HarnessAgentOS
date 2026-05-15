@@ -111,6 +111,7 @@ UI smoke:
 - advanced orchestration toggle.
 - worker timeline 표시.
 - orchestration plan approval 표시.
+- Pipelines 탭에서 저장된 pipeline을 기본 실행 pipeline으로 지정하면 orchestration이 켜지고 새 Thread/TaskRun 입력의 pipeline 선택 기본값으로 반영된다.
 
 Manual acceptance:
 
@@ -125,6 +126,7 @@ Manual acceptance:
 - checkpoint/approval/quality gate를 우회하지 않는다.
 - 숨겨진 Todo 진행이 없다.
 - 기존 ClaudeAgentSystem의 문제였던 사용자 통제 상실을 반복하지 않는다.
+- 기본 pipeline 지정은 실행이 아니라 설정 변경만 수행하며, 실제 실행 시 기존 `orchestration_plan` approval을 요구한다.
 
 ## 다음 Phase 인계
 

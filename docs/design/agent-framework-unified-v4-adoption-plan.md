@@ -550,6 +550,7 @@ Skillify capability, Learner trace, active Instinct를 읽어 “파이프라인
 - Pipeline editor는 최근 Thread/TaskRun 목록을 datalist로 보여주고, Workbench에서 선택된 TaskRun이 있으면 추천 입력을 자동으로 채운다.
 - “draft에 적용”과 “무시”는 domain-specific `topology.recordFeedback`을 통해 `source="learner"` observation을 남긴다. generic `recordObservation` IPC는 계속 만들지 않는다.
 - 현재 구현은 기본적으로 planner -> coder -> tester/reviewer 순서의 제한적 topology를 생성한다. fan-out 실행 preview는 후속 UI/검증 단계로 남긴다.
+- 사용자가 추천 draft를 저장한 뒤 해당 pipeline을 기본 실행 pipeline으로 지정하면 `settings.orchestration.enabled=true`와 `defaultPipelineId`가 함께 저장된다. 이후 새 Thread/TaskRun 입력은 기존 Phase 7 pipeline 실행 경로를 사용하며, 저장과 실행은 계속 명시적인 사용자 동작으로 분리된다.
 
 ### Non-goal
 
