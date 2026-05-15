@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 import { resolve } from "node:path";
-import { ClientFactory } from "@a2a-js/sdk/client";
 import { createA2AServerGateway } from "./a2a-server-gateway.ts";
 import { createA2ACompanionServer } from "./a2a-server-companion.ts";
 
@@ -39,7 +39,7 @@ const makeGateway = (events = [], handlerInputs = []) =>
     },
   });
 
-test("A2A companion serves an Agent Card and accepts SDK message/send over loopback", async () => {
+test("A2A companion serves an Agent Card and accepts message/send over loopback", async () => {
   const events = [];
   const handlerInputs = [];
   const companion = createA2ACompanionServer({
@@ -70,9 +70,9 @@ test("A2A companion serves an Agent Card and accepts SDK message/send over loopb
     );
     assert.equal(running.jsonRpcUrl, `${running.baseUrl}/a2a/jsonrpc`);
 
-    const cardResponse = await fetch(running.agentCardUrl);
+    const cardResponse = await requestJson(running.agentCardUrl);
     assert.equal(cardResponse.status, 200);
-    const card = await cardResponse.json();
+    const card = cardResponse.body;
     assert.equal(card.name, "Harness Ops Agent");
     assert.equal(card.protocolVersion, "0.3.0");
     assert.equal(card.url, running.jsonRpcUrl);
@@ -87,14 +87,17 @@ test("A2A companion serves an Agent Card and accepts SDK message/send over loopb
       { url: running.jsonRpcUrl, transport: "JSONRPC" },
     ]);
 
-    const client = await new ClientFactory().createFromUrl(
-      running.baseUrl,
-      "/.well-known/agent-card.json",
-    );
-    const result = await client.sendMessage(messageSendBody().params, {
-      serviceParameters: { Authorization: "Bearer ops-token" },
+    const rpcResponse = await requestJson(running.jsonRpcUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer ops-token",
+      },
+      body: JSON.stringify(messageSendBody()),
     });
+    const result = rpcResponse.body.result;
 
+    assert.equal(rpcResponse.status, 200);
     assert.equal(result.kind, "task");
     assert.equal(result.id, "task-ops-1");
     assert.equal(result.status.state, "completed");
@@ -121,12 +124,12 @@ test("A2A companion rejects unauthenticated JSON-RPC before invoking work", asyn
 
   const running = await companion.start();
   try {
-    const response = await fetch(running.jsonRpcUrl, {
+    const response = await requestJson(running.jsonRpcUrl, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(messageSendBody()),
     });
-    const body = await response.json();
+    const body = response.body;
 
     assert.equal(response.status, 401);
     assert.equal(body.error.code, "A2A_SERVER_UNAUTHORIZED");
@@ -148,7 +151,7 @@ test("A2A companion rejects oversized bodies before parsing or invoking work", a
 
   const running = await companion.start();
   try {
-    const response = await fetch(running.jsonRpcUrl, {
+    const response = await requestJson(running.jsonRpcUrl, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -156,7 +159,7 @@ test("A2A companion rejects oversized bodies before parsing or invoking work", a
       },
       body: JSON.stringify(messageSendBody()),
     });
-    const body = await response.json();
+    const body = response.body;
 
     assert.equal(response.status, 413);
     assert.equal(body.error.code, "A2A_COMPANION_BODY_TOO_LARGE");
@@ -165,3 +168,27 @@ test("A2A companion rejects oversized bodies before parsing or invoking work", a
     await running.close();
   }
 });
+
+const requestJson = (url, options = {}) =>
+  new Promise((resolvePromise, reject) => {
+    const request = httpRequest(url, options, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("error", reject);
+      response.on("end", () => {
+        try {
+          const text = Buffer.concat(chunks).toString("utf8");
+          resolvePromise({
+            status: response.statusCode,
+            headers: response.headers,
+            body: text.length > 0 ? JSON.parse(text) : null,
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    request.on("error", reject);
+    if (options.body) request.write(options.body);
+    request.end();
+  });

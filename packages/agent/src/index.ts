@@ -9,6 +9,7 @@ export * from "./a2a-invocation-adapter";
 export * from "./a2a-sdk-client";
 export * from "./a2a-worker-invoker";
 export * from "./a2a-server-gateway";
+export * from "./a2a-server-companion";
 export * from "./agent-invocation-queue";
 export * from "./agent-planning-service";
 export * from "./agent-profile-resolver";
