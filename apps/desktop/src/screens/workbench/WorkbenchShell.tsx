@@ -19,6 +19,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { SlimRail } from "./SlimRail";
 import { HeroEmpty } from "./HeroEmpty";
 import type { AgentProgressItem } from "./AgentProgressList";
+import { taskRunIdToRefreshForAgentEvent } from "./agent-panel-visibility";
 import "./workbench.css";
 
 type ThreadsState =
@@ -387,14 +388,19 @@ export const WorkbenchShell = (): JSX.Element => {
   useEffect(() => {
     void refreshProviders();
     const off = window.harness.events.onAgentStreamEvent((event) => {
+      const refreshTaskRunId = taskRunIdToRefreshForAgentEvent({
+        eventType: event.type,
+        selectedTaskRunId,
+        eventTaskRunId: event.type === "progress" ? event.taskRunId : undefined,
+      });
       if (event.type === "progress") {
         pushAgentProgress(event.taskRunId, event);
-        if (selectedTaskRunId === event.taskRunId) {
-          void refreshTaskRunDetail(event.taskRunId);
-        }
-        if (selectedThreadId) {
-          void refreshThreadDetail(selectedThreadId);
-        }
+      }
+      if (refreshTaskRunId !== null && selectedTaskRunId === refreshTaskRunId) {
+        void refreshTaskRunDetail(refreshTaskRunId);
+      }
+      if (selectedThreadId && refreshTaskRunId !== null) {
+        void refreshThreadDetail(selectedThreadId);
       }
       if (
         event.type === "started" ||

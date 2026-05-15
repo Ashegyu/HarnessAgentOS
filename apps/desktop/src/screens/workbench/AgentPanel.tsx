@@ -15,6 +15,7 @@ import {
   remoteTaskTitle,
 } from "./agent-remote-task";
 import { deriveInternalAgentHandoffs } from "./agent-handoff-display";
+import { shouldRenderAgentPanel } from "./agent-panel-visibility";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
@@ -82,9 +83,13 @@ export const AgentPanel = ({
   // drafting tasks that haven't spun up a worker yet show nothing —
   // the central main window already displays the live stream once a
   // worker invocation lands.
-  const isAgentMode = invocations.length > 0 || taskRun.status === "drafting";
-  if (!isAgentMode) return null;
-  if (orchestrationDriven && invocations.length === 0) return null;
+  const shouldRender = shouldRenderAgentPanel({
+    taskRunStatus: taskRun.status,
+    invocationCount: invocations.length,
+    handoffCount: handoffs.length,
+    orchestrationDriven,
+  });
+  if (!shouldRender) return null;
 
   const handle = async (label: string, fn: () => Promise<void>): Promise<void> => {
     setBusy(label);
