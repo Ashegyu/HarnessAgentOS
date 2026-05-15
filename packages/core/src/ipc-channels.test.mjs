@@ -12,6 +12,7 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
   // Phase 7: orchestration, Phase 8: agent.
   // Detailed-settings: agents, mcp, skillSource, secret, pipeline.
+  // A2A Phase B: remoteAgents registry.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
     "agent",
     "agents",
@@ -24,12 +25,26 @@ test("declared namespaces match the phases shipped so far", () => {
     "orchestration",
     "pipeline",
     "quality",
+    "remoteAgents",
     "runner",
     "secret",
     "settings",
     "skillSource",
     "state",
   ]);
+});
+
+test("remoteAgents namespace exposes registry verbs only", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.remoteAgents).sort(), [
+    "delete",
+    "get",
+    "list",
+    "toggle",
+    "upsertCardSnapshot",
+    "upsertEndpoint",
+  ]);
+  assert.equal(isAllowedChannel("remoteAgents:list"), true);
+  assert.equal(isAllowedChannel("remoteAgents:invoke"), false);
 });
 
 test("pipeline namespace exposes CRUD verbs", () => {
