@@ -14,6 +14,7 @@
 | `runner-and-quality-architecture.md` | runner 계층과 quality gate 평가 흐름 |
 | `capability-and-learning-architecture.md` | Skillify capability와 Learner advisor 구조 |
 | `ui-workbench-architecture.md` | 대화형 workbench UI 정보 구조와 상태 표현 |
+| `a2a-integration-plan.md` | A2A Client Adapter와 Remote Agent Registry 적용 계획 |
 | `architecture-decisions.md` | 핵심 아키텍처 결정 기록 |
 
 ## 문서 간 역할
