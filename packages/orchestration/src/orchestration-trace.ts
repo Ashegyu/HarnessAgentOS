@@ -30,6 +30,19 @@ export const formatPlanSummary = (input: {
     if (step.remoteEndpointId) {
       lines.push(`   - remote A2A endpoint: ${step.remoteEndpointId}`);
     }
+    if (step.dependsOn !== undefined) {
+      lines.push(
+        `   - depends on: ${step.dependsOn.join(", ") || "(none)"}`,
+      );
+    }
+    if (step.allowedActions !== undefined) {
+      lines.push(
+        `   - allowed actions: ${step.allowedActions.join(", ") || "(none)"}`,
+      );
+    }
+    if (step.outputContract) {
+      lines.push(`   - output contract: ${step.outputContract}`);
+    }
   });
   return lines.join("\n");
 };
@@ -53,6 +66,21 @@ export const formatWorkerStepArtifact = (input: {
   }
   if (input.remoteEndpointName) {
     lines.push(`**Remote A2A**: ${input.remoteEndpointName}`);
+  }
+  if (input.step.dependsOn !== undefined) {
+    lines.push(
+      `**Depends on**: ${input.step.dependsOn.join(", ") || "(none)"}`,
+    );
+  }
+  if (input.step.allowedActions !== undefined) {
+    lines.push(
+      `**Allowed actions**: ${
+        input.step.allowedActions.join(", ") || "(none)"
+      }`,
+    );
+  }
+  if (input.step.outputContract) {
+    lines.push(`**Output contract**: ${input.step.outputContract}`);
   }
   lines.push(
     "",

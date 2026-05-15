@@ -22,6 +22,21 @@ export const WorkerStepView = ({ step }: WorkerStepViewProps): JSX.Element => {
           기대 artifact: {step.expectedArtifactKinds.join(", ")}
         </p>
       ) : null}
+      {step.dependsOn !== undefined ? (
+        <p className="muted worker-step__artifacts">
+          depends on: {step.dependsOn.join(", ") || "(none)"}
+        </p>
+      ) : null}
+      {step.outputContract ? (
+        <p className="muted worker-step__artifacts">
+          output: {step.outputContract}
+        </p>
+      ) : null}
+      {step.allowedActions !== undefined ? (
+        <p className="muted worker-step__artifacts">
+          allowed actions: {step.allowedActions.join(", ") || "(none)"}
+        </p>
+      ) : null}
     </li>
   );
 };

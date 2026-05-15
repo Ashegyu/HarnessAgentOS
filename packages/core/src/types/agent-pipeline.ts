@@ -1,4 +1,9 @@
 import type { ArtifactKind } from "./artifact.ts";
+import { APPROVAL_ACTION_TYPES, type ApprovalActionType } from "./approval.ts";
+import {
+  WORKER_OUTPUT_CONTRACTS,
+  type WorkerOutputContract,
+} from "./orchestration.ts";
 
 /**
  * Linear pipeline of AgentProfile invocations — see
@@ -25,6 +30,17 @@ export interface AgentPipelineStep {
   title: string;
   instruction: string;
   expectedArtifactKinds: readonly ArtifactKind[];
+  /**
+   * Pipeline step ids that must complete before this step runs. Missing
+   * preserves the legacy default: linear dependency on the previous step.
+   */
+  dependsOn?: readonly string[];
+  /**
+   * Side-effect proposal classes this worker may surface as approvals.
+   * Workers still cannot execute these actions directly.
+   */
+  allowedActions?: readonly ApprovalActionType[];
+  outputContract?: WorkerOutputContract;
 }
 
 export interface AgentPipeline {
@@ -43,6 +59,36 @@ const hasOptionalNonEmptyString = (
   obj: Record<string, unknown>,
   key: string,
 ): boolean => obj[key] === undefined || isNonEmptyString(obj[key]);
+const ACTION_TYPE_SET: ReadonlySet<string> = new Set(APPROVAL_ACTION_TYPES);
+const OUTPUT_CONTRACT_SET: ReadonlySet<string> = new Set(
+  WORKER_OUTPUT_CONTRACTS,
+);
+
+const isNonEmptyStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) &&
+  v.every((item) => typeof item === "string" && item.length > 0);
+
+const hasOptionalNonEmptyStringArray = (
+  obj: Record<string, unknown>,
+  key: string,
+): boolean => obj[key] === undefined || isNonEmptyStringArray(obj[key]);
+
+const hasOptionalApprovalActionArray = (
+  obj: Record<string, unknown>,
+  key: string,
+): boolean =>
+  obj[key] === undefined ||
+  (Array.isArray(obj[key]) &&
+    obj[key].every(
+      (item) => typeof item === "string" && ACTION_TYPE_SET.has(item),
+    ));
+
+const hasOptionalOutputContract = (
+  obj: Record<string, unknown>,
+  key: string,
+): boolean =>
+  obj[key] === undefined ||
+  (typeof obj[key] === "string" && OUTPUT_CONTRACT_SET.has(obj[key]));
 
 export const isAgentPipelineStep = (v: unknown): v is AgentPipelineStep => {
   if (typeof v !== "object" || v === null) return false;
@@ -54,6 +100,9 @@ export const isAgentPipelineStep = (v: unknown): v is AgentPipelineStep => {
   if (!isString(s.instruction)) return false;
   if (!Array.isArray(s.expectedArtifactKinds)) return false;
   if (!s.expectedArtifactKinds.every(isString)) return false;
+  if (!hasOptionalNonEmptyStringArray(s, "dependsOn")) return false;
+  if (!hasOptionalApprovalActionArray(s, "allowedActions")) return false;
+  if (!hasOptionalOutputContract(s, "outputContract")) return false;
   return true;
 };
 

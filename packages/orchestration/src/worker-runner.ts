@@ -15,7 +15,12 @@ import {
   type WorkerRole,
   type WorkerStep,
 } from "./orchestration-types.ts";
-import { assertActionTypeAllowed } from "./orchestration-policy.ts";
+import {
+  assertActionTypeAllowed,
+  isActionAllowedForWorkerStep,
+  orderWorkerStepsByDependencies,
+  validateWorkerStep,
+} from "./orchestration-policy.ts";
 import { formatWorkerStepArtifact } from "./orchestration-trace.ts";
 import {
   createInternalAgentMessage,
@@ -115,13 +120,21 @@ export class WorkerRunner {
     const policyReport: string[] = [];
     let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
     const handoffMessages: InternalAgentMessage[] = [];
+    const handoffsByStepId = new Map<string, InternalAgentMessage>();
+    for (const step of input.plan.workerSteps) validateWorkerStep(step);
+    const planStepsById = new Map(
+      input.plan.workerSteps.map((step) => [step.id, step] as const),
+    );
+    const executionSteps = orderWorkerStepsByDependencies(
+      input.plan.workerSteps,
+    );
     const baseStepIndex = (
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
     let lastDbStepId: string | null = null;
 
-    for (let i = 0; i < input.plan.workerSteps.length; i += 1) {
-      const planStep = input.plan.workerSteps[i]!;
+    for (let i = 0; i < executionSteps.length; i += 1) {
+      const planStep = executionSteps[i]!;
       // When the step references a specific AgentProfile (pipeline-driven
       // plans), fail-fast if that profile has been deleted since draft.
       // Falling back to a default profile would silently change the
@@ -185,7 +198,12 @@ export class WorkerRunner {
           input.plan.taskRunId,
           dbStep.id,
           remoteEndpoint,
-          handoffMessages,
+          resolveHandoffsForStep(
+            planStep,
+            planStepsById,
+            handoffsByStepId,
+            handoffMessages,
+          ),
         );
         body = outcome.body;
         proposedActions = outcome.proposedActions;
@@ -218,21 +236,27 @@ export class WorkerRunner {
       });
       updatedSteps.push({ ...planStep, status });
       if (status === "succeeded") {
-        handoffMessages.push(
-          createInternalAgentMessage({
-            taskRunId: input.plan.taskRunId,
-            planId: input.plan.id,
-            fromStepId: planStep.id,
-            fromRole: planStep.role,
-            fromTitle: planStep.title,
-            content: body,
-            artifactId: artifact.id,
-          }),
-        );
+        const handoff = createInternalAgentMessage({
+          taskRunId: input.plan.taskRunId,
+          planId: input.plan.id,
+          fromStepId: planStep.id,
+          fromRole: planStep.role,
+          fromTitle: planStep.title,
+          content: body,
+          artifactId: artifact.id,
+        });
+        handoffMessages.push(handoff);
+        handoffsByStepId.set(planStep.id, handoff);
       }
       if (status === "succeeded" && proposedActions.length > 0) {
         for (const [proposalIndex, raw] of proposedActions.entries()) {
           const details = toProposedActionDetails(raw);
+          if (!isActionAllowedForWorkerStep(planStep, details.type)) {
+            policyReport.push(
+              `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: not allowed for this worker step`,
+            );
+            continue;
+          }
           const validation = validateProposedActionDetails(details, raw.type);
           if (!validation.ok || !validation.details) {
             policyReport.push(
@@ -477,6 +501,31 @@ const toProposedActionDetails = (
     command: raw.command,
     ...(raw.args !== undefined ? { args: raw.args } : {}),
   };
+};
+
+const resolveHandoffsForStep = (
+  step: WorkerStep,
+  planStepsById: ReadonlyMap<string, WorkerStep>,
+  handoffsByStepId: ReadonlyMap<string, InternalAgentMessage>,
+  legacyPriorHandoffs: readonly InternalAgentMessage[],
+): InternalAgentMessage[] => {
+  if (step.dependsOn === undefined) return [...legacyPriorHandoffs];
+  const orderedDependencyIds: string[] = [];
+  const seen = new Set<string>();
+  const visit = (stepId: string): void => {
+    if (seen.has(stepId)) return;
+    const dependency = planStepsById.get(stepId);
+    if (!dependency) return;
+    for (const parentId of dependency.dependsOn ?? []) visit(parentId);
+    seen.add(stepId);
+    orderedDependencyIds.push(stepId);
+  };
+  for (const dependencyId of step.dependsOn) visit(dependencyId);
+  return orderedDependencyIds
+    .map((stepId) => handoffsByStepId.get(stepId))
+    .filter(
+      (message): message is InternalAgentMessage => message !== undefined,
+    );
 };
 
 const shortRationale = (

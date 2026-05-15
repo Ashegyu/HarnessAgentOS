@@ -1,3 +1,5 @@
+import type { ApprovalActionType } from "./approval.ts";
+
 export type OrchestrationMode =
   | "single_worker"
   | "planner_worker"
@@ -16,6 +18,19 @@ export const WORKER_ROLES: readonly WorkerRole[] = [
   "coder",
   "reviewer",
   "tester",
+];
+
+export type WorkerOutputContract =
+  | "plan"
+  | "diff_proposal"
+  | "review"
+  | "test_result";
+
+export const WORKER_OUTPUT_CONTRACTS: readonly WorkerOutputContract[] = [
+  "plan",
+  "diff_proposal",
+  "review",
+  "test_result",
 ];
 
 export type WorkerStepStatus =
@@ -59,6 +74,22 @@ export interface WorkerStep {
    * selects a trusted remote worker transport.
    */
   remoteEndpointId?: string;
+  /**
+   * WorkerStep ids that must complete before this step runs. Missing
+   * means legacy linear handoff behavior; an empty array means the step
+   * is explicitly independent.
+   */
+  dependsOn?: readonly string[];
+  /**
+   * Side-effect proposal classes this worker may surface as downstream
+   * approvals. The worker still cannot execute them directly.
+   */
+  allowedActions?: readonly ApprovalActionType[];
+  /**
+   * Advisory output shape expected from the worker. This is used for UI
+   * and audit traces; quality gates still validate concrete artifacts.
+   */
+  outputContract?: WorkerOutputContract;
 }
 
 export interface OrchestrationPlan {

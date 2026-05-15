@@ -131,6 +131,14 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
     assert.equal(drafted.plan.workerSteps[0].title, "Implement feature");
     assert.equal(drafted.plan.workerSteps[1].agentProfileId, reviewer.id);
     assert.equal(drafted.plan.workerSteps[1].role, "reviewer");
+    assert.equal(drafted.plan.workerSteps[0].dependsOn, undefined);
+    assert.deepEqual(drafted.plan.workerSteps[1].dependsOn, [
+      drafted.plan.workerSteps[0].id,
+    ]);
+    assert.equal(drafted.plan.workerSteps[0].allowedActions, undefined);
+    assert.equal(drafted.plan.workerSteps[1].allowedActions, undefined);
+    assert.equal(drafted.plan.workerSteps[0].outputContract, "diff_proposal");
+    assert.equal(drafted.plan.workerSteps[1].outputContract, "review");
     assert.equal(drafted.plan.sourcePipelineId, pipeline.id);
     // v12 / Phase 2 — pipeline step.instruction must round-trip into
     // WorkerStep.instruction in full (no truncation). The inputSummary
@@ -143,6 +151,74 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
       drafted.plan.workerSteps[1].instruction,
       "Check for risks.",
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("draftPlan translates explicit pipeline dependencies to WorkerStep ids", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Fan out",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan.",
+          expectedArtifactKinds: ["plan"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code.",
+          expectedArtifactKinds: ["diff"],
+          dependsOn: ["plan"],
+          allowedActions: ["file_write"],
+          outputContract: "diff_proposal",
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Test.",
+          expectedArtifactKinds: ["test_result"],
+          dependsOn: ["plan"],
+          allowedActions: ["shell"],
+          outputContract: "test_result",
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+
+    const [plan, code, testStep] = drafted.plan.workerSteps;
+    assert.deepEqual(plan.dependsOn, []);
+    assert.deepEqual(code.dependsOn, [plan.id]);
+    assert.deepEqual(testStep.dependsOn, [plan.id]);
+    assert.deepEqual(code.allowedActions, ["file_write"]);
+    assert.equal(testStep.outputContract, "test_result");
   } finally {
     closeDb(db);
     t.cleanup();

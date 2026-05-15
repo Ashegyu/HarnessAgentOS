@@ -367,6 +367,89 @@ test("runApproved passes prior worker outputs as internal handoff messages", asy
   }
 });
 
+test("runApproved limits handoff messages to declared dependencies", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Fanout",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Test from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          handoffMessages: input.handoffMessages ?? [],
+        });
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.equal(calls.length, 3);
+    assert.equal(calls[1].profileName, "Reviewer");
+    assert.deepEqual(
+      calls[1].handoffMessages.map((m) => m.fromTitle),
+      ["Plan"],
+    );
+    assert.equal(calls[2].profileName, "Tester");
+    assert.deepEqual(
+      calls[2].handoffMessages.map((m) => m.fromTitle),
+      ["Plan"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved forwards remoteEndpointId to the worker invoker", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -515,6 +598,72 @@ test("runApproved creates downstream approvals for worker file_write proposals",
     });
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun.status, "waiting_for_approval");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved rejects proposed actions outside step allowedActions", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "ReadOnlyCoder", persona: "Do not edit." }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Read only",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Inspect",
+          instruction: "Inspect only.",
+          expectedArtifactKinds: ["log"],
+          allowedActions: [],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "Tried to propose a write.",
+          proposedActions: [
+            {
+              type: "file_write",
+              path: "blocked.txt",
+              after: "blocked\n",
+              rationale: "should be blocked",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.deepEqual(result.proposedApprovalIds, []);
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const policyArtifact = artifacts.find(
+      (a) => a.title === "Worker action policy report",
+    );
+    assert.ok(policyArtifact, "policy report artifact must be created");
+    assert.match(policyArtifact.summary, /not allowed for this worker step/);
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun.status, "ready_for_review");
   } finally {
     closeDb(db);
     t.cleanup();

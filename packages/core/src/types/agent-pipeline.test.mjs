@@ -39,6 +39,18 @@ test("isAgentPipelineStep accepts a remote A2A endpoint override", () => {
   );
 });
 
+test("isAgentPipelineStep accepts topology metadata", () => {
+  assert.equal(
+    isAgentPipelineStep({
+      ...VALID_STEP,
+      dependsOn: ["step_before"],
+      allowedActions: ["file_write"],
+      outputContract: "diff_proposal",
+    }),
+    true,
+  );
+});
+
 test("isAgentPipelineStep rejects an empty remoteEndpointId", () => {
   assert.equal(
     isAgentPipelineStep({ ...VALID_STEP, remoteEndpointId: "" }),
@@ -59,6 +71,21 @@ test("isAgentPipelineStep rejects empty title", () => {
 test("isAgentPipelineStep rejects non-array expectedArtifactKinds", () => {
   assert.equal(
     isAgentPipelineStep({ ...VALID_STEP, expectedArtifactKinds: "plan" }),
+    false,
+  );
+});
+
+test("isAgentPipelineStep rejects malformed topology metadata", () => {
+  assert.equal(
+    isAgentPipelineStep({ ...VALID_STEP, dependsOn: [""] }),
+    false,
+  );
+  assert.equal(
+    isAgentPipelineStep({ ...VALID_STEP, allowedActions: ["git_push"] }),
+    false,
+  );
+  assert.equal(
+    isAgentPipelineStep({ ...VALID_STEP, outputContract: "memo" }),
     false,
   );
 });

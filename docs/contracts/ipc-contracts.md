@@ -168,6 +168,7 @@ export interface OrchestrationPlan {
   mode: "single_worker" | "planner_worker" | "multi_worker";
   workerSteps: WorkerStep[];
   requiresApproval: true;
+  sourcePipelineId?: string;
 }
 
 export interface WorkerStep {
@@ -175,8 +176,29 @@ export interface WorkerStep {
   title: string;
   role: "planner" | "coder" | "reviewer" | "tester";
   inputSummary: string;
+  instruction?: string;
   expectedArtifactKinds: string[];
   status: StepStatus;
+  agentProfileId?: string;
+  remoteEndpointId?: string;
+  dependsOn?: string[];
+  allowedActions?: ApprovalActionType[];
+  outputContract?: "plan" | "diff_proposal" | "review" | "test_result";
+}
+
+export interface AgentPipelineStep {
+  id: string;
+  agentProfileId: string;
+  remoteEndpointId?: string;
+  title: string;
+  instruction: string;
+  expectedArtifactKinds: ArtifactKind[];
+  /** Missing means legacy linear dependency on the previous step. */
+  dependsOn?: string[];
+  /** Missing preserves legacy proposal behavior; [] makes the step read-only. */
+  allowedActions?: ApprovalActionType[];
+  /** Missing means the planner applies the role default. */
+  outputContract?: "plan" | "diff_proposal" | "review" | "test_result";
 }
 
 export interface RepairPlanDraft {
@@ -577,7 +599,12 @@ Phase 7 전까지 feature flag off다.
 
 ```ts
 orchestration.getPlan(input: { taskRunId: string }): Promise<OrchestrationPlan | null>;
-orchestration.draftPlan(input: { taskRunId: string; mode: "single_worker" | "planner_worker" | "multi_worker"; instruction?: string }): Promise<{
+orchestration.draftPlan(input: {
+  taskRunId: string;
+  mode: "single_worker" | "planner_worker" | "multi_worker";
+  instruction?: string;
+  pipelineId?: string;
+}): Promise<{
   plan: OrchestrationPlan;
   artifact: Artifact;
   approval: Approval;

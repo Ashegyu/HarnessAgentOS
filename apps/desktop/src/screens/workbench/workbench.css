@@ -5478,3 +5478,22 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   display: flex;
   gap: 2px;
 }
+
+.pipeline-step__option-grid,
+.pipeline-step__option-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.pipeline-step__option-grid {
+  flex-direction: column;
+}
+
+.pipeline-step__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}

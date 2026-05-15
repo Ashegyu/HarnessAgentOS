@@ -165,6 +165,9 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
       if (!isAgentPipelineStep(step)) {
         throw new Error(`AgentPipeline.steps[${i}] is malformed`);
       }
+    }
+    validateStepTopology(steps);
+    for (const [i, step] of steps.entries()) {
       const profile = await this.profiles.get(step.agentProfileId);
       if (!profile) {
         throw new Error(
@@ -189,3 +192,47 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     }
   }
 }
+
+const validateStepTopology = (steps: readonly AgentPipelineStep[]): void => {
+  const byId = new Map<string, AgentPipelineStep>();
+  for (const [i, step] of steps.entries()) {
+    if (byId.has(step.id)) {
+      throw new Error(
+        `AgentPipeline.steps[${i}].id duplicates another step: ${step.id}`,
+      );
+    }
+    byId.set(step.id, step);
+  }
+
+  for (const [i, step] of steps.entries()) {
+    for (const depId of step.dependsOn ?? []) {
+      if (depId === step.id) {
+        throw new Error(
+          `AgentPipeline.steps[${i}].dependsOn cannot reference itself: ${depId}`,
+        );
+      }
+      if (!byId.has(depId)) {
+        throw new Error(
+          `AgentPipeline.steps[${i}].dependsOn references unknown step: ${depId}`,
+        );
+      }
+    }
+  }
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (step: AgentPipelineStep): void => {
+    if (visited.has(step.id)) return;
+    if (visiting.has(step.id)) {
+      throw new Error(`AgentPipeline.steps contains a dependsOn cycle at ${step.id}`);
+    }
+    visiting.add(step.id);
+    for (const depId of step.dependsOn ?? []) {
+      const dep = byId.get(depId);
+      if (dep) visit(dep);
+    }
+    visiting.delete(step.id);
+    visited.add(step.id);
+  };
+  for (const step of steps) visit(step);
+};

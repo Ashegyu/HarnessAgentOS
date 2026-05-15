@@ -4,6 +4,7 @@ import type {
   AgentProfile,
   Approval,
   Artifact,
+  WorkerOutputContract,
   WorkerRole,
 } from "@harness/core";
 import {
@@ -15,6 +16,7 @@ import {
 import { formatPlanSummary } from "./orchestration-trace.ts";
 import {
   validatePlanShape,
+  validateWorkerTopology,
   validateWorkerStep,
 } from "./orchestration-policy.ts";
 
@@ -62,6 +64,7 @@ export class OrchestrationPlanner {
     if (input.pipelineId) {
       workerSteps = await this.synthesizeFromPipeline(input.pipelineId);
       for (const step of workerSteps) validateWorkerStep(step);
+      validateWorkerTopology(workerSteps);
     } else {
       workerSteps = synthesizeWorkerSteps(input.mode, taskRun.userRequest);
       validatePlanShape({ mode: input.mode, workerSteps });
@@ -171,7 +174,10 @@ export class OrchestrationPlanner {
       );
     }
     const out: WorkerStep[] = [];
-    for (const step of pipeline.steps) {
+    const workerIdByPipelineStepId = new Map(
+      pipeline.steps.map((step) => [step.id, newId("step")] as const),
+    );
+    for (const [index, step] of pipeline.steps.entries()) {
       const profile: AgentProfile | null =
         await this.deps.state.agentProfiles.get(step.agentProfileId);
       if (!profile) {
@@ -199,10 +205,21 @@ export class OrchestrationPlanner {
         }
         remoteEndpointId = endpoint.id;
       }
+      const role = profile.role as WorkerRole;
+      const workerStepId = workerIdByPipelineStepId.get(step.id)!;
+      const defaultDependsOn =
+        index > 0 ? [pipeline.steps[index - 1]!.id] : [];
+      const sourceDependsOn =
+        step.dependsOn === undefined ? defaultDependsOn : step.dependsOn;
+      const dependsOn = sourceDependsOn.map(
+        (depId) => workerIdByPipelineStepId.get(depId)!,
+      );
+      const outputContract: WorkerOutputContract =
+        step.outputContract ?? defaultOutputContractForRole(role);
       out.push({
-        id: newId("step"),
+        id: workerStepId,
         title: step.title,
-        role: profile.role as WorkerRole,
+        role,
         inputSummary: step.instruction.slice(0, 120),
         // Preserve the full instruction so the runner can pass it
         // verbatim to the CLI; only the display summary is truncated.
@@ -211,6 +228,13 @@ export class OrchestrationPlanner {
         status: "pending",
         agentProfileId: step.agentProfileId,
         ...(remoteEndpointId !== undefined ? { remoteEndpointId } : {}),
+        ...(dependsOn.length > 0 || step.dependsOn !== undefined
+          ? { dependsOn }
+          : {}),
+        ...(step.allowedActions !== undefined
+          ? { allowedActions: [...step.allowedActions] }
+          : {}),
+        outputContract,
       });
     }
     return out;
@@ -238,6 +262,7 @@ const synthesizeWorkerSteps = (
           id: newId("step"),
           title: "단일 워커가 요청을 분석하고 결과 요약을 작성",
           role: "coder",
+          outputContract: defaultOutputContractForRole("coder"),
           ...base,
         },
       ];
@@ -247,12 +272,14 @@ const synthesizeWorkerSteps = (
           id: newId("step"),
           title: "Planner가 단계별 계획을 작성",
           role: "planner",
+          outputContract: defaultOutputContractForRole("planner"),
           ...base,
         },
         {
           id: newId("step"),
           title: "Worker가 계획을 검토하고 결과 요약을 작성",
           role: "coder",
+          outputContract: defaultOutputContractForRole("coder"),
           ...base,
         },
       ];
@@ -262,24 +289,28 @@ const synthesizeWorkerSteps = (
           id: newId("step"),
           title: "Planner가 단계별 계획을 작성",
           role: "planner",
+          outputContract: defaultOutputContractForRole("planner"),
           ...base,
         },
         {
           id: newId("step"),
           title: "Coder가 변경 영역과 영향 범위를 정리",
           role: "coder",
+          outputContract: defaultOutputContractForRole("coder"),
           ...base,
         },
         {
           id: newId("step"),
           title: "Reviewer가 위험과 누락된 검증을 점검",
           role: "reviewer",
+          outputContract: defaultOutputContractForRole("reviewer"),
           ...base,
         },
         {
           id: newId("step"),
           title: "Tester가 필요한 테스트 후보를 제안",
           role: "tester",
+          outputContract: defaultOutputContractForRole("tester"),
           ...base,
         },
       ];
@@ -288,5 +319,22 @@ const synthesizeWorkerSteps = (
         "ORCH_INVALID_PLAN",
         `Unknown orchestration mode ${mode}`,
       );
+  }
+};
+
+const defaultOutputContractForRole = (
+  role: WorkerRole,
+): WorkerOutputContract => {
+  switch (role) {
+    case "planner":
+      return "plan";
+    case "coder":
+      return "diff_proposal";
+    case "reviewer":
+      return "review";
+    case "tester":
+      return "test_result";
+    default:
+      return "review";
   }
 };

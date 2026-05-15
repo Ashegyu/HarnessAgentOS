@@ -74,6 +74,66 @@ test("validatePipelineDraft accepts a well-formed draft", () => {
   assert.deepEqual(validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]), []);
 });
 
+test("validatePipelineDraft accepts explicit dependencies and metadata", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Topology Flow",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "s2",
+        agentProfileId: "ap_b",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["s1"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+    ],
+  };
+  assert.deepEqual(
+    validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]),
+    [],
+  );
+});
+
+test("validatePipelineDraft flags dependency cycles", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Cyclic Flow",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "A",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: ["s2"],
+      },
+      {
+        id: "s2",
+        agentProfileId: "ap_b",
+        title: "B",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+        dependsOn: ["s1"],
+      },
+    ],
+  };
+  const errs = validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]);
+  assert.ok(errs.some((e) => /cycle/i.test(e.message)));
+});
+
 test("validatePipelineDraft accepts a known remote endpoint override", () => {
   const d = {
     ...emptyPipelineDraft(),
@@ -147,6 +207,30 @@ test("serializePipelineDraft preserves remoteEndpointId when selected", () => {
   assert.equal(out.steps[0].remoteEndpointId, "a2a_remote");
 });
 
+test("serializePipelineDraft preserves topology metadata when selected", () => {
+  const d = {
+    id: null,
+    name: "Topology Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "T",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: ["s0"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+    ],
+  };
+  const out = serializePipelineDraft(d);
+  assert.deepEqual(out.steps[0].dependsOn, ["s0"]);
+  assert.deepEqual(out.steps[0].allowedActions, ["file_write"]);
+  assert.equal(out.steps[0].outputContract, "diff_proposal");
+});
+
 test("serializePipelineDraft preserves id in update mode", () => {
   const d = {
     id: "pipe_1",
@@ -194,6 +278,32 @@ test("pipelineToDraft round-trips a remoteEndpointId", () => {
   };
   const draft = pipelineToDraft(pipeline);
   assert.equal(draft.steps[0].remoteEndpointId, "a2a_remote");
+});
+
+test("pipelineToDraft round-trips topology metadata", () => {
+  const pipeline = {
+    id: "pipe_1",
+    name: "Topology Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "Code",
+        instruction: "Hi",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["s0"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+    ],
+    createdAt: "2026-05-12T00:00:00.000Z",
+    updatedAt: "2026-05-12T00:00:00.000Z",
+  };
+  const draft = pipelineToDraft(pipeline);
+  assert.deepEqual(draft.steps[0].dependsOn, ["s0"]);
+  assert.deepEqual(draft.steps[0].allowedActions, ["file_write"]);
+  assert.equal(draft.steps[0].outputContract, "diff_proposal");
 });
 
 test("moveStep shifts a step up by one position", () => {

@@ -518,6 +518,16 @@ pipeline serializer를 함께 확장한다.
 - 병렬 검토는 가능하지만 side effect는 여전히 중앙 통제를 받는다.
 - 장기적으로 pipeline template 품질을 개선할 수 있다.
 
+### 현재 구현 범위
+
+- `AgentPipelineStep`과 `WorkerStep`에 `dependsOn`, `allowedActions`, `outputContract`를 optional metadata로 추가했다.
+- DB migration 없이 기존 `agent_pipelines.steps_json`에 호환 저장하며, repository write 경계에서 step id 중복, unknown dependency, self dependency, cycle을 차단한다.
+- pipeline을 `OrchestrationPlan.workerSteps`로 변환할 때 pipeline step id dependency를 immutable WorkerStep id dependency로 스냅샷한다. `dependsOn`이 없는 기존 pipeline은 이전 step에 의존하는 linear topology로 해석한다.
+- `allowedActions`가 명시된 step은 해당 action allowlist로 worker proposal을 제한한다. 필드가 없는 기존 pipeline은 호환성을 위해 기존 proposal 동작을 유지한다.
+- worker-runner는 dependency topological order로 실행하고, explicit dependency가 있는 step에는 해당 ancestor output만 internal handoff로 전달한다.
+- worker가 step의 `allowedActions` 밖 action을 제안하면 downstream approval을 만들지 않고 policy report artifact로 남긴다.
+- Pipeline 편집 UI와 Orchestration step 표시 UI에 dependency, allowed action, output contract metadata를 노출했다.
+
 ## Cross-phase 데이터 흐름
 
 ```text

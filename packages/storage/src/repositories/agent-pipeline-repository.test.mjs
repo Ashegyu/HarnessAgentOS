@@ -134,6 +134,46 @@ test("AgentPipelineRepository.create preserves a remoteEndpointId override", asy
   }
 });
 
+test("AgentPipelineRepository.create preserves topology metadata", async () => {
+  const { t, db, pipelines, profiles, profile } = await setupRepos();
+  try {
+    const reviewer = await profiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const created = await pipelines.create(
+      makePipelineInput(profile.id, {
+        steps: [
+          {
+            id: "plan",
+            agentProfileId: profile.id,
+            title: "Plan",
+            instruction: "Outline.",
+            expectedArtifactKinds: ["plan"],
+            allowedActions: ["file_write"],
+            outputContract: "diff_proposal",
+          },
+          {
+            id: "review",
+            agentProfileId: reviewer.id,
+            title: "Review",
+            instruction: "Review.",
+            expectedArtifactKinds: ["quality_report"],
+            dependsOn: ["plan"],
+            allowedActions: [],
+            outputContract: "review",
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(created.steps[1].dependsOn, ["plan"]);
+    assert.deepEqual((await pipelines.get(created.id)).steps, created.steps);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentPipelineRepository.create rejects empty steps", async () => {
   const { t, db, pipelines, profile } = await setupRepos();
   try {
@@ -141,6 +181,68 @@ test("AgentPipelineRepository.create rejects empty steps", async () => {
       () =>
         pipelines.create(makePipelineInput(profile.id, { steps: [] })),
       /steps/i,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.create rejects unknown dependsOn step ids", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            steps: [
+              {
+                id: "step_a",
+                agentProfileId: profile.id,
+                title: "Plan",
+                instruction: "",
+                expectedArtifactKinds: ["plan"],
+                dependsOn: ["missing"],
+              },
+            ],
+          }),
+        ),
+      /dependsOn/i,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.create rejects dependsOn cycles", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            steps: [
+              {
+                id: "a",
+                agentProfileId: profile.id,
+                title: "A",
+                instruction: "",
+                expectedArtifactKinds: ["plan"],
+                dependsOn: ["b"],
+              },
+              {
+                id: "b",
+                agentProfileId: profile.id,
+                title: "B",
+                instruction: "",
+                expectedArtifactKinds: ["log"],
+                dependsOn: ["a"],
+              },
+            ],
+          }),
+        ),
+      /cycle/i,
     );
   } finally {
     closeDb(db);

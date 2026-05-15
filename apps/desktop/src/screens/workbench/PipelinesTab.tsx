@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { A2ARegistryEntry, AgentPipeline, AgentProfile } from "@harness/core";
+import type {
+  A2ARegistryEntry,
+  AgentPipeline,
+  AgentProfile,
+  ApprovalActionType,
+  WorkerOutputContract,
+} from "@harness/core";
 import {
   emptyPipelineDraft,
   moveStep,
+  PIPELINE_OUTPUT_CONTRACT_CHOICES,
+  PIPELINE_WORKER_ACTION_CHOICES,
   pipelineToDraft,
   serializePipelineDraft,
   validatePipelineDraft,
@@ -26,13 +34,19 @@ const errorMessage = (e: unknown): string =>
 const newStepId = (): string =>
   `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
-const newStep = (firstProfileId: string): PipelineStepDraft => ({
+const newStep = (
+  firstProfileId: string,
+  previousStepId?: string,
+): PipelineStepDraft => ({
   id: newStepId(),
   agentProfileId: firstProfileId,
   remoteEndpointId: "",
   title: "",
   instruction: "",
   expectedArtifactKinds: ["log"],
+  dependsOn: previousStepId ? [previousStepId] : [],
+  allowedActions: null,
+  outputContract: "",
 });
 
 export const PipelinesTab = (): JSX.Element => {
@@ -101,7 +115,12 @@ export const PipelinesTab = (): JSX.Element => {
   const handleAddStep = (): void => {
     if (!draft || profiles.length === 0) return;
     const firstProfileId = profiles[0]!.id;
-    setDraft({ ...draft, steps: [...draft.steps, newStep(firstProfileId)] });
+    const previousStepId =
+      draft.steps.length > 0 ? draft.steps[draft.steps.length - 1]!.id : undefined;
+    setDraft({
+      ...draft,
+      steps: [...draft.steps, newStep(firstProfileId, previousStepId)],
+    });
   };
 
   const handleRemoveStep = (i: number): void => {
@@ -171,6 +190,36 @@ export const PipelinesTab = (): JSX.Element => {
   const remoteName = (id: string): string =>
     remoteEntries.find((entry) => entry.endpoint.id === id)?.endpoint.name ??
     `(missing remote: ${id})`;
+  const effectiveDependsOn = (
+    step: PipelineStepDraft,
+    index: number,
+  ): string[] =>
+    step.dependsOn ??
+    (index > 0 && draft ? [draft.steps[index - 1]!.id] : []);
+  const toggleDependency = (
+    index: number,
+    dependencyId: string,
+    checked: boolean,
+  ): void => {
+    if (!draft) return;
+    const step = draft.steps[index];
+    if (!step) return;
+    const current = new Set(effectiveDependsOn(step, index));
+    if (checked) current.add(dependencyId);
+    else current.delete(dependencyId);
+    updateStep(index, { dependsOn: [...current] });
+  };
+  const toggleAllowedAction = (
+    index: number,
+    action: ApprovalActionType,
+    checked: boolean,
+  ): void => {
+    if (!draft) return;
+    const current = new Set(draft.steps[index]?.allowedActions ?? []);
+    if (checked) current.add(action);
+    else current.delete(action);
+    updateStep(index, { allowedActions: [...current] });
+  };
 
   return (
     <div className="pipelines-tab">
@@ -391,6 +440,103 @@ export const PipelinesTab = (): JSX.Element => {
                             )}
                         </select>
                       </label>
+                      <label className="settings-field">
+                        <span className="settings-field__label">
+                          Output Contract
+                        </span>
+                        <select
+                          className="settings-field__input"
+                          value={step.outputContract}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateStep(i, {
+                              outputContract: e.target
+                                .value as WorkerOutputContract | "",
+                            })
+                          }
+                        >
+                          <option value="">Role default</option>
+                          {PIPELINE_OUTPUT_CONTRACT_CHOICES.map((contract) => (
+                            <option key={contract} value={contract}>
+                              {contract}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="settings-field">
+                        <span className="settings-field__label">
+                          Dependencies
+                        </span>
+                        <div className="pipeline-step__option-grid">
+                          {draft.steps
+                            .filter((candidate) => candidate.id !== step.id)
+                            .map((candidate) => (
+                              <label
+                                key={candidate.id}
+                                className="pipeline-step__check"
+                              >
+                                <input
+                                  type="checkbox"
+                                  disabled={saving}
+                                  checked={effectiveDependsOn(
+                                    step,
+                                    i,
+                                  ).includes(candidate.id)}
+                                  onChange={(e) =>
+                                    toggleDependency(
+                                      i,
+                                      candidate.id,
+                                      e.target.checked,
+                                    )
+                                  }
+                                />
+                                <span>
+                                  {candidate.title.trim() || candidate.id}
+                                </span>
+                              </label>
+                            ))}
+                        </div>
+                      </div>
+                      <div className="settings-field">
+                        <span className="settings-field__label">
+                          Allowed Actions
+                        </span>
+                        <div className="pipeline-step__option-row">
+                          {PIPELINE_WORKER_ACTION_CHOICES.map((action) => (
+                            <label
+                              key={action}
+                              className="pipeline-step__check"
+                            >
+                              <input
+                                type="checkbox"
+                                disabled={saving}
+                                checked={
+                                  step.allowedActions?.includes(action) ??
+                                  false
+                                }
+                                onChange={(e) =>
+                                  toggleAllowedAction(
+                                    i,
+                                    action,
+                                    e.target.checked,
+                                  )
+                                }
+                              />
+                              <span>{action}</span>
+                            </label>
+                          ))}
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={saving || step.allowedActions === null}
+                            onClick={() =>
+                              updateStep(i, { allowedActions: null })
+                            }
+                          >
+                            Default
+                          </button>
+                        </div>
+                      </div>
                       <label className="settings-field">
                         <span className="settings-field__label">
                           Instruction (이 step에 전달)
