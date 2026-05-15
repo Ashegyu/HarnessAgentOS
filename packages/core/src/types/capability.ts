@@ -1,4 +1,4 @@
-import type { Approval } from "./approval.ts";
+import type { Approval, ApprovalActionType } from "./approval.ts";
 
 export type CapabilityRiskLevel = "low" | "medium" | "high";
 
@@ -43,10 +43,38 @@ export interface CapabilityUsageForTrace {
   decision: "accepted" | "rejected";
 }
 
-export interface SkillResources {
+export type SkillPlatform = "windows" | "macos" | "linux" | "any";
+
+export interface SkillResourceManifest {
   scripts: string[];
   templates: string[];
   examples: string[];
+  references: string[];
+}
+
+export interface SkillResources extends SkillResourceManifest {}
+
+export interface SkillMetadataV2 {
+  id: string;
+  name: string;
+  description: string;
+  version?: string;
+  author?: string;
+  license?: string;
+  /** Absolute path of the skill directory. Main process only. */
+  sourceDir: string;
+  trusted: boolean;
+  riskLevel: CapabilityRiskLevel;
+  allowedActions: ApprovalActionType[];
+  requiredApprovals: ApprovalActionType[];
+  triggerTerms: string[];
+  tags: string[];
+  platforms: SkillPlatform[];
+  inputs: string[];
+  outputs: string[];
+  relatedSkills: string[];
+  projectScopes: string[];
+  resources: SkillResourceManifest;
 }
 
 export interface CapabilityCandidateApprovalResult {

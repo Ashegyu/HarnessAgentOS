@@ -12,12 +12,20 @@ import {
   type CreateArtifactInput,
   type CreateCapabilityInput,
   type CreateCheckpointInput,
+  type CreateEvolutionCandidateInput,
+  type CreateInstinctInput,
+  type CreateObservationInput,
   type CreateStepInput,
   type CreateTaskRunInput,
   type CreateThreadInput,
+  type EvolutionCandidate,
+  type EvolutionCandidateStatus,
   type HarnessSettings,
+  type Instinct,
+  type InstinctStatus,
   type LearningTrace,
   type LearningTracePatch,
+  type Observation,
   type QualityGateResult,
   type Step,
   type StepStatus,
@@ -35,7 +43,10 @@ import {
   SqliteArtifactRepository,
   SqliteCapabilityRepository,
   SqliteCheckpointRepository,
+  SqliteEvolutionCandidateRepository,
+  SqliteInstinctRepository,
   SqliteLearningTraceRepository,
+  SqliteObservationRepository,
   SqliteQualityGateRepository,
   SqliteSettingsRepository,
   SqliteStepRepository,
@@ -54,8 +65,11 @@ import {
   type ArtifactRepository,
   type CapabilityRepository,
   type CheckpointRepository,
+  type EvolutionCandidateRepository,
+  type InstinctRepository,
   type LearningTraceRepository,
   type McpServerRepository,
+  type ObservationRepository,
   type QualityGateRepository,
   type SettingsRepository,
   type SkillSourceRepository,
@@ -88,6 +102,9 @@ export class LocalStateService implements ConversationStateGateway {
   readonly qualityGates: QualityGateRepository;
   readonly capabilities: CapabilityRepository;
   readonly learningTraces: LearningTraceRepository;
+  readonly observations: ObservationRepository;
+  readonly instincts: InstinctRepository;
+  readonly evolutionCandidates: EvolutionCandidateRepository;
   readonly agentInvocations: AgentInvocationRepository;
   readonly settings: SettingsRepository;
   readonly agentProfiles: AgentProfileRepository;
@@ -108,6 +125,9 @@ export class LocalStateService implements ConversationStateGateway {
     this.qualityGates = new SqliteQualityGateRepository(db);
     this.capabilities = new SqliteCapabilityRepository(db);
     this.learningTraces = new SqliteLearningTraceRepository(db);
+    this.observations = new SqliteObservationRepository(db);
+    this.instincts = new SqliteInstinctRepository(db);
+    this.evolutionCandidates = new SqliteEvolutionCandidateRepository(db);
     this.agentInvocations = new SqliteAgentInvocationRepository(db);
     this.settings = new SqliteSettingsRepository(db);
     this.agentProfiles = new SqliteAgentProfileRepository(db);
@@ -420,6 +440,68 @@ export class LocalStateService implements ConversationStateGateway {
 
   async listLearningTraces(): Promise<LearningTrace[]> {
     return this.learningTraces.list();
+  }
+
+  // -- Observation / Instinct (Agent Framework adoption Phase 2) ---------
+
+  async createObservation(
+    input: CreateObservationInput,
+  ): Promise<Observation> {
+    return this.observations.create(input);
+  }
+
+  async listObservations(input?: {
+    projectKey?: string;
+    taskRunId?: string;
+    limit?: number;
+  }): Promise<Observation[]> {
+    return this.observations.list(input);
+  }
+
+  async createEvolutionCandidate(
+    input: CreateEvolutionCandidateInput,
+  ): Promise<EvolutionCandidate> {
+    return this.evolutionCandidates.create(input);
+  }
+
+  async listEvolutionCandidates(input?: {
+    projectKey?: string;
+    status?: EvolutionCandidateStatus;
+  }): Promise<EvolutionCandidate[]> {
+    return this.evolutionCandidates.list(input);
+  }
+
+  async getEvolutionCandidate(id: string): Promise<EvolutionCandidate | null> {
+    return this.evolutionCandidates.get(id);
+  }
+
+  async updateEvolutionCandidateStatus(
+    id: string,
+    status: EvolutionCandidateStatus,
+  ): Promise<EvolutionCandidate> {
+    return this.evolutionCandidates.updateStatus(id, status);
+  }
+
+  async createInstinct(input: CreateInstinctInput): Promise<Instinct> {
+    return this.instincts.create(input);
+  }
+
+  async listInstincts(input?: {
+    projectKey?: string;
+    includeDisabled?: boolean;
+  }): Promise<Instinct[]> {
+    return this.instincts.list(input);
+  }
+
+  async getInstinct(id: string): Promise<Instinct | null> {
+    return this.instincts.get(id);
+  }
+
+  async updateInstinctStatus(
+    id: string,
+    status: InstinctStatus,
+  ): Promise<Instinct> {
+    return this.instincts.updateStatus(id, status);
   }
 
   // -- AgentInvocation (Phase 8) ----------------------------------------

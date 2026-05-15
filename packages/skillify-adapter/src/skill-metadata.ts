@@ -1,4 +1,11 @@
-import type { CapabilityRiskLevel } from "@harness/core";
+import {
+  APPROVAL_ACTION_TYPES,
+  type ApprovalActionType,
+  type CapabilityRiskLevel,
+  type SkillMetadataV2,
+  type SkillPlatform,
+  type SkillResourceManifest,
+} from "@harness/core";
 
 /**
  * Phase 5 SkillMetadata. Mirrors the Skillify SKILL.md frontmatter
@@ -6,32 +13,27 @@ import type { CapabilityRiskLevel } from "@harness/core";
  *
  * Source: docs/implementation/phase-05-skillify-capability-adapter.md
  */
-export interface SkillMetadata {
-  id: string;
-  name: string;
-  description: string;
-  /** Absolute path of the skill directory. */
-  sourceDir: string;
-  riskLevel: CapabilityRiskLevel;
-  /** Action types this skill is allowed to propose (e.g. file_write, shell). */
-  allowedActions: string[];
-  triggerTerms: string[];
-  /**
-   * `trusted=true` means the skill came from a directory the user has
-   * marked safe (project-local skills/, or user-level userData/skills/).
-   * Untrusted skills can still be listed but never executed.
-   */
-  trusted: boolean;
-}
+export interface SkillMetadata extends SkillMetadataV2 {}
 
 export interface ParsedSkillFrontmatter {
   /** stable id derived from the file path or `id` frontmatter field. */
   id: string;
   name: string;
   description: string;
+  version?: string;
+  author?: string;
+  license?: string;
   riskLevel: CapabilityRiskLevel;
-  allowedActions: string[];
+  allowedActions: ApprovalActionType[];
+  requiredApprovals: ApprovalActionType[];
   triggerTerms: string[];
+  tags: string[];
+  platforms: SkillPlatform[];
+  inputs: string[];
+  outputs: string[];
+  relatedSkills: string[];
+  projectScopes: string[];
+  resources: SkillResourceManifest;
 }
 
 export interface SkillFile {
@@ -54,3 +56,15 @@ export class SkillMetadataError extends Error {
     this.code = code;
   }
 }
+
+export const EMPTY_SKILL_RESOURCE_MANIFEST: SkillResourceManifest = {
+  scripts: [],
+  templates: [],
+  examples: [],
+  references: [],
+};
+
+export const isApprovalActionType = (
+  value: string,
+): value is ApprovalActionType =>
+  (APPROVAL_ACTION_TYPES as readonly string[]).includes(value);

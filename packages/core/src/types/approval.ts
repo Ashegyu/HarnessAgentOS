@@ -1,3 +1,5 @@
+import type { PolicyEvaluation } from "./policy.ts";
+
 export type ApprovalStatus =
   | "pending"
   | "approved"
@@ -82,6 +84,7 @@ export interface Approval {
   actionSummary: string;
   status: ApprovalStatus;
   proposedAction?: ProposedActionDetails;
+  policyEvaluation?: PolicyEvaluation;
   decisionMessage?: string;
   decidedAt?: string;
 }
@@ -93,4 +96,5 @@ export interface CreateApprovalInput {
   actionSummary: string;
   status?: ApprovalStatus;
   proposedAction?: ProposedActionDetails;
+  policyEvaluation?: PolicyEvaluation;
 }

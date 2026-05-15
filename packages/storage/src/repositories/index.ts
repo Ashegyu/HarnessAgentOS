@@ -7,6 +7,7 @@ export * from "./artifact-repository.ts";
 export * from "./quality-gate-repository.ts";
 export * from "./capability-repository.ts";
 export * from "./learning-trace-repository.ts";
+export * from "./instinct-repository.ts";
 export * from "./agent-invocation-repository.ts";
 export * from "./settings-repository.ts";
 export * from "./agent-profile-repository.ts";

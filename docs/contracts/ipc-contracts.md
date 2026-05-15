@@ -36,7 +36,7 @@ export type TaskRunStatus =
   | "cancelled";
 
 export type StepStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
-export type ApprovalStatus = "pending" | "approved" | "rejected" | "always_approved_for_run";
+export type ApprovalStatus = "pending" | "approved" | "rejected" | "always_approved_for_run" | "executed";
 export type ApprovalScope = "once" | "run_action_class";
 export type ApprovalActionType =
   | "capability_use"
@@ -49,6 +49,20 @@ export type ApprovalActionType =
   | "skill_script"
   | "orchestration_plan";
 export type ArtifactKind = "plan" | "diff" | "log" | "test_result" | "quality_report" | "orchestration_plan" | "file" | "snapshot";
+export type PolicyDecision = "allowed" | "confirm" | "blocked";
+export type PolicyOperation =
+  | { kind: "approval_action"; actionType: ApprovalActionType }
+  | { kind: "read_operation"; name: "read" | "list" | "inspect" }
+  | { kind: "path_violation"; name: "target_outside_workspace" | "path_traversal" }
+  | { kind: "remote_side_effect"; name: "git_push" | "remote_agent_write" };
+
+export interface PolicyEvaluation {
+  operation: PolicyOperation;
+  decision: PolicyDecision;
+  riskLevel: "low" | "medium" | "high" | "blocked";
+  allowAutoApprove: boolean;
+  reason: string;
+}
 
 export interface TaskRun {
   id: string;
@@ -91,6 +105,7 @@ export interface Approval {
   actionType: ApprovalActionType;
   actionSummary: string;
   status: ApprovalStatus;
+  policyEvaluation?: PolicyEvaluation;
   decisionMessage?: string;
   decidedAt?: string;
 }
@@ -391,7 +406,12 @@ capability.proposeCandidates(input: { taskRunId: string; prompt: string }): Prom
 capability.readSkill(input: { capabilityId: string }): Promise<{
   capability: Capability;
   instructions: string;
-  resources: { scripts: string[]; templates: string[]; examples: string[] };
+  resources: {
+    scripts: string[];
+    templates: string[];
+    examples: string[];
+    references: string[];
+  };
 }>;
 capability.proposeScriptRun(input: { capabilityId: string; taskRunId: string; scriptName: string }): Promise<Approval>;
 ```
@@ -466,6 +486,90 @@ learner.recordDecision(input: {
 - `LEARNER_TRACE_NOT_FOUND`
 - `LEARNER_RECOMMENDATION_NOT_FOUND`
 - `LEARNER_INVALID_DECISION`
+
+## `window.harness.instinct`
+
+Agent Framework adoption Phase 4 — repeated approval/quality signals are recorded internally by main-process services. The renderer can review candidates and manage approved instincts, but it cannot call `recordObservation` directly.
+
+```ts
+interface Observation {
+  id: string;
+  taskRunId?: string;
+  threadId?: string;
+  projectKey?: string;
+  source: "approval" | "quality" | "learner" | "runner" | "skill" | "agent";
+  eventType: string;
+  signal: string;
+  summary: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface EvolutionCandidate {
+  id: string;
+  projectKey?: string;
+  title: string;
+  proposedRule: string;
+  rationale: string;
+  confidence: number;
+  status: "pending" | "approved" | "rejected" | "stale";
+  observationIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface Instinct {
+  id: string;
+  projectKey?: string;
+  scope: "global" | "project" | "thread";
+  title: string;
+  rule: string;
+  rationale: string;
+  confidence: number;
+  status: "active" | "disabled" | "rejected";
+  sourceObservationIds: string[];
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+instinct.list(input?: {
+  projectKey?: string;
+  includeDisabled?: boolean;
+}): Promise<Instinct[]>;
+instinct.listCandidates(input?: {
+  projectKey?: string;
+}): Promise<EvolutionCandidate[]>;
+instinct.approveCandidate(input: {
+  candidateId: string;
+  message?: string;
+}): Promise<Instinct>;
+instinct.rejectCandidate(input: {
+  candidateId: string;
+  message: string;
+}): Promise<EvolutionCandidate>;
+instinct.disable(input: {
+  instinctId: string;
+  reason: string;
+}): Promise<Instinct>;
+```
+
+동작:
+
+- `conversation.approve` / `conversation.rejectApproval`은 승인 결정을 저장한 뒤 advisory observation을 남긴다. observation 기록 실패는 approval 성공을 막지 않는다.
+- `quality.evaluate`는 QualityGate 적용 후 advisory observation을 남긴다. `not_run`은 기록하지 않는다.
+- candidate 생성은 approval/quality observation 직후 내부 observer가 수행하며, 같은 observation set + proposedRule 후보를 중복 생성하지 않는다.
+- `listCandidates`는 pending 후보를 조회만 한다.
+- `approveCandidate`는 `EvolutionCandidate`를 `approved`로 전환하고 같은 rule을 active `Instinct`로 만든다.
+- `rejectCandidate`와 `disable`은 후보/instinct 상태만 변경한다. 후보 자체를 다시 observation으로 기록하지 않는다.
+- observation 수집 API는 public IPC가 아니다.
+
+오류:
+
+- `INSTINCT_CANDIDATE_NOT_FOUND`
+- `INSTINCT_CANDIDATE_INVALID_STATE`
+- `INSTINCT_NOT_FOUND`
+- `STATE_INVALID_INPUT`
 
 ## `window.harness.orchestration`
 

@@ -403,6 +403,107 @@ test("v14 migration allows model_use approval action type", () => {
   }
 });
 
+test("v16 migration creates observation, instinct, and evolution candidate tables", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    for (const table of [
+      "observations",
+      "instincts",
+      "evolution_candidates",
+    ]) {
+      assert.equal(hasTable(db, table), true, `${table} table must exist`);
+    }
+    for (const col of [
+      "id",
+      "task_run_id",
+      "thread_id",
+      "project_key",
+      "source",
+      "event_type",
+      "signal",
+      "summary",
+      "payload_json",
+      "created_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "observations", col),
+        true,
+        `observations is missing column ${col}`,
+      );
+    }
+    for (const col of [
+      "id",
+      "project_key",
+      "scope",
+      "title",
+      "rule",
+      "rationale",
+      "confidence",
+      "status",
+      "source_observation_ids_json",
+      "tags_json",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "instincts", col),
+        true,
+        `instincts is missing column ${col}`,
+      );
+    }
+    for (const col of [
+      "id",
+      "project_key",
+      "title",
+      "proposed_rule",
+      "rationale",
+      "confidence",
+      "status",
+      "observation_ids_json",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "evolution_candidates", col),
+        true,
+        `evolution_candidates is missing column ${col}`,
+      );
+    }
+    assert.throws(() =>
+      db
+        .prepare(
+          `INSERT INTO instincts(
+             id, scope, title, rule, rationale, confidence, status,
+             source_observation_ids_json, tags_json, created_at, updated_at
+           ) VALUES(
+             'ins_bad', 'task_run', 'bad', 'bad', 'bad', 0.3, 'active',
+             '[]', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+           )`,
+        )
+        .run(),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v17 migration adds policy_evaluation_json to approvals", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "approvals", "policy_evaluation_json"),
+      true,
+      "approvals.policy_evaluation_json must exist",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("applyMigrations is idempotent across two opens", () => {
   const t = tmp();
   let db = openDb({ filePath: t.file });

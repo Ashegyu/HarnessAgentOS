@@ -116,6 +116,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
     // approvals must precede checkpoints; checkpoints/artifacts must precede steps.
     this.db.transaction(() => {
       this.db.prepare(`DELETE FROM agent_invocations WHERE task_run_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM observations WHERE task_run_id = ?`).run(id);
       this.db.prepare(`DELETE FROM quality_gate_results WHERE task_run_id = ?`).run(id);
       this.db.prepare(`DELETE FROM learning_traces WHERE task_run_id = ?`).run(id);
       this.db.prepare(`DELETE FROM approvals WHERE task_run_id = ?`).run(id);

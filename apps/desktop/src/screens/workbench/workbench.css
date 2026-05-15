@@ -2120,6 +2120,30 @@
   color: var(--text-secondary);
 }
 
+/* -------- Agent Framework adoption: Instinct panel -------- */
+
+.instinct-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.instinct-panel__stack,
+.instinct-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.instinct-panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* -------- Phase 7: Orchestration panel -------- */
 
 .orchestration-panel {

@@ -6,9 +6,9 @@ const APPROVAL_ACTION_TYPE_CHECK =
 
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
- * 9 tables defined in docs/architecture/harness-agent-os-design.md §14.
- * Subsequent phases append column-add steps below; each is a no-op if
- * the column already exists, so applying migrations multiple times
+ * base tables defined in docs/architecture/harness-agent-os-design.md §14.
+ * Subsequent phases append table/column steps below; each is a no-op if
+ * the object already exists, so applying migrations multiple times
  * leaves the DB in the same state.
  */
 export const applyMigrations = (db: DatabaseType): void => {
@@ -20,6 +20,12 @@ export const applyMigrations = (db: DatabaseType): void => {
     // Phase 3 — proposed_action_json on approvals.
     if (!hasColumn(db, "approvals", "proposed_action_json")) {
       db.exec(`ALTER TABLE approvals ADD COLUMN proposed_action_json TEXT`);
+    }
+
+    // v17 — policy_evaluation_json on approvals. Stores the service-layer
+    // policy decision that renderer auto-approve must honor.
+    if (!hasColumn(db, "approvals", "policy_evaluation_json")) {
+      db.exec(`ALTER TABLE approvals ADD COLUMN policy_evaluation_json TEXT`);
     }
 
     // v5 — agent_session_id on threads. Stores the Claude CLI session
@@ -106,10 +112,11 @@ const rebuildApprovals = (db: DatabaseType): void => {
     decision_message TEXT,
     decided_at TEXT,
     proposed_action_json TEXT,
+    policy_evaluation_json TEXT,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
     FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
   )`);
-  db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json FROM approvals_migration_old`);
+  db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json,policy_evaluation_json FROM approvals_migration_old`);
   db.exec(`DROP TABLE approvals_migration_old`);
 };
 

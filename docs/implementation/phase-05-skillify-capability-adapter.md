@@ -42,10 +42,20 @@ export interface SkillMetadata {
   id: string;
   name: string;
   description: string;
+  version?: string;
+  author?: string;
+  license?: string;
   sourceDir: string;
   riskLevel: "low" | "medium" | "high";
   allowedActions: string[];
+  requiredApprovals: string[];
   triggerTerms: string[];
+  tags: string[];
+  platforms: string[];
+  inputs: string[];
+  outputs: string[];
+  relatedSkills: string[];
+  projectScopes: string[];
   trusted: boolean;
 }
 
@@ -68,7 +78,7 @@ capability.readSkill(input: {
 }): Promise<{
   capability: Capability;
   instructions: string;
-  resources: SkillResources; // { scripts, templates, examples }
+  resources: SkillResources; // { scripts, templates, examples, references }
 }>;
 capability.proposeScriptRun(input: {
   capabilityId: string;
@@ -77,7 +87,7 @@ capability.proposeScriptRun(input: {
 }): Promise<Approval>;
 ```
 
-`SkillResources`는 `SKILL.md` 옆에 위치한 `scripts/`, `templates/`, `examples/`
+`SkillResources`는 `SKILL.md` 옆에 위치한 `scripts/`, `templates/`, `examples/`, `references/`
 하위 항목 목록을 그대로 노출한다. 단일 소스는 `docs/contracts/ipc-contracts.md`이며
 구조 변경 시 그 쪽을 먼저 갱신한다.
 
@@ -103,7 +113,7 @@ TaskRun plan phase
 - `자동 적용됨` 같은 표현 금지. `추천됨`으로 표시한다.
 - untrusted skill은 비활성 또는 warning 상태로 표시한다.
 - script가 있는 skill은 `실행 요청` 버튼을 누르면 approval이 생성된다.
-- Skill detail drawer에는 SKILL.md instructions, scripts/templates/examples 목록, high risk warning을 표시한다.
+- Skill detail drawer에는 SKILL.md instructions, scripts/templates/examples/references 목록, high risk warning을 표시한다.
 
 ## 보안/승인 정책
 
@@ -162,7 +172,6 @@ interface CapabilityUsageForTrace {
   decision: "accepted" | "rejected";
 }
 ```
-
 
 
 

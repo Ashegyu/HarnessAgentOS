@@ -14,7 +14,9 @@ import {
   type Capability,
   type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
+  type EvolutionCandidate,
   type HarnessSettings,
+  type Instinct,
   type SkillResources,
   type ConversationTaskDraft,
   type HarnessDesktopApi,
@@ -233,6 +235,27 @@ const harnessApi: HarnessDesktopApi = {
     recordDecision: async (input) => {
       await invokeUnwrapped<null>(IPC_CHANNELS.learner.recordDecision, input);
     },
+  },
+  instinct: {
+    list: (input) =>
+      invokeUnwrapped<Instinct[]>(IPC_CHANNELS.instinct.list, input ?? {}),
+    listCandidates: (input) =>
+      invokeUnwrapped<EvolutionCandidate[]>(
+        IPC_CHANNELS.instinct.listCandidates,
+        input ?? {},
+      ),
+    approveCandidate: (input) =>
+      invokeUnwrapped<Instinct>(
+        IPC_CHANNELS.instinct.approveCandidate,
+        input,
+      ),
+    rejectCandidate: (input) =>
+      invokeUnwrapped<EvolutionCandidate>(
+        IPC_CHANNELS.instinct.rejectCandidate,
+        input,
+      ),
+    disable: (input) =>
+      invokeUnwrapped<Instinct>(IPC_CHANNELS.instinct.disable, input),
   },
   orchestration: {
     getPlan: (input) =>

@@ -11,6 +11,7 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 0: app, Phase 1: state, Phase 2: conversation, Phase 3: runner,
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
   // Phase 7: orchestration, Phase 8: agent.
+  // Agent Framework adoption: instinct.
   // Detailed-settings: agents, mcp, skillSource, secret, pipeline.
   // A2A Phase B: remoteAgents registry.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
@@ -20,6 +21,7 @@ test("declared namespaces match the phases shipped so far", () => {
     "capability",
     "conversation",
     "events",
+    "instinct",
     "learner",
     "mcp",
     "orchestration",
@@ -201,6 +203,18 @@ test("learner namespace exposes Phase 6 verbs", () => {
     "recordOutcome",
     "recordSelection",
   ]);
+});
+
+test("instinct namespace exposes candidate review verbs only", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.instinct).sort(), [
+    "approveCandidate",
+    "disable",
+    "list",
+    "listCandidates",
+    "rejectCandidate",
+  ]);
+  assert.equal(isAllowedChannel("instinct:listCandidates"), true);
+  assert.equal(isAllowedChannel("instinct:recordObservation"), false);
 });
 
 test("orchestration namespace exposes Phase 7 verbs", () => {

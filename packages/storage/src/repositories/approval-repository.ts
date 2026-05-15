@@ -23,7 +23,7 @@ export interface ApprovalRepository {
   ): Promise<Approval>;
 }
 
-const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json`;
+const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json`;
 
 export class SqliteApprovalRepository implements ApprovalRepository {
   private readonly db: HarnessDb;
@@ -46,11 +46,14 @@ export class SqliteApprovalRepository implements ApprovalRepository {
     if (input.proposedAction !== undefined) {
       approval.proposedAction = input.proposedAction;
     }
+    if (input.policyEvaluation !== undefined) {
+      approval.policyEvaluation = input.policyEvaluation;
+    }
 
     this.db
       .prepare(
-        `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json)
-         VALUES(@id, @taskRunId, @checkpointId, @actionType, @actionSummary, @status, NULL, NULL, @proposedActionJson)`,
+        `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json)
+         VALUES(@id, @taskRunId, @checkpointId, @actionType, @actionSummary, @status, NULL, NULL, @proposedActionJson, @policyEvaluationJson)`,
       )
       .run({
         id: approval.id,
@@ -62,6 +65,10 @@ export class SqliteApprovalRepository implements ApprovalRepository {
         proposedActionJson:
           approval.proposedAction !== undefined
             ? JSON.stringify(approval.proposedAction)
+            : null,
+        policyEvaluationJson:
+          approval.policyEvaluation !== undefined
+            ? JSON.stringify(approval.policyEvaluation)
             : null,
       });
 

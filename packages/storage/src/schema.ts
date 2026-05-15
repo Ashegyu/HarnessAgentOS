@@ -2,14 +2,14 @@
  * SQL schema for HarnessAgentOS canonical state.
  *
  * Source of truth: docs/architecture/harness-agent-os-design.md §14.
- * Phase 1 creates all 9 tables so subsequent phases can extend without
+ * Phase 1 created the base tables; later phases append domain tables without
  * re-migrating. CHECK constraints encode the type unions from
  * docs/architecture/harness-agent-os-design.md §6.
  *
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 17;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -68,6 +68,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
     decision_message TEXT,
     decided_at TEXT,
+    proposed_action_json TEXT,
+    policy_evaluation_json TEXT,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
     FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
   )`,
@@ -118,6 +120,54 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at TEXT NOT NULL,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id)
   )`,
+  `CREATE TABLE IF NOT EXISTS observations (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT,
+    thread_id TEXT,
+    project_key TEXT,
+    source TEXT NOT NULL CHECK(source IN ('approval','quality','learner','runner','skill','agent')),
+    event_type TEXT NOT NULL,
+    signal TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
+    FOREIGN KEY(thread_id) REFERENCES threads(id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_observations_project_created
+    ON observations(project_key, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_observations_task_run
+    ON observations(task_run_id)`,
+  `CREATE TABLE IF NOT EXISTS instincts (
+    id TEXT PRIMARY KEY,
+    project_key TEXT,
+    scope TEXT NOT NULL CHECK(scope IN ('global','project','thread')),
+    title TEXT NOT NULL,
+    rule TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active','disabled','rejected')),
+    source_observation_ids_json TEXT NOT NULL,
+    tags_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_instincts_scope_project_status
+    ON instincts(scope, project_key, status)`,
+  `CREATE TABLE IF NOT EXISTS evolution_candidates (
+    id TEXT PRIMARY KEY,
+    project_key TEXT,
+    title TEXT NOT NULL,
+    proposed_rule TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','stale')),
+    observation_ids_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_evolution_candidates_project_status
+    ON evolution_candidates(project_key, status)`,
   // Phase 8 — agent invocation ledger (one row per CLI run).
   //
   // ON DELETE policy (see phase-08-agent-cli-integration.md "데이터 모델"):

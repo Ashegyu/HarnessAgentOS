@@ -161,6 +161,74 @@ test("shouldAutoApprove rejects when actionType is in profile.blockedActions, ev
   assert.equal(r, false);
 });
 
+test("shouldAutoApprove honors blocked policy evaluation before global autoApprove", () => {
+  const r = shouldAutoApprove({
+    approval: {
+      ...makeApproval("network"),
+      policyEvaluation: {
+        operation: { kind: "approval_action", actionType: "network" },
+        decision: "blocked",
+        riskLevel: "blocked",
+        allowAutoApprove: false,
+        reason: "network blocked by policy",
+      },
+    },
+    globalAutoApprove: true,
+    activeProfile: null,
+  });
+  assert.equal(r, false);
+});
+
+test("shouldAutoApprove honors allowAutoApprove=false before global autoApprove", () => {
+  const r = shouldAutoApprove({
+    approval: {
+      ...makeApproval("dependency_install"),
+      policyEvaluation: {
+        operation: {
+          kind: "approval_action",
+          actionType: "dependency_install",
+        },
+        decision: "confirm",
+        riskLevel: "high",
+        allowAutoApprove: false,
+        reason: "dependency installs require manual confirmation",
+      },
+    },
+    globalAutoApprove: true,
+    activeProfile: null,
+  });
+  assert.equal(r, false);
+});
+
+test("shouldAutoApprove lets explicit profile auto-approval override manual-only policy", () => {
+  const r = shouldAutoApprove({
+    approval: {
+      ...makeApproval("dependency_install"),
+      policyEvaluation: {
+        operation: {
+          kind: "approval_action",
+          actionType: "dependency_install",
+        },
+        decision: "confirm",
+        riskLevel: "high",
+        allowAutoApprove: false,
+        reason: "dependency installs require manual confirmation by default",
+      },
+    },
+    globalAutoApprove: false,
+    activeProfile: {
+      permissions: {
+        autoApproveActions: ["dependency_install"],
+        blockedActions: [],
+        allowedSkillIds: [],
+        toolAllowlist: [],
+        toolDenylist: [],
+      },
+    },
+  });
+  assert.equal(r, true);
+});
+
 test("shouldAutoApprove blockedActions also win over autoApproveActions on the same profile", () => {
   const r = shouldAutoApprove({
     approval: makeApproval("file_write"),

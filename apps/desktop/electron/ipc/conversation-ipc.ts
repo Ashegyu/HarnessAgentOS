@@ -25,6 +25,7 @@ import {
   type TaskRunDetail,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
+import type { InstinctService } from "@harness/learner";
 import type { HarnessEventBus } from "../event-bus";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -41,10 +42,24 @@ const mapServiceError = <T>(e: unknown): HarnessResult<T> => {
   return err(harnessError(STATE_DB_ERROR, "Conversation service error", msg));
 };
 
+const observeApprovalDecision = async (
+  instinctService: InstinctService | undefined,
+  approval: Approval,
+): Promise<void> => {
+  if (!instinctService) return;
+  try {
+    await instinctService.recordApprovalDecision(approval);
+  } catch {
+    // Instinct observation is advisory state. Approval decisions must not
+    // fail because the background observer could not record a signal.
+  }
+};
+
 export const registerConversationIpc = (
   conversation: ConversationService,
   state: LocalStateService,
   events: HarnessEventBus,
+  instinctService?: InstinctService,
 ): void => {
   ipcMain.handle(
     IPC_CHANNELS.conversation.createTask,
@@ -174,6 +189,7 @@ export const registerConversationIpc = (
       }
       try {
         const approval = await conversation.approve(payload);
+        await observeApprovalDecision(instinctService, approval);
         events.taskRunChanged(approval.taskRunId);
         return ok(approval);
       } catch (e) {
@@ -208,6 +224,7 @@ export const registerConversationIpc = (
       };
       try {
         const approval = await conversation.rejectApproval(payload);
+        await observeApprovalDecision(instinctService, approval);
         events.taskRunChanged(approval.taskRunId);
         return ok(approval);
       } catch (e) {

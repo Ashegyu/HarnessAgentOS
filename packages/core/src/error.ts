@@ -89,6 +89,13 @@ export const LEARNER_INVALID_DECISION = "LEARNER_INVALID_DECISION" as const;
 /** @deprecated use LEARNER_INVALID_DECISION */
 export const LEARNER_DECISION_INVALID = LEARNER_INVALID_DECISION;
 
+// Agent Framework adoption — user-reviewed evolution candidates.
+export const INSTINCT_CANDIDATE_NOT_FOUND =
+  "INSTINCT_CANDIDATE_NOT_FOUND" as const;
+export const INSTINCT_CANDIDATE_INVALID_STATE =
+  "INSTINCT_CANDIDATE_INVALID_STATE" as const;
+export const INSTINCT_NOT_FOUND = "INSTINCT_NOT_FOUND" as const;
+
 // Phase 7 - orchestration namespace
 // Canonical names match docs/contracts/ipc-contracts.md (`ORCHESTRATION_*`).
 // Short-form `ORCH_*` aliases remain for one release.

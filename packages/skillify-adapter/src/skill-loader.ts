@@ -1,9 +1,16 @@
-import type { CapabilityRiskLevel, SkillResources } from "@harness/core";
+import type {
+  ApprovalActionType,
+  CapabilityRiskLevel,
+  SkillPlatform,
+  SkillResources,
+} from "@harness/core";
 import { promises as fs } from "node:fs";
 import { isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import {
   SkillMetadataError,
+  EMPTY_SKILL_RESOURCE_MANIFEST,
+  isApprovalActionType,
   type ParsedSkillFrontmatter,
   type SkillFile,
   type SkillMetadata,
@@ -66,16 +73,28 @@ export const loadSkills = async (
       const riskLevel = classifySkillRisk({
         declared: parsed.riskLevel,
         allowedActions: parsed.allowedActions,
+        requiredApprovals: parsed.requiredApprovals,
         trusted: input.trusted,
       });
       out.push({
         id: parsed.id,
         name: parsed.name,
         description: parsed.description,
+        version: parsed.version,
+        author: parsed.author,
+        license: parsed.license,
         sourceDir: dir,
         riskLevel,
         allowedActions: parsed.allowedActions,
+        requiredApprovals: parsed.requiredApprovals,
         triggerTerms: parsed.triggerTerms,
+        tags: parsed.tags,
+        platforms: parsed.platforms,
+        inputs: parsed.inputs,
+        outputs: parsed.outputs,
+        relatedSkills: parsed.relatedSkills,
+        projectScopes: parsed.projectScopes,
+        resources: parsed.resources,
         trusted: input.trusted,
       });
     } catch {
@@ -112,12 +131,13 @@ export type { SkillResources } from "@harness/core";
 export const listSkillResources = async (
   metadata: SkillMetadata,
 ): Promise<SkillResources> => {
-  const [scripts, templates, examples] = await Promise.all([
+  const [scripts, templates, examples, references] = await Promise.all([
     listChildren(metadata, "scripts"),
     listChildren(metadata, "templates"),
     listChildren(metadata, "examples"),
+    listChildren(metadata, "references"),
   ]);
-  return { scripts, templates, examples };
+  return { scripts, templates, examples, references };
 };
 
 const listChildren = async (
@@ -161,23 +181,57 @@ export const parseSkillFrontmatter = (
   const fields = parseSimpleYaml(yaml);
   const name = pickString(fields, "name") ?? defaultName(file.dir);
   const description = pickString(fields, "description") ?? "";
+  const version = pickString(fields, "version");
+  const author = pickString(fields, "author");
+  const license = pickString(fields, "license");
   const declaredRisk = (pickString(fields, "risk") ??
     pickString(fields, "riskLevel") ??
     "low") as CapabilityRiskLevel;
-  const allowedActions = pickStringArray(fields, "allowedActions") ?? [];
+  const allowedActions = normalizeApprovalActions(
+    pickStringArray(fields, "allowedActions") ?? [],
+    "allowedActions",
+  );
+  const requiredApprovals = normalizeApprovalActions(
+    pickStringArray(fields, "requiredApprovals") ?? [],
+    "requiredApprovals",
+  );
   const triggerTerms =
     pickStringArray(fields, "triggerTerms") ??
     pickStringArray(fields, "triggers") ??
     [];
+  const tags = pickStringArray(fields, "tags") ?? [];
+  const platforms = normalizePlatforms(pickStringArray(fields, "platforms"));
+  const inputs = pickStringArray(fields, "inputs") ?? [];
+  const outputs = pickStringArray(fields, "outputs") ?? [];
+  const relatedSkills = pickStringArray(fields, "relatedSkills") ?? [];
+  const projectScopes = pickStringArray(fields, "projectScopes") ?? [];
   const explicitId = pickString(fields, "id");
   const id = explicitId ?? deterministicId(file.dir);
   return {
     id,
     name,
     description,
+    version,
+    author,
+    license,
     riskLevel: normalizeRisk(declaredRisk),
     allowedActions,
+    requiredApprovals:
+      requiredApprovals.length > 0 ? requiredApprovals : allowedActions,
     triggerTerms,
+    tags,
+    platforms,
+    inputs,
+    outputs,
+    relatedSkills,
+    projectScopes,
+    resources: {
+      ...EMPTY_SKILL_RESOURCE_MANIFEST,
+      scripts: pickStringArray(fields, "scripts") ?? [],
+      templates: pickStringArray(fields, "templates") ?? [],
+      examples: pickStringArray(fields, "examples") ?? [],
+      references: pickStringArray(fields, "references") ?? [],
+    },
   };
 };
 
@@ -185,6 +239,42 @@ const normalizeRisk = (raw: string): CapabilityRiskLevel => {
   const v = raw.trim().toLowerCase();
   if (v === "low" || v === "medium" || v === "high") return v;
   return "low";
+};
+
+const normalizeApprovalActions = (
+  values: string[],
+  key: string,
+): ApprovalActionType[] => {
+  const out: ApprovalActionType[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    if (value.length === 0) continue;
+    if (!isApprovalActionType(value)) {
+      throw new SkillMetadataError(
+        "SKILL_UNKNOWN_ACTION",
+        `${key} contains unsupported approval action ${value}`,
+      );
+    }
+    out.push(value);
+  }
+  return out;
+};
+
+const normalizePlatforms = (values?: string[]): SkillPlatform[] => {
+  if (!values || values.length === 0) return ["any"];
+  const out: SkillPlatform[] = [];
+  for (const raw of values) {
+    const value = raw.trim().toLowerCase();
+    if (
+      value === "windows" ||
+      value === "macos" ||
+      value === "linux" ||
+      value === "any"
+    ) {
+      out.push(value);
+    }
+  }
+  return out.length > 0 ? out : ["any"];
 };
 
 const defaultName = (dir: string): string => {

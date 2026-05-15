@@ -17,6 +17,12 @@
 | `a2a-integration-plan.md` | A2A Client Adapter와 Remote Agent Registry 적용 계획 |
 | `architecture-decisions.md` | 핵심 아키텍처 결정 기록 |
 
+## 관련 설계 문서
+
+| 문서 | 목적 |
+|---|---|
+| `../design/agent-framework-unified-v4-adoption-plan.md` | Ruflo, Agno, Hermes, ECC 개념을 HarnessAgentOS 내부 설계로 이식하는 단계별 계획 |
+
 ## 문서 간 역할
 
 - Architecture 문서는 시스템 경계와 불변 원칙을 정의한다.

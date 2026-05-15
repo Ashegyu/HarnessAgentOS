@@ -3,4 +3,8 @@ export * from "./reward-evaluator.ts";
 export * from "./trace-recorder.ts";
 export * from "./model-selection-feedback.ts";
 export * from "./learner-advisor.ts";
+export * from "./instinct-candidate-scorer.ts";
 export * from "./redact-secrets.ts";
+export * from "./project-key.ts";
+export * from "./observation-collector.ts";
+export * from "./instinct-service.ts";

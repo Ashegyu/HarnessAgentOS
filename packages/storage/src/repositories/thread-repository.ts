@@ -78,6 +78,8 @@ export class SqliteThreadRepository implements ThreadRepository {
     this.db.transaction(() => {
       const sub = `(SELECT id FROM task_runs WHERE thread_id = ?)`;
       this.db.prepare(`DELETE FROM agent_invocations WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM observations WHERE task_run_id IN ${sub}`).run(id);
+      this.db.prepare(`DELETE FROM observations WHERE thread_id = ?`).run(id);
       this.db.prepare(`DELETE FROM quality_gate_results WHERE task_run_id IN ${sub}`).run(id);
       this.db.prepare(`DELETE FROM learning_traces WHERE task_run_id IN ${sub}`).run(id);
       this.db.prepare(`DELETE FROM approvals WHERE task_run_id IN ${sub}`).run(id);

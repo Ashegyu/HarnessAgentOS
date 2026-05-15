@@ -3,12 +3,14 @@ export * from "./task-run.ts";
 export * from "./step.ts";
 export * from "./checkpoint.ts";
 export * from "./approval.ts";
+export * from "./policy.ts";
 export * from "./artifact.ts";
 export * from "./thread-detail.ts";
 export * from "./quality-gate-result.ts";
 export * from "./repair-plan-draft.ts";
 export * from "./capability.ts";
 export * from "./learning-trace.ts";
+export * from "./instinct.ts";
 export * from "./orchestration.ts";
 export type {
   CreateAgentInvocationInput,

@@ -15,6 +15,7 @@ import {
   type TaskRun,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
+import type { InstinctService } from "@harness/learner";
 import { QualityEvaluator } from "@harness/quality";
 import type { HarnessEventBus } from "../event-bus";
 
@@ -32,11 +33,24 @@ const wrapErr = <T>(e: unknown, fallbackCode: string): HarnessResult<T> => {
   return err(harnessError(fallbackCode, msg));
 };
 
+const observeQualityGate = async (
+  instinctService: InstinctService | undefined,
+  result: QualityGateResult,
+): Promise<void> => {
+  if (!instinctService) return;
+  try {
+    await instinctService.recordQualityGate(result);
+  } catch {
+    // Background learning must never block the quality-gate state change.
+  }
+};
+
 export const registerQualityIpc = (
   state: LocalStateService,
   evaluator: QualityEvaluator,
   completion: TaskRunCompletionService,
   events: HarnessEventBus,
+  instinctService?: InstinctService,
 ): void => {
   ipcMain.handle(
     IPC_CHANNELS.quality.evaluate,
@@ -68,6 +82,7 @@ export const registerQualityIpc = (
         // Reflect the result into TaskRun status (passed/warning -> ready_for_review,
         // failed -> quality_failed). not_run is a no-op.
         await completion.applyQualityGateResult(result);
+        await observeQualityGate(instinctService, result);
         events.taskRunChanged(result.taskRunId);
         return ok(result);
       } catch (e) {

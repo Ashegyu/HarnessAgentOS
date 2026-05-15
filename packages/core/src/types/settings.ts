@@ -41,14 +41,13 @@ export interface OrchestrationSettings {
 
 /**
  * Approval automation. When `autoApprove` is true, the renderer
- * auto-approves and executes every pending approval — including
- * high-risk action types (dependency_install, git_commit, skill_script,
- * network) and orchestration_plan. capability_use/model_use are
+ * auto-approves pending approvals only when their service-layer
+ * PolicyEvaluation allows auto approval. capability_use/model_use are
  * auto-approved but not runner-executed; they only gate whether approved
  * Skill context or a Learner model recommendation can enter the next
  * agent prompt/invocation. The service-layer security model is unchanged:
- * this is a UI-level convenience that bypasses the human-in-the-loop step,
- * so the user has explicitly opted out of confirmation.
+ * blocked or manual-only policy decisions still win over this UI-level
+ * convenience.
  */
 export interface ApprovalSettings {
   autoApprove: boolean;

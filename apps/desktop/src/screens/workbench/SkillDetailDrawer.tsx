@@ -117,6 +117,11 @@ export const SkillDetailDrawer = ({
                 items={loadState.resources.examples}
                 emptyHint="examples/ 폴더가 비어 있습니다."
               />
+              <ResourceList
+                title="References"
+                items={loadState.resources.references}
+                emptyHint="references/ 폴더가 비어 있습니다."
+              />
             </>
           ) : null}
           {!taskRunId ? (

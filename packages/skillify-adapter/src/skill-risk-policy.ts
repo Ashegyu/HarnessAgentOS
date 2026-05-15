@@ -18,12 +18,14 @@ const MEDIUM_RISK_ACTIONS = new Set(["file_write"]);
 
 export const classifySkillRisk = (input: {
   declared: CapabilityRiskLevel;
-  allowedActions: string[];
+  allowedActions: readonly string[];
+  requiredApprovals?: readonly string[];
   trusted: boolean;
 }): CapabilityRiskLevel => {
   const declaredRank = rank(input.declared);
   let actionRank = rank("low");
-  for (const action of input.allowedActions) {
+  const actions = [...input.allowedActions, ...(input.requiredApprovals ?? [])];
+  for (const action of actions) {
     if (HIGH_RISK_ACTIONS.has(action)) {
       actionRank = Math.max(actionRank, rank("high"));
     } else if (MEDIUM_RISK_ACTIONS.has(action)) {

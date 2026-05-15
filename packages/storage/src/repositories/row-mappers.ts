@@ -132,6 +132,7 @@ interface ApprovalRow {
   decision_message: string | null;
   decided_at: string | null;
   proposed_action_json: string | null;
+  policy_evaluation_json: string | null;
 }
 
 export const rowToApproval = (r: ApprovalRow): Approval => {
@@ -150,6 +151,13 @@ export const rowToApproval = (r: ApprovalRow): Approval => {
       a.proposedAction = JSON.parse(r.proposed_action_json);
     } catch {
       // Drop corrupt JSON silently; runner will reject as missing details.
+    }
+  }
+  if (r.policy_evaluation_json) {
+    try {
+      a.policyEvaluation = JSON.parse(r.policy_evaluation_json);
+    } catch {
+      // Drop corrupt JSON silently; auto-approve will fall back to defaults.
     }
   }
   return a;

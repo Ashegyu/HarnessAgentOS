@@ -17,6 +17,8 @@ import type {
   CapabilitySuggestion,
   CreateAgentPipelineInput,
   HarnessSettings,
+  EvolutionCandidate,
+  Instinct,
   McpServerConfig,
   McpServerHealth,
   SkillResources,
@@ -196,6 +198,27 @@ export interface HarnessDesktopApi {
       decision: "accepted" | "rejected";
       reason?: string;
     }): Promise<void>;
+  };
+  instinct: {
+    list(input?: {
+      projectKey?: string;
+      includeDisabled?: boolean;
+    }): Promise<Instinct[]>;
+    listCandidates(input?: {
+      projectKey?: string;
+    }): Promise<EvolutionCandidate[]>;
+    approveCandidate(input: {
+      candidateId: string;
+      message?: string;
+    }): Promise<Instinct>;
+    rejectCandidate(input: {
+      candidateId: string;
+      message: string;
+    }): Promise<EvolutionCandidate>;
+    disable(input: {
+      instinctId: string;
+      reason: string;
+    }): Promise<Instinct>;
   };
   orchestration: {
     /** Returns null when the feature flag is off. */

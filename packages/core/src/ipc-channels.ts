@@ -60,6 +60,13 @@ export const IPC_CHANNELS = {
     recordOutcome: "learner:recordOutcome",
     recordDecision: "learner:recordDecision",
   },
+  instinct: {
+    list: "instinct:list",
+    listCandidates: "instinct:listCandidates",
+    approveCandidate: "instinct:approveCandidate",
+    rejectCandidate: "instinct:rejectCandidate",
+    disable: "instinct:disable",
+  },
   orchestration: {
     draftPlan: "orchestration:draftPlan",
     runApproved: "orchestration:runApproved",

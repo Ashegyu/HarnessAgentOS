@@ -8,6 +8,7 @@ import { TaskRunTimeline } from "./TaskRunTimeline";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { QualityPanel } from "./QualityPanel";
 import { CapabilityPanel } from "./CapabilityPanel";
+import { InstinctPanel } from "./InstinctPanel";
 import { LearnerPanel } from "./LearnerPanel";
 import { OrchestrationPanel } from "./OrchestrationPanel";
 import { TaskRunStateActions } from "./TaskRunStateActions";
@@ -26,6 +27,7 @@ type RightPanelTab =
   | "artifacts"
   | "quality"
   | "capabilities"
+  | "instinct"
   | "orchestration";
 
 // `label` is the short string baked into the icon column; `tooltip` carries
@@ -43,6 +45,7 @@ const TABS: ReadonlyArray<{
   { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "▤" },
   { id: "quality", label: "QA", tooltip: "Quality", icon: "✓" },
   { id: "capabilities", label: "Caps", tooltip: "Capabilities", icon: "⚙" },
+  { id: "instinct", label: "Inst", tooltip: "Instinct", icon: "※" },
   { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "⌥" },
 ];
 
@@ -170,7 +173,7 @@ export const RightPanel = ({
             ))}
           </nav>
 
-          {/* All 8 tab panels stay mounted; only the active one is
+          {/* All tab panels stay mounted; only the active one is
               visible. This preserves per-tab local state (form text,
               draft plan, scroll positions, fetch results) when the
               user switches tabs and comes back. Per-taskRun resets
@@ -344,6 +347,20 @@ export const RightPanel = ({
                 onRefreshTaskRun={onQualityChanged}
                 pipelineAutoLaunched={pipelineAutoLaunched}
               />
+            </div>
+
+            <div
+              role="tabpanel"
+              id="right-panel-panel-instinct"
+              aria-labelledby="right-panel-tab-instinct"
+              hidden={activeTab !== "instinct"}
+            >
+              <section aria-label="Instinct">
+                <header className="panel-header panel-header--inset">
+                  <span>Instinct</span>
+                </header>
+                <InstinctPanel key={`${state.detail.taskRun.id}-instinct`} />
+              </section>
             </div>
           </div>
         </div>

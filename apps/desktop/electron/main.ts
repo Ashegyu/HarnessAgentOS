@@ -30,7 +30,11 @@ import {
   CapabilityService,
   type SkillSourceConfig,
 } from "@harness/skillify-adapter";
-import { LearnerAdvisor, TraceRecorder } from "@harness/learner";
+import {
+  InstinctService,
+  LearnerAdvisor,
+  TraceRecorder,
+} from "@harness/learner";
 import { OrchestrationService } from "@harness/orchestration";
 import {
   AgentInvocationQueue,
@@ -59,6 +63,7 @@ const initServices = (): {
   skillSources: SkillSourceConfig[];
   learnerAdvisor: LearnerAdvisor;
   traceRecorder: TraceRecorder;
+  instinctService: InstinctService;
   orchestrationService: OrchestrationService;
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
@@ -127,6 +132,7 @@ const initServices = (): {
     state,
     decisionLogDir: join(userData, "learner-decisions"),
   });
+  const instinctService = new InstinctService({ state });
   // Phase 7 feature flag — defaults off per phase-07 spec.
   // Mutable ref is seeded from persisted settings in app.whenReady()
   // before IPC is registered; env var acts as OR override for devs.
@@ -397,6 +403,7 @@ const initServices = (): {
     skillSources,
     learnerAdvisor,
     traceRecorder,
+    instinctService,
     orchestrationService,
     agentPlanning,
     probeAgentProviders: probeProviders,

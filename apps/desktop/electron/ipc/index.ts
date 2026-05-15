@@ -17,7 +17,11 @@ import type {
   CapabilityService,
   SkillSourceConfig,
 } from "@harness/skillify-adapter";
-import type { LearnerAdvisor, TraceRecorder } from "@harness/learner";
+import type {
+  InstinctService,
+  LearnerAdvisor,
+  TraceRecorder,
+} from "@harness/learner";
 import type { OrchestrationService } from "@harness/orchestration";
 import type { AgentPlanningService } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
@@ -28,6 +32,7 @@ import { registerRunnerIpc } from "./runner-ipc";
 import { registerQualityIpc } from "./quality-ipc";
 import { registerCapabilityIpc } from "./capability-ipc";
 import { registerLearnerIpc } from "./learner-ipc";
+import { registerInstinctIpc } from "./instinct-ipc";
 import { registerOrchestrationIpc } from "./orchestration-ipc";
 import { registerAgentIpc } from "./agent-ipc";
 import { registerSettingsIpc } from "./settings-ipc";
@@ -52,6 +57,7 @@ export interface IpcContext {
   skillSources: SkillSourceConfig[];
   learnerAdvisor: LearnerAdvisor;
   traceRecorder: TraceRecorder;
+  instinctService: InstinctService;
   orchestrationService: OrchestrationService;
   agentPlanning: AgentPlanningService;
   probeAgentProviders: () => Promise<AgentProviderStatusMap>;
@@ -70,13 +76,19 @@ export interface IpcContext {
 export const registerAllIpc = (ctx: IpcContext): void => {
   registerAppIpc();
   registerStateIpc(ctx.state);
-  registerConversationIpc(ctx.conversation, ctx.state, eventBus);
+  registerConversationIpc(
+    ctx.conversation,
+    ctx.state,
+    eventBus,
+    ctx.instinctService,
+  );
   registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus);
   registerQualityIpc(
     ctx.state,
     ctx.qualityEvaluator,
     ctx.qualityCompletion,
     eventBus,
+    ctx.instinctService,
   );
   registerCapabilityIpc(
     ctx.capabilityService,
@@ -85,6 +97,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     eventBus,
   );
   registerLearnerIpc(ctx.learnerAdvisor, ctx.traceRecorder, eventBus);
+  registerInstinctIpc(ctx.instinctService);
   registerOrchestrationIpc(ctx.orchestrationService, eventBus);
   registerAgentIpc(
     {
