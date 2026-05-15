@@ -322,9 +322,9 @@ const harnessApi: HarnessDesktopApi = {
     update: (input) =>
       invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.update, input),
   },
-  // Phase 1 stubs — main-process handlers land in Phase 3. The renderer
-  // shouldn't call these yet; if it does, the channel allowlist rejects
-  // the invocation and the user sees a clear "not implemented" error.
+  // Settings/admin namespaces are implemented in main-process IPC handlers.
+  // Keep the preload layer thin: it unwraps HarnessResult and exposes only
+  // the typed window.harness facade, never raw ipcRenderer.
   agents: {
     list: () => invokeUnwrapped(IPC_CHANNELS.agents.list),
     get: (input) => invokeUnwrapped(IPC_CHANNELS.agents.get, input),

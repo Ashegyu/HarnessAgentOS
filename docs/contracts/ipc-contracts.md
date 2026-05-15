@@ -224,6 +224,8 @@ app.getVersion(): Promise<string>;
 app.getRuntimeInfo(): Promise<RuntimeInfo>;
 /** Returns null when the user cancels the dialog. */
 app.selectDirectory(): Promise<string | null>;
+/** Returns null when the user cancels the dialog. */
+app.selectFile(input?: { defaultDir?: string }): Promise<string | null>;
 ```
 
 ```ts
@@ -243,7 +245,12 @@ interface RuntimeInfo {
 ```ts
 state.listThreads(): Promise<Thread[]>;
 state.getThread(input: { threadId: string }): Promise<ThreadDetail>;
-state.createThread(input: { title: string; targetDir?: string }): Promise<Thread>;
+state.createThread(input: {
+  title: string;
+  targetDir?: string;
+  pipelineId?: string;
+}): Promise<Thread>;
+state.deleteThread(input: { threadId: string }): Promise<void>;
 ```
 
 ```ts
@@ -254,11 +261,14 @@ interface Thread {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
+  agentSessionId?: string;
+  pipelineId?: string;
 }
 
 interface ThreadDetail {
   thread: Thread;
   taskRuns: TaskRun[];
+  agentAnswers?: Record<string, string>;
 }
 ```
 
@@ -318,13 +328,17 @@ interface TaskRunDetail {
   artifacts: Artifact[];
   checkpoints: Checkpoint[];
   approvals: Approval[];
-  thread: Thread;
   /**
    * Phase 8 — agent CLI invocations associated with this TaskRun.
    * Empty for template-mode TaskRuns. The renderer uses the latest entry to
    * render the inline AgentPanel/AgentStreamView.
    */
   agentInvocations: AgentInvocation[];
+  /**
+   * Remote A2A task refs keyed by AgentInvocation.id, included on the same
+   * fresh-detail pull so the renderer does not poll remote state separately.
+   */
+  a2aRemoteTaskRefs: A2ARemoteTaskRef[];
 }
 ```
 
@@ -780,6 +794,144 @@ interface AgentInvocation {
 - `AGENT_INVOCATION_BUSY` — 같은 invocation이 큐에 남아있거나 실행 중인 상태에서 retry/fallback 시도 — `cancelInvocation` 먼저 호출 필요
 - `AGENT_TASK_RUN_NOT_FOUND` — taskRunId 미존재
 - `AGENT_MODE_MISMATCH` — TaskRun이 agent mode가 아니거나 적절한 상태가 아님
+
+## `window.harness.settings`
+
+전역 Harness 설정을 읽고 저장한다. 설정은 SQLite canonical state에 저장되며,
+renderer는 settings 객체를 직접 파일로 쓰지 않는다.
+
+```ts
+settings.get(): Promise<HarnessSettings>;
+settings.update(input: HarnessSettings): Promise<HarnessSettings>;
+```
+
+주요 필드:
+
+- `agent`: legacy single-agent fallback 설정
+- `orchestration`: orchestration enable/default mode/default pipeline 설정
+- `approval`: auto approval 편의 설정. 실제 실행 가능 여부는 service-layer `PolicyEvaluation`이 최종 결정한다.
+- `activeAgentProfileId`: 새 TaskRun에 사용할 active AgentProfile id
+
+## `window.harness.agents`
+
+AgentProfile CRUD. renderer는 plaintext secret을 이 namespace로 읽지 않는다.
+CLI 환경 secret은 `cli.envSecretRefs`에 SecretVault key로만 저장한다.
+
+```ts
+agents.list(): Promise<AgentProfile[]>;
+agents.get(input: { profileId: string }): Promise<AgentProfile>;
+agents.create(input: {
+  profile: Omit<AgentProfile, "id" | "createdAt" | "updatedAt">;
+}): Promise<AgentProfile>;
+agents.update(input: { profile: AgentProfile }): Promise<AgentProfile>;
+agents.delete(input: { profileId: string }): Promise<void>;
+agents.setDefault(input: { profileId: string }): Promise<AgentProfile>;
+agents.setActive(input: { profileId: string | null }): Promise<HarnessSettings>;
+```
+
+동작:
+
+- `setDefault`는 exactly-one default profile 규칙을 유지한다.
+- `setActive(null)`은 active profile override를 해제하고 default profile fallback으로 돌아간다.
+- profile permissions는 approval UI 자동화보다 우선하는 block/allow context로 사용된다.
+
+## `window.harness.mcp`
+
+MCP server registry. plaintext secret은 반환하지 않으며, main process가 spawn/probe
+시점에 SecretVault에서 복호화한다.
+
+```ts
+mcp.list(): Promise<McpServerConfig[]>;
+mcp.upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
+mcp.delete(input: { serverId: string }): Promise<void>;
+mcp.toggle(input: { serverId: string; enabled: boolean }): Promise<McpServerConfig>;
+mcp.healthCheck(input: { serverId: string }): Promise<McpServerHealth>;
+```
+
+동작:
+
+- `upsert`는 `server.id`가 기존 row와 매칭되면 update, 아니면 create로 동작한다.
+- `healthCheck`는 renderer가 직접 process/network probe를 하지 않도록 main process handler로 격리한다.
+
+## `window.harness.skillSource`
+
+신뢰 가능한 SKILL.md root를 등록하고 CapabilityRegistry refresh를 트리거한다.
+
+```ts
+skillSource.list(): Promise<SkillSource[]>;
+skillSource.add(input: { name: string; rootDir: string }): Promise<SkillSource>;
+skillSource.update(input: { source: SkillSource }): Promise<SkillSource>;
+skillSource.remove(input: { sourceId: string }): Promise<void>;
+skillSource.refresh(input: { sourceId: string }): Promise<{ skillCount: number }>;
+```
+
+동작:
+
+- custom source는 기본 `trusted=false`이며, script 실행은 별도 `skill_script` approval을 요구한다.
+- `refresh`는 directory scan 결과를 capability registry에 반영하지만 script를 실행하지 않는다.
+
+## `window.harness.secret`
+
+SecretVault 관리. plaintext 값은 renderer에서 main으로 단방향 전달만 허용하고,
+main process는 decrypted value를 renderer에 반환하지 않는다.
+
+```ts
+secret.write(input: { key: string; value: string }): Promise<void>;
+secret.clear(input: { key: string }): Promise<void>;
+secret.listKeys(): Promise<string[]>;
+```
+
+규칙:
+
+- `secret.read`는 public IPC에 존재하지 않는다.
+- `listKeys`는 UI의 stored/cleared 상태 표시용 key 이름만 반환한다.
+
+## `window.harness.pipeline`
+
+AgentPipeline template CRUD. 저장은 template registry만 담당하고, 실행은 항상
+`orchestration.draftPlan` + `orchestration_plan` approval + `orchestration.runApproved`
+흐름을 사용한다.
+
+```ts
+pipeline.list(): Promise<AgentPipeline[]>;
+pipeline.get(input: { pipelineId: string }): Promise<AgentPipeline>;
+pipeline.create(input: {
+  pipeline: CreateAgentPipelineInput;
+}): Promise<AgentPipeline>;
+pipeline.update(input: { pipeline: AgentPipeline }): Promise<AgentPipeline>;
+pipeline.delete(input: { pipelineId: string }): Promise<void>;
+```
+
+동작:
+
+- pipeline step은 `agentProfileId`를 필수로 참조한다.
+- `remoteEndpointId`, `dependsOn`, `allowedActions`, `outputContract`는 orchestration planner가 immutable plan snapshot으로 확장할 때 사용한다.
+- `pipeline.run` 같은 직접 실행 IPC는 없다.
+
+## `window.harness.remoteAgents`
+
+A2A remote agent registry. 이 namespace는 registry/card snapshot 저장만 담당한다.
+실제 remote worker 호출은 orchestration/agent worker 경로에서 main process가 수행하며,
+renderer는 A2A SDK 객체나 network client를 받지 않는다.
+
+```ts
+remoteAgents.list(): Promise<A2ARegistryEntry[]>;
+remoteAgents.get(input: { endpointId: string }): Promise<A2ARegistryEntry>;
+remoteAgents.upsertEndpoint(input: {
+  endpoint: A2AEndpoint | Omit<A2AEndpoint, "id" | "createdAt" | "updatedAt">;
+}): Promise<A2AEndpoint>;
+remoteAgents.delete(input: { endpointId: string }): Promise<void>;
+remoteAgents.toggle(input: { endpointId: string; enabled: boolean }): Promise<A2AEndpoint>;
+remoteAgents.upsertCardSnapshot(input: {
+  snapshot: A2AAgentCardSnapshot;
+}): Promise<A2AAgentCardSnapshot>;
+```
+
+동작:
+
+- registry 저장은 SQLite WAL canonical state에만 반영한다.
+- inbound listener, localhost server, WebSocket server는 이 namespace에 포함하지 않는다.
+- `remoteAgents.invoke`, `remoteAgents.register`, `remoteAgents.refreshCard`는 public IPC가 아니다.
 
 ## `window.harness.events`
 
