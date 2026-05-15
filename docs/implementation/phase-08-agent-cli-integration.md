@@ -23,6 +23,22 @@ Phase 8의 목표는 HarnessAgentOS를 "승인/감사/품질 스캐폴드"에서
   -> LearningTrace 기록
 ```
 
+### 2026-05-16 현재 상태
+
+이 문서는 Phase 8의 원래 구현 계약을 보존한다. 현재 repo는 Phase 8 이후
+follow-up까지 일부 반영되어 있으므로, 해석 기준은 다음처럼 나눈다.
+
+- Phase 8 원범위: local `claude`/`codex` CLI planner, `AgentInvocation`,
+  `AgentPlanOutput`, approval/runner/quality/learner 경계.
+- 이후 확장: AgentProfile/MCP/SkillSource/Secret/Pipeline 설정, orchestration
+  worker invoker, A2A remote worker routing, IPC surface drift 방지 테스트.
+- 변하지 않는 경계: renderer는 `window.harness.*`만 호출하고, CLI/SDK/process/
+  filesystem 권한을 직접 갖지 않는다. side effect는 여전히 approval과
+  runner를 통과해야 한다.
+- serverless 경계: A2A follow-up은 desktop 관점에서 outbound/client-only이며,
+  loopback companion listener는 제거되었다. inbound serving은 별도 ADR 전까지
+  이 문서의 구현 범위가 아니다.
+
 ## 비범위
 
 - 기존 `ClaudeAgentSystem` runtime을 직접 import하지 않는다.
@@ -31,7 +47,7 @@ Phase 8의 목표는 HarnessAgentOS를 "승인/감사/품질 스캐폴드"에서
 - agent CLI가 targetDir에 직접 파일을 쓰게 하지 않는다.
 - agent 자기 보고만으로 `done` 처리하지 않는다.
 - 외부 agent framework(LangGraph, Temporal, OpenAI Agents SDK)를 MVP 의존성으로 추가하지 않는다.
-- `@anthropic-ai/sdk`, `openai` 같은 모델 SDK npm 패키지를 추가하지 않는다 — Phase 8은 CLI route만 지원하며, SDK route는 별도 후속 Phase에서 다룬다.
+- `@anthropic-ai/sdk`, `openai` 같은 모델 SDK npm 패키지를 추가하지 않는다 — Phase 8은 CLI route만 지원한다. 이후 A2A work에서 `@a2a-js/sdk`는 adapter 내부 dependency로만 추가되었고, renderer/core public API로 노출하지 않는다.
 - renderer에서 CLI/API key, shell, filesystem 권한을 직접 다루지 않는다.
 
 ## 기준 레거시 분석 대상
@@ -275,22 +291,28 @@ prompt 자체는 변조 가능하다고 가정한다. 모든 안전 보장은 **
 
 ## 구현 단위
 
+현재 구현된 파일 기준:
+
 ```text
 packages/agent/src/
   provider-detection.ts
+  provider-executable.ts
   model-cli-adapter.ts
+  model-cli-invocation.ts
   model-cli-types.ts
   model-cli-errors.ts
-  model-cli-stream.ts
+  fake-model-cli-adapter.ts
   agent-prompt-builder.ts
   agent-output-parser.ts
   agent-planning-service.ts
-  agent-context-pack.ts
-  agent-cost-estimator.ts
+  agent-invocation-queue.ts
+  agent-profile-resolver.ts
+  mcp-config-builder.ts
 
 packages/core/src/types/
   agent-invocation.ts
   agent-plan-output.ts
+  agent-planning-gateway.ts
 
 packages/storage/src/repositories/
   agent-invocation-repository.ts
@@ -301,8 +323,21 @@ apps/desktop/electron/ipc/
 apps/desktop/src/screens/workbench/
   AgentPanel.tsx
   AgentStreamView.tsx
+  InlineAgentStream.tsx
+  AgentProgressList.tsx
+  AgentStreamSections.tsx
   AgentProviderStatus.tsx
+  agent-stream-parser.ts
+  agent-stream-section-groups.ts
+  agent-invocation-display.ts
+  chat-turn-status.ts
 ```
+
+초기 설계에 있던 `model-cli-stream.ts`, `agent-context-pack.ts`,
+`agent-cost-estimator.ts`는 별도 파일로 남기지 않았다. stream normalization은
+`model-cli-adapter.ts`와 renderer parser 쪽에 흩어져 있고, context/cost 처리는
+`agent-prompt-builder.ts`, `agent-planning-service.ts`, Learner trace 필드로
+흡수했다. 파일명은 이 문서보다 현재 source tree를 우선한다.
 
 기존 package와의 관계:
 
@@ -547,13 +582,26 @@ quality.evaluate failed
 
 ### Phase 7 OrchestrationService와의 관계
 
-Phase 7에서 추가된 [OrchestrationService](../../packages/orchestration/src/orchestration-service.ts)는 multi-worker 시뮬레이션 stub으로, worker body가 deterministic 로그 출력이다. **Phase 8에서는 OrchestrationService를 변경하지 않는다** — Phase 8은 단일 agent planning만 다루며, worker body에 실제 agent를 넣는 작업은 Phase 11 (multi-step repair loop)의 범위다. Phase 8에서 Orchestration tab은 그대로 advanced/feature-flag로 남는다.
+Phase 8 원범위에서는 [OrchestrationService](../../packages/orchestration/src/orchestration-service.ts)를 변경하지 않았다. Phase 8은 단일 agent planning을 닫고, Orchestration tab은 advanced/feature-flag 경로로 남기는 것이 기준이었다.
+
+현재 repo는 이후 follow-up으로 이 경계를 확장했다.
+
+- `AgentPlanningService.invokeForWorker`는 orchestration worker가 동일한
+  approval-safe agent output 계약을 재사용할 수 있게 한다.
+- [packages/orchestration/src/worker-runner.ts](../../packages/orchestration/src/worker-runner.ts)는 worker output을 직접 실행하지 않고 artifact와 downstream approval로 변환한다.
+- `AgentPipelineStep.remoteEndpointId`와 `WorkerStep.remoteEndpointId`는 local CLI worker와 remote A2A worker routing을 구분한다.
+- A2A remote worker도 `AgentStreamEvent`, raw/parsed artifacts, remote task ref,
+  lifecycle interruption(`input-required`, `auth-required`)로 정규화된다.
+
+따라서 이 문서의 옛 문구인 "worker body에 실제 agent를 넣는 작업은 Phase 11"은
+역사적 원범위 설명으로만 읽는다. 현재의 불변 계약은 "orchestration worker도
+approval 없이 side effect를 만들 수 없다"이다.
 
 ## 운영 정책 (Phase 8 default)
 
 ### Cost estimate
 
-CLI는 토큰 카운트 metadata를 보장하지 않으므로 Phase 8 default는 `costEstimate=undefined`로 둔다. `agent-cost-estimator.ts`는 형태만 만들고 실제 계산은 후속 Phase에서 model-pricing.json + 토큰 휴리스틱(`(prompt + raw_output).length / 4`)으로 채운다. Learner는 `costEstimate=undefined`인 trace를 정상 케이스로 처리하고 cost 기반 ranking은 적용하지 않는다.
+CLI는 토큰 카운트 metadata를 보장하지 않으므로 Phase 8 default는 `costEstimate=undefined`로 둔다. 별도 `agent-cost-estimator.ts` 파일은 만들지 않았다. 실제 계산은 후속 Phase에서 model-pricing.json + 토큰 휴리스틱(`(prompt + raw_output).length / 4`) 또는 provider metadata를 기준으로 추가한다. Learner는 `costEstimate=undefined`인 trace를 정상 케이스로 처리하고 cost 기반 ranking은 적용하지 않는다.
 
 ### Concurrency
 
@@ -906,12 +954,20 @@ Phase 8은 다음을 모두 만족해야 닫는다.
 
 Phase 8이 끝나면 HarnessAgentOS는 실제 agent planner를 가진다. 다음 단계는 agent가 생성한 action의 품질을 높이는 방향이어야 한다.
 
+2026-05-16 기준으로 일부 후속 후보는 이미 별도 follow-up에서 진행됐다.
+아래 목록은 새 작업을 시작할 때 현재 상태를 먼저 확인한 뒤 다시 쪼갠다.
+
 후속 후보:
 
-- Phase 9: Shadow workspace edit mode.
-- Phase 10: Context packing and repository indexing.
-- Phase 11: Multi-step repair loop.
-- Phase 12: Model/cost policy tuning.
+- Phase 9: Shadow workspace edit mode. 아직 별도 canonical 구현 없음.
+- Phase 10: Context packing and repository indexing. prompt builder와 artifact
+  context는 존재하지만 repo-wide indexing은 별도 phase로 남아 있다.
+- Phase 11: Multi-step repair loop. orchestration worker invoker와 internal
+  handoff/A2A worker routing은 이미 follow-up으로 들어왔으므로, 다음 작업은
+  "worker 실행 자체"가 아니라 repair quality, dependency-aware repair,
+  repeated quality failure handling을 다룬다.
+- Phase 12: Model/cost policy tuning. Learner trace와 provider queue depth는
+  존재하지만 token/cost estimator는 아직 정책 튜닝 phase로 남아 있다.
 
 Phase 9로 넘길 명시적 계약:
 
