@@ -580,7 +580,8 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
 - [x] remote artifact normalization 테스트를 추가한다.
 - [x] proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
 - [x] remote task reference 저장 범위를 `a2a_remote_tasks.invocation_id` 연결로 고정한다.
-- [ ] 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
+- [x] `A2AInvocationAdapter` 결과를 orchestration worker flow에 연결하는 SDK-free seam을 추가한다.
+- [x] 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
 
 현재 완료 범위:
 
@@ -600,6 +601,14 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
   - artifact payload을 proposed action으로 승격하지 않는 계약
   - unsupported high-risk remote action type 거부
 - `packages/agent/src/index.ts` export
+- `packages/agent/src/a2a-worker-invoker.ts`
+  - `A2AWorkerInvoker`
+  - `WorkerCliInvoker`와 같은 structural shape의 `invokeForWorker`
+  - `A2AInvocationAdapter` 결과를 `WorkerRunner`가 쓰는 `{ outputText, proposedActions? }`로 변환
+  - remote task ref callback seam
+- `apps/desktop/electron/a2a-worker-integration.test.mjs`
+  - A2A worker output이 pending `Approval` row로만 생성되는지 확인
+  - remote `file_write` proposal이 approval 없이 실제 파일로 쓰이지 않는지 확인
 - `SqliteA2ARemoteAgentRepository`
   - `getRemoteTaskRef(invocationId)`
   - `listRemoteTaskRefsByEndpoint(endpointId)`
@@ -607,10 +616,29 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
 
 다음 즉시 진행:
 
-1. 실제 호출 API를 기존 `agent.generatePlan`에 통합할지 별도 내부 service seam으로 둘지 최종 결정한다.
-2. `A2AInvocationAdapter` 결과를 `AgentPlanningService` 또는 orchestration worker flow에 연결하는 contract test를 추가한다.
-3. remote proposed action이 최종적으로 pending `Approval` row로만 생성되고 runner가 approval 없이 실행하지 않는지 integration test로 확인한다.
-4. 실제 `@a2a-js/sdk` 도입 전 timeout/cancellation/redaction 정책을 기존 CLI adapter 정책과 비교한다.
+1. 실제 `@a2a-js/sdk` 도입 전 timeout/cancellation/redaction 정책을 기존 CLI adapter 정책과 비교한다.
+2. `A2AWorkerInvoker.onRemoteTaskRef`를 `SqliteA2ARemoteAgentRepository.upsertRemoteTaskRef`에 연결할 composition test를 추가한다.
+3. 실제 SDK client adapter를 `A2AClientPort` 뒤에만 구현하고, SDK 타입이 `packages/core`, renderer, storage repository로 새지 않는지 확인한다.
+
+### 16.2.1 Phase C-1 구현 검토
+
+현재 결정:
+
+- renderer-facing API는 아직 추가하지 않는다.
+- `AgentProvider`에 `"a2a"`를 추가하지 않는다.
+- 원격 worker 연결은 내부 `WorkerCliInvoker` seam으로만 시작한다.
+- remote proposed action은 기존 `WorkerRunner`의 approval 생성 경로로만 들어간다.
+- remote artifact payload는 proposed action source로 사용하지 않는다.
+
+정책 검토:
+
+| 항목 | 현재 상태 | 다음 요구사항 |
+|------|-----------|---------------|
+| timeout | `A2AWorkerInvoker`는 자체 timeout을 만들지 않음 | SDK adapter가 기존 agent timeout 값 또는 endpoint policy를 받아야 함 |
+| cancellation | `A2AWorkerInvoker`가 `AbortSignal`을 `A2AInvocationAdapter`로 전달 | SDK adapter가 signal abort 시 remote request를 중단해야 함 |
+| redaction | 현재 SDK-free seam은 remote text를 그대로 parser에 전달 | 실제 SDK adapter 또는 호출 service에서 `redactSecrets` 적용 지점 필요 |
+| side effect | pending `Approval` row 생성만 허용 | runner 승인 전 remote proposal 실행 금지 유지 |
+| persistence | remote task ref repository 준비됨 | invoker callback을 repository upsert에 연결하는 composition 필요 |
 
 ### 16.3 Phase C-2 구현 순서
 
