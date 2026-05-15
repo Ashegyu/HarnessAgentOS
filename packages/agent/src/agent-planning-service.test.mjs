@@ -337,8 +337,38 @@ test("generatePlan emits progress events before and after CLI invocation", async
   };
   let artifactSeq = 0;
   let stepSeq = 0;
+  const createStepInputs = [];
   const events = [];
   const artifacts = [];
+  const activeProfile = {
+    id: "ap-progress",
+    name: "LocalPlanner",
+    description: "",
+    provider: "claude",
+    role: "planner",
+    persona: "Plan precisely.",
+    tuning: {
+      model: "claude-opus-4-5",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+    permissions: {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
   const rawProviderOutput =
     '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"raw stream answer"}]}}\n';
   const planOutput = {
@@ -352,16 +382,19 @@ test("generatePlan emits progress events before and after CLI invocation", async
   const svc = new AgentPlanningService({
     state: makeGateway({
       getTaskRun: async () => draftingTaskRun,
-      createStep: async (input) => ({
-        id: `step-${++stepSeq}`,
-        taskRunId: input.taskRunId,
-        index: input.index,
-        kind: input.kind,
-        title: input.title,
-        status: input.status,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      }),
+      createStep: async (input) => {
+        createStepInputs.push(input);
+        return {
+          id: `step-${++stepSeq}`,
+          taskRunId: input.taskRunId,
+          index: input.index,
+          kind: input.kind,
+          title: input.title,
+          status: input.status,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+      },
       createArtifact: async (input) => {
         const artifact = {
           id: `art-${++artifactSeq}`,
@@ -403,6 +436,24 @@ test("generatePlan emits progress events before and after CLI invocation", async
         summary: input.summary,
         createdAt: "2026-01-01T00:00:00.000Z",
       }),
+      listAgentProfiles: async () => [activeProfile],
+      getSettings: async () => ({
+        activeAgentProfileId: activeProfile.id,
+        agent: {
+          provider: "auto",
+          model: "",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+        },
+        orchestration: {
+          enabled: false,
+          defaultMode: "single_worker",
+          defaultInstructions: "",
+          workerProfiles: [],
+        },
+        approval: { autoApprove: false },
+      }),
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
@@ -431,6 +482,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
 
   await svc.generatePlan({ taskRunId: "tr-progress", provider: "claude" });
 
+  assert.equal(
+    createStepInputs[0]?.title,
+    "Agent[LocalPlanner] plan (claude:claude-opus-4-5)",
+  );
   const progress = events.filter((event) => event.type === "progress");
   assert.deepEqual(
     progress.map((event) => event.stage),
@@ -636,6 +691,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
   let lastRequest = null;
+  let createAgentInvocationInput = null;
   let artifactSeq = 0;
   const artifacts = [];
   const rawProviderOutput =
@@ -679,7 +735,10 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
         artifacts.push(artifact);
         return artifact;
       },
-      createAgentInvocation: async () => invocation,
+      createAgentInvocation: async (input) => {
+        createAgentInvocationInput = input;
+        return { ...invocation, stepId: input.stepId };
+      },
       updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
     }),
     getProviderStatus: () =>
@@ -713,11 +772,13 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   const result = await svc.invokeForWorker({
     taskRunId: taskRun.id,
     profile,
+    stepId: "step-worker",
     userRequest: "create a file",
     handoffMessages,
   });
 
   assert.equal(result.proposedActions?.length, 1);
+  assert.equal(createAgentInvocationInput?.stepId, "step-worker");
   assert.equal(result.proposedActions?.[0].type, "file_write");
   assert.equal(result.proposedActions?.[0].path, "created.txt");
   assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);

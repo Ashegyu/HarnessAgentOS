@@ -93,6 +93,25 @@ test("describes an invocation with the concrete worker agent name from its step"
   });
 });
 
+test("describes a normal agent invocation with the concrete profile name from its step", () => {
+  const display = describeAgentInvocationForDisplay(
+    invocation({ id: "inv_planner", stepId: "step_planner" }),
+    [
+      step({
+        id: "step_planner",
+        kind: "plan",
+        title: "Agent[LocalPlanner] plan (codex:gpt-5.5)",
+      }),
+    ],
+  );
+
+  assert.deepEqual(display, {
+    agentName: "LocalPlanner",
+    detail: "plan (codex:gpt-5.5)",
+    providerLabel: "codex:gpt-5",
+  });
+});
+
 test("falls back to provider and model when no step identifies the agent", () => {
   const display = describeAgentInvocationForDisplay(
     invocation({ provider: "claude", model: "sonnet" }),

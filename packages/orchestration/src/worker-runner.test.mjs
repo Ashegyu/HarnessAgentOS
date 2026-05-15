@@ -226,6 +226,7 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
       async invokeForWorker(input) {
         calls.push({
           taskRunId: input.taskRunId,
+          stepId: input.stepId,
           profileId: input.profile.id,
           profileName: input.profile.name,
           userRequest: input.userRequest,
@@ -243,6 +244,7 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
 
     assert.equal(calls.length, 1, "invoker must be called once");
     assert.equal(calls[0].taskRunId, taskRun.id);
+    assert.match(calls[0].stepId, /^step_/);
     assert.equal(calls[0].profileId, profile.id);
     assert.equal(calls[0].profileName, "CliCoder");
     // The full instruction must arrive at the invoker, not the 120-char
@@ -261,6 +263,15 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
     assert.match(workerArtifact.summary, /MOCK_CLI_OUTPUT/);
     // And the profile attribution line is still present.
     assert.match(workerArtifact.summary, /CliCoder/);
+    const steps = await state.listStepsByTaskRun(taskRun.id);
+    assert.ok(
+      steps.some(
+        (step) =>
+          step.id === calls[0].stepId &&
+          step.title === "Worker[CliCoder] Implement",
+      ),
+      "worker invocation step must carry the concrete agent profile name",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
