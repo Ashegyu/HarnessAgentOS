@@ -33,6 +33,7 @@ import {
 import {
   InstinctService,
   LearnerAdvisor,
+  TopologyAdvisor,
   TraceRecorder,
 } from "@harness/learner";
 import { OrchestrationService } from "@harness/orchestration";
@@ -62,6 +63,7 @@ const initServices = (): {
   capabilityRegistry: CapabilityRegistry;
   skillSources: SkillSourceConfig[];
   learnerAdvisor: LearnerAdvisor;
+  topologyAdvisor: TopologyAdvisor;
   traceRecorder: TraceRecorder;
   instinctService: InstinctService;
   orchestrationService: OrchestrationService;
@@ -131,6 +133,10 @@ const initServices = (): {
   const learnerAdvisor = new LearnerAdvisor({
     state,
     decisionLogDir: join(userData, "learner-decisions"),
+  });
+  const topologyAdvisor = new TopologyAdvisor({
+    state,
+    metadataForCapability: (id) => capabilityRegistry.getMetadata(id),
   });
   const instinctService = new InstinctService({ state });
   // Phase 7 feature flag — defaults off per phase-07 spec.
@@ -402,6 +408,7 @@ const initServices = (): {
     capabilityRegistry,
     skillSources,
     learnerAdvisor,
+    topologyAdvisor,
     traceRecorder,
     instinctService,
     orchestrationService,

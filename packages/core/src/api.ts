@@ -26,6 +26,7 @@ import type {
   LearnerRecommendation,
   LearnerRecommendationApprovalResult,
   LearningTrace,
+  RecommendTopologyInput,
   OrchestrationMode,
   OrchestrationPlan,
   OrchestrationRunResult,
@@ -37,6 +38,7 @@ import type {
   TaskRun,
   Thread,
   ThreadDetail,
+  TopologyRecommendation,
   Checkpoint,
 } from "./types/index.ts";
 import type {
@@ -198,6 +200,11 @@ export interface HarnessDesktopApi {
       decision: "accepted" | "rejected";
       reason?: string;
     }): Promise<void>;
+  };
+  topology: {
+    recommend(
+      input: RecommendTopologyInput,
+    ): Promise<TopologyRecommendation[]>;
   };
   instinct: {
     list(input?: {

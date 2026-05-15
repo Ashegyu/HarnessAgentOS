@@ -20,6 +20,7 @@ import type {
 import type {
   InstinctService,
   LearnerAdvisor,
+  TopologyAdvisor,
   TraceRecorder,
 } from "@harness/learner";
 import type { OrchestrationService } from "@harness/orchestration";
@@ -32,6 +33,7 @@ import { registerRunnerIpc } from "./runner-ipc";
 import { registerQualityIpc } from "./quality-ipc";
 import { registerCapabilityIpc } from "./capability-ipc";
 import { registerLearnerIpc } from "./learner-ipc";
+import { registerTopologyIpc } from "./topology-ipc-register";
 import { registerInstinctIpc } from "./instinct-ipc";
 import { registerOrchestrationIpc } from "./orchestration-ipc";
 import { registerAgentIpc } from "./agent-ipc";
@@ -56,6 +58,7 @@ export interface IpcContext {
   capabilityRegistry: CapabilityRegistry;
   skillSources: SkillSourceConfig[];
   learnerAdvisor: LearnerAdvisor;
+  topologyAdvisor: TopologyAdvisor;
   traceRecorder: TraceRecorder;
   instinctService: InstinctService;
   orchestrationService: OrchestrationService;
@@ -97,6 +100,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     eventBus,
   );
   registerLearnerIpc(ctx.learnerAdvisor, ctx.traceRecorder, eventBus);
+  registerTopologyIpc(ctx.topologyAdvisor);
   registerInstinctIpc(ctx.instinctService);
   registerOrchestrationIpc(ctx.orchestrationService, eventBus);
   registerAgentIpc(

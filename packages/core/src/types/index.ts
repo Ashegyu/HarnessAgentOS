@@ -1,4 +1,5 @@
 export * from "./thread.ts";
+export * from "./topology-recommendation.ts";
 export * from "./task-run.ts";
 export * from "./step.ts";
 export * from "./checkpoint.ts";

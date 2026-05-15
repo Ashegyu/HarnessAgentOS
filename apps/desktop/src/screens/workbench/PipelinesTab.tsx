@@ -4,6 +4,7 @@ import type {
   AgentPipeline,
   AgentProfile,
   ApprovalActionType,
+  TopologyRecommendation,
   WorkerOutputContract,
 } from "@harness/core";
 import {
@@ -11,6 +12,7 @@ import {
   moveStep,
   PIPELINE_OUTPUT_CONTRACT_CHOICES,
   PIPELINE_WORKER_ACTION_CHOICES,
+  pipelineInputToDraft,
   pipelineToDraft,
   serializePipelineDraft,
   validatePipelineDraft,
@@ -55,6 +57,14 @@ export const PipelinesTab = (): JSX.Element => {
   const [draft, setDraft] = useState<PipelineDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recommendTaskRunId, setRecommendTaskRunId] = useState("");
+  const [recommendations, setRecommendations] = useState<
+    TopologyRecommendation[]
+  >([]);
+  const [recommending, setRecommending] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<
+    string | null
+  >(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -80,7 +90,9 @@ export const PipelinesTab = (): JSX.Element => {
       return;
     }
     if (selectedId === "__new__") {
-      setDraft(emptyPipelineDraft());
+      setDraft((current) =>
+        current !== null && current.id === null ? current : emptyPipelineDraft(),
+      );
       return;
     }
     const found = list.pipelines.find((p) => p.id === selectedId);
@@ -209,6 +221,38 @@ export const PipelinesTab = (): JSX.Element => {
     else current.delete(dependencyId);
     updateStep(index, { dependsOn: [...current] });
   };
+
+  const handleRecommend = async (): Promise<void> => {
+    const taskRunId = recommendTaskRunId.trim();
+    if (taskRunId.length === 0) return;
+    setRecommending(true);
+    setRecommendationError(null);
+    try {
+      const result = await window.harness.topology.recommend({
+        taskRunId,
+        maxCandidates: 3,
+      });
+      setRecommendations(result);
+      if (result.length === 0) {
+        setRecommendationError(
+          "추천 후보가 없습니다. AgentProfile 구성을 먼저 확인하세요.",
+        );
+      }
+    } catch (e) {
+      setRecommendations([]);
+      setRecommendationError(errorMessage(e));
+    } finally {
+      setRecommending(false);
+    }
+  };
+
+  const applyRecommendation = (
+    recommendation: TopologyRecommendation,
+  ): void => {
+    setSelectedId("__new__");
+    setDraft(pipelineInputToDraft(recommendation.pipelineDraft));
+    setError(null);
+  };
   const toggleAllowedAction = (
     index: number,
     action: ApprovalActionType,
@@ -237,7 +281,10 @@ export const PipelinesTab = (): JSX.Element => {
             <button
               type="button"
               className="btn btn--ghost btn--sm"
-              onClick={() => setSelectedId("__new__")}
+              onClick={() => {
+                setDraft(emptyPipelineDraft());
+                setSelectedId("__new__");
+              }}
               disabled={saving || profiles.length === 0}
               title={
                 profiles.length === 0
@@ -296,6 +343,101 @@ export const PipelinesTab = (): JSX.Element => {
               <h3 className="pipelines-tab__heading">
                 {draft.id === null ? "새 파이프라인" : draft.name || "(이름 없음)"}
               </h3>
+
+              <fieldset className="settings-fieldset">
+                <legend>Topology Recommendation</legend>
+                <div className="pipeline-recommendation__controls">
+                  <label className="settings-field pipeline-recommendation__task">
+                    <span className="settings-field__label">TaskRun ID</span>
+                    <input
+                      type="text"
+                      className="settings-field__input"
+                      value={recommendTaskRunId}
+                      disabled={saving || recommending}
+                      placeholder="tsk_..."
+                      onChange={(e) => setRecommendTaskRunId(e.target.value)}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    disabled={
+                      saving ||
+                      recommending ||
+                      recommendTaskRunId.trim().length === 0
+                    }
+                    onClick={() => void handleRecommend()}
+                  >
+                    {recommending ? "추천 중…" : "추천 불러오기"}
+                  </button>
+                </div>
+                {recommendationError && (
+                  <div
+                    className="pipeline-recommendation__error"
+                    role="alert"
+                  >
+                    {recommendationError}
+                  </div>
+                )}
+                {recommendations.length > 0 && (
+                  <div className="pipeline-recommendation__list">
+                    {recommendations.map((recommendation) => (
+                      <article
+                        key={recommendation.id}
+                        className="pipeline-recommendation"
+                      >
+                        <header className="pipeline-recommendation__header">
+                          <div>
+                            <h4>{recommendation.title}</h4>
+                            <p>{recommendation.description}</p>
+                          </div>
+                          <span className="pipeline-recommendation__confidence">
+                            {Math.round(recommendation.confidence * 100)}%
+                          </span>
+                        </header>
+                        <ol className="pipeline-recommendation__steps">
+                          {recommendation.steps.map((entry) => (
+                            <li key={entry.step.id}>
+                              <strong>{entry.step.title}</strong>
+                              <span>
+                                {entry.step.allowedActions?.length
+                                  ? entry.step.allowedActions.join(", ")
+                                  : "no direct side effects"}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                        {recommendation.warnings.length > 0 && (
+                          <ul className="pipeline-recommendation__warnings">
+                            {recommendation.warnings.map((warning, i) => (
+                              <li key={i}>{warning}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="pipeline-recommendation__footer">
+                          <span>
+                            capability{" "}
+                            {recommendation.source.capabilityIds.length} ·
+                            instinct{" "}
+                            {recommendation.source.instinctIds.length} · trace{" "}
+                            {recommendation.source.traceIds.length}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--primary btn--sm"
+                            disabled={saving}
+                            onClick={() =>
+                              applyRecommendation(recommendation)
+                            }
+                          >
+                            draft에 적용
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </fieldset>
 
               <fieldset className="settings-fieldset">
                 <legend>Identity</legend>

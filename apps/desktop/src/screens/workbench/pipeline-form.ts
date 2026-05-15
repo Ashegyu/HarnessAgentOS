@@ -78,6 +78,26 @@ export const pipelineToDraft = (p: AgentPipeline): PipelineDraft => ({
   })),
 });
 
+export const pipelineInputToDraft = (
+  input: CreateAgentPipelineInput,
+): PipelineDraft => ({
+  id: null,
+  name: input.name,
+  description: input.description,
+  steps: input.steps.map((s) => ({
+    id: s.id,
+    agentProfileId: s.agentProfileId,
+    remoteEndpointId: s.remoteEndpointId ?? "",
+    title: s.title,
+    instruction: s.instruction,
+    expectedArtifactKinds: [...s.expectedArtifactKinds],
+    dependsOn: s.dependsOn !== undefined ? [...s.dependsOn] : null,
+    allowedActions:
+      s.allowedActions !== undefined ? [...s.allowedActions] : null,
+    outputContract: s.outputContract ?? "",
+  })),
+});
+
 interface ProfileLite {
   id: string;
   name: string;

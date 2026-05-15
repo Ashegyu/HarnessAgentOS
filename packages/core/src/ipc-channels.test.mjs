@@ -11,7 +11,7 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 0: app, Phase 1: state, Phase 2: conversation, Phase 3: runner,
   // Phase 4: quality, Phase 5: capability, Phase 6: learner,
   // Phase 7: orchestration, Phase 8: agent.
-  // Agent Framework adoption: instinct.
+  // Agent Framework adoption: instinct, topology.
   // Detailed-settings: agents, mcp, skillSource, secret, pipeline.
   // A2A Phase B: remoteAgents registry.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
@@ -33,7 +33,16 @@ test("declared namespaces match the phases shipped so far", () => {
     "settings",
     "skillSource",
     "state",
+    "topology",
   ]);
+});
+
+test("topology namespace exposes read-only recommendation verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.topology).sort(), [
+    "recommend",
+  ]);
+  assert.equal(isAllowedChannel("topology:recommend"), true);
+  assert.equal(isAllowedChannel("topology:create"), false);
 });
 
 test("remoteAgents namespace exposes registry verbs only", () => {

@@ -5,6 +5,7 @@ import {
   validatePipelineDraft,
   serializePipelineDraft,
   pipelineToDraft,
+  pipelineInputToDraft,
   moveStep,
 } from "./pipeline-form.ts";
 
@@ -304,6 +305,39 @@ test("pipelineToDraft round-trips topology metadata", () => {
   assert.deepEqual(draft.steps[0].dependsOn, ["s0"]);
   assert.deepEqual(draft.steps[0].allowedActions, ["file_write"]);
   assert.equal(draft.steps[0].outputContract, "diff_proposal");
+});
+
+test("pipelineInputToDraft converts a recommendation into a new draft", () => {
+  const draft = pipelineInputToDraft({
+    name: "Recommended",
+    description: "d",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "Hi",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "s2",
+        agentProfileId: "ap_b",
+        title: "Code",
+        instruction: "Patch",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["s1"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+    ],
+  });
+  assert.equal(draft.id, null);
+  assert.equal(draft.name, "Recommended");
+  assert.deepEqual(draft.steps[1].dependsOn, ["s1"]);
+  assert.deepEqual(draft.steps[1].allowedActions, ["file_write"]);
 });
 
 test("moveStep shifts a step up by one position", () => {

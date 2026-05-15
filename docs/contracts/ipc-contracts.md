@@ -509,6 +509,53 @@ learner.recordDecision(input: {
 - `LEARNER_RECOMMENDATION_NOT_FOUND`
 - `LEARNER_INVALID_DECISION`
 
+## `window.harness.topology`
+
+Agent Framework adoption Phase 6 — Skill metadata, LearningTrace, and active Instinct rows are combined into read-only AgentPipeline topology recommendations. The namespace does not create pipeline rows, approvals, TaskRuns, or artifacts.
+
+```ts
+interface TopologyRecommendation {
+  id: string;
+  taskRunId: string;
+  title: string;
+  description: string;
+  confidence: number;
+  rationale: string;
+  warnings: string[];
+  source: {
+    capabilityIds: string[];
+    instinctIds: string[];
+    traceIds: string[];
+    templatePipelineIds: string[];
+  };
+  steps: Array<{
+    step: AgentPipelineStep;
+    rationale: string;
+    sourceCapabilityIds: string[];
+    sourceInstinctIds: string[];
+  }>;
+  pipelineDraft: CreateAgentPipelineInput;
+}
+
+topology.recommend(input: {
+  taskRunId: string;
+  maxCandidates?: number; // clamped to 0..3
+}): Promise<TopologyRecommendation[]>;
+```
+
+동작:
+
+- `recommend`는 TaskRun의 userRequest를 기준으로 capability triggerTerms를 매칭하고, Skill metadata의 trusted/risk/action 정보를 읽기 전용으로 참고한다.
+- untrusted Skill metadata는 추천 source에서 제외하고 `warnings`에 남긴다. SKILL.md 본문, scripts, templates는 읽지 않는다.
+- active Instinct는 `targetDir`에서 파생한 projectKey + global scope 기준으로 읽고, 관련 role score와 rationale에만 반영한다.
+- LearningTrace는 긍정 reward가 있는 과거 capability 선택을 추천 신뢰도와 source trace로 반영한다.
+- 결과의 `pipelineDraft.steps`는 `dependsOn`, `allowedActions`, `outputContract`를 명시한다. 이 값은 draft일 뿐이며, 저장은 `pipeline.create/update`, 실행은 `orchestration.draftPlan` + `orchestration_plan` approval을 계속 사용한다.
+
+오류:
+
+- `TOPOLOGY_TASK_NOT_FOUND`
+- `STATE_INVALID_INPUT`
+
 ## `window.harness.instinct`
 
 Agent Framework adoption Phase 4 — repeated approval/quality signals are recorded internally by main-process services. The renderer can review candidates and manage approved instincts, but it cannot call `recordObservation` directly.

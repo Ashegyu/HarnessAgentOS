@@ -35,6 +35,7 @@ import {
   type TaskRunDetail,
   type Thread,
   type ThreadDetail,
+  type TopologyRecommendation,
 } from "@harness/core";
 
 const invokeUnwrapped = async <T>(
@@ -235,6 +236,13 @@ const harnessApi: HarnessDesktopApi = {
     recordDecision: async (input) => {
       await invokeUnwrapped<null>(IPC_CHANNELS.learner.recordDecision, input);
     },
+  },
+  topology: {
+    recommend: (input) =>
+      invokeUnwrapped<TopologyRecommendation[]>(
+        IPC_CHANNELS.topology.recommend,
+        input,
+      ),
   },
   instinct: {
     list: (input) =>

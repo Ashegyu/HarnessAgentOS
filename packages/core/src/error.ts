@@ -88,6 +88,7 @@ export const LEARNER_RECOMMENDATION_NOT_FOUND =
 export const LEARNER_INVALID_DECISION = "LEARNER_INVALID_DECISION" as const;
 /** @deprecated use LEARNER_INVALID_DECISION */
 export const LEARNER_DECISION_INVALID = LEARNER_INVALID_DECISION;
+export const TOPOLOGY_TASK_NOT_FOUND = "TOPOLOGY_TASK_NOT_FOUND" as const;
 
 // Agent Framework adoption — user-reviewed evolution candidates.
 export const INSTINCT_CANDIDATE_NOT_FOUND =

@@ -60,6 +60,9 @@ export const IPC_CHANNELS = {
     recordOutcome: "learner:recordOutcome",
     recordDecision: "learner:recordDecision",
   },
+  topology: {
+    recommend: "topology:recommend",
+  },
   instinct: {
     list: "instinct:list",
     listCandidates: "instinct:listCandidates",

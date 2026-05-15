@@ -528,6 +528,218 @@ pipeline serializer를 함께 확장한다.
 - worker가 step의 `allowedActions` 밖 action을 제안하면 downstream approval을 만들지 않고 policy report artifact로 남긴다.
 - Pipeline 편집 UI와 Orchestration step 표시 UI에 dependency, allowed action, output contract metadata를 노출했다.
 
+## Phase 6: Skill/Learner/Instinct 기반 Topology Recommendation
+
+### 목표
+
+Phase 5의 worker topology를 사용자가 직접 편집할 수 있게 만든 뒤, Phase 6에서는
+Skillify capability, Learner trace, active Instinct를 읽어 “파이프라인 초안 후보”를 제안한다.
+
+이 기능은 pipeline을 자동 저장하거나 실행하지 않는다. 추천 결과는 renderer draft에만 적용되며,
+사용자가 저장한 뒤에도 실제 실행은 기존 `orchestration_plan` approval과 worker-runner boundary를
+그대로 통과한다.
+
+### 현재 구현 범위
+
+- `TopologyRecommendation` 타입과 `topology.recommend` IPC를 추가했다.
+- `packages/learner/src/topology-advisor.ts`는 TaskRun, capability metadata, LearningTrace, active Instinct, 기존 AgentPipeline template을 읽기 전용으로 조합한다.
+- 추천 중 `SKILL.md` 본문과 resource 파일은 읽지 않는다. `CapabilityRegistry.getMetadata()`에서 이미 캐시된 metadata만 사용한다.
+- untrusted Skill metadata는 후보 source에서 제외하고 warning으로만 표시한다.
+- 추천된 step은 `dependsOn`, `allowedActions`, `outputContract`를 명시한다.
+- Pipeline editor는 TaskRun ID 기준으로 후보를 불러오고, “draft에 적용” 시 form state만 교체한다. 저장은 기존 `pipeline.create/update` 버튼을 눌렀을 때만 발생한다.
+- 현재 구현은 기본적으로 planner -> coder -> tester/reviewer 순서의 제한적 topology를 생성한다. fan-out 실행 preview는 후속 UI/검증 단계로 남긴다.
+
+### Non-goal
+
+| 제외 항목 | 이유 |
+|---|---|
+| pipeline 자동 생성/자동 실행 | 사용자 감독형 워크벤치 원칙 위반 |
+| SKILL.md 본문 자동 주입 | capability_use approval 전 prompt context가 될 수 없음 |
+| Instinct rule을 hard policy로 즉시 승격 | candidate/instinct는 advisory 근거이지 강제 실행자가 아님 |
+| 새 swarm/GOAP runtime | Phase 5 topology runner만 사용 |
+| 신규 외부 package 설치 | supply-chain risk와 기존 제약 유지 |
+
+### 타입 설계
+
+```ts
+export interface TopologyRecommendationSource {
+  capabilityIds: string[];
+  instinctIds: string[];
+  traceIds: string[];
+  templatePipelineIds: string[];
+}
+
+export interface TopologyRecommendedStep {
+  step: AgentPipelineStep;
+  rationale: string;
+  sourceCapabilityIds: string[];
+  sourceInstinctIds: string[];
+}
+
+export interface TopologyRecommendation {
+  id: string;
+  taskRunId: string;
+  title: string;
+  description: string;
+  confidence: number;
+  rationale: string;
+  warnings: string[];
+  source: TopologyRecommendationSource;
+  steps: TopologyRecommendedStep[];
+  pipelineDraft: CreateAgentPipelineInput;
+}
+```
+
+`pipelineDraft.steps`는 Phase 5의 `AgentPipelineStep`을 그대로 사용한다. 새 canonical state를 만들지
+않고, 사용자가 “draft에 적용”한 뒤 기존 `pipeline.create/update`를 호출할 때만 SQLite에 저장한다.
+
+### 추천 생성 방식
+
+```text
+TaskRun.userRequest
+  -> CapabilityService metadata-only suggestion
+  -> Learner trace rerank
+  -> active Instinct filter/rationale
+  -> AgentProfile role availability check
+  -> TopologyAdvisor builds 1..3 pipelineDraft candidates
+  -> Renderer applies one candidate into Pipeline form draft
+```
+
+### Step 합성 규칙
+
+| 입력 신호 | Step 제안 |
+|---|---|
+| planning/documentation 성격 capability 또는 instinct | `planner`, `outputContract="plan"`, `allowedActions=[]` |
+| code/diff/file_write 성격 capability | `coder`, `outputContract="diff_proposal"`, `allowedActions=["file_write"]` |
+| review/risk/security 성격 capability 또는 failed quality instinct | `reviewer`, `outputContract="review"`, `allowedActions=[]` |
+| test/build/smoke 성격 capability 또는 반복 test failure instinct | `tester`, `outputContract="test_result"`, `allowedActions=["shell"]` |
+| remote endpoint가 trusted+enabled이고 profile에 맞는 경우 | 해당 step의 `remoteEndpointId` 후보로만 표시, 기본 선택은 local |
+
+생성 후보는 기본적으로 linear topology를 만든다. reviewer/tester fan-out은 다음 조건을 모두 만족할 때만
+제안한다.
+
+1. `planner` 또는 `coder` 산출물 이후 read-only 검토 단계다.
+2. fan-out step의 `allowedActions`가 `[]` 또는 `["shell"]`처럼 제한적이다.
+3. dependency cycle 없이 Phase 5 validator를 통과한다.
+4. 후보 설명에 fan-out 이유와 예상 검증 효과가 표시된다.
+
+### TopologyAdvisor 배치
+
+첫 구현은 `packages/learner`에 `TopologyAdvisor`를 둔다. 이유는 이 기능이 실행자가 아니라
+추천자이며, 이미 `LearnerAdvisor`가 capability suggestion과 trace 기반 rerank를 조합하고 있기
+때문이다.
+
+| 계층 | 변경 |
+|---|---|
+| `packages/core/src/types` | `TopologyRecommendation*` 타입 추가 |
+| `packages/learner/src/topology-advisor.ts` | TaskRun, capability, trace, instinct, pipeline template을 읽어 후보 생성 |
+| `packages/learner/src/topology-advisor.test.mjs` | 후보 생성, fan-out 제한, no-profile fallback 테스트 |
+| `apps/desktop/electron/ipc/topology-ipc.ts` | `recommend` read-only IPC |
+| `apps/desktop/electron/preload.ts` | `window.harness.topology.recommend` 노출 |
+| `apps/desktop/src/types/window.d.ts` | renderer 타입 추가 |
+| `apps/desktop/src/screens/workbench/PipelinesTab.tsx` | 추천 후보를 draft로 적용하는 UI |
+| `docs/contracts/ipc-contracts.md` | topology IPC 계약 추가 |
+
+### IPC 초안
+
+```ts
+topology: {
+  recommend(input: {
+    taskRunId: string;
+    maxCandidates?: number;
+  }): Promise<TopologyRecommendation[]>;
+}
+```
+
+`recommend`는 read-only다. pipeline row를 만들지 않고, approval row도 만들지 않는다. 사용자가 후보를
+저장하면 기존 `pipeline.create/update`가 호출되고, 그 pipeline으로 TaskRun을 실행하면 기존
+`orchestration.draftPlan`이 `orchestration_plan` approval을 만든다.
+
+### Scoring 규칙
+
+| 항목 | 점수 영향 |
+|---|---|
+| capability trigger term이 TaskRun prompt와 매칭 | `+0.25` |
+| capability가 trusted source에서 왔음 | `+0.10` |
+| related active instinct가 같은 projectKey에 있음 | `+0.15` |
+| positive reward trace에서 같은 capability가 선택됨 | `+0.15` |
+| 최근 quality failure가 test/build 관련 | tester step `+0.10` |
+| high-risk capability인데 approval path가 불명확 | `-0.20` 및 warning |
+| 해당 role의 AgentProfile이 없음 | 후보 제외 또는 fallback warning |
+| candidate step 수가 5개 초과 | `-0.10` |
+
+confidence는 `0.30..0.90` 범위로 clamp한다. confidence는 정렬과 UI 표시용이며 자동 실행 권한이
+아니다.
+
+### Prompt/skill 안전 경계
+
+1. 추천 생성은 metadata만 읽는다: `name`, `description`, `triggerTerms`, `riskLevel`, `tags`,
+   `inputs`, `outputs`, `allowedActions`.
+2. `SKILL.md` instructions는 `capability_use` approval이 승인된 뒤 기존
+   `CapabilityService.approvedPromptContexts` 경로에서만 읽는다.
+3. 추천 후보의 `instruction`은 짧은 template 문장만 사용하고, skill 본문을 복사하지 않는다.
+4. untrusted skill은 후보 rationale에는 “신뢰 필요” warning으로만 표시하고 step 생성 근거에서 제외한다.
+5. generated `allowedActions`는 명시적으로 채운다. 새로 만든 topology가 legacy permissive default에
+   기대지 않게 한다.
+
+### UI 설계
+
+| UI | 동작 |
+|---|---|
+| Pipeline editor 추천 패널 | 입력한 TaskRun ID 기준 topology 후보 1..3개 표시 |
+| 후보 카드 | confidence, rationale, source capability/instinct, warnings, step graph preview |
+| “draft에 적용” 버튼 | 현재 Pipeline form state만 교체. 저장/실행 없음 |
+| Step editor 연동 | 적용 후 사용자가 AgentProfile, dependency, allowedActions, outputContract를 수정 가능 |
+| Orchestration panel hint | thread에 pipeline이 없고 추천 후보가 있으면 Pipeline 탭으로 이동 안내 |
+
+후보 카드는 “추천 근거”를 보여주되, 자동으로 approval을 만들지 않는다. 저장 이후 실행을 시작할 때
+기존 `orchestration_plan` approval 카드에서 최종 확인한다.
+
+### 데이터 보존 방식
+
+첫 구현에서는 추천 결과를 DB에 저장하지 않는다. 필요한 상태는 기존 canonical table로 충분하다.
+
+| 데이터 | 저장 위치 |
+|---|---|
+| capability metadata | 기존 `capabilities` + registry metadata |
+| learning history | 기존 `learning_traces` |
+| active instinct | 기존 `instincts` |
+| 사용자가 저장한 pipeline | 기존 `agent_pipelines.steps_json` |
+| 실행 계획 snapshot | 기존 `orchestration_plan` artifact |
+
+사용자가 후보를 draft에 적용하거나 무시한 행동을 학습하고 싶다면 후속 단계에서 internal
+`ObservationCollector`에 `source="learner"`, `eventType="topology_applied|topology_dismissed"`를
+추가한다. public observation IPC는 여전히 만들지 않는다.
+
+### Acceptance criteria
+
+- topology recommendation은 pipeline을 저장하거나 실행하지 않는다.
+- 추천된 새 step은 `allowedActions`를 명시해 Phase 5 policy report가 동작한다.
+- trusted capability metadata와 active instinct가 후보 rationale에 표시된다.
+- SKILL.md instructions는 추천 생성 중 읽히지 않는다.
+- role에 맞는 AgentProfile이 없으면 후보를 만들지 않거나 warning을 표시한다.
+- 추천 후보를 draft에 적용한 뒤 기존 `validatePipelineDraft`와 repository topology validation을 통과한다.
+- 후보로 저장한 pipeline을 실행해도 기존 `orchestration_plan` approval이 필요하다.
+
+### 테스트
+
+```bash
+node --import tsx --test --test-force-exit packages/learner/src/topology-advisor.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/electron/ipc/topology-ipc.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/pipeline-form.test.mjs
+node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
+node --import tsx --test --test-force-exit packages/orchestration/src/worker-runner.test.mjs
+```
+
+### 구현 순서
+
+1. `TopologyRecommendation` 타입과 pure scoring helper를 추가한다.
+2. `TopologyAdvisor.recommend()`를 read-only service로 구현한다.
+3. trusted capability, active instinct, positive trace를 조합하는 테스트를 먼저 작성한다.
+4. topology IPC를 9-layer 패턴으로 연결한다.
+5. Pipeline editor에 추천 후보 패널과 “draft에 적용” 동작을 붙인다.
+6. 후보 적용 후 저장된 pipeline이 Phase 5 planner/runner 검증을 통과하는 통합 테스트를 추가한다.
+
 ## Cross-phase 데이터 흐름
 
 ```text
@@ -535,6 +747,8 @@ User prompt
   -> Thread / TaskRun
   -> Capability suggestions from Skill Metadata v2
   -> Learner recommendation with active Instincts
+  -> Optional topology recommendation
+  -> User-applied AgentPipeline draft
   -> Optional orchestration topology draft
   -> Approval rows for non-read-only influence or side effect
   -> Runner / Agent invocation
@@ -570,6 +784,8 @@ User prompt
 | project scope 혼선 | `project_key`와 user-facing label 분리 |
 | external framework supply-chain 위험 | package 설치 금지, concept-only adoption |
 | orchestration 복잡도 증가 | linear default, fan-out은 read-only 단계부터 |
+| topology 추천이 자동 실행으로 오해됨 | 추천은 draft에만 적용, 저장/실행은 기존 pipeline/orchestration approval 경계 사용 |
+| skill 본문이 추천 단계에서 prompt injection 됨 | metadata-only recommendation, instructions는 capability_use approval 이후만 로드 |
 
 ## 검증 계획
 
@@ -582,6 +798,8 @@ node --import tsx --test --test-force-exit packages/storage/src/repositories/ins
 node --import tsx --test --test-force-exit packages/learner/src/instinct-candidate-scorer.test.mjs
 node --import tsx --test --test-force-exit packages/core/src/conversation/auto-approve-policy.test.mjs
 node --import tsx --test --test-force-exit packages/orchestration/src/worker-runner.test.mjs
+node --import tsx --test --test-force-exit packages/learner/src/topology-advisor.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/electron/ipc/topology-ipc.test.mjs
 ```
 
 ### 통합 검증
@@ -605,6 +823,9 @@ npm run build
 9. 새 IPC 도메인을 추가한 경우 `docs/contracts/ipc-contracts.md`, `packages/core/src/api.ts`,
    preload, `window.d.ts`가 같은 method/input/output을 갖는지 확인한다.
 10. schema version 증가 후 migration을 반복 실행해도 같은 결과가 나오는지 확인한다.
+11. topology 추천 후보를 draft에 적용해도 pipeline이 자동 저장/실행되지 않는지 확인한다.
+12. 추천 후보가 skill instructions를 읽지 않고 metadata만 사용하는지 확인한다.
+13. 추천으로 저장한 pipeline도 실행 전 `orchestration_plan` approval을 요구하는지 확인한다.
 
 ## 단계별 완료 기준
 
@@ -615,6 +836,7 @@ npm run build
 | Phase 3 | Policy matrix가 approval 생성 전 action을 분류하고 auto approval보다 앞선 hard policy로 동작 |
 | Phase 4 | Candidate review UI에서 approve/reject/disable 가능 |
 | Phase 5 | Topology step이 role/dependency/output contract를 갖고 기존 approval 경계를 유지 |
+| Phase 6 | Skill/Learner/Instinct가 pipeline draft 후보를 제안하지만 저장/실행은 사용자가 명시적으로 수행 |
 
 ## 최종 권장 순서
 
@@ -622,7 +844,8 @@ npm run build
 2. Phase 2 ECC observation/instinct 저장소를 추가한다.
 3. Phase 3 Agno policy matrix로 safety boundary를 더 명시화한다.
 4. Phase 4 observer/candidate UI를 붙여 사용자가 학습을 통제하게 한다.
-5. Phase 5 Ruflo topology는 마지막에 제한적으로 확장한다.
+5. Phase 5 Ruflo topology를 제한적으로 확장한다.
+6. Phase 6에서 추천 계층을 topology draft 작성 보조로 연결한다.
 
 이 순서를 따르면 agent 수를 늘리기 전에 skill, policy, learning state가 먼저 안정화된다.
 HarnessAgentOS의 목적이 사용자 감독형 개발 워크벤치라는 점을 유지하면서도,
