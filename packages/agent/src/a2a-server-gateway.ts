@@ -1,4 +1,5 @@
 import { resolve, sep } from "node:path";
+import { realpath } from "node:fs/promises";
 
 export interface A2AServerGatewayRequest {
   remoteAddress?: string;
@@ -53,11 +54,16 @@ export interface A2AServerRateLimiter {
   allow(key: string): boolean;
 }
 
+export type A2AWorkspacePathResolver = (
+  path: string,
+) => string | Promise<string>;
+
 export interface A2AServerGatewayOptions {
   /** Defaults to false. External companion processes must opt in explicitly. */
   enabled?: () => boolean;
   expectedBearerToken?: () => string | null | undefined;
   allowedWorkspaceRoots: readonly string[];
+  resolveWorkspacePath?: A2AWorkspacePathResolver;
   rateLimiter?: A2AServerRateLimiter;
   audit: (event: A2AServerGatewayAuditEvent) => void | Promise<void>;
   handleMessage: (
@@ -93,6 +99,16 @@ export const createInMemoryRateLimiter = (
   };
 };
 
+export const resolveWorkspacePathWithRealpath = async (
+  path: string,
+): Promise<string> => {
+  try {
+    return await realpath(path);
+  } catch {
+    return normalizePath(path);
+  }
+};
+
 export const createA2AServerGateway = (
   options: A2AServerGatewayOptions,
 ): { handle(request: A2AServerGatewayRequest): Promise<A2AServerGatewayResponse> } => {
@@ -101,6 +117,7 @@ export const createA2AServerGateway = (
   const createTaskId =
     options.createTaskId ?? (() => `a2a_task_${Date.now().toString(36)}`);
   const roots = options.allowedWorkspaceRoots.map(normalizePath);
+  const resolveWorkspacePath = options.resolveWorkspacePath ?? normalizePath;
 
   const deny = async (
     request: A2AServerGatewayRequest,
@@ -181,7 +198,12 @@ export const createA2AServerGateway = (
         );
       }
 
-      if (!withinAllowedRoot(parsed.targetDir, roots)) {
+      const resolvedBoundary = await resolveBoundaryPaths(
+        parsed.targetDir,
+        roots,
+        resolveWorkspacePath,
+      );
+      if (!withinAllowedRoot(resolvedBoundary.targetDir, resolvedBoundary.roots)) {
         return deny(
           request,
           "workspace_denied",
@@ -315,6 +337,17 @@ const withinAllowedRoot = (
     return target === base || target.startsWith(`${base}${sep}`);
   });
 };
+
+const resolveBoundaryPaths = async (
+  targetDir: string,
+  roots: readonly string[],
+  resolveWorkspacePath: A2AWorkspacePathResolver,
+): Promise<{ targetDir: string; roots: string[] }> => ({
+  targetDir: normalizePath(await resolveWorkspacePath(targetDir)),
+  roots: await Promise.all(
+    roots.map(async (root) => normalizePath(await resolveWorkspacePath(root))),
+  ),
+});
 
 const normalizePath = (path: string): string => resolve(path);
 
