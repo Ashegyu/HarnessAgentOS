@@ -9,6 +9,7 @@ import type {
   AgentStreamEvent,
   A2AAgentCardSnapshot,
   A2AEndpoint,
+  A2ARemoteTaskRef,
   A2ARegistryEntry,
   Artifact,
   Capability,
@@ -57,6 +58,8 @@ export interface TaskRunDetail {
    * entry to render the inline AgentPanel/AgentStreamView.
    */
   agentInvocations: AgentInvocation[];
+  /** Remote A2A task refs keyed by AgentInvocation.id, newest detail pull. */
+  a2aRemoteTaskRefs: A2ARemoteTaskRef[];
 }
 
 export interface RunnerResultPayload {

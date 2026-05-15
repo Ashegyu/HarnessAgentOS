@@ -1,6 +1,7 @@
 import type {
   AgentPipeline,
   AgentPipelineStep,
+  A2ARegistryEntry,
   ArtifactKind,
   CreateAgentPipelineInput,
 } from "@harness/core";
@@ -16,6 +17,7 @@ import type {
 export interface PipelineStepDraft {
   id: string;
   agentProfileId: string;
+  remoteEndpointId: string;
   title: string;
   instruction: string;
   expectedArtifactKinds: string[];
@@ -47,6 +49,7 @@ export const pipelineToDraft = (p: AgentPipeline): PipelineDraft => ({
   steps: p.steps.map((s) => ({
     id: s.id,
     agentProfileId: s.agentProfileId,
+    remoteEndpointId: s.remoteEndpointId ?? "",
     title: s.title,
     instruction: s.instruction,
     expectedArtifactKinds: [...s.expectedArtifactKinds],
@@ -61,6 +64,7 @@ interface ProfileLite {
 export const validatePipelineDraft = (
   draft: PipelineDraft,
   profiles: readonly ProfileLite[],
+  remoteEntries: readonly A2ARegistryEntry[] = [],
 ): PipelineDraftError[] => {
   const errors: PipelineDraftError[] = [];
   if (draft.name.trim().length === 0) {
@@ -70,7 +74,13 @@ export const validatePipelineDraft = (
     errors.push({ field: "steps", message: "최소 1개의 step이 필요합니다" });
   }
   const validProfileIds = new Set(profiles.map((p) => p.id));
+  const validRemoteEndpointIds = new Set(
+    remoteEntries
+      .filter((entry) => entry.endpoint.enabled && entry.endpoint.trusted)
+      .map((entry) => entry.endpoint.id),
+  );
   draft.steps.forEach((step, i) => {
+    const remoteEndpointId = step.remoteEndpointId ?? "";
     if (step.title.trim().length === 0) {
       errors.push({
         field: "steps",
@@ -83,6 +93,15 @@ export const validatePipelineDraft = (
         message: `step ${i + 1}: 알 수 없는 profile (${step.agentProfileId})`,
       });
     }
+    if (
+      remoteEndpointId.length > 0 &&
+      !validRemoteEndpointIds.has(remoteEndpointId)
+    ) {
+      errors.push({
+        field: "steps",
+        message: `step ${i + 1}: unknown remote endpoint (${remoteEndpointId})`,
+      });
+    }
   });
   return errors;
 };
@@ -90,13 +109,17 @@ export const validatePipelineDraft = (
 export const serializePipelineDraft = (
   draft: PipelineDraft,
 ): CreateAgentPipelineInput | AgentPipeline => {
-  const steps: AgentPipelineStep[] = draft.steps.map((s) => ({
-    id: s.id,
-    agentProfileId: s.agentProfileId,
-    title: s.title.trim(),
-    instruction: s.instruction,
-    expectedArtifactKinds: [...s.expectedArtifactKinds] as ArtifactKind[],
-  }));
+  const steps: AgentPipelineStep[] = draft.steps.map((s) => {
+    const remoteEndpointId = s.remoteEndpointId?.trim() ?? "";
+    return {
+      id: s.id,
+      agentProfileId: s.agentProfileId,
+      ...(remoteEndpointId.length > 0 ? { remoteEndpointId } : {}),
+      title: s.title.trim(),
+      instruction: s.instruction,
+      expectedArtifactKinds: [...s.expectedArtifactKinds] as ArtifactKind[],
+    };
+  });
   const base = {
     name: draft.name.trim(),
     description: draft.description,

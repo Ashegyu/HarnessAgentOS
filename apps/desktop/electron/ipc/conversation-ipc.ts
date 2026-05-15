@@ -299,6 +299,13 @@ export const registerConversationIpc = (
             state.listCheckpointsByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
           ]);
+        const a2aRemoteTaskRefs = (
+          await Promise.all(
+            agentInvocations.map((invocation) =>
+              state.a2aRemoteAgents.getRemoteTaskRef(invocation.id),
+            ),
+          )
+        ).filter((ref) => ref !== null);
         return ok({
           taskRun,
           steps,
@@ -306,6 +313,7 @@ export const registerConversationIpc = (
           artifacts,
           checkpoints,
           agentInvocations,
+          a2aRemoteTaskRefs,
         });
       } catch (e) {
         return mapServiceError<TaskRunDetail>(e);

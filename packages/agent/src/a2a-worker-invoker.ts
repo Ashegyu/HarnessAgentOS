@@ -13,6 +13,7 @@ export interface A2AWorkerInvokeInput {
   taskRunId: string;
   profile: AgentProfile;
   userRequest: string;
+  remoteEndpointId?: string;
 }
 
 export type A2AWorkerInvocationIdFactory = (

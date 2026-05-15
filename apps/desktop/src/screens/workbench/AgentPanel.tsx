@@ -1,10 +1,16 @@
 import { useState } from "react";
-import type { AgentInvocation, TaskRun } from "@harness/core";
+import type { A2ARemoteTaskRef, AgentInvocation, TaskRun } from "@harness/core";
 import { AgentStreamView } from "./AgentStreamView";
+import {
+  formatRemoteTaskLabel,
+  remoteTaskForInvocation,
+  remoteTaskTitle,
+} from "./agent-remote-task";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
   invocations: AgentInvocation[]; // newest-first
+  remoteTaskRefs?: A2ARemoteTaskRef[];
   onRetry: (invocationId: string) => Promise<void>;
   onCancel: (invocationId: string) => Promise<void>;
   onUseFallback: () => Promise<void>;
@@ -39,6 +45,7 @@ const formatLatency = (ms: number | undefined): string => {
 export const AgentPanel = ({
   taskRun,
   invocations,
+  remoteTaskRefs = [],
   onRetry,
   onCancel,
   onUseFallback,
@@ -51,6 +58,9 @@ export const AgentPanel = ({
   const [error, setError] = useState<string | null>(null);
 
   const latest = invocations[0];
+  const latestRemoteTask = latest
+    ? remoteTaskForInvocation(remoteTaskRefs, latest.id)
+    : null;
   // Show this panel whenever there is at least one invocation (agent
   // mode OR pipeline workers), or when the task is still in `drafting`
   // and the user can still trigger an agent plan. Orchestration-driven
@@ -148,6 +158,14 @@ export const AgentPanel = ({
         {latest && (
           <span className="agent-panel__meta">
             {latest.provider}:{latest.model} · {formatLatency(latest.latencyMs)}
+            {latestRemoteTask && (
+              <span
+                className="agent-panel__remote"
+                title={remoteTaskTitle(latestRemoteTask)}
+              >
+                {formatRemoteTaskLabel(latestRemoteTask)}
+              </span>
+            )}
           </span>
         )}
       </header>
@@ -176,6 +194,10 @@ export const AgentPanel = ({
                   <code>{inv.id.slice(0, 16)}…</code> · {inv.status} ·{" "}
                   {formatLatency(inv.latencyMs)}
                   {inv.errorCode ? ` · ${inv.errorCode}` : ""}
+                  {(() => {
+                    const remote = remoteTaskForInvocation(remoteTaskRefs, inv.id);
+                    return remote ? ` · ${formatRemoteTaskLabel(remote)}` : "";
+                  })()}
                 </li>
               ))}
             </ul>

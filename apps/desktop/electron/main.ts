@@ -41,6 +41,7 @@ import {
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
 import { eventBus } from "./event-bus";
+import { createA2AWorkerRouter } from "./a2a-worker-composition";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -236,15 +237,23 @@ const initServices = (): {
     },
   });
 
+  // Phase D — pipeline workers use local CLI by default, or route through
+  // the trusted remote A2A endpoint selected on the pipeline step.
+  const orchestrationWorkerInvoker = createA2AWorkerRouter({
+    state,
+    localInvoker: {
+      invokeForWorker: (input) => agentPlanning.invokeForWorker(input),
+    },
+    emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
+  });
+
   // Phase 2 — OrchestrationService is wired AFTER agentPlanning so the
-  // worker-runner can invoke the real CLI for pipeline-driven steps.
-  // The agentPlanning instance implements `WorkerCliInvoker` via its
-  // invokeForWorker method.
+  // worker-runner can invoke the real CLI/A2A route for pipeline-driven steps.
   const orchestrationService = new OrchestrationService({
     state,
     enabled: () =>
       process.env.HARNESS_ORCHESTRATION_ENABLED === "1" || orchEnabledBySettings,
-    agentPlanning,
+    agentPlanning: orchestrationWorkerInvoker,
   });
 
   // Phase 3 — path-policy registry hook. The skillSource IPC pushes

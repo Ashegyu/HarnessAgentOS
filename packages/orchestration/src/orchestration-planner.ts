@@ -180,6 +180,25 @@ export class OrchestrationPlanner {
           `AgentPipeline ${pipeline.name} step "${step.title}" references missing profile ${step.agentProfileId}`,
         );
       }
+      let remoteEndpointId: string | undefined;
+      if (step.remoteEndpointId !== undefined) {
+        const endpoint = await this.deps.state.a2aRemoteAgents.getEndpoint(
+          step.remoteEndpointId,
+        );
+        if (!endpoint) {
+          throw new OrchestrationError(
+            "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
+            `AgentPipeline ${pipeline.name} step "${step.title}" references missing remote endpoint ${step.remoteEndpointId}`,
+          );
+        }
+        if (!endpoint.enabled || !endpoint.trusted) {
+          throw new OrchestrationError(
+            "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
+            `AgentPipeline ${pipeline.name} step "${step.title}" references unavailable remote endpoint ${step.remoteEndpointId}`,
+          );
+        }
+        remoteEndpointId = endpoint.id;
+      }
       out.push({
         id: newId("step"),
         title: step.title,
@@ -191,6 +210,7 @@ export class OrchestrationPlanner {
         expectedArtifactKinds: [...step.expectedArtifactKinds],
         status: "pending",
         agentProfileId: step.agentProfileId,
+        ...(remoteEndpointId !== undefined ? { remoteEndpointId } : {}),
       });
     }
     return out;

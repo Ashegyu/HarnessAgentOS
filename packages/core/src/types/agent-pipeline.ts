@@ -17,6 +17,11 @@ export const MAX_PIPELINE_STEPS = 20;
 export interface AgentPipelineStep {
   id: string;
   agentProfileId: string;
+  /**
+   * Optional A2A endpoint override. The AgentProfile still controls the
+   * role/persona/permissions; this only chooses where the worker runs.
+   */
+  remoteEndpointId?: string;
   title: string;
   instruction: string;
   expectedArtifactKinds: readonly ArtifactKind[];
@@ -34,12 +39,17 @@ export interface AgentPipeline {
 const isString = (v: unknown): v is string => typeof v === "string";
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0;
+const hasOptionalNonEmptyString = (
+  obj: Record<string, unknown>,
+  key: string,
+): boolean => obj[key] === undefined || isNonEmptyString(obj[key]);
 
 export const isAgentPipelineStep = (v: unknown): v is AgentPipelineStep => {
   if (typeof v !== "object" || v === null) return false;
   const s = v as Record<string, unknown>;
   if (!isNonEmptyString(s.id)) return false;
   if (!isNonEmptyString(s.agentProfileId)) return false;
+  if (!hasOptionalNonEmptyString(s, "remoteEndpointId")) return false;
   if (!isNonEmptyString(s.title)) return false;
   if (!isString(s.instruction)) return false;
   if (!Array.isArray(s.expectedArtifactKinds)) return false;

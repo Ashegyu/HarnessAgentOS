@@ -53,6 +53,12 @@ export interface WorkerStep {
    * pipeline steps; legacy `mode`-driven plans omit it.
    */
   agentProfileId?: string;
+  /**
+   * Optional A2A endpoint override for pipeline-driven steps. The
+   * AgentProfile remains the approved persona/permission source; this
+   * selects a trusted remote worker transport.
+   */
+  remoteEndpointId?: string;
 }
 
 export interface OrchestrationPlan {

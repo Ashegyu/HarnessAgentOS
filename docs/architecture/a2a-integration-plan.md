@@ -672,17 +672,58 @@ Phase C-2에서 완료할 항목:
 
 Phase C-2 이후 다음 큰 단계는 Phase D다. Phase D에서는 pipeline step 또는 profile routing에서 어떤 remote endpoint를 선택할지, 그리고 Agent 탭에 remote task state를 어떻게 표시할지 결정한다.
 
-### 16.4 Phase C 검증 명령
+### 16.4 Phase D 구현 순서
+
+1. [x] `AgentPipelineStep.remoteEndpointId`를 optional routing override로 추가한다.
+2. [x] pipeline 저장 시 `agentProfileId`와 `remoteEndpointId`를 모두 검증한다.
+3. [x] pipeline draft -> immutable `WorkerStep` 변환에서 `remoteEndpointId`를 보존한다.
+4. [x] remote endpoint가 없거나 `enabled/trusted`가 아니면 orchestration draft/run을 fail-fast 처리한다.
+5. [x] `WorkerRunner`가 `remoteEndpointId`를 worker invoker로 전달한다.
+6. [x] Electron main에 local CLI / remote A2A worker router를 구성한다.
+7. [x] Pipeline UI에서 step별 remote endpoint를 선택, 보존, 검증한다.
+8. [x] Agent 탭에서 `a2a_remote_tasks`의 remote state/task/context를 invocation과 함께 표시한다.
+
+### 16.4.1 Phase D 완료 범위
+
+- `packages/core/src/types/agent-pipeline.ts`
+  - `AgentPipelineStep.remoteEndpointId?: string`
+  - empty string 거부
+- `packages/storage/src/repositories/agent-pipeline-repository.ts`
+  - remote endpoint 존재성 검증
+  - `LocalStateService`에서 pipeline repository가 `a2aRemoteAgents` repository를 공유
+- `packages/orchestration/src/orchestration-planner.ts`
+  - pipeline step의 remote endpoint를 `WorkerStep.remoteEndpointId`로 snapshot
+  - disabled/untrusted endpoint fail-fast
+- `packages/orchestration/src/worker-runner.ts`
+  - 실행 직전 remote endpoint 재검증
+  - worker invoker input으로 `remoteEndpointId` 전달
+  - worker artifact에 `Remote A2A` 출처 표시
+- `apps/desktop/electron/a2a-worker-composition.ts`
+  - `createA2AWorkerRouter`
+  - local step은 기존 CLI invoker로 실행
+  - remote step은 `OfficialA2AClientPort` 기반 persistent A2A invoker로 실행
+- `apps/desktop/src/screens/workbench/PipelinesTab.tsx`
+  - step별 `Remote A2A Endpoint` 선택 UI
+  - unknown/disabled/untrusted endpoint 저장 전 validation
+- `apps/desktop/electron/ipc/conversation-ipc.ts`
+  - `TaskRunDetail.a2aRemoteTaskRefs` 반환
+- `apps/desktop/src/screens/workbench/AgentPanel.tsx`
+  - invocation별 A2A state/task id badge 표시
+
+Phase D는 inbound webhook, remote push notification server, renderer direct fetch, remote side-effect auto execution을 추가하지 않는다. remote worker output은 여전히 기존 proposed action parser와 approval gate를 통해서만 side effect 후보가 된다.
+
+### 16.5 Phase C/D 검증 명령
 
 ```bash
 node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/electron/ipc/remote-agents-ipc.test.mjs packages/storage/src/repositories/a2a-remote-agent-repository.test.mjs
+node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs packages/orchestration/src/orchestration-planner.test.mjs packages/orchestration/src/worker-runner.test.mjs apps/desktop/electron/a2a-worker-integration.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs apps/desktop/src/screens/workbench/agent-remote-task.test.mjs
 npm run check
 npm run test
 npm run build
 ```
 
-### 16.5 Phase C 금지 사항
+### 16.6 Phase C/D 금지 사항
 
 - Electron main process 안에 Express server를 추가하지 않는다.
 - renderer에서 A2A SDK 또는 remote fetch를 직접 호출하지 않는다.

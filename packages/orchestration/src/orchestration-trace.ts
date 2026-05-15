@@ -27,6 +27,9 @@ export const formatPlanSummary = (input: {
         step.expectedArtifactKinds.join(", ") || "(none)"
       }`,
     );
+    if (step.remoteEndpointId) {
+      lines.push(`   - remote A2A endpoint: ${step.remoteEndpointId}`);
+    }
   });
   return lines.join("\n");
 };
@@ -36,6 +39,8 @@ export const formatWorkerStepArtifact = (input: {
   output: string;
   /** Display name of the AgentProfile (when pipeline-driven). */
   profileName?: string;
+  /** Display name of the remote A2A endpoint (when selected). */
+  remoteEndpointName?: string;
 }): string => {
   const lines = [
     `# Worker step: ${input.step.title}`,
@@ -45,6 +50,9 @@ export const formatWorkerStepArtifact = (input: {
   ];
   if (input.profileName) {
     lines.push(`**Profile**: ${input.profileName}`);
+  }
+  if (input.remoteEndpointName) {
+    lines.push(`**Remote A2A**: ${input.remoteEndpointName}`);
   }
   lines.push(
     "",

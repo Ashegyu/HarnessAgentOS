@@ -4,9 +4,10 @@ import type {
   AgentStreamEvent,
 } from "@harness/core";
 import {
+  A2AInvocationAdapter,
   A2AInvocationError,
   A2AWorkerInvoker,
-  type A2AInvocationAdapter,
+  OfficialA2AClientPort,
   type A2AWorkerInvokeInput,
   type A2AWorkerOutcome,
 } from "@harness/agent";
@@ -27,6 +28,52 @@ export interface PersistentA2AWorkerInvoker {
     signal?: AbortSignal,
   ): Promise<A2AWorkerOutcome>;
 }
+
+export interface A2AWorkerRouterOptions {
+  state: LocalStateService;
+  localInvoker: PersistentA2AWorkerInvoker;
+  emitStreamEvent?: (event: AgentStreamEvent) => void;
+  now?: () => string;
+  createArtifactUriNonce?: () => string;
+  createRemoteInvoker?: (endpoint: A2AEndpoint) => PersistentA2AWorkerInvoker;
+}
+
+export const createA2AWorkerRouter = (
+  options: A2AWorkerRouterOptions,
+): PersistentA2AWorkerInvoker => ({
+  async invokeForWorker(input, signal) {
+    if (!input.remoteEndpointId) {
+      return options.localInvoker.invokeForWorker(input, signal);
+    }
+    const endpoint = await options.state.a2aRemoteAgents.getEndpoint(
+      input.remoteEndpointId,
+    );
+    if (!endpoint) {
+      throw new Error(`A2A remote endpoint not found: ${input.remoteEndpointId}`);
+    }
+    if (!endpoint.enabled || !endpoint.trusted) {
+      throw new Error(
+        `A2A remote endpoint unavailable: ${input.remoteEndpointId}`,
+      );
+    }
+    const remoteInvoker =
+      options.createRemoteInvoker?.(endpoint) ??
+      createPersistentA2AWorkerInvoker({
+        state: options.state,
+        endpoint,
+        adapter: new A2AInvocationAdapter({
+          client: new OfficialA2AClientPort({
+            endpoint,
+            timeoutMs: input.profile.tuning.timeoutMs,
+          }),
+        }),
+        emitStreamEvent: options.emitStreamEvent,
+        now: options.now,
+        createArtifactUriNonce: options.createArtifactUriNonce,
+      });
+    return remoteInvoker.invokeForWorker(input, signal);
+  },
+});
 
 export const createPersistentA2AWorkerInvoker = (
   options: PersistentA2AWorkerInvokerOptions,

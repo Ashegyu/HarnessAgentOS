@@ -113,11 +113,12 @@ export class LocalStateService implements ConversationStateGateway {
     this.agentProfiles = new SqliteAgentProfileRepository(db);
     this.mcpServers = new SqliteMcpServerRepository(db);
     this.skillSources = new SqliteSkillSourceRepository(db);
+    this.a2aRemoteAgents = new SqliteA2ARemoteAgentRepository(db);
     this.agentPipelines = new SqliteAgentPipelineRepository(
       db,
       this.agentProfiles,
+      this.a2aRemoteAgents,
     );
-    this.a2aRemoteAgents = new SqliteA2ARemoteAgentRepository(db);
   }
 
   // -- Thread / TaskRun --------------------------------------------------

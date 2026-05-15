@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentPipeline, AgentProfile } from "@harness/core";
+import type { A2ARegistryEntry, AgentPipeline, AgentProfile } from "@harness/core";
 import {
   emptyPipelineDraft,
   moveStep,
@@ -12,7 +12,12 @@ import {
 
 type ListState =
   | { kind: "loading" }
-  | { kind: "ready"; pipelines: AgentPipeline[]; profiles: AgentProfile[] }
+  | {
+      kind: "ready";
+      pipelines: AgentPipeline[];
+      profiles: AgentProfile[];
+      remoteEntries: A2ARegistryEntry[];
+    }
   | { kind: "error"; message: string };
 
 const errorMessage = (e: unknown): string =>
@@ -24,6 +29,7 @@ const newStepId = (): string =>
 const newStep = (firstProfileId: string): PipelineStepDraft => ({
   id: newStepId(),
   agentProfileId: firstProfileId,
+  remoteEndpointId: "",
   title: "",
   instruction: "",
   expectedArtifactKinds: ["log"],
@@ -38,11 +44,12 @@ export const PipelinesTab = (): JSX.Element => {
 
   const refresh = useCallback(async () => {
     try {
-      const [pipelines, profiles] = await Promise.all([
+      const [pipelines, profiles, remoteEntries] = await Promise.all([
         window.harness.pipeline.list(),
         window.harness.agents.list(),
+        window.harness.remoteAgents.list(),
       ]);
-      setList({ kind: "ready", pipelines, profiles });
+      setList({ kind: "ready", pipelines, profiles, remoteEntries });
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -67,9 +74,13 @@ export const PipelinesTab = (): JSX.Element => {
   }, [selectedId, list]);
 
   const profiles = list.kind === "ready" ? list.profiles : [];
+  const remoteEntries = list.kind === "ready" ? list.remoteEntries : [];
+  const selectableRemoteEntries = remoteEntries.filter(
+    (entry) => entry.endpoint.enabled && entry.endpoint.trusted,
+  );
   const validationErrors = useMemo(
-    () => (draft ? validatePipelineDraft(draft, profiles) : []),
-    [draft, profiles],
+    () => (draft ? validatePipelineDraft(draft, profiles, remoteEntries) : []),
+    [draft, profiles, remoteEntries],
   );
 
   const updateDraft = (patch: Partial<PipelineDraft>): void => {
@@ -157,6 +168,9 @@ export const PipelinesTab = (): JSX.Element => {
 
   const profileName = (id: string): string =>
     profiles.find((p) => p.id === id)?.name ?? `(missing: ${id})`;
+  const remoteName = (id: string): string =>
+    remoteEntries.find((entry) => entry.endpoint.id === id)?.endpoint.name ??
+    `(missing remote: ${id})`;
 
   return (
     <div className="pipelines-tab">
@@ -343,6 +357,38 @@ export const PipelinesTab = (): JSX.Element => {
                               {profileName(step.agentProfileId)}
                             </option>
                           )}
+                        </select>
+                      </label>
+                      <label className="settings-field">
+                        <span className="settings-field__label">
+                          Remote A2A Endpoint
+                        </span>
+                        <select
+                          className="settings-field__input"
+                          value={step.remoteEndpointId}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateStep(i, { remoteEndpointId: e.target.value })
+                          }
+                        >
+                          <option value="">Local CLI</option>
+                          {selectableRemoteEntries.map((entry) => (
+                            <option
+                              key={entry.endpoint.id}
+                              value={entry.endpoint.id}
+                            >
+                              {entry.endpoint.name}
+                            </option>
+                          ))}
+                          {step.remoteEndpointId.length > 0 &&
+                            !selectableRemoteEntries.some(
+                              (entry) =>
+                                entry.endpoint.id === step.remoteEndpointId,
+                            ) && (
+                              <option value={step.remoteEndpointId}>
+                                {remoteName(step.remoteEndpointId)}
+                              </option>
+                            )}
                         </select>
                       </label>
                       <label className="settings-field">

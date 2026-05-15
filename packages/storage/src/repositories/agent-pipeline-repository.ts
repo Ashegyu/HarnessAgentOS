@@ -8,6 +8,7 @@ import {
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
 import type { AgentProfileRepository } from "./agent-profile-repository.ts";
+import type { A2ARemoteAgentRepository } from "./a2a-remote-agent-repository.ts";
 
 /**
  * Repository for AgentPipeline templates. Steps are stored as a JSON
@@ -51,10 +52,16 @@ const SELECT = `SELECT id, name, description, steps_json, created_at, updated_at
 export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
   private readonly db: HarnessDb;
   private readonly profiles: AgentProfileRepository;
+  private readonly remoteAgents?: A2ARemoteAgentRepository;
 
-  constructor(db: HarnessDb, profiles: AgentProfileRepository) {
+  constructor(
+    db: HarnessDb,
+    profiles: AgentProfileRepository,
+    remoteAgents?: A2ARemoteAgentRepository,
+  ) {
     this.db = db;
     this.profiles = profiles;
+    this.remoteAgents = remoteAgents;
   }
 
   async list(): Promise<AgentPipeline[]> {
@@ -163,6 +170,21 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         throw new Error(
           `AgentPipeline.steps[${i}].agentProfileId references unknown profile: ${step.agentProfileId}`,
         );
+      }
+      if (step.remoteEndpointId !== undefined) {
+        if (!this.remoteAgents) {
+          throw new Error(
+            `AgentPipeline.steps[${i}].remoteEndpointId validation unavailable`,
+          );
+        }
+        const endpoint = await this.remoteAgents.getEndpoint(
+          step.remoteEndpointId,
+        );
+        if (!endpoint) {
+          throw new Error(
+            `AgentPipeline.steps[${i}].remoteEndpointId references unknown remote endpoint: ${step.remoteEndpointId}`,
+          );
+        }
       }
     }
   }

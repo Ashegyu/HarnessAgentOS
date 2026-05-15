@@ -1,6 +1,7 @@
 import type { LocalStateService } from "@harness/storage";
 import {
   validateProposedActionDetails,
+  type A2AEndpoint,
   type AgentProfile,
   type AgentProposedAction,
   type Approval,
@@ -33,6 +34,7 @@ export interface WorkerCliInvoker {
     taskRunId: string;
     profile: AgentProfile;
     userRequest: string;
+    remoteEndpointId?: string;
   }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }>;
 }
 
@@ -112,13 +114,34 @@ export class WorkerRunner {
           );
         }
       }
+      let remoteEndpoint: A2AEndpoint | null = null;
+      if (planStep.remoteEndpointId) {
+        remoteEndpoint = await this.deps.state.a2aRemoteAgents.getEndpoint(
+          planStep.remoteEndpointId,
+        );
+        if (!remoteEndpoint) {
+          throw new OrchestrationError(
+            "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
+            `Worker step "${planStep.title}" references missing remote endpoint ${planStep.remoteEndpointId}`,
+          );
+        }
+        if (!remoteEndpoint.enabled || !remoteEndpoint.trusted) {
+          throw new OrchestrationError(
+            "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
+            `Worker step "${planStep.title}" references unavailable remote endpoint ${planStep.remoteEndpointId}`,
+          );
+        }
+      }
       const dbStep = await this.deps.state.createStep({
         taskRunId: input.plan.taskRunId,
         index: baseStepIndex + i,
         kind: "summarize",
-        title: profile
-          ? `Worker[${profile.name}] ${planStep.title}`
-          : `Worker[${planStep.role}] ${planStep.title}`,
+        title:
+          profile && remoteEndpoint
+            ? `Worker[${profile.name} -> ${remoteEndpoint.name}] ${planStep.title}`
+            : profile
+              ? `Worker[${profile.name}] ${planStep.title}`
+              : `Worker[${planStep.role}] ${planStep.title}`,
         status: "running",
         inputSummary: planStep.inputSummary,
       });
@@ -136,6 +159,7 @@ export class WorkerRunner {
           planStep,
           profile,
           input.plan.taskRunId,
+          remoteEndpoint,
         );
         body = outcome.body;
         proposedActions = outcome.proposedActions;
@@ -153,6 +177,7 @@ export class WorkerRunner {
           step: { ...planStep, status },
           output: body,
           ...(profile ? { profileName: profile.name } : {}),
+          ...(remoteEndpoint ? { remoteEndpointName: remoteEndpoint.name } : {}),
         }),
       });
       stepArtifactIds.push(artifact.id);
@@ -278,6 +303,7 @@ export class WorkerRunner {
     step: WorkerStep,
     profile: AgentProfile | null,
     taskRunId: string,
+    remoteEndpoint: A2AEndpoint | null,
   ): Promise<{ body: string; proposedActions: AgentProposedAction[] }> {
     assertActionTypeAllowed(roleToActionIntent(step.role));
     const invoker = this.deps.agentPlanning;
@@ -287,14 +313,17 @@ export class WorkerRunner {
         taskRunId,
         profile,
         userRequest,
+        ...(step.remoteEndpointId !== undefined
+          ? { remoteEndpointId: step.remoteEndpointId }
+          : {}),
       });
       // Prefix with a small attribution line so the artifact reader
       // sees which profile produced the text. Persona snippet is kept
       // short — full persona is the system prompt the CLI consumed.
       const personaSnippet =
         profile.persona.length > 0
-          ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
-          : `[${profile.name}]\n\n`;
+          ? `[${profile.name}${remoteEndpoint ? ` -> Remote A2A ${remoteEndpoint.name}` : ""}] persona: ${profile.persona.slice(0, 140)}\n\n`
+          : `[${profile.name}${remoteEndpoint ? ` -> Remote A2A ${remoteEndpoint.name}` : ""}]\n\n`;
       return {
         body: personaSnippet + outputText,
         proposedActions: proposedActions ?? [],
@@ -303,7 +332,7 @@ export class WorkerRunner {
     // Fallback: deterministic stub.
     const personaLine =
       profile && profile.persona.length > 0
-        ? `[${profile.name}] persona: ${profile.persona.slice(0, 140)}\n\n`
+        ? `[${profile.name}${remoteEndpoint ? ` -> Remote A2A ${remoteEndpoint.name}` : ""}] persona: ${profile.persona.slice(0, 140)}\n\n`
         : "";
     return {
       body: personaLine + roleBody(step.role),
