@@ -107,7 +107,7 @@ export const buildAgentTopology = ({
       id: agentNodeId(invocation.id),
       kind: "agent",
       label: display.agentName,
-      displayLabel: `Agent: ${display.agentName}`,
+      displayLabel: display.agentName,
       sublabel: display.detail,
       status: invocationStatusToTopologyStatus(invocation.status),
       x: flowX(index),

@@ -106,7 +106,7 @@ test("builds a chronological local agent chain with animated running edge", () =
   });
 });
 
-test("exposes explicit visible agent-name labels for graph nodes", () => {
+test("uses concrete agent names as visible graph labels", () => {
   const graph = buildAgentTopology({
     taskRun: taskRun(),
     steps: [step({ id: "step_coder", title: "Worker[Coder] 구현" })],
@@ -122,7 +122,7 @@ test("exposes explicit visible agent-name labels for graph nodes", () => {
 
   assert.equal(
     graph.nodes.find((node) => node.id === "agent:inv_coder")?.displayLabel,
-    "Agent: Coder",
+    "Coder",
   );
 });
 
