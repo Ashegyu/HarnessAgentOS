@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -240,6 +240,46 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at TEXT NOT NULL
   )`,
 
+  // v15 — remote A2A agent registry. This is registry-only state; actual
+  // remote invocation stays behind an adapter and is not part of Phase B.
+  `CREATE TABLE IF NOT EXISTS a2a_endpoints (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    agent_card_url TEXT NOT NULL,
+    preferred_transport TEXT NOT NULL CHECK(preferred_transport IN ('json-rpc','http-json','grpc')),
+    enabled INTEGER NOT NULL,
+    trusted INTEGER NOT NULL,
+    auth_secret_ref TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS a2a_agent_card_snapshots (
+    endpoint_id TEXT PRIMARY KEY,
+    protocol_version TEXT,
+    agent_name TEXT NOT NULL,
+    description TEXT,
+    version TEXT,
+    skills_json TEXT NOT NULL,
+    input_modes_json TEXT NOT NULL,
+    output_modes_json TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    etag TEXT,
+    raw_card_json TEXT NOT NULL,
+    FOREIGN KEY(endpoint_id) REFERENCES a2a_endpoints(id) ON DELETE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS a2a_remote_tasks (
+    invocation_id TEXT PRIMARY KEY,
+    endpoint_id TEXT NOT NULL,
+    remote_task_id TEXT,
+    remote_context_id TEXT,
+    state TEXT NOT NULL CHECK(state IN ('submitted','working','input-required','auth-required','completed','failed','canceled','rejected','unknown')),
+    last_event_at TEXT,
+    FOREIGN KEY(invocation_id) REFERENCES agent_invocations(id) ON DELETE CASCADE,
+    FOREIGN KEY(endpoint_id) REFERENCES a2a_endpoints(id) ON DELETE CASCADE
+  )`,
+
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
@@ -247,4 +287,6 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_artifacts_task_run_id ON artifacts(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_endpoints_enabled ON a2a_endpoints(enabled, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_remote_tasks_endpoint ON a2a_remote_tasks(endpoint_id)`,
 ];

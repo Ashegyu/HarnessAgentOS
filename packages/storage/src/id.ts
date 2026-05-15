@@ -19,6 +19,7 @@ const PREFIXES = {
   mcpServer: "mcp_",
   skillSource: "ss_",
   agentPipeline: "pipe_",
+  a2aEndpoint: "a2a_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;
