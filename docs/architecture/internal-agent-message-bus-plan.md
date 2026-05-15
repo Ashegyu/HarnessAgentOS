@@ -142,3 +142,54 @@ Expected outcome:
 - prompt artifacts expose the same handoff context for operator review
 - no new IPC, DB, localhost, companion, or external A2A surface is introduced
 - approval gating and worker side-effect policy remain unchanged
+
+## 9. Phase G-3 UI Visibility Review
+
+### Evidence
+
+- `TaskRunDetail` already returns `artifacts` and `agentInvocations` to the renderer.
+- `RightPanel` already has an `Agent` tab that displays worker invocations through `AgentPanel`.
+- Phase G-2 persists the actual worker prompt artifact as `Worker prompt — {profileName}`.
+- That prompt artifact contains the exact `INTERNAL AGENT HANDOFF` section sent to the downstream CLI worker.
+
+### Design Decision
+
+Phase G-3 surfaces internal handoffs in the existing `Agent` tab by deriving them from prompt artifact summaries.
+
+This phase intentionally does not add:
+
+- a SQLite `agent_messages` table
+- a new IPC contract
+- a background server or localhost transport
+- a new orchestration runtime path
+
+The UI should show what was actually injected into each downstream worker prompt, not merely what the runner intended to pass. This keeps the operator view tied to persisted evidence.
+
+### Minimal Implementation Plan
+
+1. Add a pure renderer utility that extracts handoff deliveries from `Artifact[]`.
+2. Add RED tests for:
+   - prompt artifact with one handoff message
+   - prompt artifact with multiple handoff messages
+   - prompt artifact without a handoff section being ignored
+3. Add a compact, collapsible `InternalHandoffPanel` to `AgentPanel`.
+4. Pass `state.detail.artifacts` from `RightPanel` into `AgentPanel`.
+5. Style the panel as an inline operational section, not a nested card.
+
+### Verification
+
+Target commands:
+
+```bash
+node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/agent-handoff-display.test.mjs
+npm run check
+npm run test
+npm run build
+```
+
+Expected outcome:
+
+- the Agent tab shows `fromRole: fromTitle -> target worker` handoff routes
+- each route can be collapsed and expanded
+- source artifact id, created time, and bounded content preview are visible
+- no database, IPC, approval, or worker execution behavior changes
