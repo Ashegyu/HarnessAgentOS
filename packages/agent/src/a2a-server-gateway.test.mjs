@@ -122,6 +122,37 @@ test("A2A server gateway blocks targetDir outside allowed workspace roots", asyn
   assert.equal(audit[0].reason, "workspace_denied");
 });
 
+test("A2A server gateway blocks targetDir after realpath-style resolution", async () => {
+  const linkPath = join(targetRoot, "link-out");
+  const { gateway: gw, handled, audit } = gateway({
+    resolveWorkspacePath: async (path) => {
+      const normalized = resolve(path);
+      if (normalized === resolve(linkPath)) {
+        return resolve("C:/workspace/other-project");
+      }
+      return normalized;
+    },
+  });
+
+  const response = await gw.handle(
+    messageRequest({
+      body: {
+        ...messageRequest().body,
+        params: {
+          ...messageRequest().body.params,
+          metadata: { targetDir: linkPath },
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 403);
+  assert.equal(response.body.error.code, "A2A_SERVER_WORKSPACE_DENIED");
+  assert.deepEqual(handled, []);
+  assert.equal(audit[0].reason, "workspace_denied");
+  assert.equal(audit[0].targetDir, resolve(linkPath));
+});
+
 test("A2A server gateway invokes handler and emits an accepted audit event", async () => {
   const { gateway: gw, handled, audit } = gateway();
 
