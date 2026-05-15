@@ -9,7 +9,7 @@ const tool = (id, command, patch = {}) => ({
   input: { command, ...patch },
 });
 
-test("groups adjacent tool sections with the same command", () => {
+test("groups adjacent tool sections", () => {
   const grouped = groupConsecutiveToolSections([
     tool("s1", "rg --files", { status: "in_progress" }),
     tool("s2", "rg --files", { status: "completed", exitCode: 0 }),
@@ -29,7 +29,7 @@ test("groups adjacent tool sections with the same command", () => {
   });
 });
 
-test("groups adjacent powershell commands with the same cmdlet", () => {
+test("groups adjacent powershell commands", () => {
   const grouped = groupConsecutiveToolSections([
     tool(
       "s1",
@@ -63,19 +63,21 @@ test("does not group the same command when another section is between them", () 
   );
 });
 
-test("does not group adjacent tools with different commands", () => {
+test("groups adjacent tools with different commands", () => {
   const grouped = groupConsecutiveToolSections([
     tool("s1", "git status --short"),
     tool("s2", "git diff --name-only"),
   ]);
 
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].kind, "tool_group");
   assert.deepEqual(
-    grouped.map((section) => section.kind),
-    ["tool", "tool"],
+    grouped[0].tools.map((section) => section.id),
+    ["s1", "s2"],
   );
 });
 
-test("does not group adjacent powershell commands with different cmdlets", () => {
+test("groups adjacent powershell commands with different cmdlets", () => {
   const grouped = groupConsecutiveToolSections([
     tool(
       "s1",
@@ -87,8 +89,10 @@ test("does not group adjacent powershell commands with different cmdlets", () =>
     ),
   ]);
 
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].kind, "tool_group");
   assert.deepEqual(
-    grouped.map((section) => section.kind),
-    ["tool", "tool"],
+    grouped[0].tools.map((section) => section.id),
+    ["s1", "s2"],
   );
 });
