@@ -14,6 +14,7 @@ import { SkillSourcesTab } from "./SkillSourcesTab";
 
 interface Props {
   onClose: () => void;
+  initialTopologyTaskRunId?: string | null;
 }
 
 type SettingsTabId =
@@ -116,7 +117,10 @@ const reducer = (state: FormState, action: Action): FormState => {
   return state;
 };
 
-export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
+export const SettingsPanel = ({
+  onClose,
+  initialTopologyTaskRunId = null,
+}: Props): JSX.Element => {
   const [state, dispatch] = useReducer(reducer, { kind: "loading" });
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
@@ -199,7 +203,7 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
 
         {activeTab === "pipelines" && (
           <div className="settings-dialog__body settings-dialog__body--flush">
-            <PipelinesTab />
+            <PipelinesTab initialTopologyTaskRunId={initialTopologyTaskRunId} />
           </div>
         )}
 

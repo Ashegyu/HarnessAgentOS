@@ -6,6 +6,7 @@ import type {
   ArtifactKind,
   CreateAgentPipelineInput,
   ApprovalActionType,
+  ThreadDetail,
   WorkerOutputContract,
 } from "@harness/core";
 
@@ -39,6 +40,15 @@ export interface PipelineDraft {
 export interface PipelineDraftError {
   field: "name" | "description" | "steps";
   message: string;
+}
+
+export interface TopologyTaskRunOption {
+  id: string;
+  label: string;
+  threadTitle: string;
+  userRequest: string;
+  status: string;
+  createdAt: string;
 }
 
 export const PIPELINE_WORKER_ACTION_CHOICES: readonly ApprovalActionType[] = [
@@ -97,6 +107,26 @@ export const pipelineInputToDraft = (
     outputContract: s.outputContract ?? "",
   })),
 });
+
+export const topologyTaskRunOptionsFromThreadDetails = (
+  details: ReadonlyArray<ThreadDetail | null>,
+  limit = 50,
+): TopologyTaskRunOption[] =>
+  details
+    .flatMap((detail) =>
+      detail
+        ? detail.taskRuns.map((taskRun) => ({
+            id: taskRun.id,
+            label: `${detail.thread.title} · ${taskRun.userRequest}`,
+            threadTitle: detail.thread.title,
+            userRequest: taskRun.userRequest,
+            status: taskRun.status,
+            createdAt: taskRun.createdAt,
+          }))
+        : [],
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit);
 
 interface ProfileLite {
   id: string;

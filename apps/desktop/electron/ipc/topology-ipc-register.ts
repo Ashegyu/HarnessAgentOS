@@ -17,4 +17,9 @@ export const registerTopologyIpc = (advisor: TopologyAdvisor): void => {
     ): Promise<HarnessResult<TopologyRecommendation[]>> =>
       handlers.recommend(input),
   );
+  ipcMain.handle(
+    IPC_CHANNELS.topology.recordFeedback,
+    async (_e, input: unknown): Promise<HarnessResult<null>> =>
+      handlers.recordFeedback(input),
+  );
 };

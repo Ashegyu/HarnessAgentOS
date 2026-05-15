@@ -5,6 +5,7 @@ import {
   harnessError,
   ok,
   type HarnessResult,
+  type RecordTopologyFeedbackInput,
   type RecommendTopologyInput,
   type TopologyRecommendation,
 } from "@harness/core";
@@ -54,6 +55,51 @@ const parseRecommendInput = (
   return ok(parsed);
 };
 
+const parseFeedbackInput = (
+  input: unknown,
+): HarnessResult<RecordTopologyFeedbackInput> => {
+  if (!isObject(input)) {
+    return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+  }
+  const cast = input as {
+    taskRunId?: unknown;
+    recommendationId?: unknown;
+    decision?: unknown;
+    reason?: unknown;
+  };
+  if (!isNonEmptyString(cast.taskRunId)) {
+    return err(
+      harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+    );
+  }
+  if (!isNonEmptyString(cast.recommendationId)) {
+    return err(
+      harnessError(
+        STATE_INVALID_INPUT,
+        "recommendationId must be non-empty string",
+      ),
+    );
+  }
+  if (cast.decision !== "applied" && cast.decision !== "dismissed") {
+    return err(
+      harnessError(
+        STATE_INVALID_INPUT,
+        "decision must be 'applied' or 'dismissed'",
+      ),
+    );
+  }
+  if (cast.reason !== undefined && typeof cast.reason !== "string") {
+    return err(harnessError(STATE_INVALID_INPUT, "reason must be a string"));
+  }
+  const parsed: RecordTopologyFeedbackInput = {
+    taskRunId: cast.taskRunId,
+    recommendationId: cast.recommendationId,
+    decision: cast.decision,
+  };
+  if (typeof cast.reason === "string") parsed.reason = cast.reason;
+  return ok(parsed);
+};
+
 export const buildTopologyHandlers = (advisor: TopologyAdvisor) => ({
   recommend: async (
     input: unknown,
@@ -64,6 +110,16 @@ export const buildTopologyHandlers = (advisor: TopologyAdvisor) => ({
       return ok(await advisor.recommend(parsed.value));
     } catch (e) {
       return wrapErr<TopologyRecommendation[]>(e);
+    }
+  },
+  recordFeedback: async (input: unknown): Promise<HarnessResult<null>> => {
+    const parsed = parseFeedbackInput(input);
+    if (!parsed.ok) return parsed;
+    try {
+      await advisor.recordFeedback(parsed.value);
+      return ok(null);
+    } catch (e) {
+      return wrapErr<null>(e);
     }
   },
 });

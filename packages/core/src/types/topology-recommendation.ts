@@ -36,3 +36,12 @@ export interface RecommendTopologyInput {
   taskRunId: string;
   maxCandidates?: number;
 }
+
+export type TopologyFeedbackDecision = "applied" | "dismissed";
+
+export interface RecordTopologyFeedbackInput {
+  taskRunId: string;
+  recommendationId: string;
+  decision: TopologyFeedbackDecision;
+  reason?: string;
+}

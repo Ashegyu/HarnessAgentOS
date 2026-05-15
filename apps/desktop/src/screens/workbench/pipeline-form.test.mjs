@@ -6,6 +6,7 @@ import {
   serializePipelineDraft,
   pipelineToDraft,
   pipelineInputToDraft,
+  topologyTaskRunOptionsFromThreadDetails,
   moveStep,
 } from "./pipeline-form.ts";
 
@@ -338,6 +339,59 @@ test("pipelineInputToDraft converts a recommendation into a new draft", () => {
   assert.equal(draft.name, "Recommended");
   assert.deepEqual(draft.steps[1].dependsOn, ["s1"]);
   assert.deepEqual(draft.steps[1].allowedActions, ["file_write"]);
+});
+
+test("topologyTaskRunOptionsFromThreadDetails flattens recent task runs", () => {
+  const options = topologyTaskRunOptionsFromThreadDetails(
+    [
+      {
+        thread: {
+          id: "thr_1",
+          title: "Thread A",
+          createdAt: "2026-05-01T00:00:00.000Z",
+          updatedAt: "2026-05-01T00:00:00.000Z",
+        },
+        taskRuns: [
+          {
+            id: "tsk_old",
+            threadId: "thr_1",
+            userRequest: "old request",
+            targetDir: "/tmp/proj",
+            status: "drafting",
+            createdAt: "2026-05-01T00:00:00.000Z",
+            updatedAt: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+        agentAnswers: {},
+      },
+      {
+        thread: {
+          id: "thr_2",
+          title: "Thread B",
+          createdAt: "2026-05-02T00:00:00.000Z",
+          updatedAt: "2026-05-02T00:00:00.000Z",
+        },
+        taskRuns: [
+          {
+            id: "tsk_new",
+            threadId: "thr_2",
+            userRequest: "new request",
+            targetDir: "/tmp/proj",
+            status: "running",
+            createdAt: "2026-05-02T00:00:00.000Z",
+            updatedAt: "2026-05-02T00:00:00.000Z",
+          },
+        ],
+        agentAnswers: {},
+      },
+      null,
+    ],
+    1,
+  );
+  assert.equal(options.length, 1);
+  assert.equal(options[0].id, "tsk_new");
+  assert.equal(options[0].threadTitle, "Thread B");
+  assert.match(options[0].label, /new request/);
 });
 
 test("moveStep shifts a step up by one position", () => {

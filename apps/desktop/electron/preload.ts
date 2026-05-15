@@ -243,6 +243,12 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.topology.recommend,
         input,
       ),
+    recordFeedback: async (input) => {
+      await invokeUnwrapped<null>(
+        IPC_CHANNELS.topology.recordFeedback,
+        input,
+      );
+    },
   },
   instinct: {
     list: (input) =>

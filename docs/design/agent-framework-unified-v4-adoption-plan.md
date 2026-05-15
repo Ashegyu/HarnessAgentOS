@@ -547,6 +547,8 @@ Skillify capability, Learner trace, active Instinct를 읽어 “파이프라인
 - untrusted Skill metadata는 후보 source에서 제외하고 warning으로만 표시한다.
 - 추천된 step은 `dependsOn`, `allowedActions`, `outputContract`를 명시한다.
 - Pipeline editor는 TaskRun ID 기준으로 후보를 불러오고, “draft에 적용” 시 form state만 교체한다. 저장은 기존 `pipeline.create/update` 버튼을 눌렀을 때만 발생한다.
+- Pipeline editor는 최근 Thread/TaskRun 목록을 datalist로 보여주고, Workbench에서 선택된 TaskRun이 있으면 추천 입력을 자동으로 채운다.
+- “draft에 적용”과 “무시”는 domain-specific `topology.recordFeedback`을 통해 `source="learner"` observation을 남긴다. generic `recordObservation` IPC는 계속 만들지 않는다.
 - 현재 구현은 기본적으로 planner -> coder -> tester/reviewer 순서의 제한적 topology를 생성한다. fan-out 실행 preview는 후속 UI/검증 단계로 남긴다.
 
 ### Non-goal
@@ -648,12 +650,21 @@ topology: {
     taskRunId: string;
     maxCandidates?: number;
   }): Promise<TopologyRecommendation[]>;
+  recordFeedback(input: {
+    taskRunId: string;
+    recommendationId: string;
+    decision: "applied" | "dismissed";
+    reason?: string;
+  }): Promise<void>;
 }
 ```
 
 `recommend`는 read-only다. pipeline row를 만들지 않고, approval row도 만들지 않는다. 사용자가 후보를
 저장하면 기존 `pipeline.create/update`가 호출되고, 그 pipeline으로 TaskRun을 실행하면 기존
 `orchestration.draftPlan`이 `orchestration_plan` approval을 만든다.
+
+`recordFeedback`은 추천 후보 적용/무시라는 사용자 선택을 학습 신호로 남기는 좁은 IPC다. observation
+row는 내부 service가 만들며, renderer가 임의 observation을 생성하는 generic API는 없다.
 
 ### Scoring 규칙
 
@@ -686,7 +697,7 @@ confidence는 `0.30..0.90` 범위로 clamp한다. confidence는 정렬과 UI 표
 
 | UI | 동작 |
 |---|---|
-| Pipeline editor 추천 패널 | 입력한 TaskRun ID 기준 topology 후보 1..3개 표시 |
+| Pipeline editor 추천 패널 | 선택된 TaskRun 또는 최근 TaskRun datalist 기준 topology 후보 1..3개 표시 |
 | 후보 카드 | confidence, rationale, source capability/instinct, warnings, step graph preview |
 | “draft에 적용” 버튼 | 현재 Pipeline form state만 교체. 저장/실행 없음 |
 | Step editor 연동 | 적용 후 사용자가 AgentProfile, dependency, allowedActions, outputContract를 수정 가능 |
@@ -707,9 +718,8 @@ confidence는 `0.30..0.90` 범위로 clamp한다. confidence는 정렬과 UI 표
 | 사용자가 저장한 pipeline | 기존 `agent_pipelines.steps_json` |
 | 실행 계획 snapshot | 기존 `orchestration_plan` artifact |
 
-사용자가 후보를 draft에 적용하거나 무시한 행동을 학습하고 싶다면 후속 단계에서 internal
-`ObservationCollector`에 `source="learner"`, `eventType="topology_applied|topology_dismissed"`를
-추가한다. public observation IPC는 여전히 만들지 않는다.
+사용자가 후보를 draft에 적용하거나 무시한 행동은 `topology.recordFeedback`이 internal observation으로
+기록한다. public observation IPC는 여전히 만들지 않는다.
 
 ### Acceptance criteria
 

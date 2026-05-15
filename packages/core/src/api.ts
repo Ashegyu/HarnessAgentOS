@@ -26,6 +26,7 @@ import type {
   LearnerRecommendation,
   LearnerRecommendationApprovalResult,
   LearningTrace,
+  RecordTopologyFeedbackInput,
   RecommendTopologyInput,
   OrchestrationMode,
   OrchestrationPlan,
@@ -205,6 +206,7 @@ export interface HarnessDesktopApi {
     recommend(
       input: RecommendTopologyInput,
     ): Promise<TopologyRecommendation[]>;
+    recordFeedback(input: RecordTopologyFeedbackInput): Promise<void>;
   };
   instinct: {
     list(input?: {

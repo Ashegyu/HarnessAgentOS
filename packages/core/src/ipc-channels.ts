@@ -62,6 +62,7 @@ export const IPC_CHANNELS = {
   },
   topology: {
     recommend: "topology:recommend",
+    recordFeedback: "topology:recordFeedback",
   },
   instinct: {
     list: "instinct:list",

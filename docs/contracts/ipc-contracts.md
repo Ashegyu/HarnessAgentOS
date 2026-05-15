@@ -541,6 +541,12 @@ topology.recommend(input: {
   taskRunId: string;
   maxCandidates?: number; // clamped to 0..3
 }): Promise<TopologyRecommendation[]>;
+topology.recordFeedback(input: {
+  taskRunId: string;
+  recommendationId: string;
+  decision: "applied" | "dismissed";
+  reason?: string;
+}): Promise<void>;
 ```
 
 동작:
@@ -550,6 +556,7 @@ topology.recommend(input: {
 - active Instinct는 `targetDir`에서 파생한 projectKey + global scope 기준으로 읽고, 관련 role score와 rationale에만 반영한다.
 - LearningTrace는 긍정 reward가 있는 과거 capability 선택을 추천 신뢰도와 source trace로 반영한다.
 - 결과의 `pipelineDraft.steps`는 `dependsOn`, `allowedActions`, `outputContract`를 명시한다. 이 값은 draft일 뿐이며, 저장은 `pipeline.create/update`, 실행은 `orchestration.draftPlan` + `orchestration_plan` approval을 계속 사용한다.
+- `recordFeedback`은 추천 적용/무시 행동을 `source="learner"` observation으로 남긴다. generic `recordObservation` IPC는 만들지 않으며, 추천 결과 자체를 canonical DB row로 저장하지도 않는다.
 
 오류:
 

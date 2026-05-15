@@ -1173,6 +1173,7 @@ export const WorkbenchShell = (): JSX.Element => {
       <RuntimeStatusBar />
       {settingsOpen && (
         <SettingsPanel
+          initialTopologyTaskRunId={selectedTaskRunId}
           onClose={() => {
             setSettingsOpen(false);
             void refreshAutoApprove();

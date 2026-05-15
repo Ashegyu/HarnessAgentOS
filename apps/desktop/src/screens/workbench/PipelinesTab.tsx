@@ -15,9 +15,11 @@ import {
   pipelineInputToDraft,
   pipelineToDraft,
   serializePipelineDraft,
+  topologyTaskRunOptionsFromThreadDetails,
   validatePipelineDraft,
   type PipelineDraft,
   type PipelineStepDraft,
+  type TopologyTaskRunOption,
 } from "./pipeline-form";
 
 type ListState =
@@ -27,8 +29,13 @@ type ListState =
       pipelines: AgentPipeline[];
       profiles: AgentProfile[];
       remoteEntries: A2ARegistryEntry[];
+      taskRuns: TopologyTaskRunOption[];
     }
   | { kind: "error"; message: string };
+
+interface PipelinesTabProps {
+  initialTopologyTaskRunId?: string | null;
+}
 
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -51,7 +58,9 @@ const newStep = (
   outputContract: "",
 });
 
-export const PipelinesTab = (): JSX.Element => {
+export const PipelinesTab = ({
+  initialTopologyTaskRunId = null,
+}: PipelinesTabProps): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PipelineDraft | null>(null);
@@ -65,15 +74,35 @@ export const PipelinesTab = (): JSX.Element => {
   const [recommendationError, setRecommendationError] = useState<
     string | null
   >(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [pipelines, profiles, remoteEntries] = await Promise.all([
+      const [pipelines, profiles, remoteEntries, threads] = await Promise.all([
         window.harness.pipeline.list(),
         window.harness.agents.list(),
         window.harness.remoteAgents.list(),
+        window.harness.state.listThreads(),
       ]);
-      setList({ kind: "ready", pipelines, profiles, remoteEntries });
+      const details = await Promise.all(
+        threads.slice(0, 25).map(async (thread) => {
+          try {
+            return await window.harness.state.getThread({
+              threadId: thread.id,
+            });
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const taskRuns = topologyTaskRunOptionsFromThreadDetails(details);
+      setList({
+        kind: "ready",
+        pipelines,
+        profiles,
+        remoteEntries,
+        taskRuns,
+      });
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -82,6 +111,17 @@ export const PipelinesTab = (): JSX.Element => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (
+      initialTopologyTaskRunId !== null &&
+      initialTopologyTaskRunId.length > 0
+    ) {
+      setRecommendTaskRunId((current) =>
+        current.length === 0 ? initialTopologyTaskRunId : current,
+      );
+    }
+  }, [initialTopologyTaskRunId]);
 
   useEffect(() => {
     if (list.kind !== "ready") return;
@@ -101,6 +141,10 @@ export const PipelinesTab = (): JSX.Element => {
 
   const profiles = list.kind === "ready" ? list.profiles : [];
   const remoteEntries = list.kind === "ready" ? list.remoteEntries : [];
+  const taskRunOptions = list.kind === "ready" ? list.taskRuns : [];
+  const selectedTaskRunOption = taskRunOptions.find(
+    (option) => option.id === recommendTaskRunId.trim(),
+  );
   const selectableRemoteEntries = remoteEntries.filter(
     (entry) => entry.endpoint.enabled && entry.endpoint.trusted,
   );
@@ -227,6 +271,7 @@ export const PipelinesTab = (): JSX.Element => {
     if (taskRunId.length === 0) return;
     setRecommending(true);
     setRecommendationError(null);
+    setFeedbackMessage(null);
     try {
       const result = await window.harness.topology.recommend({
         taskRunId,
@@ -252,6 +297,36 @@ export const PipelinesTab = (): JSX.Element => {
     setSelectedId("__new__");
     setDraft(pipelineInputToDraft(recommendation.pipelineDraft));
     setError(null);
+    void recordTopologyFeedback(recommendation, "applied");
+  };
+
+  const dismissRecommendation = (
+    recommendation: TopologyRecommendation,
+  ): void => {
+    setRecommendations((current) =>
+      current.filter((item) => item.id !== recommendation.id),
+    );
+    void recordTopologyFeedback(recommendation, "dismissed");
+  };
+
+  const recordTopologyFeedback = async (
+    recommendation: TopologyRecommendation,
+    decision: "applied" | "dismissed",
+  ): Promise<void> => {
+    try {
+      await window.harness.topology.recordFeedback({
+        taskRunId: recommendation.taskRunId,
+        recommendationId: recommendation.id,
+        decision,
+      });
+      setFeedbackMessage(
+        decision === "applied"
+          ? "추천 적용 기록을 남겼습니다."
+          : "추천 무시 기록을 남겼습니다.",
+      );
+    } catch (e) {
+      setRecommendationError(errorMessage(e));
+    }
   };
   const toggleAllowedAction = (
     index: number,
@@ -351,12 +426,24 @@ export const PipelinesTab = (): JSX.Element => {
                     <span className="settings-field__label">TaskRun ID</span>
                     <input
                       type="text"
+                      list="topology-task-runs"
                       className="settings-field__input"
                       value={recommendTaskRunId}
                       disabled={saving || recommending}
-                      placeholder="tsk_..."
+                      placeholder={
+                        taskRunOptions.length > 0
+                          ? "최근 TaskRun을 선택하거나 tsk_... 입력"
+                          : "tsk_..."
+                      }
                       onChange={(e) => setRecommendTaskRunId(e.target.value)}
                     />
+                    <datalist id="topology-task-runs">
+                      {taskRunOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </datalist>
                   </label>
                   <button
                     type="button"
@@ -371,12 +458,24 @@ export const PipelinesTab = (): JSX.Element => {
                     {recommending ? "추천 중…" : "추천 불러오기"}
                   </button>
                 </div>
+                {selectedTaskRunOption && (
+                  <div className="pipeline-recommendation__selected">
+                    <span>{selectedTaskRunOption.threadTitle}</span>
+                    <strong>{selectedTaskRunOption.status}</strong>
+                    <p>{selectedTaskRunOption.userRequest}</p>
+                  </div>
+                )}
                 {recommendationError && (
                   <div
                     className="pipeline-recommendation__error"
                     role="alert"
                   >
                     {recommendationError}
+                  </div>
+                )}
+                {feedbackMessage && (
+                  <div className="pipeline-recommendation__feedback">
+                    {feedbackMessage}
                   </div>
                 )}
                 {recommendations.length > 0 && (
@@ -431,6 +530,16 @@ export const PipelinesTab = (): JSX.Element => {
                             }
                           >
                             draft에 적용
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={saving}
+                            onClick={() =>
+                              dismissRecommendation(recommendation)
+                            }
+                          >
+                            무시
                           </button>
                         </div>
                       </article>

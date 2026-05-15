@@ -37,11 +37,13 @@ test("declared namespaces match the phases shipped so far", () => {
   ]);
 });
 
-test("topology namespace exposes read-only recommendation verbs", () => {
+test("topology namespace exposes recommendation and feedback verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.topology).sort(), [
     "recommend",
+    "recordFeedback",
   ]);
   assert.equal(isAllowedChannel("topology:recommend"), true);
+  assert.equal(isAllowedChannel("topology:recordFeedback"), true);
   assert.equal(isAllowedChannel("topology:create"), false);
 });
 

@@ -5,6 +5,7 @@ import { buildTopologyHandlers } from "./topology-ipc.ts";
 test("topology.recommend validates taskRunId", async () => {
   const handlers = buildTopologyHandlers({
     recommend: async () => [],
+    recordFeedback: async () => {},
   });
   const result = await handlers.recommend({ taskRunId: "" });
   assert.equal(result.ok, false);
@@ -14,6 +15,7 @@ test("topology.recommend validates taskRunId", async () => {
 test("topology.recommend validates maxCandidates", async () => {
   const handlers = buildTopologyHandlers({
     recommend: async () => [],
+    recordFeedback: async () => {},
   });
   const result = await handlers.recommend({
     taskRunId: "tsk_1",
@@ -63,6 +65,7 @@ test("topology.recommend returns ok-wrapped advisory candidates", async () => {
         },
       ];
     },
+    recordFeedback: async () => {},
   });
 
   const result = await handlers.recommend({
@@ -72,4 +75,41 @@ test("topology.recommend returns ok-wrapped advisory candidates", async () => {
   assert.equal(result.ok, true);
   assert.deepEqual(seen, { taskRunId: "tsk_1", maxCandidates: 2 });
   assert.equal(result.value[0].pipelineDraft.steps[0].dependsOn.length, 0);
+});
+
+test("topology.recordFeedback validates decision", async () => {
+  const handlers = buildTopologyHandlers({
+    recommend: async () => [],
+    recordFeedback: async () => {},
+  });
+  const result = await handlers.recordFeedback({
+    taskRunId: "tsk_1",
+    recommendationId: "toprec_1",
+    decision: "accepted",
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "STATE_INVALID_INPUT");
+});
+
+test("topology.recordFeedback passes validated feedback to advisor", async () => {
+  let seen = null;
+  const handlers = buildTopologyHandlers({
+    recommend: async () => [],
+    recordFeedback: async (input) => {
+      seen = input;
+    },
+  });
+  const result = await handlers.recordFeedback({
+    taskRunId: "tsk_1",
+    recommendationId: "toprec_1",
+    decision: "dismissed",
+    reason: "not useful",
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(seen, {
+    taskRunId: "tsk_1",
+    recommendationId: "toprec_1",
+    decision: "dismissed",
+    reason: "not useful",
+  });
 });

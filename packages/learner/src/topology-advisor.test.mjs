@@ -271,3 +271,31 @@ test("recommend uses active global instincts as topology signals", async () => {
     t.cleanup();
   }
 });
+
+test("recordFeedback stores topology feedback as learner observation", async () => {
+  const { t, db, state } = await setup();
+  try {
+    const taskRun = await seedTaskRun(state, "implement code");
+    const advisor = new TopologyAdvisor({ state });
+
+    await advisor.recordFeedback({
+      taskRunId: taskRun.id,
+      recommendationId: "toprec_1",
+      decision: "applied",
+      reason: "accepted api_key=secret-value",
+    });
+
+    const observations = await state.listObservations({
+      taskRunId: taskRun.id,
+    });
+    assert.equal(observations.length, 1);
+    assert.equal(observations[0].source, "learner");
+    assert.equal(observations[0].eventType, "topology_applied");
+    assert.equal(observations[0].signal, "applied");
+    assert.equal(observations[0].payload.recommendationId, "toprec_1");
+    assert.match(observations[0].payload.reason, /\[REDACTED\]/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});

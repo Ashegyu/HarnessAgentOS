@@ -10,6 +10,7 @@ import {
   type CapabilitySuggestion,
   type Instinct,
   type LearningTrace,
+  type RecordTopologyFeedbackInput,
   type RecommendTopologyInput,
   type TopologyRecommendation,
   type TopologyRecommendedStep,
@@ -22,6 +23,7 @@ import {
   type SkillMetadata,
 } from "@harness/skillify-adapter";
 import { deriveProjectKey } from "./project-key.ts";
+import { redactSecrets } from "./redact-secrets.ts";
 
 export type CapabilityMetadataLookup = (
   capabilityId: string,
@@ -206,6 +208,38 @@ export class TopologyAdvisor {
     };
 
     return [recommendation].slice(0, maxCandidates);
+  }
+
+  async recordFeedback(input: RecordTopologyFeedbackInput): Promise<void> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new TopologyAdvisorError(
+        TOPOLOGY_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    const reason =
+      typeof input.reason === "string" && input.reason.trim().length > 0
+        ? redactSecrets(input.reason.trim())
+        : null;
+    await this.deps.state.createObservation({
+      taskRunId: taskRun.id,
+      threadId: taskRun.threadId,
+      projectKey,
+      source: "learner",
+      eventType:
+        input.decision === "applied"
+          ? "topology_applied"
+          : "topology_dismissed",
+      signal: input.decision,
+      summary: `topology recommendation ${input.decision}`,
+      payload: {
+        recommendationId: input.recommendationId,
+        decision: input.decision,
+        reason,
+      },
+    });
   }
 }
 
