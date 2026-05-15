@@ -8,6 +8,7 @@ import type {
 import { AgentProfilesTab } from "./AgentProfilesTab";
 import { McpServersTab } from "./McpServersTab";
 import { PipelinesTab } from "./PipelinesTab";
+import { RemoteAgentsTab } from "./RemoteAgentsTab";
 import { SecretsTab } from "./SecretsTab";
 import { SkillSourcesTab } from "./SkillSourcesTab";
 
@@ -18,6 +19,7 @@ interface Props {
 type SettingsTabId =
   | "general"
   | "agents"
+  | "remoteAgents"
   | "pipelines"
   | "mcp"
   | "skills"
@@ -31,6 +33,7 @@ interface SettingsTabDef {
 const TABS: readonly SettingsTabDef[] = [
   { id: "general", label: "General" },
   { id: "agents", label: "Agents" },
+  { id: "remoteAgents", label: "Remote Agents" },
   { id: "pipelines", label: "Pipelines" },
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
@@ -197,6 +200,12 @@ export const SettingsPanel = ({ onClose }: Props): JSX.Element => {
         {activeTab === "pipelines" && (
           <div className="settings-dialog__body settings-dialog__body--flush">
             <PipelinesTab />
+          </div>
+        )}
+
+        {activeTab === "remoteAgents" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <RemoteAgentsTab />
           </div>
         )}
 

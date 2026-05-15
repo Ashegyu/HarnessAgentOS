@@ -4506,6 +4506,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 /* ── McpServersTab (Phase 5b) ──────────────────────────────── */
 
+.remote-agents-tab,
 .mcp-servers-tab {
   display: flex;
   flex-direction: column;
@@ -4514,6 +4515,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   flex: 1;
 }
 
+.remote-agents-tab__banner,
 .mcp-servers-tab__banner {
   margin: var(--space-2) var(--space-2) 0;
   padding: 10px 12px;
@@ -4525,10 +4527,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   line-height: 1.5;
 }
 
+.remote-agents-tab__banner strong,
 .mcp-servers-tab__banner strong {
   color: var(--text-primary);
 }
 
+.remote-agents-tab__split,
 .mcp-servers-tab__split {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -4537,6 +4541,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   margin-top: var(--space-2);
 }
 
+.remote-agents-tab__list,
 .mcp-servers-tab__list {
   border-right: 1px solid var(--border-subtle);
   display: flex;
@@ -4545,6 +4550,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   overflow: hidden;
 }
 
+.remote-agents-tab__list-header,
 .mcp-servers-tab__list-header {
   display: flex;
   align-items: center;
@@ -4558,6 +4564,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   flex: 0 0 auto;
 }
 
+.remote-agents-tab__items,
 .mcp-servers-tab__items {
   list-style: none;
   margin: 0;
@@ -4568,6 +4575,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   gap: 2px;
 }
 
+.remote-agents-tab__item,
 .mcp-servers-tab__item {
   width: 100%;
   text-align: left;
@@ -4583,15 +4591,18 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-primary);
 }
 
+.remote-agents-tab__item:hover,
 .mcp-servers-tab__item:hover {
   background: var(--bg-panel-elev);
 }
 
+.remote-agents-tab__item--selected,
 .mcp-servers-tab__item--selected {
   background: var(--bg-panel-elev);
   border-color: var(--border-strong);
 }
 
+.remote-agents-tab__item-name,
 .mcp-servers-tab__item-name {
   font-weight: 600;
   font-size: 13px;
@@ -4600,6 +4611,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   white-space: nowrap;
 }
 
+.remote-agents-tab__item-disabled,
 .mcp-servers-tab__item-disabled {
   font-weight: 400;
   font-size: 11px;
@@ -4607,6 +4619,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   margin-left: 4px;
 }
 
+.remote-agents-tab__item-meta,
 .mcp-servers-tab__item-meta {
   font-size: 11px;
   color: var(--text-muted);
@@ -4615,6 +4628,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   white-space: nowrap;
 }
 
+.remote-agents-tab__item-card,
 .mcp-servers-tab__item-health {
   font-size: 10px;
   color: var(--text-muted);
@@ -4624,6 +4638,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   white-space: nowrap;
 }
 
+.remote-agents-tab__editor,
 .mcp-servers-tab__editor {
   display: flex;
   flex-direction: column;
@@ -4632,18 +4647,21 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   min-height: 0;
 }
 
+.remote-agents-tab__form,
 .mcp-servers-tab__form {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
 }
 
+.remote-agents-tab__heading,
 .mcp-servers-tab__heading {
   margin: 0 0 var(--space-2) 0;
   font-size: 16px;
   color: var(--text-primary);
 }
 
+.remote-agents-tab__actions,
 .mcp-servers-tab__actions {
   display: flex;
   gap: var(--space-2);
@@ -4652,9 +4670,28 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   border-top: 1px solid var(--border-subtle);
 }
 
+.remote-agents-tab__errors ul,
 .mcp-servers-tab__errors ul {
   margin: 4px 0 0 0;
   padding-left: 20px;
+}
+
+.remote-agents-tab__card-grid {
+  display: grid;
+  grid-template-columns: minmax(90px, max-content) minmax(0, 1fr);
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+.remote-agents-tab__card-grid span {
+  color: var(--text-muted);
+}
+
+.remote-agents-tab__card-grid strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 /* ── SecretsTab (Phase 5c) ─────────────────────────────────── */
