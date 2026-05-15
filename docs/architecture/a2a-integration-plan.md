@@ -570,16 +570,36 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
 
 ### 16.2 Phase C-1 구현 순서
 
-1. `packages/agent`에 SDK 독립 `A2AClientPort`와 `A2AInvocationAdapter` contract를 정의한다.
-2. fake client로 message/task response를 받아 `AgentStreamEvent`로 변환하는 테스트를 먼저 추가한다.
-3. A2A state mapping 테스트를 추가한다.
-   - `submitted`/`working` -> running progress
-   - `input-required` -> paused/input-required progress
-   - `completed` -> result event
-   - `failed`/`rejected` -> failed event
-4. remote artifact normalization 테스트를 추가한다.
-5. proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
-6. 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
+- [x] `packages/agent`에 SDK 독립 `A2AClientPort`와 `A2AInvocationAdapter` contract를 정의한다.
+- [x] fake client로 message/task response를 받아 `AgentStreamEvent`로 변환하는 테스트를 먼저 추가한다.
+- [x] A2A state mapping 테스트를 추가한다.
+  - `submitted`/`working` -> running progress
+  - `input-required` -> paused/input-required progress
+  - `completed` -> result event
+  - `failed`/`rejected` -> failed event
+- [x] remote artifact normalization 테스트를 추가한다.
+- [ ] proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
+- [ ] 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
+
+현재 완료 범위:
+
+- `packages/agent/src/a2a-invocation-adapter.ts`
+  - `A2AClientPort`
+  - `A2AInvocationAdapter`
+  - `A2AInvocationError`
+  - remote artifact normalization
+- `packages/agent/src/a2a-invocation-adapter.test.mjs`
+  - state mapping
+  - input-required pause semantics
+  - failed/rejected rejection semantics
+  - normalized `AgentStreamEvent` capture
+- `packages/agent/src/index.ts` export
+
+다음 즉시 진행:
+
+1. remote message text에서 기존 `harness_agent_plan` fenced JSON을 재사용해 `AgentPlanOutput`으로 파싱 가능한지 확인한다.
+2. remote proposed action이 file/shell/git/dependency/network 실행으로 바로 이어지지 않고 기존 approval 생성 경로로만 들어가는지 contract test를 추가한다.
+3. 실제 호출 API를 기존 `agent.generatePlan`에 통합할지 별도 내부 service seam으로 둘지 결정한 뒤, DB remote task reference 저장 범위를 확정한다.
 
 ### 16.3 Phase C-2 구현 순서
 
