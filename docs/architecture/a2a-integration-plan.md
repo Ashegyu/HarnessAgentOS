@@ -744,25 +744,62 @@ Phase D는 inbound webhook, remote push notification server, renderer direct fet
 
 Phase E의 local contract는 완료했다. 다만 실제 A2A Inspector/TCK와 원격 cancellation/retry smoke는 네트워크 접근 가능한 compatible endpoint가 필요하므로 코드 커밋 범위 밖의 운영 검증으로 남긴다.
 
-### 16.6 Phase C/D/E 검증 명령
+### 16.6 Phase F 구현 순서
+
+1. [x] Electron main process에 network listener를 추가하지 않는다.
+2. [x] Express/localhost/WebSocket 서버를 추가하지 않는다.
+3. [x] external companion process가 감쌀 수 있는 순수 A2A server gateway handler를 `@harness/agent`에 둔다.
+4. [x] feature flag 기본값은 off로 둔다.
+5. [x] inbound bearer auth가 없으면 handler를 호출하지 않는다.
+6. [x] per-client rate limit hook을 제공한다.
+7. [x] `metadata.targetDir`가 허용 workspace root 밖이면 거부한다.
+8. [x] accepted/denied audit event를 남긴다.
+9. [x] `message/send`의 text parts만 내부 message로 정규화한다.
+10. [ ] 실제 companion process binary/launcher는 별도 opt-in 배포 설계 후 추가한다.
+
+### 16.6.1 Phase F 완료 범위
+
+- `packages/agent/src/a2a-server-gateway.ts`
+  - `createA2AServerGateway`
+  - `createInMemoryRateLimiter`
+  - feature flag default off
+  - bearer token auth
+  - in-memory rate-limit seam
+  - allowed workspace root boundary
+  - audit event callback
+  - A2A-style `message/send` request에서 text parts 추출
+  - A2A-style task response 생성
+- `packages/agent/src/a2a-server-gateway.test.mjs`
+  - disabled gate
+  - unauthorized gate
+  - rate limit gate
+  - workspace boundary gate
+  - accepted audit and task response
+  - text-part-only normalization
+
+Phase F는 "서버 실행"을 제품 기본 경로에 넣지 않는다. 이번 구현은 외부 companion process가 사용할 수 있는 안전한 순수 handler 계약까지만 닫는다. 실제 HTTP/stdio wrapper, 포트 선택, OS service 등록, TLS, long-lived task store, Inspector/TCK 연동은 별도 opt-in 배포 설계와 운영 검증이 필요하다.
+
+### 16.7 Phase C/D/E/F 검증 명령
 
 ```bash
 node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/electron/ipc/remote-agents-ipc.test.mjs packages/storage/src/repositories/a2a-remote-agent-repository.test.mjs
 node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs packages/orchestration/src/orchestration-planner.test.mjs packages/orchestration/src/worker-runner.test.mjs apps/desktop/electron/a2a-worker-integration.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs apps/desktop/src/screens/workbench/agent-remote-task.test.mjs
 node --import tsx --test --test-force-exit packages/agent/src/a2a-worker-invoker.test.mjs apps/desktop/electron/a2a-worker-integration.test.mjs apps/desktop/src/screens/workbench/agent-remote-task.test.mjs
+node --import tsx --test --test-force-exit packages/agent/src/a2a-server-gateway.test.mjs
 npm run check
 npm run test
 npm run build
 ```
 
-### 16.7 Phase C/D/E 금지 사항
+### 16.8 Phase C/D/E/F 금지 사항
 
 - Electron main process 안에 Express server를 추가하지 않는다.
 - renderer에서 A2A SDK 또는 remote fetch를 직접 호출하지 않는다.
 - inbound webhook, localhost listener, WebSocket server를 만들지 않는다.
 - remote agent 응답만으로 `TaskRun`을 `done`으로 만들지 않는다.
 - remote agent가 제안한 file/shell/git/dependency/network action을 approval 없이 실행하지 않는다.
+- A2A Server wrapper를 feature flag 없이 자동 시작하지 않는다.
 
 ---
 
