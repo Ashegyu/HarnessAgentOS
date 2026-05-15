@@ -778,6 +778,7 @@ const appendFinalSection = (
   text: string | null,
 ): void => {
   if (text === null || text.trim().length === 0) return;
+  removeDuplicateTrailingResponseSection(state, text);
   const sections = state.parsed.sections;
   const last = sections[sections.length - 1];
   if (last?.kind === "final") {
@@ -789,6 +790,20 @@ const appendFinalSection = (
   );
   if (!exists) {
     sections.push({ id: nextSectionId(state), kind: "final", text });
+  }
+};
+
+const removeDuplicateTrailingResponseSection = (
+  state: StreamParserState,
+  finalText: string,
+): void => {
+  const sections = state.parsed.sections;
+  const last = sections[sections.length - 1];
+  if (
+    last?.kind === "response" &&
+    last.text.trim() === finalText.trim()
+  ) {
+    sections.pop();
   }
 };
 

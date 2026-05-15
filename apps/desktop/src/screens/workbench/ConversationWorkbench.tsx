@@ -21,7 +21,7 @@ import {
 import { AgentStreamSections } from "./AgentStreamSections";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 import {
-  deriveChatTurnDisplayStatus,
+  deriveChatTurnStatusBadge,
   taskRunWithActiveOverride,
 } from "./chat-turn-status";
 
@@ -364,10 +364,11 @@ const ChatTurn = ({
   // the parent transcript scroll.
   const hasInvocation = invocation !== undefined;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
-  const displayStatus = deriveChatTurnDisplayStatus({
+  const statusBadge = deriveChatTurnStatusBadge({
     taskRunStatus: taskRun.status,
     invocationStatus: invocation?.status,
     approvals,
+    hasFinalAnswer,
   });
 
   return (
@@ -418,7 +419,11 @@ const ChatTurn = ({
           )}
         </div>
         <div className="chat-bubble__meta">
-          <TaskRunStatusBadge status={displayStatus} />
+          <TaskRunStatusBadge
+            status={statusBadge.status}
+            label={statusBadge.label}
+            kind={statusBadge.kind}
+          />
           <span title={taskRun.targetDir}>{shortPath(taskRun.targetDir)}</span>
         </div>
       </div>

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   deriveChatTurnDisplayStatus,
+  deriveChatTurnStatusBadge,
   taskRunWithActiveOverride,
 } from "./chat-turn-status.ts";
 
@@ -75,5 +76,44 @@ test("deriveChatTurnDisplayStatus maps terminal failure while task row is stale"
       approvals: [],
     }),
     "blocked",
+  );
+});
+
+test("deriveChatTurnStatusBadge shows execution complete for ready answer", () => {
+  assert.deepEqual(
+    deriveChatTurnStatusBadge({
+      taskRunStatus: "ready_for_review",
+      invocationStatus: "succeeded",
+      approvals: [],
+      hasFinalAnswer: true,
+    }),
+    {
+      status: "ready_for_review",
+      label: "실행 완료",
+      kind: "success",
+    },
+  );
+});
+
+test("deriveChatTurnStatusBadge keeps review pending when no answer is ready yet", () => {
+  assert.deepEqual(
+    deriveChatTurnStatusBadge({
+      taskRunStatus: "ready_for_review",
+      approvals: [],
+      hasFinalAnswer: false,
+    }),
+    { status: "ready_for_review" },
+  );
+});
+
+test("deriveChatTurnStatusBadge keeps approval wait visible", () => {
+  assert.deepEqual(
+    deriveChatTurnStatusBadge({
+      taskRunStatus: "running",
+      invocationStatus: "succeeded",
+      approvals: [{ status: "pending" }],
+      hasFinalAnswer: true,
+    }),
+    { status: "waiting_for_approval" },
   );
 });

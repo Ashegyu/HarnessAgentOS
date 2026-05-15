@@ -188,6 +188,7 @@ export const AgentStreamView = ({
             <AgentProgressList
               items={progressItems}
               terminal={isTerminal}
+              terminalStatus={status}
             />
           )}
 

@@ -376,6 +376,26 @@ test("result promotion moves intermediate assistant output to finalText", () => 
   assert.equal(s.parsed.intermediateText, "final after result");
 });
 
+test("result promotion removes the duplicate trailing intermediate section", () => {
+  const s = initStreamParserState();
+  setIntermediateAssistantText(s, "first draft");
+  setIntermediateAssistantText(s, "final answer");
+
+  promoteIntermediateTextToFinal(s);
+
+  assert.equal(s.parsed.finalText, "final answer");
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["response", "final"],
+  );
+  assert.deepEqual(
+    s.parsed.sections
+      .filter((section) => section.kind === "response")
+      .map((section) => section.text),
+    ["first draft"],
+  );
+});
+
 test("hydrateSavedAgentOutput preserves plain saved output as final text", () => {
   const s = initStreamParserState();
 
@@ -386,6 +406,10 @@ test("hydrateSavedAgentOutput preserves plain saved output as final text", () =>
 
   assert.equal(s.parsed.finalText, "full saved answer\nwith details");
   assert.equal(s.parsed.intermediateText, "full saved answer\nwith details");
+  assert.deepEqual(
+    s.parsed.sections.map((section) => section.kind),
+    ["final"],
+  );
   assert.deepEqual(s.parsed.unknown, []);
   assert.equal(s.parsed.resultMeta?.durationMs, 1234);
 });
@@ -500,7 +524,7 @@ test("hydrateSavedAgentOutput replays persisted Harness stream events", () => {
   assert.equal(s.parsed.progress[0].stage, "cli");
   assert.deepEqual(
     s.parsed.sections.map((section) => section.kind),
-    ["response", "tool", "response", "final"],
+    ["response", "tool", "final"],
   );
   assert.equal(s.parsed.finalText, "최종 정리");
   assert.equal(s.parsed.resultMeta?.durationMs, 42);

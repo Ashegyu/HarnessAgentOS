@@ -243,6 +243,9 @@
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  min-width: 0;
+  container-type: inline-size;
+  container-name: right-panel;
 }
 
 /* ── Chat header (with drawer toggle + badge) ──────────────── */
@@ -2404,8 +2407,9 @@
   display: grid;
   /* Tab rail widened from 64px → 72px so labels like "Time"/"Files" don't
      kiss the rail edge at Korean system fonts that render slightly wider. */
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 72px minmax(0, 1fr);
   min-height: 0;
+  min-width: 0;
 }
 
 .right-panel__tabs--vertical {
@@ -2461,6 +2465,7 @@
 .panel-body--compact {
   padding: var(--space-3) var(--space-4);
   overflow-y: visible;
+  min-width: 0;
 }
 
 .right-panel__placeholder {
@@ -2519,8 +2524,10 @@
 .right-panel__tab-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* Each tabpanel owns its own scroll context so the user's scroll
@@ -2530,8 +2537,10 @@
 .right-panel__tab-body > [role="tabpanel"]:not([hidden]) {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
-  padding: var(--space-4);
+  overflow-x: hidden;
+  padding: clamp(var(--space-2), 2cqw, var(--space-4));
 }
 
 .right-panel__stack {
@@ -2716,6 +2725,8 @@
   border-radius: var(--radius-sm);
   padding: var(--space-3);
   background: var(--bg-panel-elev);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .agent-panel__header {
@@ -2733,12 +2744,17 @@
   font-size: 11px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-panel__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .agent-panel__error {
@@ -2761,6 +2777,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .agent-stream-view__header {
@@ -2770,6 +2788,7 @@
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border-subtle);
+  min-width: 0;
 }
 
 .agent-stream-view__pill {
@@ -2803,6 +2822,10 @@
   font-size: 10px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-stream-view__body {
@@ -2962,6 +2985,7 @@
 .agent-stream-view__spacer { flex: 1; }
 
 .agent-stream-view__toggle {
+  flex: 0 0 auto;
   font-size: 10px;
   background: transparent;
   border: 1px solid var(--border-subtle);
@@ -2985,6 +3009,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
 }
 .agent-stream-section:first-of-type { border-top: none; }
 
@@ -2996,6 +3021,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+  min-width: 0;
 }
 .agent-stream-section__head--clickable { cursor: pointer; user-select: none; }
 
@@ -3009,7 +3035,13 @@ details.agent-stream-section > summary.agent-stream-section__head::-webkit-detai
   display: none;
 }
 
-.agent-stream-section__title { font-weight: 600; }
+.agent-stream-section__title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .agent-stream-section__ordinal {
   margin-left: auto;
@@ -3092,6 +3124,7 @@ details.agent-stream-section[open] .agent-stream-section__chevron {
   flex-direction: column;
   gap: 2px;
   font-size: 11px;
+  min-width: 0;
 }
 .agent-stream-section__tools li {
   display: flex;
@@ -4019,8 +4052,9 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .agent-profiles-tab {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: minmax(0, 220px) minmax(0, 1fr);
   min-height: 0;
+  min-width: 0;
   height: 100%;
   flex: 1;
 }
@@ -4030,6 +4064,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -4037,6 +4072,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 11px;
@@ -4044,6 +4080,14 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   letter-spacing: 0.05em;
   color: var(--text-muted);
   flex: 0 0 auto;
+  min-width: 0;
+}
+
+.agent-profiles-tab__list-header > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-profiles-tab__items {
@@ -4054,10 +4098,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .agent-profiles-tab__item {
   width: 100%;
+  min-width: 0;
   text-align: left;
   display: flex;
   flex-direction: column;
@@ -4083,11 +4129,19 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .agent-profiles-tab__item-name {
   font-weight: 600;
   font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-profiles-tab__item-meta {
   font-size: 11px;
   color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-profiles-tab__editor {
@@ -4096,12 +4150,14 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   padding: var(--space-4);
   overflow-y: auto;
   min-height: 0;
+  min-width: 0;
 }
 
 .agent-profiles-tab__form {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  min-width: 0;
 }
 
 .agent-profiles-tab__heading {
@@ -4131,6 +4187,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   background: var(--status-pending-fill);
   border: 1px solid var(--status-pending-edge);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   font-size: 12px;
@@ -4159,11 +4216,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  table-layout: fixed;
 }
 
 .permissions-table th,
 .permissions-table td {
-  padding: 6px 8px;
+  padding: 6px clamp(4px, 1cqw, 8px);
   border-bottom: 1px solid var(--border-subtle);
 }
 
@@ -4178,11 +4236,69 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .permissions-table th:nth-child(n + 2) {
   text-align: center;
-  width: 90px;
+  width: clamp(48px, 18%, 90px);
 }
 
 .permissions-table td {
   color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+@container right-panel (max-width: 360px) {
+  .right-panel__split {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .right-panel__tabs--vertical .right-panel__tab {
+    min-height: 46px;
+    padding: 8px 2px;
+  }
+
+  .right-panel__tab-label {
+    font-size: 9px;
+  }
+
+  .agent-panel {
+    padding: var(--space-2);
+  }
+
+  .agent-stream-view__header {
+    flex-wrap: wrap;
+  }
+
+  .agent-stream-view__spacer {
+    display: none;
+  }
+
+  .agent-stream-view__toggle {
+    margin-left: auto;
+  }
+}
+
+@container right-panel (max-width: 520px) {
+  .agent-profiles-tab {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .agent-profiles-tab__list {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    max-height: 220px;
+  }
+
+  .agent-profiles-tab__editor {
+    padding: var(--space-3);
+  }
+
+  .permissions-table {
+    font-size: 11px;
+  }
+
+  .permissions-table th {
+    font-size: 9px;
+    letter-spacing: 0;
+  }
 }
 
 /* ── SkillSourcesTab (Phase 5a) ───────────────────────────── */

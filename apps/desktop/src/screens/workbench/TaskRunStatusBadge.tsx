@@ -2,7 +2,17 @@ import type { TaskRunStatus } from "@harness/core";
 
 interface TaskRunStatusBadgeProps {
   status: TaskRunStatus;
+  label?: string;
+  kind?: StatusBadgeKind;
 }
+
+export type StatusBadgeKind =
+  | "neutral"
+  | "pending"
+  | "running"
+  | "blocked"
+  | "failed"
+  | "success";
 
 const LABEL: Record<TaskRunStatus, string> = {
   drafting: "초안",
@@ -16,7 +26,7 @@ const LABEL: Record<TaskRunStatus, string> = {
   cancelled: "취소됨",
 };
 
-const KIND: Record<TaskRunStatus, string> = {
+const KIND: Record<TaskRunStatus, StatusBadgeKind> = {
   drafting: "neutral",
   waiting_for_approval: "pending",
   running: "running",
@@ -30,14 +40,18 @@ const KIND: Record<TaskRunStatus, string> = {
 
 export const TaskRunStatusBadge = ({
   status,
+  label,
+  kind,
 }: TaskRunStatusBadgeProps): JSX.Element => {
+  const displayLabel = label ?? LABEL[status];
+  const displayKind = kind ?? KIND[status];
   return (
     <span
-      className={`status-badge status-badge--${KIND[status]}`}
+      className={`status-badge status-badge--${displayKind}`}
       data-status={status}
-      aria-label={`작업 상태: ${LABEL[status]}`}
+      aria-label={`작업 상태: ${displayLabel}`}
     >
-      {LABEL[status]}
+      {displayLabel}
     </span>
   );
 };

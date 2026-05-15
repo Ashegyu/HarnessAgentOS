@@ -1,5 +1,6 @@
 import type { Step, StepStatus, TaskRun } from "@harness/core";
 import { TaskRunStatusBadge } from "./TaskRunStatusBadge";
+import { deriveTaskRunTimelineBadge } from "./task-run-timeline-status";
 
 interface TaskRunTimelineProps {
   taskRun: TaskRun;
@@ -30,6 +31,10 @@ export const TaskRunTimeline = ({
   onSelect,
   isActive,
 }: TaskRunTimelineProps): JSX.Element => {
+  const badge = deriveTaskRunTimelineBadge({
+    taskRunStatus: taskRun.status,
+    stepStatuses: steps.map((step) => step.status),
+  });
   return (
     <article
       className={`task-timeline${isActive ? " task-timeline--active" : ""}`}
@@ -39,7 +44,11 @@ export const TaskRunTimeline = ({
     >
       <header className="task-timeline__header">
         <span className="task-timeline__title">{taskRun.userRequest}</span>
-        <TaskRunStatusBadge status={taskRun.status} />
+        <TaskRunStatusBadge
+          status={badge.status}
+          label={badge.label}
+          kind={badge.kind}
+        />
       </header>
       <div className="task-timeline__meta">
         <span title={taskRun.targetDir}>{taskRun.targetDir}</span>

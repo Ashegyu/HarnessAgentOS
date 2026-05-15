@@ -165,6 +165,7 @@ export const InlineAgentStream = ({
           items={progressItems}
           compact
           terminal={isTerminal}
+          terminalStatus={invocation.status}
         />
       )}
 

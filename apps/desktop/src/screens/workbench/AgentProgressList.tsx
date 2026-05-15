@@ -1,4 +1,4 @@
-import type { AgentProgressEvent } from "@harness/core";
+import type { AgentInvocationStatus, AgentProgressEvent } from "@harness/core";
 
 export type AgentProgressItem = Pick<
   AgentProgressEvent,
@@ -15,6 +15,12 @@ interface AgentProgressListProps {
   compact?: boolean;
   tools?: readonly AgentProgressToolItem[];
   terminal?: boolean;
+  terminalStatus?: AgentInvocationStatus;
+}
+
+export interface AgentProgressHeader {
+  title: string;
+  stage: string;
 }
 
 const STAGE_LABELS: Record<AgentProgressItem["stage"], string> = {
@@ -45,17 +51,18 @@ export const AgentProgressList = ({
   compact = false,
   tools = [],
   terminal = false,
+  terminalStatus,
 }: AgentProgressListProps): JSX.Element | null => {
   if (items.length === 0 && tools.length === 0) return null;
   const visible = compact ? items.slice(-4) : items.slice(-8);
   const latest = items[items.length - 1] ?? null;
   const latestTool = tools[tools.length - 1] ?? null;
-  const headerTitle = latest
-    ? latest.message
-    : latestTool
-      ? `${latestTool.name} 실행`
-      : "진행 중";
-  const headerStage = latest ? STAGE_LABELS[latest.stage] : "Tool";
+  const header = deriveAgentProgressHeader({
+    latest,
+    latestTool,
+    terminal,
+    terminalStatus,
+  });
   const body = (
     <>
       {latest?.detail && (
@@ -113,8 +120,8 @@ export const AgentProgressList = ({
         <summary className="agent-progress__head">
           <span className="agent-progress__dot" aria-hidden />
           <span className="agent-progress__label">진행 사항</span>
-          <span className="agent-progress__title">{headerTitle}</span>
-          <span className="agent-progress__stage">{headerStage}</span>
+          <span className="agent-progress__title">{header.title}</span>
+          <span className="agent-progress__stage">{header.stage}</span>
           <span className="agent-progress__chevron" aria-hidden>
             ▸
           </span>
@@ -129,12 +136,59 @@ export const AgentProgressList = ({
       <header className="agent-progress__head">
         <span className="agent-progress__dot" aria-hidden />
         <span className="agent-progress__label">진행 사항</span>
-        <span className="agent-progress__title">{headerTitle}</span>
-        <span className="agent-progress__stage">{headerStage}</span>
+        <span className="agent-progress__title">{header.title}</span>
+        <span className="agent-progress__stage">{header.stage}</span>
       </header>
       {body}
     </section>
   );
+};
+
+export const deriveAgentProgressHeader = ({
+  latest,
+  latestTool,
+  terminal,
+  terminalStatus,
+}: {
+  latest: AgentProgressItem | null;
+  latestTool: AgentProgressToolItem | null;
+  terminal: boolean;
+  terminalStatus?: AgentInvocationStatus;
+}): AgentProgressHeader => {
+  if (terminal && latest?.stage !== "complete") {
+    return terminalHeader(terminalStatus);
+  }
+  if (latest) {
+    return {
+      title: latest.message,
+      stage: STAGE_LABELS[latest.stage],
+    };
+  }
+  if (latestTool) {
+    return {
+      title: `${latestTool.name} 실행`,
+      stage: "Tool",
+    };
+  }
+  return {
+    title: terminal ? terminalHeader(terminalStatus).title : "진행 중",
+    stage: terminal ? terminalHeader(terminalStatus).stage : "Tool",
+  };
+};
+
+const terminalHeader = (
+  terminalStatus?: AgentInvocationStatus,
+): AgentProgressHeader => {
+  switch (terminalStatus) {
+    case "succeeded":
+      return { title: "실행 완료", stage: "Done" };
+    case "failed":
+      return { title: "실행 실패", stage: "Failed" };
+    case "cancelled":
+      return { title: "실행 취소됨", stage: "Cancelled" };
+    default:
+      return { title: "실행 종료", stage: "Done" };
+  }
 };
 
 type TimelineEntry =
