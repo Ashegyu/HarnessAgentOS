@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   A2AInvocationAdapter,
   A2AInvocationError,
+  a2aInvocationToWorkerOutcome,
+  parseA2AInvocationPlan,
 } from "./a2a-invocation-adapter.ts";
 
 const request = {
@@ -148,4 +150,122 @@ test("A2AInvocationAdapter emits failed and rejects failed remote tasks", async 
     ["progress", "failed"],
   );
   assert.equal(emitted[1].errorCode, "A2A_REMOTE_REJECTED");
+});
+
+test("parseA2AInvocationPlan reuses the harness_agent_plan parser for remote text", () => {
+  const result = {
+    outputText: [
+      "Remote worker response.",
+      "",
+      "```harness_agent_plan",
+      JSON.stringify(
+        {
+          summary: "Remote worker proposes safe follow-up actions.",
+          assumptions: [],
+          steps: [
+            {
+              title: "Create file",
+              rationale: "Capture remote worker result",
+              risk: "medium",
+            },
+          ],
+          proposedActions: [
+            {
+              type: "file_write",
+              path: "remote.txt",
+              after: "remote output\n",
+              rationale: "persist remote result",
+            },
+            {
+              type: "shell",
+              command: "npm",
+              args: ["run", "check"],
+              rationale: "verify after approval",
+            },
+          ],
+          suggestedQualityChecks: [],
+          questions: [],
+        },
+        null,
+        2,
+      ),
+      "```",
+    ].join("\n"),
+  };
+
+  const parsed = parseA2AInvocationPlan(result);
+  assert.equal(parsed.ok, true);
+  assert.deepEqual(parsed.plan.proposedActions.map((a) => a.type), [
+    "file_write",
+    "shell",
+  ]);
+
+  const workerOutcome = a2aInvocationToWorkerOutcome(result);
+  assert.equal(workerOutcome.outputText, result.outputText);
+  assert.deepEqual(workerOutcome.proposedActions, parsed.plan.proposedActions);
+});
+
+test("a2aInvocationToWorkerOutcome does not promote artifact payloads into proposed actions", () => {
+  const result = {
+    outputText: "Remote worker attached an artifact but did not emit a harness plan.",
+    artifacts: [
+      {
+        remoteArtifactId: "artifact-with-actions",
+        title: "actions.json",
+        contentType: "application/json",
+        data: {
+          proposedActions: [
+            {
+              type: "file_write",
+              path: "must-not-be-promoted.txt",
+              after: "no\n",
+              rationale: "artifact-only action",
+            },
+          ],
+        },
+      },
+    ],
+  };
+
+  const parsed = parseA2AInvocationPlan(result);
+  assert.equal(parsed.ok, false);
+
+  const workerOutcome = a2aInvocationToWorkerOutcome(result);
+  assert.deepEqual(workerOutcome, {
+    outputText: result.outputText,
+  });
+});
+
+test("a2aInvocationToWorkerOutcome refuses unsupported high-risk remote action types", () => {
+  const result = {
+    outputText: [
+      "Remote worker response.",
+      "",
+      "```harness_agent_plan",
+      JSON.stringify({
+        summary: "Remote worker requested network access.",
+        assumptions: [],
+        steps: [],
+        proposedActions: [
+          {
+            type: "network",
+            url: "https://example.com",
+            rationale: "remote follow-up",
+          },
+        ],
+        suggestedQualityChecks: [],
+        questions: [],
+      }),
+      "```",
+    ].join("\n"),
+  };
+
+  const parsed = parseA2AInvocationPlan(result);
+  assert.equal(parsed.ok, false);
+  assert.match(parsed.reason, /proposedActions\[0\]\.type/);
+
+  const workerOutcome = a2aInvocationToWorkerOutcome(result);
+  assert.deepEqual(workerOutcome, {
+    outputText: result.outputText,
+  });
 });
