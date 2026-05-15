@@ -20,7 +20,7 @@ Renderer
   -> Remote A2A Agent
 ```
 
-초기 구현은 **A2A Client Adapter + Remote Agent Registry**만 포함한다. HarnessAgentOS 자체를 A2A Server로 노출하는 기능은 MVP 제약과 충돌하므로 별도 feature flag와 별도 gateway 설계 전까지 보류한다.
+초기 구현은 **A2A Client Adapter + Remote Agent Registry**만 포함한다. HarnessAgentOS 자체를 A2A Server로 노출하는 기능은 MVP 제약과 충돌하므로 현재 제품 경로에서 제외한다. Phase F에서 남기는 것은 외부 embedding code가 호출할 수 있는 **순수 request handler 계약**뿐이며, listener, launcher, localhost wrapper, WebSocket endpoint는 포함하지 않는다. inbound serving이 필요해지는 경우에는 기존 Phase F의 연장선이 아니라 별도 ADR과 명시 승인 phase로 다시 설계한다.
 
 이 결정의 핵심 이유는 다음이다.
 
@@ -67,7 +67,7 @@ Renderer
 - WebSocket server 또는 inbound webhook listener
 - remote agent가 사용자의 workspace에서 직접 파일/shell/git 작업을 수행하는 흐름
 - A2A SDK 타입을 `packages/core` public API로 그대로 노출
-- A2A Server adapter를 MVP 기본 경로에 포함
+- A2A Server adapter, listener, launcher를 MVP 기본 경로에 포함
 
 ---
 
@@ -470,14 +470,17 @@ Agent Card의 전체 JSON은 접힌 상세 영역으로 보여준다. secret으�
 - compatibility fixtures
 - A2A Inspector/TCK 검증
 
-### Phase F: Optional A2A Server
+### Phase F: Serverless Gateway Boundary
 
-별도 opt-in 기능으로만 검토한다.
+제품 런타임은 계속 serverless로 유지한다. Phase F는 A2A Server 실행 기능이
+아니라, 별도 runtime이 생기더라도 재사용할 수 있는 순수 gateway handler
+계약까지만 검토한다.
 
-- Electron main 안에 Express를 넣지 않는 대안 우선
-- 별도 gateway process 또는 external companion service
-- feature flag off by default
-- inbound auth, rate limit, audit log, workspace permission boundary 필수
+- Electron main, preload, renderer, IPC에 listener를 추가하지 않는다.
+- Express/localhost/WebSocket wrapper를 추가하지 않는다.
+- `@harness/agent`에는 port를 bind하지 않는 pure request handler만 둔다.
+- inbound serving은 별도 ADR 전까지 구현하지 않는다.
+- handler boundary에는 bearer auth, rate limit, audit log, workspace permission boundary가 남아야 한다.
 
 ---
 
@@ -744,18 +747,18 @@ Phase D는 inbound webhook, remote push notification server, renderer direct fet
 
 Phase E의 local contract는 완료했다. 다만 실제 A2A Inspector/TCK와 원격 cancellation/retry smoke는 네트워크 접근 가능한 compatible endpoint가 필요하므로 코드 커밋 범위 밖의 운영 검증으로 남긴다.
 
-### 16.6 Phase F 구현 순서
+### 16.6 Phase F 서버리스 경계 정리
 
 1. [x] Electron main process에 network listener를 추가하지 않는다.
 2. [x] Express/localhost/WebSocket 서버를 추가하지 않는다.
-3. [x] external companion process가 감쌀 수 있는 순수 A2A server gateway handler를 `@harness/agent`에 둔다.
-4. [x] feature flag 기본값은 off로 둔다.
-5. [x] inbound bearer auth가 없으면 handler를 호출하지 않는다.
+3. [x] port를 bind하지 않는 순수 A2A server gateway handler를 `@harness/agent`에 둔다.
+4. [x] gateway handler는 feature flag 기본값을 off로 둔다.
+5. [x] bearer auth가 없으면 handler를 호출하지 않는다.
 6. [x] per-client rate limit hook을 제공한다.
 7. [x] `metadata.targetDir`가 허용 workspace root 밖이면 거부한다.
 8. [x] accepted/denied audit event를 남긴다.
 9. [x] `message/send`의 text parts만 내부 message로 정규화한다.
-10. [ ] 실제 companion process binary/launcher는 별도 opt-in 배포 설계 후 추가한다.
+10. [x] loopback companion listener와 export를 제거해 runtime 예외를 닫는다.
 
 ### 16.6.1 Phase F 완료 범위
 
@@ -777,7 +780,9 @@ Phase E의 local contract는 완료했다. 다만 실제 A2A Inspector/TCK와 �
   - accepted audit and task response
   - text-part-only normalization
 
-Phase F는 "서버 실행"을 제품 기본 경로에 넣지 않는다. 이번 구현은 외부 companion process가 사용할 수 있는 안전한 순수 handler 계약까지만 닫는다. 실제 HTTP/stdio wrapper, 포트 선택, OS service 등록, TLS, long-lived task store, Inspector/TCK 연동은 별도 opt-in 배포 설계와 운영 검증이 필요하다.
+Phase F는 "서버 실행"을 제품 기본 경로에 넣지 않는다. 이번 구현은 embedding code나 future external runtime이 호출할 수 있는 안전한 순수 handler 계약까지만 닫는다. 실제 HTTP/stdio wrapper, 포트 선택, OS service 등록, TLS, long-lived task store, Inspector/TCK 연동은 현재 plan의 구현 대상이 아니다.
+
+2026-05-16 추가 결정: local loopback companion listener도 repository에서 제거했다. 따라서 Phase F의 현재 완료 범위는 `a2a-server-gateway.ts`의 pure handler와 contract tests뿐이다. HTTP/stdio wrapper, companion process binary/launcher, OS service 등록은 더 이상 이 plan의 pending task가 아니며, 나중에 필요해지면 `docs/verification/a2a-phase-f-ops-report.md`의 serverless boundary를 기준으로 별도 ADR에서 재검토한다.
 
 ### 16.7 Phase C/D/E/F 검증 명령
 
@@ -799,7 +804,7 @@ npm run build
 - inbound webhook, localhost listener, WebSocket server를 만들지 않는다.
 - remote agent 응답만으로 `TaskRun`을 `done`으로 만들지 않는다.
 - remote agent가 제안한 file/shell/git/dependency/network action을 approval 없이 실행하지 않는다.
-- A2A Server wrapper를 feature flag 없이 자동 시작하지 않는다.
+- A2A Server wrapper/launcher를 이 plan의 runtime에 추가하지 않는다.
 
 ---
 
