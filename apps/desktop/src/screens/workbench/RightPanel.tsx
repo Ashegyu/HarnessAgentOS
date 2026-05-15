@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ProposedActionDetails, TaskRunDetail } from "@harness/core";
 import { AgentPanel } from "./AgentPanel";
+import { AgentTopologyPanel } from "./AgentTopologyPanel";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { PlanArtifactView } from "./PlanArtifactView";
 import { TaskRunTimeline } from "./TaskRunTimeline";
@@ -20,6 +21,7 @@ type TaskRunDetailState =
 type RightPanelTab =
   | "plan"
   | "agent"
+  | "graph"
   | "timeline"
   | "artifacts"
   | "quality"
@@ -36,6 +38,7 @@ const TABS: ReadonlyArray<{
 }> = [
   { id: "plan", label: "Plan", tooltip: "Plan", icon: "◧" },
   { id: "agent", label: "Agent", tooltip: "Agent", icon: "✦" },
+  { id: "graph", label: "Graph", tooltip: "Agent Graph", icon: "∿" },
   { id: "timeline", label: "Time", tooltip: "Timeline", icon: "⌛" },
   { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "▤" },
   { id: "quality", label: "QA", tooltip: "Quality", icon: "✓" },
@@ -167,7 +170,7 @@ export const RightPanel = ({
             ))}
           </nav>
 
-          {/* All 7 tab panels stay mounted; only the active one is
+          {/* All 8 tab panels stay mounted; only the active one is
               visible. This preserves per-tab local state (form text,
               draft plan, scroll positions, fetch results) when the
               user switches tabs and comes back. Per-taskRun resets
@@ -238,6 +241,21 @@ export const RightPanel = ({
                     (a) => a.actionType === "orchestration_plan",
                   )
                 }
+              />
+            </div>
+
+            <div
+              role="tabpanel"
+              id="right-panel-panel-graph"
+              aria-labelledby="right-panel-tab-graph"
+              hidden={activeTab !== "graph"}
+            >
+              <AgentTopologyPanel
+                taskRun={state.detail.taskRun}
+                steps={state.detail.steps}
+                invocations={state.detail.agentInvocations}
+                approvals={state.detail.approvals}
+                remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
               />
             </div>
 
