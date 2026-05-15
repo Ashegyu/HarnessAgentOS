@@ -166,8 +166,13 @@ export const ApprovalPanel = ({
     a: Approval,
     mode: "pending" | "approved" | "decided",
   ): JSX.Element => {
-    const risk = ACTION_RISK_HINT[a.actionType] ?? "low";
-    const blocked = HIGH_RISK_BLOCKED.has(a.actionType);
+    const policy = a.policyEvaluation;
+    const risk =
+      policy?.riskLevel === "blocked"
+        ? "high"
+        : (policy?.riskLevel ?? ACTION_RISK_HINT[a.actionType] ?? "low");
+    const blocked =
+      policy?.decision === "blocked" || HIGH_RISK_BLOCKED.has(a.actionType);
     return (
       <article key={a.id} className={`approval-card approval-card--${risk}`}>
         <header className="approval-card__header">
@@ -177,6 +182,12 @@ export const ApprovalPanel = ({
           </span>
         </header>
         <p className="approval-card__summary">{a.actionSummary}</p>
+        {policy && (
+          <p className="approval-card__policy">
+            policy: {policy.decision} · {policy.reason}
+            {!policy.allowAutoApprove ? " · 수동 승인 필요" : ""}
+          </p>
+        )}
         {a.proposedAction && (
           <pre className="approval-card__details">
             {JSON.stringify(a.proposedAction, null, 2)}

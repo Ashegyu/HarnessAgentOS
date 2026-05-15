@@ -1,4 +1,8 @@
-import type { ApprovalActionType } from "../types/index.ts";
+import type {
+  ApprovalActionType,
+  PolicyEvaluation,
+  PolicyOperation,
+} from "../types/index.ts";
 import type { ProposedAction } from "./types.ts";
 
 /**
@@ -29,6 +33,14 @@ const HIGH_RISK_ACTIONS: ReadonlySet<ApprovalActionType> = new Set([
   "orchestration_plan",
 ]);
 
+const MANUAL_ONLY_ACTIONS: ReadonlySet<ApprovalActionType> = new Set([
+  "dependency_install",
+  "network",
+  "git_commit",
+  "skill_script",
+  "orchestration_plan",
+]);
+
 export const requiresApproval = (action: ApprovalActionType): boolean =>
   ACTIONS_REQUIRING_APPROVAL.has(action);
 
@@ -50,3 +62,75 @@ export const toProposedAction = (
   riskLevel: classifyRisk(type),
   requiresApproval: true,
 });
+
+export const evaluateApprovalActionPolicy = (
+  actionType: ApprovalActionType,
+): PolicyEvaluation => ({
+  operation: { kind: "approval_action", actionType },
+  decision: "confirm",
+  riskLevel: classifyRisk(actionType),
+  allowAutoApprove: !MANUAL_ONLY_ACTIONS.has(actionType),
+  reason: approvalActionReason(actionType),
+});
+
+export const evaluatePolicyOperation = (
+  operation: PolicyOperation,
+): PolicyEvaluation => {
+  switch (operation.kind) {
+    case "approval_action":
+      return evaluateApprovalActionPolicy(operation.actionType);
+    case "read_operation":
+      return {
+        operation,
+        decision: "allowed",
+        riskLevel: "low",
+        allowAutoApprove: true,
+        reason: "Read-only operation; no side effect is performed.",
+      };
+    case "path_violation":
+      return {
+        operation,
+        decision: "blocked",
+        riskLevel: "blocked",
+        allowAutoApprove: false,
+        reason: "Path escapes the allowed workspace boundary.",
+      };
+    case "remote_side_effect":
+      return {
+        operation,
+        decision: "blocked",
+        riskLevel: "blocked",
+        allowAutoApprove: false,
+        reason: "Remote side effects are blocked by default.",
+      };
+  }
+};
+
+export class PolicyService {
+  evaluate(operation: PolicyOperation): PolicyEvaluation {
+    return evaluatePolicyOperation(operation);
+  }
+}
+
+const approvalActionReason = (actionType: ApprovalActionType): string => {
+  switch (actionType) {
+    case "capability_use":
+      return "Capability use can influence prompt context and must be confirmed.";
+    case "model_use":
+      return "Model selection can affect cost and quality and must be confirmed.";
+    case "file_write":
+      return "File writes modify the workspace and must be confirmed.";
+    case "shell":
+      return "Shell commands run with local permissions and must be confirmed.";
+    case "dependency_install":
+      return "Dependency installation has supply-chain risk and requires manual confirmation.";
+    case "network":
+      return "Network operations can transmit data externally and require manual confirmation.";
+    case "git_commit":
+      return "Git commits change repository history and require manual confirmation.";
+    case "skill_script":
+      return "Skill scripts can run local code and require manual confirmation.";
+    case "orchestration_plan":
+      return "Orchestration starts a worker chain and requires manual confirmation.";
+  }
+};

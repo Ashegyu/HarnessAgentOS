@@ -2,6 +2,7 @@ import type { LocalStateService } from "@harness/storage";
 import {
   diagnosticErrorCode,
   diagnosticErrorMessage,
+  evaluateApprovalActionPolicy,
   formatDiagnosticLog,
   type Approval,
 } from "@harness/core";
@@ -96,6 +97,14 @@ export class OrchestrationService {
       throw new OrchestrationError(
         "ORCHESTRATION_APPROVAL_REQUIRED",
         `Approval ${input.approvalId} is ${approval.status}`,
+      );
+    }
+    const policy =
+      approval.policyEvaluation ?? evaluateApprovalActionPolicy(approval.actionType);
+    if (policy.decision === "blocked") {
+      throw new OrchestrationError(
+        "ORCHESTRATION_POLICY_BLOCKED",
+        `Policy blocked orchestration approval ${approval.id}: ${policy.reason}`,
       );
     }
     const plan = await this.recoverPlan(approval);

@@ -1,4 +1,5 @@
 import {
+  evaluateApprovalActionPolicy,
   validateAbsoluteTargetDir,
   type AgentInvocation,
   type Approval,
@@ -331,7 +332,11 @@ export class LocalStateService implements ConversationStateGateway {
   }
 
   async createApproval(input: CreateApprovalInput): Promise<Approval> {
-    return this.approvals.create(input);
+    return this.approvals.create({
+      ...input,
+      policyEvaluation:
+        input.policyEvaluation ?? evaluateApprovalActionPolicy(input.actionType),
+    });
   }
 
   async getApproval(id: string): Promise<Approval | null> {

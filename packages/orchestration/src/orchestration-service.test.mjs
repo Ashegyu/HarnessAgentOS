@@ -170,6 +170,41 @@ test("runApproved refuses when approval is not approved", async () => {
   }
 });
 
+test("runApproved refuses approvals with blocked policy evaluation", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const service = new OrchestrationService({ state, enabled: () => true });
+    const drafted = await service.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+    });
+    db.prepare(
+      `UPDATE approvals SET policy_evaluation_json = ? WHERE id = ?`,
+    ).run(
+      JSON.stringify({
+        operation: { kind: "remote_side_effect", name: "remote_agent_write" },
+        decision: "blocked",
+        riskLevel: "blocked",
+        allowAutoApprove: false,
+        reason: "remote write blocked",
+      }),
+      drafted.approval.id,
+    );
+    await state.decideApproval(drafted.approval.id, "approved");
+
+    await assert.rejects(
+      () => service.runApproved({ approvalId: drafted.approval.id }),
+      (e) => e.code === "ORCHESTRATION_POLICY_BLOCKED",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved produces worker artifacts after approval", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

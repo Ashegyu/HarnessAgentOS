@@ -208,6 +208,15 @@ export interface RepairPlanDraft {
   approvals: Approval[];
 }
 ```
+
+`LocalStateService.createApproval` attaches a default `policyEvaluation` for every
+new `approval_action` when the caller does not supply one. The default decision is
+`confirm`; `dependency_install`, `network`, `git_commit`, `skill_script`, and
+`orchestration_plan` are marked `allowAutoApprove=false`, so global auto approval
+cannot approve them unless a narrower profile-level policy explicitly permits it.
+`decision=blocked` approvals are refused by the runner even if their status is
+manually changed to `approved`.
+
 ## `window.harness.app`
 
 ```ts

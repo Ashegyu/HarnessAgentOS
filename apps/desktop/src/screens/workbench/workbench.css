@@ -1197,6 +1197,16 @@
   font-style: italic;
 }
 
+.approval-card__policy {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
 /* Replaces the action button row for pending approvals inside a
    pipeline-auto TaskRun. The auto-approve effect in WorkbenchShell
    will mark the approval approved+executed in the next tick — this

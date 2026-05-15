@@ -324,6 +324,49 @@ test("dependency_install is blocked at the runner gate", async () => {
   }
 });
 
+test("executeApproved refuses approvals with blocked policy evaluation", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_write",
+        actionSummary: "blocked write",
+        policyEvaluation: {
+          operation: {
+            kind: "path_violation",
+            name: "target_outside_workspace",
+          },
+          decision: "blocked",
+          riskLevel: "blocked",
+          allowAutoApprove: false,
+          reason: "outside workspace",
+        },
+      });
+      await state.setApprovalProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "blocked.txt", after: "no\n" },
+      });
+      await state.decideApproval(approval.id, "approved");
+
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) => e instanceof RunnerError && e.code === "RUNNER_POLICY_BLOCKED",
+      );
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("retryApproval refuses when TaskRun is not blocked/quality_failed", async () => {
   const t = tmp();
   try {

@@ -12,6 +12,7 @@ import {
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
   DEFAULT_RUNNER_TEST_TIMEOUT_MS,
+  evaluateApprovalActionPolicy,
   formatSimpleDiff,
 } from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
@@ -130,6 +131,15 @@ export class RunnerService {
       throw new RunnerError(
         "RUNNER_EXECUTION_FAILED",
         `TaskRun ${approval.taskRunId} not found`,
+      );
+    }
+
+    const policy =
+      approval.policyEvaluation ?? evaluateApprovalActionPolicy(approval.actionType);
+    if (policy.decision === "blocked") {
+      throw new RunnerError(
+        "RUNNER_POLICY_BLOCKED",
+        `Policy blocked ${approval.actionType}: ${policy.reason}`,
       );
     }
 

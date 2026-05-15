@@ -295,3 +295,46 @@ test("createTaskRun requires existing thread and validates targetDir", async () 
     t.cleanup();
   }
 });
+
+test("createApproval attaches default policy evaluation", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "x" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id,
+      userRequest: "do",
+      targetDir: "/tmp/x",
+    });
+    const step = await svc.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "approval",
+      title: "approval",
+    });
+    const checkpoint = await svc.createCheckpoint({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      reason: "before_edit",
+      stateRef: "{}",
+      summary: "approval checkpoint",
+    });
+    const approval = await svc.createApproval({
+      taskRunId: taskRun.id,
+      checkpointId: checkpoint.id,
+      actionType: "dependency_install",
+      actionSummary: "install package",
+    });
+
+    assert.equal(approval.policyEvaluation?.decision, "confirm");
+    assert.equal(approval.policyEvaluation?.riskLevel, "high");
+    assert.equal(approval.policyEvaluation?.allowAutoApprove, false);
+
+    const reloaded = await svc.getApproval(approval.id);
+    assert.deepEqual(reloaded?.policyEvaluation, approval.policyEvaluation);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
