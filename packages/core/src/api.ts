@@ -7,6 +7,9 @@ import type {
   AgentProvider,
   AgentProviderStatusMap,
   AgentStreamEvent,
+  A2AAgentCardSnapshot,
+  A2AEndpoint,
+  A2ARegistryEntry,
   Artifact,
   Capability,
   CapabilityCandidateApprovalResult,
@@ -305,6 +308,18 @@ export interface HarnessDesktopApi {
     }): Promise<AgentPipeline>;
     update(input: { pipeline: AgentPipeline }): Promise<AgentPipeline>;
     delete(input: { pipelineId: string }): Promise<void>;
+  };
+  remoteAgents: {
+    list(): Promise<A2ARegistryEntry[]>;
+    get(input: { endpointId: string }): Promise<A2ARegistryEntry>;
+    upsertEndpoint(input: {
+      endpoint: A2AEndpoint | Omit<A2AEndpoint, "id" | "createdAt" | "updatedAt">;
+    }): Promise<A2AEndpoint>;
+    delete(input: { endpointId: string }): Promise<void>;
+    toggle(input: { endpointId: string; enabled: boolean }): Promise<A2AEndpoint>;
+    upsertCardSnapshot(input: {
+      snapshot: A2AAgentCardSnapshot;
+    }): Promise<A2AAgentCardSnapshot>;
   };
   events: {
     /**

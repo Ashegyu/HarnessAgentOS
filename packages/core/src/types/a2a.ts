@@ -31,6 +31,8 @@ export interface A2AEndpoint {
   updatedAt: string;
 }
 
+export type A2AEndpointDraft = Omit<A2AEndpoint, "id" | "createdAt" | "updatedAt">;
+
 export interface A2AAgentCardSnapshot {
   endpointId: string;
   protocolVersion?: string;
@@ -50,6 +52,11 @@ export interface A2AAgentCardSnapshot {
   rawCardJson: string;
 }
 
+export interface A2ARegistryEntry {
+  endpoint: A2AEndpoint;
+  card?: A2AAgentCardSnapshot;
+}
+
 export interface A2ARemoteTaskRef {
   invocationId: string;
   endpointId: string;
@@ -59,3 +66,84 @@ export interface A2ARemoteTaskRef {
   lastEventAt?: string;
 }
 
+export const A2A_TRANSPORTS: readonly A2ATransport[] = [
+  "json-rpc",
+  "http-json",
+  "grpc",
+];
+
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((item) => typeof item === "string");
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const hasOptionalString = (
+  obj: Record<string, unknown>,
+  key: string,
+): boolean => obj[key] === undefined || typeof obj[key] === "string";
+
+export const isA2AEndpointDraft = (v: unknown): v is A2AEndpointDraft => {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.name === "string" &&
+    typeof v.baseUrl === "string" &&
+    typeof v.agentCardUrl === "string" &&
+    typeof v.preferredTransport === "string" &&
+    A2A_TRANSPORTS.includes(v.preferredTransport as A2ATransport) &&
+    typeof v.enabled === "boolean" &&
+    typeof v.trusted === "boolean" &&
+    hasOptionalString(v, "authSecretRef")
+  );
+};
+
+export const isA2AEndpoint = (v: unknown): v is A2AEndpoint => {
+  if (!isRecord(v) || !isA2AEndpointDraft(v)) return false;
+  const endpoint = v as Record<string, unknown>;
+  return (
+    typeof endpoint.id === "string" &&
+    typeof endpoint.createdAt === "string" &&
+    typeof endpoint.updatedAt === "string"
+  );
+};
+
+const isA2ASkillSnapshot = (v: unknown): v is A2ASkillSnapshot => {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.id === "string" &&
+    typeof v.name === "string" &&
+    typeof v.description === "string" &&
+    isStringArray(v.tags)
+  );
+};
+
+const isA2ACapabilities = (
+  v: unknown,
+): v is A2AAgentCardSnapshot["capabilities"] => {
+  if (!isRecord(v)) return false;
+  for (const key of ["streaming", "pushNotifications", "stateTransitionHistory"]) {
+    if (v[key] !== undefined && typeof v[key] !== "boolean") return false;
+  }
+  return true;
+};
+
+export const isA2AAgentCardSnapshot = (
+  v: unknown,
+): v is A2AAgentCardSnapshot => {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.endpointId === "string" &&
+    hasOptionalString(v, "protocolVersion") &&
+    typeof v.agentName === "string" &&
+    hasOptionalString(v, "description") &&
+    hasOptionalString(v, "version") &&
+    Array.isArray(v.skills) &&
+    v.skills.every(isA2ASkillSnapshot) &&
+    isStringArray(v.inputModes) &&
+    isStringArray(v.outputModes) &&
+    isA2ACapabilities(v.capabilities) &&
+    typeof v.fetchedAt === "string" &&
+    hasOptionalString(v, "etag") &&
+    typeof v.rawCardJson === "string"
+  );
+};

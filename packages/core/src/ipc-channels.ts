@@ -124,6 +124,15 @@ export const IPC_CHANNELS = {
     update: "pipeline:update",
     delete: "pipeline:delete",
   },
+  /** Remote A2A agent registry. SDK and network execution stay in main. */
+  remoteAgents: {
+    list: "remoteAgents:list",
+    get: "remoteAgents:get",
+    upsertEndpoint: "remoteAgents:upsertEndpoint",
+    delete: "remoteAgents:delete",
+    toggle: "remoteAgents:toggle",
+    upsertCardSnapshot: "remoteAgents:upsertCardSnapshot",
+  },
   events: {
     /**
      * One-way main → renderer push (id-only). Emitted whenever a TaskRun

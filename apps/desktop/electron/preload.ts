@@ -6,6 +6,9 @@ import {
   type AgentInvocation,
   type AgentProviderStatusMap,
   type AgentStreamEvent,
+  type A2AAgentCardSnapshot,
+  type A2AEndpoint,
+  type A2ARegistryEntry,
   type Approval,
   type Artifact,
   type Capability,
@@ -335,6 +338,27 @@ const harnessApi: HarnessDesktopApi = {
     delete: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.pipeline.delete, input);
     },
+  },
+  remoteAgents: {
+    list: () =>
+      invokeUnwrapped<A2ARegistryEntry[]>(IPC_CHANNELS.remoteAgents.list),
+    get: (input) =>
+      invokeUnwrapped<A2ARegistryEntry>(IPC_CHANNELS.remoteAgents.get, input),
+    upsertEndpoint: (input) =>
+      invokeUnwrapped<A2AEndpoint>(
+        IPC_CHANNELS.remoteAgents.upsertEndpoint,
+        input,
+      ),
+    delete: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.remoteAgents.delete, input);
+    },
+    toggle: (input) =>
+      invokeUnwrapped<A2AEndpoint>(IPC_CHANNELS.remoteAgents.toggle, input),
+    upsertCardSnapshot: (input) =>
+      invokeUnwrapped<A2AAgentCardSnapshot>(
+        IPC_CHANNELS.remoteAgents.upsertCardSnapshot,
+        input,
+      ),
   },
   events: {
     onTaskRunChanged: (listener) => {
