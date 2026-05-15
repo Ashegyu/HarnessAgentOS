@@ -886,6 +886,8 @@ agent가 만든 approval은 사람이 만든 approval과 동일하게 보여야 
 완료 기준:
 
 - `npm run verify` 통과.
+- `npm --workspace=@harness/desktop run e2e` 통과 (빌드된 Electron 앱 launch + thread 생성).
+- `npm --workspace=@harness/desktop run smoke:e2e` 통과 (서비스 레벨 사용자 흐름: fallback, approval, runner, artifact read).
 - `npm --workspace=@harness/desktop run smoke:agent-fake` 추가 및 통과 (workspace 기준; `apps/desktop/package.json`의 scripts에 등록).
 - 실제 CLI가 설치된 환경에서는 `npm --workspace=@harness/desktop run smoke:agent-live -- --provider codex` 또는 `--provider claude`가 통과한다.
 
@@ -947,6 +949,7 @@ Phase 8은 다음을 모두 만족해야 닫는다.
 - 실패, timeout, invalid output, provider missing이 UI 상태로 드러난다.
 - deterministic template fallback이 유지된다.
 - `npm run verify`가 통과한다.
+- desktop launch smoke와 service-level E2E smoke가 통과한다.
 - fake agent smoke가 통과한다.
 - live CLI smoke는 CLI가 설치/인증된 환경에서 통과한다.
 

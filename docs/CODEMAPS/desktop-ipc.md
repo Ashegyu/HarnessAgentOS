@@ -78,8 +78,24 @@ conversation.createTask({mode: "agent"})
 ## E2E
 
 [apps/desktop/e2e/smoke.spec.ts](../../apps/desktop/e2e/smoke.spec.ts) launches
-the built bundle against an isolated `userData` dir. Run with
+the built Electron bundle against an isolated `userData` dir and verifies the
+first visible desktop workflow: app launch, sidebar render, thread creation,
+and the empty conversation surface. Run with
 `npm --workspace=@harness/desktop run e2e` (does `rebuild:electron` + `build`
-first). Unit tests stay on Node ABI, so re-run `npm rebuild better-sqlite3`
-or `npm run rebuild:node` before `npm test` if you've just done an Electron
-rebuild on Windows.
+first).
+
+[apps/desktop/scripts/smoke-e2e-runner.mjs](../../apps/desktop/scripts/smoke-e2e-runner.mjs)
+is the service-level end-to-end smoke for the user workflow behind the UI:
+create thread, create agent TaskRun, verify provider-failure recovery through
+template fallback, approve a proposed file write, execute it through
+`RunnerService`, read artifacts through the same IPC branch, and inspect the
+final TaskRun snapshot. Run with
+`npm --workspace=@harness/desktop run smoke:e2e`.
+
+Phase 8 agent contract smoke remains split from desktop launch smoke:
+`npm --workspace=@harness/desktop run smoke:agent-fake` is deterministic and
+CI-suitable; `npm --workspace=@harness/desktop run smoke:agent-live` is manual
+and depends on an authenticated local `claude` or `codex` CLI.
+
+Node smoke scripts run `rebuild:node` before opening SQLite so they recover from
+a previous Electron ABI rebuild. Unit tests do the same through `npm run test`.

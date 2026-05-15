@@ -13,7 +13,7 @@
 //   7. RuntimeStatusBar/RightPanel 이 보여줄 detail snapshot 확인
 //
 // Run:
-//   npm --workspace apps/desktop run smoke:e2e
+//   npm --workspace=@harness/desktop run smoke:e2e
 
 import { mkdtempSync, rmSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
