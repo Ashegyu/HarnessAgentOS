@@ -28,7 +28,10 @@ import {
   type ProposedActionDetails,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
-import { buildSplitAgentPrompt } from "./agent-prompt-builder.ts";
+import {
+  buildSplitAgentPrompt,
+  type AgentHandoffPromptMessage,
+} from "./agent-prompt-builder.ts";
 import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
@@ -797,6 +800,7 @@ export class AgentPlanningService {
     taskRunId: string;
     profile: AgentProfile;
     userRequest: string;
+    handoffMessages?: readonly AgentHandoffPromptMessage[];
   }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
@@ -863,6 +867,9 @@ export class AgentPlanningService {
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
       capabilityContexts,
+      ...(input.handoffMessages && input.handoffMessages.length > 0
+        ? { handoffMessages: input.handoffMessages }
+        : {}),
     });
     const systemPrompt = redactSecrets(prompt.systemPrompt, 80_000);
     const userPrompt = redactSecrets(prompt.userPrompt, 80_000);
@@ -921,7 +928,7 @@ export class AgentPlanningService {
     emitProgress(
       "prompt",
       "Worker 프롬프트 구성 완료",
-      `system ${systemPrompt.length}자, user ${userPrompt.length}자`,
+      `system ${systemPrompt.length}자, user ${userPrompt.length}자, handoff ${input.handoffMessages?.length ?? 0}개`,
     );
     emitProgress(
       "session",

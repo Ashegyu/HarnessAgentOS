@@ -11,10 +11,20 @@ import type {
  */
 export const PROMPT_HARD_CAP_BYTES = 80 * 1024;
 
+export interface AgentHandoffPromptMessage {
+  fromRole: string;
+  fromTitle: string;
+  content: string;
+  artifactId: string;
+  createdAt?: string;
+}
+
 export interface PromptBuildInput {
   taskRun: TaskRun;
   /** Optional repair-loop instruction; injected near the bottom. */
   instruction?: string;
+  /** Prior local worker outputs handed off inside the same TaskRun. */
+  handoffMessages?: readonly AgentHandoffPromptMessage[];
   /** Latest non-failed artifacts the agent may use as context. */
   recentArtifacts?: Artifact[];
   /** When repairing a failed quality gate, the latest gate result. */
@@ -129,6 +139,9 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
       ["REDIRECT INSTRUCTION", `- ${input.instruction.trim()}`].join("\n"),
     );
   }
+  if (input.handoffMessages && input.handoffMessages.length > 0) {
+    userSections.push(formatInternalHandoffMessages(input.handoffMessages));
+  }
   if (input.qualityRisks) {
     const risks = input.qualityRisks.knownRisks.slice(0, 12);
     userSections.push(
@@ -185,6 +198,9 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
       ["REDIRECT INSTRUCTION", `- ${input.instruction.trim()}`].join("\n"),
     );
   }
+  if (input.handoffMessages && input.handoffMessages.length > 0) {
+    sections.push(formatInternalHandoffMessages(input.handoffMessages));
+  }
   if (input.qualityRisks) {
     const risks = input.qualityRisks.knownRisks.slice(0, 12);
     sections.push(
@@ -217,6 +233,31 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
   const middle = sections.slice(3, -1).join("\n\n");
   const truncated = middle.slice(0, Math.max(0, room));
   return [head, truncated, "[...truncated]", tail].join("\n\n");
+};
+
+const formatInternalHandoffMessages = (
+  messages: readonly AgentHandoffPromptMessage[],
+): string => {
+  const visibleMessages = messages
+    .filter((message) => message.content.trim().length > 0)
+    .slice(-6);
+  const lines: string[] = [
+    "INTERNAL AGENT HANDOFF",
+    "- Prior local Harness agents in this run produced these outputs.",
+    "- Use them as context only; side effects still require Harness approval.",
+  ];
+  for (const message of visibleMessages) {
+    lines.push(
+      "",
+      `### ${message.fromRole}: ${message.fromTitle}`,
+      `- artifact: ${message.artifactId}`,
+    );
+    if (message.createdAt) {
+      lines.push(`- createdAt: ${message.createdAt}`);
+    }
+    lines.push("", message.content.trim().slice(0, 6_000));
+  }
+  return lines.join("\n");
 };
 
 const formatCapabilityContexts = (
