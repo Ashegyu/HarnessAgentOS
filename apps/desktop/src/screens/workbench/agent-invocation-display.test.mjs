@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { orderedAgentInvocationsForDisplay } from "./agent-invocation-display.ts";
+import {
+  describeAgentInvocationForDisplay,
+  orderedAgentInvocationsForDisplay,
+} from "./agent-invocation-display.ts";
 
 const invocation = (overrides = {}) => ({
   id: "inv_1",
@@ -12,6 +15,16 @@ const invocation = (overrides = {}) => ({
   promptArtifactId: "art_prompt",
   createdAt: "2026-05-15T00:00:00.000Z",
   updatedAt: "2026-05-15T00:00:00.000Z",
+  ...overrides,
+});
+
+const step = (overrides = {}) => ({
+  id: "step_1",
+  taskRunId: "task_1",
+  index: 0,
+  kind: "summarize",
+  title: "Worker[Reviewer] 분석",
+  status: "succeeded",
   ...overrides,
 });
 
@@ -60,4 +73,35 @@ test("keeps previous agent answers instead of collapsing to the latest invocatio
     ordered.map((item) => item.id),
     ["inv_previous", "inv_latest"],
   );
+});
+
+test("describes an invocation with the concrete worker agent name from its step", () => {
+  const display = describeAgentInvocationForDisplay(
+    invocation({ id: "inv_reviewer", stepId: "step_reviewer" }),
+    [
+      step({
+        id: "step_reviewer",
+        title: "Worker[Reviewer] 구현 결과 검토",
+      }),
+    ],
+  );
+
+  assert.deepEqual(display, {
+    agentName: "Reviewer",
+    detail: "구현 결과 검토",
+    providerLabel: "codex:gpt-5",
+  });
+});
+
+test("falls back to provider and model when no step identifies the agent", () => {
+  const display = describeAgentInvocationForDisplay(
+    invocation({ provider: "claude", model: "sonnet" }),
+    [],
+  );
+
+  assert.deepEqual(display, {
+    agentName: "claude:sonnet",
+    detail: "Agent invocation",
+    providerLabel: "claude:sonnet",
+  });
 });
