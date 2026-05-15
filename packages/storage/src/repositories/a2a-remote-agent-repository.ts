@@ -1,4 +1,8 @@
-import type { A2AAgentCardSnapshot, A2AEndpoint } from "@harness/core";
+import type {
+  A2AAgentCardSnapshot,
+  A2AEndpoint,
+  A2ARemoteTaskRef,
+} from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
 
@@ -19,6 +23,9 @@ export interface A2ARemoteAgentRepository {
   upsertCardSnapshot(
     snapshot: A2AAgentCardSnapshot,
   ): Promise<A2AAgentCardSnapshot>;
+  getRemoteTaskRef(invocationId: string): Promise<A2ARemoteTaskRef | null>;
+  listRemoteTaskRefsByEndpoint(endpointId: string): Promise<A2ARemoteTaskRef[]>;
+  upsertRemoteTaskRef(ref: A2ARemoteTaskRef): Promise<A2ARemoteTaskRef>;
 }
 
 interface EndpointRow {
@@ -49,6 +56,15 @@ interface CardRow {
   raw_card_json: string;
 }
 
+interface RemoteTaskRow {
+  invocation_id: string;
+  endpoint_id: string;
+  remote_task_id: string | null;
+  remote_context_id: string | null;
+  state: A2ARemoteTaskRef["state"];
+  last_event_at: string | null;
+}
+
 const ENDPOINT_SELECT = `SELECT id, name, base_url, agent_card_url,
        preferred_transport, enabled, trusted, auth_secret_ref,
        created_at, updated_at
@@ -58,6 +74,10 @@ const CARD_SELECT = `SELECT endpoint_id, protocol_version, agent_name,
        description, version, skills_json, input_modes_json, output_modes_json,
        capabilities_json, fetched_at, etag, raw_card_json
   FROM a2a_agent_card_snapshots`;
+
+const REMOTE_TASK_SELECT = `SELECT invocation_id, endpoint_id, remote_task_id,
+       remote_context_id, state, last_event_at
+  FROM a2a_remote_tasks`;
 
 const rowToEndpoint = (row: EndpointRow): A2AEndpoint => {
   const endpoint: A2AEndpoint = {
@@ -91,6 +111,20 @@ const rowToCard = (row: CardRow): A2AAgentCardSnapshot => {
   if (row.version !== null) snapshot.version = row.version;
   if (row.etag !== null) snapshot.etag = row.etag;
   return snapshot;
+};
+
+const rowToRemoteTask = (row: RemoteTaskRow): A2ARemoteTaskRef => {
+  const ref: A2ARemoteTaskRef = {
+    invocationId: row.invocation_id,
+    endpointId: row.endpoint_id,
+    state: row.state,
+  };
+  if (row.remote_task_id !== null) ref.remoteTaskId = row.remote_task_id;
+  if (row.remote_context_id !== null) {
+    ref.remoteContextId = row.remote_context_id;
+  }
+  if (row.last_event_at !== null) ref.lastEventAt = row.last_event_at;
+  return ref;
 };
 
 export class SqliteA2ARemoteAgentRepository
@@ -218,6 +252,61 @@ export class SqliteA2ARemoteAgentRepository
     return refreshed;
   }
 
+  async getRemoteTaskRef(
+    invocationId: string,
+  ): Promise<A2ARemoteTaskRef | null> {
+    const row = this.db
+      .prepare<[string], RemoteTaskRow>(
+        `${REMOTE_TASK_SELECT} WHERE invocation_id = ?`,
+      )
+      .get(invocationId);
+    return row ? rowToRemoteTask(row) : null;
+  }
+
+  async listRemoteTaskRefsByEndpoint(
+    endpointId: string,
+  ): Promise<A2ARemoteTaskRef[]> {
+    const rows = this.db
+      .prepare<[string], RemoteTaskRow>(
+        `${REMOTE_TASK_SELECT}
+         WHERE endpoint_id = ?
+         ORDER BY datetime(last_event_at) DESC, invocation_id ASC`,
+      )
+      .all(endpointId);
+    return rows.map(rowToRemoteTask);
+  }
+
+  async upsertRemoteTaskRef(
+    ref: A2ARemoteTaskRef,
+  ): Promise<A2ARemoteTaskRef> {
+    this.db
+      .prepare(
+        `INSERT INTO a2a_remote_tasks
+          (invocation_id, endpoint_id, remote_task_id, remote_context_id,
+           state, last_event_at)
+         VALUES (?,?,?,?,?,?)
+         ON CONFLICT(invocation_id) DO UPDATE SET
+           endpoint_id = excluded.endpoint_id,
+           remote_task_id = excluded.remote_task_id,
+           remote_context_id = excluded.remote_context_id,
+           state = excluded.state,
+           last_event_at = excluded.last_event_at`,
+      )
+      .run(
+        ref.invocationId,
+        ref.endpointId,
+        ref.remoteTaskId ?? null,
+        ref.remoteContextId ?? null,
+        ref.state,
+        ref.lastEventAt ?? null,
+      );
+    const refreshed = await this.getRemoteTaskRef(ref.invocationId);
+    if (!refreshed) {
+      throw new Error(`A2A remote task ref not found: ${ref.invocationId}`);
+    }
+    return refreshed;
+  }
+
   private writeEndpoint(endpoint: A2AEndpoint, mode: "insert" | "update"): void {
     if (mode === "insert") {
       this.db
@@ -262,4 +351,3 @@ export class SqliteA2ARemoteAgentRepository
       );
   }
 }
-
