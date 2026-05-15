@@ -614,7 +614,7 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
   - `listRemoteTaskRefsByEndpoint(endpointId)`
   - `upsertRemoteTaskRef(ref)`
 
-다음 즉시 진행:
+Phase C-2에서 완료할 항목:
 
 1. 실제 `@a2a-js/sdk` 도입 전 timeout/cancellation/redaction 정책을 기존 CLI adapter 정책과 비교한다.
 2. `A2AWorkerInvoker.onRemoteTaskRef`를 `SqliteA2ARemoteAgentRepository.upsertRemoteTaskRef`에 연결할 composition test를 추가한다.
@@ -634,19 +634,43 @@ Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
 
 | 항목 | 현재 상태 | 다음 요구사항 |
 |------|-----------|---------------|
-| timeout | `A2AWorkerInvoker`는 자체 timeout을 만들지 않음 | SDK adapter가 기존 agent timeout 값 또는 endpoint policy를 받아야 함 |
-| cancellation | `A2AWorkerInvoker`가 `AbortSignal`을 `A2AInvocationAdapter`로 전달 | SDK adapter가 signal abort 시 remote request를 중단해야 함 |
-| redaction | 현재 SDK-free seam은 remote text를 그대로 parser에 전달 | 실제 SDK adapter 또는 호출 service에서 `redactSecrets` 적용 지점 필요 |
+| timeout | `OfficialA2AClientPort`가 optional `timeoutMs`를 SDK request `AbortSignal`에 합성 | profile/endpoint policy에서 timeout 값을 주입하는 routing은 Phase D 범위 |
+| cancellation | `A2AWorkerInvoker` -> `A2AInvocationAdapter` -> `OfficialA2AClientPort` -> SDK request options로 `AbortSignal` 전달 | 실제 원격 endpoint smoke는 configured endpoint 확보 후 수행 |
+| redaction | `OfficialA2AClientPort`가 기본 `redactSecrets`와 optional `redactText` callback으로 message/status/artifact text를 정규화 | secret vault 기반 추가 redactor 주입은 production routing 단계에서 연결 |
 | side effect | pending `Approval` row 생성만 허용 | runner 승인 전 remote proposal 실행 금지 유지 |
-| persistence | remote task ref repository 준비됨 | invoker callback을 repository upsert에 연결하는 composition 필요 |
+| persistence | `createPersistentA2AWorkerInvoker`가 `AgentInvocation`, raw output artifact, remote task ref를 저장 | Agent 탭 remote state 표시는 Phase D UI 범위 |
 
 ### 16.3 Phase C-2 구현 순서
 
-1. `@a2a-js/sdk`를 adapter package 내부에만 설치한다.
-2. SDK 타입을 `packages/core`, renderer, storage repository로 노출하지 않는다.
-3. endpoint/card snapshot의 transport 값에 따라 SDK client를 생성한다.
-4. timeout, cancellation, redaction을 기존 agent invocation 정책과 맞춘다.
-5. raw transcript artifact와 remote task reference를 저장한다.
+1. [x] `@a2a-js/sdk`를 adapter package 내부에만 설치한다.
+2. [x] SDK 타입을 `packages/core`, renderer, storage repository로 노출하지 않는다.
+3. [x] endpoint/card snapshot의 transport 값에 따라 SDK client를 생성한다.
+4. [x] timeout, cancellation, redaction을 기존 agent invocation 정책과 맞춘다.
+5. [x] raw transcript artifact와 remote task reference를 저장한다.
+
+### 16.3.1 Phase C-2 완료 범위
+
+- `packages/agent/src/a2a-sdk-client.ts`
+  - official `@a2a-js/sdk` `ClientFactory`를 `A2AClientPort` 뒤에 격리
+  - `json-rpc` / `http-json` / `grpc` transport preference mapping
+  - `sendMessageStream` event를 `task-state`, `message`, `artifact`로 정규화
+  - caller cancellation과 optional timeout을 SDK `RequestOptions.signal`로 전달
+  - text/status/artifact text에 기존 `redactSecrets` 기본 적용, 필요 시 callback override 허용
+- `packages/agent/src/a2a-sdk-client.test.mjs`
+  - SDK client 생성 URL/path mapping
+  - stream event normalization
+  - transport preference mapping
+  - cancellation propagation
+- `apps/desktop/electron/a2a-worker-composition.ts`
+  - A2A remote worker invocation을 `AgentInvocation` row로 저장
+  - prompt/raw output `Artifact` 저장
+  - `A2AWorkerInvoker.onRemoteTaskRef`를 `a2a_remote_tasks` upsert에 연결
+  - 실패/취소 시 invocation terminal status 기록
+- `apps/desktop/electron/a2a-worker-integration.test.mjs`
+  - remote proposed action은 pending `Approval`로만 생성
+  - raw output artifact와 remote task ref가 같은 invocation id로 연결됨
+
+Phase C-2 이후 다음 큰 단계는 Phase D다. Phase D에서는 pipeline step 또는 profile routing에서 어떤 remote endpoint를 선택할지, 그리고 Agent 탭에 remote task state를 어떻게 표시할지 결정한다.
 
 ### 16.4 Phase C 검증 명령
 

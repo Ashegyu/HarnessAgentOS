@@ -6,6 +6,7 @@ export * from "./model-cli-errors";
 export * from "./model-cli-adapter";
 export * from "./fake-model-cli-adapter";
 export * from "./a2a-invocation-adapter";
+export * from "./a2a-sdk-client";
 export * from "./a2a-worker-invoker";
 export * from "./agent-invocation-queue";
 export * from "./agent-planning-service";
