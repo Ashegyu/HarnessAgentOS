@@ -1,9 +1,14 @@
 import type {
   A2ARemoteTaskRef,
   A2ARemoteTaskState,
+  AgentProposedAction,
   AgentProgressStage,
   AgentStreamEvent,
 } from "@harness/core";
+import {
+  parseAgentPlan,
+  type ParseAgentPlanResult,
+} from "./agent-output-parser.ts";
 
 export interface A2AInvocationRequest {
   invocationId: string;
@@ -58,6 +63,11 @@ export interface A2AInvocationResult {
   costEstimate?: number;
   requiresInput: boolean;
   requiresAuth: boolean;
+}
+
+export interface A2AWorkerOutcome {
+  outputText: string;
+  proposedActions?: AgentProposedAction[];
 }
 
 export type A2AInvocationErrorCode =
@@ -201,6 +211,28 @@ export class A2AInvocationAdapter {
     };
   }
 }
+
+export const parseA2AInvocationPlan = (
+  result: Pick<A2AInvocationResult, "outputText">,
+): ParseAgentPlanResult => parseAgentPlan(result.outputText);
+
+/**
+ * Bridge for future orchestration integration. It intentionally exposes
+ * remote actions only as proposed actions; WorkerRunner is the component
+ * that turns these into pending Approval rows.
+ */
+export const a2aInvocationToWorkerOutcome = (
+  result: Pick<A2AInvocationResult, "outputText">,
+): A2AWorkerOutcome => {
+  const parsed = parseA2AInvocationPlan(result);
+  if (!parsed.ok || parsed.plan.proposedActions.length === 0) {
+    return { outputText: result.outputText };
+  }
+  return {
+    outputText: result.outputText,
+    proposedActions: parsed.plan.proposedActions.slice(),
+  };
+};
 
 const stageForState = (state: A2ARemoteTaskState): AgentProgressStage => {
   if (state === "submitted") return "queued";
