@@ -542,7 +542,74 @@ Agent Card의 전체 JSON은 접힌 상세 영역으로 보여준다. secret으�
 
 ---
 
-## 16. 참고 자료
+## 16. 다음 진행 사항
+
+Phase B는 registry-only 범위로 완료된 상태를 기준으로 한다.
+
+완료된 기반:
+
+- `A2AEndpoint`, `A2AAgentCardSnapshot`, `A2ARegistryEntry` core 타입
+- SQLite `a2a_endpoints`, `a2a_agent_card_snapshots`, `a2a_remote_tasks` schema
+- `SqliteA2ARemoteAgentRepository`
+- `window.harness.remoteAgents.*` IPC/preload surface
+- Settings > Remote Agents registry UI
+
+### 16.1 Phase C 진입 전 결정 게이트
+
+1. 실제 호출 API는 기존 `agent.generatePlan`에 붙일지, 별도 `remoteAgents.invoke`로 둘지 결정한다.
+2. `AgentProvider`에 `"a2a"`를 추가할지, `AgentInvocation`에 `remoteEndpointId`/`remoteTaskId` 보조 필드를 추가할지 결정한다.
+3. Phase C 첫 구현은 실제 SDK가 아니라 fake transport 기반 adapter contract test로 시작한다.
+4. endpoint 호출은 `network` approval을 요구할지, 사용자가 enabled/trusted endpoint를 저장한 사실을 호출 승인으로 볼지 결정한다.
+
+현재 권장:
+
+- UI/API 안정성을 위해 renderer-facing 호출은 `agent.generatePlan` 쪽으로 통합한다.
+- DB에는 `agent_invocations.provider`를 바로 확장하기보다 `a2a_remote_tasks.invocation_id`로 remote task reference를 연결한다.
+- Phase C-1은 `@a2a-js/sdk` 설치 없이 `A2AClientPort` interface와 fake adapter로 진행한다.
+- 실제 `@a2a-js/sdk` 도입은 Phase C-2에서 adapter 내부로만 제한한다.
+
+### 16.2 Phase C-1 구현 순서
+
+1. `packages/agent`에 SDK 독립 `A2AClientPort`와 `A2AInvocationAdapter` contract를 정의한다.
+2. fake client로 message/task response를 받아 `AgentStreamEvent`로 변환하는 테스트를 먼저 추가한다.
+3. A2A state mapping 테스트를 추가한다.
+   - `submitted`/`working` -> running progress
+   - `input-required` -> paused/input-required progress
+   - `completed` -> result event
+   - `failed`/`rejected` -> failed event
+4. remote artifact normalization 테스트를 추가한다.
+5. proposed action extraction은 기존 `harness_agent_plan` parser를 재사용 가능한지 먼저 확인한다.
+6. 모든 remote side effect 후보는 직접 실행하지 않고 `Approval` 생성으로만 연결한다.
+
+### 16.3 Phase C-2 구현 순서
+
+1. `@a2a-js/sdk`를 adapter package 내부에만 설치한다.
+2. SDK 타입을 `packages/core`, renderer, storage repository로 노출하지 않는다.
+3. endpoint/card snapshot의 transport 값에 따라 SDK client를 생성한다.
+4. timeout, cancellation, redaction을 기존 agent invocation 정책과 맞춘다.
+5. raw transcript artifact와 remote task reference를 저장한다.
+
+### 16.4 Phase C 검증 명령
+
+```bash
+node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/electron/ipc/remote-agents-ipc.test.mjs packages/storage/src/repositories/a2a-remote-agent-repository.test.mjs
+npm run check
+npm run test
+npm run build
+```
+
+### 16.5 Phase C 금지 사항
+
+- Electron main process 안에 Express server를 추가하지 않는다.
+- renderer에서 A2A SDK 또는 remote fetch를 직접 호출하지 않는다.
+- inbound webhook, localhost listener, WebSocket server를 만들지 않는다.
+- remote agent 응답만으로 `TaskRun`을 `done`으로 만들지 않는다.
+- remote agent가 제안한 file/shell/git/dependency/network action을 approval 없이 실행하지 않는다.
+
+---
+
+## 17. 참고 자료
 
 - `a2a_agent_to_agent_npm_analysis.html`
 - [A2A Protocol Specification](https://github.com/a2aproject/A2A/blob/main/docs/specification.md)
