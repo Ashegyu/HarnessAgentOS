@@ -32,6 +32,20 @@ test("isAgentPipelineStep accepts a well-formed step", () => {
   assert.equal(isAgentPipelineStep(VALID_STEP), true);
 });
 
+test("isAgentPipelineStep accepts a remote A2A endpoint override", () => {
+  assert.equal(
+    isAgentPipelineStep({ ...VALID_STEP, remoteEndpointId: "a2a_remote_1" }),
+    true,
+  );
+});
+
+test("isAgentPipelineStep rejects an empty remoteEndpointId", () => {
+  assert.equal(
+    isAgentPipelineStep({ ...VALID_STEP, remoteEndpointId: "" }),
+    false,
+  );
+});
+
 test("isAgentPipelineStep rejects missing agentProfileId", () => {
   const { agentProfileId: _ignored, ...rest } = VALID_STEP;
   void _ignored;

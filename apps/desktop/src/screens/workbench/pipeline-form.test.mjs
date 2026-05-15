@@ -9,6 +9,19 @@ import {
 } from "./pipeline-form.ts";
 
 const profile = (id, name = "Coder") => ({ id, name });
+const remoteEntry = (id, name = "Remote Reviewer") => ({
+  endpoint: {
+    id,
+    name,
+    baseUrl: "https://agents.example.com/reviewer",
+    agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+    preferredTransport: "json-rpc",
+    enabled: true,
+    trusted: true,
+    createdAt: "2026-05-15T00:00:00.000Z",
+    updatedAt: "2026-05-15T00:00:00.000Z",
+  },
+});
 
 test("emptyPipelineDraft starts blank with no steps", () => {
   const d = emptyPipelineDraft();
@@ -61,6 +74,46 @@ test("validatePipelineDraft accepts a well-formed draft", () => {
   assert.deepEqual(validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]), []);
 });
 
+test("validatePipelineDraft accepts a known remote endpoint override", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Remote Flow",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        remoteEndpointId: "a2a_remote",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+      },
+    ],
+  };
+  assert.deepEqual(
+    validatePipelineDraft(d, [profile("ap_a")], [remoteEntry("a2a_remote")]),
+    [],
+  );
+});
+
+test("validatePipelineDraft flags an unknown remote endpoint override", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Remote Flow",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        remoteEndpointId: "a2a_missing",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+      },
+    ],
+  };
+  const errs = validatePipelineDraft(d, [profile("ap_a")], []);
+  assert.ok(errs.some((e) => /remote endpoint/i.test(e.message)));
+});
+
 test("serializePipelineDraft strips renderer-only id when null (create mode)", () => {
   const d = {
     id: null,
@@ -72,6 +125,26 @@ test("serializePipelineDraft strips renderer-only id when null (create mode)", (
   assert.ok(!("id" in out));
   assert.equal(out.name, "Flow");
   assert.equal(out.steps.length, 1);
+});
+
+test("serializePipelineDraft preserves remoteEndpointId when selected", () => {
+  const d = {
+    id: null,
+    name: "Remote Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        remoteEndpointId: "a2a_remote",
+        title: "T",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+      },
+    ],
+  };
+  const out = serializePipelineDraft(d);
+  assert.equal(out.steps[0].remoteEndpointId, "a2a_remote");
 });
 
 test("serializePipelineDraft preserves id in update mode", () => {
@@ -99,6 +172,28 @@ test("pipelineToDraft round-trips an existing pipeline", () => {
   const draft = pipelineToDraft(pipeline);
   assert.equal(draft.id, "pipe_1");
   assert.equal(draft.steps[0].instruction, "Hi");
+});
+
+test("pipelineToDraft round-trips a remoteEndpointId", () => {
+  const pipeline = {
+    id: "pipe_1",
+    name: "Remote Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        remoteEndpointId: "a2a_remote",
+        title: "Remote",
+        instruction: "Hi",
+        expectedArtifactKinds: ["log"],
+      },
+    ],
+    createdAt: "2026-05-12T00:00:00.000Z",
+    updatedAt: "2026-05-12T00:00:00.000Z",
+  };
+  const draft = pipelineToDraft(pipeline);
+  assert.equal(draft.steps[0].remoteEndpointId, "a2a_remote");
 });
 
 test("moveStep shifts a step up by one position", () => {

@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { A2AWorkerInvoker } from "@harness/agent";
 import { OrchestrationPlanner, WorkerRunner } from "@harness/orchestration";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
-import { createPersistentA2AWorkerInvoker } from "./a2a-worker-composition.ts";
+import {
+  createA2AWorkerRouter,
+  createPersistentA2AWorkerInvoker,
+} from "./a2a-worker-composition.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-a2a-worker-"));
@@ -269,6 +272,64 @@ test("persistent A2A worker composition records invocation, raw output, and remo
       },
     ]);
     assert.equal(existsSync(join(t.dir, "remote-review.md")), false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("A2A worker router dispatches remote steps to endpoint invoker and keeps local steps local", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, t.dir);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({
+      name: "Remote Reviewer",
+      baseUrl: "https://agents.example.com/reviewer",
+      agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+      preferredTransport: "json-rpc",
+      enabled: true,
+      trusted: true,
+    });
+    const calls = [];
+    const router = createA2AWorkerRouter({
+      state,
+      localInvoker: {
+        async invokeForWorker(input) {
+          calls.push({ route: "local", input });
+          return { outputText: "LOCAL_OUTPUT" };
+        },
+      },
+      createRemoteInvoker: (remoteEndpoint) => ({
+        async invokeForWorker(input) {
+          calls.push({ route: "remote", endpointId: remoteEndpoint.id, input });
+          return { outputText: "REMOTE_OUTPUT" };
+        },
+      }),
+    });
+
+    const local = await router.invokeForWorker({
+      taskRunId: taskRun.id,
+      profile,
+      userRequest: "Use local.",
+    });
+    const remote = await router.invokeForWorker({
+      taskRunId: taskRun.id,
+      profile,
+      userRequest: "Use remote.",
+      remoteEndpointId: endpoint.id,
+    });
+
+    assert.equal(local.outputText, "LOCAL_OUTPUT");
+    assert.equal(remote.outputText, "REMOTE_OUTPUT");
+    assert.deepEqual(
+      calls.map((c) => c.route),
+      ["local", "remote"],
+    );
+    assert.equal(calls[1].endpointId, endpoint.id);
+    assert.equal(calls[1].input.remoteEndpointId, endpoint.id);
   } finally {
     closeDb(db);
     t.cleanup();

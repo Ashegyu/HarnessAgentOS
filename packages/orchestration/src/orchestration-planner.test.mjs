@@ -59,6 +59,16 @@ const validProfileInput = (overrides = {}) => ({
   ...overrides,
 });
 
+const validEndpointInput = (overrides = {}) => ({
+  name: "Remote Reviewer",
+  baseUrl: "https://agents.example.com/reviewer",
+  agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+  preferredTransport: "json-rpc",
+  enabled: true,
+  trusted: true,
+  ...overrides,
+});
+
 test("draftPlan with mode falls back to hardcoded synthesizer (regression)", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -132,6 +142,86 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
     assert.equal(
       drafted.plan.workerSteps[1].instruction,
       "Check for risks.",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("draftPlan preserves remoteEndpointId for A2A pipeline steps", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint(
+      validEndpointInput(),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Remote review",
+      description: "",
+      steps: [
+        {
+          id: "s_remote",
+          agentProfileId: profile.id,
+          remoteEndpointId: endpoint.id,
+          title: "Remote review",
+          instruction: "Review remotely.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+
+    assert.equal(drafted.plan.workerSteps[0].agentProfileId, profile.id);
+    assert.equal(drafted.plan.workerSteps[0].remoteEndpointId, endpoint.id);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("draftPlan rejects an unavailable remote endpoint before execution", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint(
+      validEndpointInput({ enabled: false }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Disabled remote review",
+      description: "",
+      steps: [
+        {
+          id: "s_remote",
+          agentProfileId: profile.id,
+          remoteEndpointId: endpoint.id,
+          title: "Remote review",
+          instruction: "Review remotely.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+
+    await assert.rejects(
+      () =>
+        planner.draftPlan({
+          taskRunId: taskRun.id,
+          mode: "single_worker",
+          pipelineId: pipeline.id,
+        }),
+      (e) => e.code === "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
     );
   } finally {
     closeDb(db);

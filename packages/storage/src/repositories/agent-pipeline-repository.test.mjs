@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDb, closeDb } from "../db.ts";
 import { SqliteAgentProfileRepository } from "./agent-profile-repository.ts";
 import { SqliteAgentPipelineRepository } from "./agent-pipeline-repository.ts";
+import { SqliteA2ARemoteAgentRepository } from "./a2a-remote-agent-repository.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-pipe-"));
@@ -47,9 +48,10 @@ const setupRepos = async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   const profiles = new SqliteAgentProfileRepository(db);
-  const pipelines = new SqliteAgentPipelineRepository(db, profiles);
+  const remoteAgents = new SqliteA2ARemoteAgentRepository(db);
+  const pipelines = new SqliteAgentPipelineRepository(db, profiles, remoteAgents);
   const profile = await profiles.create(validProfileInput());
-  return { t, db, profiles, pipelines, profile };
+  return { t, db, profiles, pipelines, profile, remoteAgents };
 };
 
 const makePipelineInput = (profileId, overrides = {}) => ({
@@ -64,6 +66,16 @@ const makePipelineInput = (profileId, overrides = {}) => ({
       expectedArtifactKinds: ["plan"],
     },
   ],
+  ...overrides,
+});
+
+const makeEndpoint = (overrides = {}) => ({
+  name: "Remote Reviewer",
+  baseUrl: "https://agents.example.com/reviewer",
+  agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+  preferredTransport: "json-rpc",
+  enabled: true,
+  trusted: true,
   ...overrides,
 });
 
@@ -90,6 +102,32 @@ test("AgentPipelineRepository.create assigns id, timestamps, round-trips steps",
 
     const fetched = await pipelines.get(created.id);
     assert.deepEqual(fetched, created);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.create preserves a remoteEndpointId override", async () => {
+  const { t, db, pipelines, profile, remoteAgents } = await setupRepos();
+  try {
+    const endpoint = await remoteAgents.upsertEndpoint(makeEndpoint());
+    const created = await pipelines.create(
+      makePipelineInput(profile.id, {
+        steps: [
+          {
+            id: "step_remote",
+            agentProfileId: profile.id,
+            remoteEndpointId: endpoint.id,
+            title: "Remote review",
+            instruction: "Review via A2A.",
+            expectedArtifactKinds: ["log"],
+          },
+        ],
+      }),
+    );
+    assert.equal(created.steps[0].remoteEndpointId, endpoint.id);
+    assert.equal((await pipelines.get(created.id)).steps[0].remoteEndpointId, endpoint.id);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -129,6 +167,33 @@ test("AgentPipelineRepository.create rejects unknown agentProfileId", async () =
           }),
         ),
       /agentProfile/i,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.create rejects unknown remoteEndpointId", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            steps: [
+              {
+                id: "step_remote",
+                agentProfileId: profile.id,
+                remoteEndpointId: "a2a_missing",
+                title: "Remote review",
+                instruction: "",
+                expectedArtifactKinds: ["log"],
+              },
+            ],
+          }),
+        ),
+      /remoteEndpointId/i,
     );
   } finally {
     closeDb(db);

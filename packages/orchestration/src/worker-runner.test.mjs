@@ -57,6 +57,16 @@ const validProfileInput = (overrides = {}) => ({
   ...overrides,
 });
 
+const validEndpointInput = (overrides = {}) => ({
+  name: "Remote Reviewer",
+  baseUrl: "https://agents.example.com/reviewer",
+  agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
+  preferredTransport: "json-rpc",
+  enabled: true,
+  trusted: true,
+  ...overrides,
+});
+
 const approvePlanApproval = async (state, approval) =>
   state.decideApproval(approval.id, "approved", "ok");
 
@@ -251,6 +261,68 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
     assert.match(workerArtifact.summary, /MOCK_CLI_OUTPUT/);
     // And the profile attribution line is still present.
     assert.match(workerArtifact.summary, /CliCoder/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved forwards remoteEndpointId to the worker invoker", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "RemoteController", persona: "Route to A2A." }),
+    );
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint(
+      validEndpointInput(),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Remote worker",
+      description: "",
+      steps: [
+        {
+          id: "s_remote",
+          agentProfileId: profile.id,
+          remoteEndpointId: endpoint.id,
+          title: "Remote implement",
+          instruction: "Do remote work.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push(input);
+        return { outputText: "REMOTE_OUTPUT" };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.workerSteps[0].status, "succeeded");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].remoteEndpointId, endpoint.id);
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const workerArtifact = artifacts.find(
+      (a) => a.kind === "log" && a.title.startsWith("Worker output"),
+    );
+    assert.match(workerArtifact.summary, /Remote A2A/);
+    assert.match(workerArtifact.summary, /Remote Reviewer/);
   } finally {
     closeDb(db);
     t.cleanup();
