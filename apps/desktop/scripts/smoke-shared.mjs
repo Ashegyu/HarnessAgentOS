@@ -16,12 +16,17 @@ import {
   openDb,
   closeDb,
   LocalStateService,
+  FilesystemArtifactStore,
 } from "../../../packages/storage/src/index.ts";
 import { ConversationService } from "../../../packages/core/src/conversation/conversation-service.ts";
+import { TaskRunCompletionService } from "../../../packages/core/src/task-run/task-run-completion-service.ts";
 import {
   AgentInvocationQueue,
   AgentPlanningService,
 } from "../../../packages/agent/src/index.ts";
+import { RunnerService } from "../../../packages/runners/src/runner-service.ts";
+import { QualityEvaluator } from "../../../packages/quality/src/quality-evaluator.ts";
+import { TraceRecorder } from "../../../packages/learner/src/trace-recorder.ts";
 
 /**
  * Create a throwaway temp directory + open a fresh SQLite DB.
@@ -31,14 +36,31 @@ export const bootstrap = ({ providers, adapter } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-smoke-"));
   const dbFile = join(dir, "smoke.db");
   const projectDir = join(dir, "project");
+  const artifactDir = join(dir, "artifacts");
   mkdirSync(projectDir, { recursive: true });
+  mkdirSync(artifactDir, { recursive: true });
 
   const db = openDb({ filePath: dbFile });
   const state = new LocalStateService(db);
+  const artifactStore = new FilesystemArtifactStore({ rootDir: artifactDir });
 
   const conversation = new ConversationService({
     state,
     pathExists: async (p) => existsSync(p),
+  });
+  const runner = new RunnerService({ state, artifactStore });
+  const qualityEvaluator = new QualityEvaluator({ state });
+  const traceRecorder = new TraceRecorder({ state });
+  const qualityCompletion = new TaskRunCompletionService({
+    state,
+    onTaskRunDone: async (taskRunId) => {
+      const qualityGate = await state.getLatestQualityGateResult(taskRunId);
+      await traceRecorder.recordOutcome({
+        taskRunId,
+        qualityGate: qualityGate ?? null,
+        success: true,
+      });
+    },
   });
 
   const queue = new AgentInvocationQueue();
@@ -64,9 +86,15 @@ export const bootstrap = ({ providers, adapter } = {}) => {
     dir,
     dbFile,
     projectDir,
+    artifactDir,
     db,
     state,
+    artifactStore,
     conversation,
+    runner,
+    qualityEvaluator,
+    qualityCompletion,
+    traceRecorder,
     agent,
     queue,
     refreshProviders,
@@ -76,7 +104,14 @@ export const bootstrap = ({ providers, adapter } = {}) => {
       } catch {
         // ignore — best effort
       }
-      rmSync(dir, { recursive: true, force: true });
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `  WARN  smoke temp cleanup skipped: ${e?.code ?? ""} ${e?.message ?? e}`,
+        );
+      }
     },
   };
 };

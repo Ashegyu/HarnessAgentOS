@@ -194,7 +194,7 @@ interface CreateConversationTaskInput {
 | mode | createTask가 만드는 것 | TaskRun.status |
 |--|--|--|
 | `template` | Thread/TaskRun + plan artifact + before_edit checkpoint + placeholder approval (기존 동작) | `waiting_for_approval` |
-| `agent` | Thread/TaskRun + before_edit checkpoint **만**. plan artifact와 approval은 만들지 않는다. | `drafting` |
+| `agent` | Thread/TaskRun + placeholder plan artifact + before_edit checkpoint. approval은 만들지 않는다. | `drafting` |
 
 agent mode에서는 사용자가 곧바로 `agent.generatePlan(taskRunId)`를 호출하고, 성공 시점에 plan artifact + N개의 approval이 만들어지고 status가 `waiting_for_approval`로 전환된다. 실패하면 `blocked`로 전환되고 사용자는 retry / template fallback / cancel을 고를 수 있다.
 
@@ -490,7 +490,7 @@ provider가 없으면:
 ```text
 User submits prompt in Agent mode
   -> conversation.createTask({mode: "agent"}) creates Thread/TaskRun (status=drafting)
-     (no plan artifact, no placeholder approval — see #6)
+     (placeholder plan artifact, but no placeholder approval — see #6)
   -> agent.generatePlan(taskRunId)
   -> create Step(kind=plan, status=running)
   -> write prompt artifact (after secret masking, #4 + #11)

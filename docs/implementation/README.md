@@ -35,6 +35,7 @@
 8. `docs/implementation/phase-06-learner-advisor.md`
 9. `docs/implementation/phase-07-optional-agent-orchestration.md`
 10. `docs/implementation/phase-08-agent-cli-integration.md`
+11. `docs/implementation/phase-08-completion-checklist.md`
 
 ## 4. Phase 의존성
 

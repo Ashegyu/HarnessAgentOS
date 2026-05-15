@@ -55,8 +55,7 @@ const main = async () => {
 
   const timeoutMs = Number(process.env.HARNESS_SMOKE_TIMEOUT_MS ?? 90_000);
   const ctx = bootstrap({ providers: probe });
-  // Override defaults so the live CLI gets enough time.
-  ctx.agent.defaults = { timeoutMs, stallTimeoutMs: timeoutMs / 2 };
+  const stallTimeoutMs = Math.max(5_000, Math.floor(timeoutMs / 2));
 
   try {
     const userRequest = process.env.HARNESS_SMOKE_PROMPT ?? DEFAULT_PROMPT;
@@ -65,6 +64,8 @@ const main = async () => {
     const result = await ctx.agent.generatePlan({
       taskRunId: draft.taskRun.id,
       provider,
+      timeoutMs,
+      stallTimeoutMs,
     });
     const snap = await dumpDetail(ctx, draft.taskRun.id);
     expect(

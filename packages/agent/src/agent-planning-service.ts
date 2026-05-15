@@ -140,9 +140,9 @@ export interface GeneratePlanResult {
  * parses the agent plan, runs the same `validateProposedActionDetails`
  * gate as renderer-supplied actions, and creates 0..N approval rows.
  *
- * MVP scope: single in-flight invocation per TaskRun. cancel/retry
- * stubs are present so the IPC contract resolves but a concurrency
- * queue is deferred to a follow-up.
+ * MVP scope: provider-scoped FIFO queue with one in-flight CLI process per
+ * provider. cancel/retry are real service paths and keep the invocation row
+ * terminal so the renderer never waits on a stale stream.
  */
 export class AgentPlanningService {
   private readonly deps: AgentPlanningServiceDeps;
