@@ -16,6 +16,7 @@ import {
 } from "./agent-remote-task";
 import { deriveInternalAgentHandoffs } from "./agent-handoff-display";
 import { shouldRenderAgentPanel } from "./agent-panel-visibility";
+import { orderedAgentInvocationsForDisplay } from "./agent-invocation-display";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
@@ -72,8 +73,17 @@ export const AgentPanel = ({
     () => deriveInternalAgentHandoffs(artifacts),
     [artifacts],
   );
+  const displayInvocations = useMemo(
+    () => orderedAgentInvocationsForDisplay(invocations),
+    [invocations],
+  );
 
-  const latest = invocations[0];
+  const latest =
+    displayInvocations.length > 0
+      ? displayInvocations[displayInvocations.length - 1]
+      : undefined;
+  const previousInvocations =
+    displayInvocations.length > 1 ? displayInvocations.slice(0, -1) : [];
   const latestRemoteTask = latest
     ? remoteTaskForInvocation(remoteTaskRefs, latest.id)
     : null;
@@ -215,22 +225,27 @@ export const AgentPanel = ({
         )}
         <div className="agent-panel__actions">{renderControls()}</div>
         {error && <div className="agent-panel__error">{error}</div>}
-        {invocations.length > 1 && (
-          <details className="agent-panel__history">
-            <summary>이전 invocation ({invocations.length - 1})</summary>
-            <ul>
-              {invocations.slice(1).map((inv) => (
-                <li key={inv.id}>
-                  <code>{inv.id.slice(0, 16)}…</code> · {inv.status} ·{" "}
-                  {formatLatency(inv.latencyMs)}
-                  {inv.errorCode ? ` · ${inv.errorCode}` : ""}
-                  {(() => {
-                    const remote = remoteTaskForInvocation(remoteTaskRefs, inv.id);
-                    return remote ? ` · ${formatRemoteTaskLabel(remote)}` : "";
-                  })()}
-                </li>
-              ))}
-            </ul>
+        {previousInvocations.length > 0 && (
+          <details className="agent-panel__history" open>
+            <summary>이전 Agent 응답 ({previousInvocations.length})</summary>
+            <div className="agent-panel__history-streams">
+              {previousInvocations.map((inv) => {
+                const remote = remoteTaskForInvocation(remoteTaskRefs, inv.id);
+                return (
+                  <section key={inv.id} className="agent-panel__history-stream">
+                    <header className="agent-panel__history-stream-head">
+                      <code title={inv.id}>{inv.id.slice(0, 16)}…</code>
+                      <span>
+                        {inv.status} · {formatLatency(inv.latencyMs)}
+                        {inv.errorCode ? ` · ${inv.errorCode}` : ""}
+                        {remote ? ` · ${formatRemoteTaskLabel(remote)}` : ""}
+                      </span>
+                    </header>
+                    <AgentStreamView invocation={inv} />
+                  </section>
+                );
+              })}
+            </div>
           </details>
         )}
       </div>

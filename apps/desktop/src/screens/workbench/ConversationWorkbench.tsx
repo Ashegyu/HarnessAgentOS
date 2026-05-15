@@ -24,6 +24,9 @@ import {
   deriveChatTurnStatusBadge,
   taskRunWithActiveOverride,
 } from "./chat-turn-status";
+import {
+  orderedAgentInvocationsForDisplay,
+} from "./agent-invocation-display";
 
 type DetailState =
   | { kind: "idle" }
@@ -266,19 +269,11 @@ const ChatTranscript = ({
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
 
-  // Latest invocation for the currently-active TaskRun — used to attach
-  // an inline streaming view to that turn's agent bubble. Sorted oldest
-  // first, so the last entry is the most recent.
-  const latestInvocation: AgentInvocation | undefined =
-    activeTaskRunInvocations.length > 0
-      ? activeTaskRunInvocations.reduce(
-          (acc, curr) =>
-            new Date(curr.createdAt).getTime() > new Date(acc.createdAt).getTime()
-              ? curr
-              : acc,
-          activeTaskRunInvocations[0] as AgentInvocation,
-        )
-      : undefined;
+  const displayInvocations = useMemo(
+    () => orderedAgentInvocationsForDisplay(activeTaskRunInvocations),
+    [activeTaskRunInvocations],
+  );
+  const latestInvocation = displayInvocations[displayInvocations.length - 1];
 
   // Auto-scroll to latest message whenever the message count changes.
   useEffect(() => {
@@ -316,7 +311,7 @@ const ChatTranscript = ({
             isSelected={selectedTaskRunId === tr.id}
             onSelect={() => onSelectTaskRun(tr.id)}
             onDelete={() => void onDeleteTask(tr.id)}
-            invocation={isActive ? latestInvocation : undefined}
+            invocations={isActive ? displayInvocations : []}
             approvals={isActive ? activeTaskRunApprovals : []}
             progress={agentProgressByTaskRunId[tr.id] ?? []}
             inlineApprovalCard={
@@ -342,7 +337,7 @@ const ChatTurn = ({
   isSelected,
   onSelect,
   onDelete,
-  invocation,
+  invocations,
   approvals,
   progress,
   inlineApprovalCard,
@@ -352,7 +347,7 @@ const ChatTurn = ({
   isSelected: boolean;
   onSelect: () => void;
   onDelete: () => void;
-  invocation: AgentInvocation | undefined;
+  invocations: readonly AgentInvocation[];
   approvals: readonly Approval[];
   progress: readonly AgentProgressItem[];
   inlineApprovalCard: JSX.Element | null;
@@ -362,11 +357,13 @@ const ChatTurn = ({
   // intact (one user bubble + one agent bubble + inline approval card)
   // and lets the stream sections own their own scroll without breaking
   // the parent transcript scroll.
-  const hasInvocation = invocation !== undefined;
+  const latestInvocation =
+    invocations.length > 0 ? invocations[invocations.length - 1] : undefined;
+  const hasInvocation = invocations.length > 0;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
   const statusBadge = deriveChatTurnStatusBadge({
     taskRunStatus: taskRun.status,
-    invocationStatus: invocation?.status,
+    invocationStatus: latestInvocation?.status,
     approvals,
     hasFinalAnswer,
   });
@@ -403,7 +400,17 @@ const ChatTurn = ({
             // `agentAnswers[tr.id]` plan summary below it — that surface
             // lives in the right panel's Plan tab, so duplicating it
             // here would just confuse "which one is canonical?".
-            <InlineAgentStream invocation={invocation} />
+            <div className="inline-agent-stream-stack">
+              {invocations.map((invocation, index) => (
+                <section
+                  key={invocation.id}
+                  className="inline-agent-stream-stack__item"
+                  aria-label={`Agent invocation ${index + 1}`}
+                >
+                  <InlineAgentStream invocation={invocation} />
+                </section>
+              ))}
+            </div>
           ) : progress.length > 0 && !hasFinalAnswer ? (
             <AgentProgressList items={progress} compact />
           ) : hasFinalAnswer ? (
