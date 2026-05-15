@@ -93,3 +93,52 @@ Expected outcome:
 - downstream local agents receive bounded handoff context
 - existing approval gating remains unchanged
 - existing A2A remote routing tests remain green
+
+## 8. Phase G-2 Prompt Injection Review
+
+### Evidence
+
+- `WorkerRunner` now creates an `InternalAgentMessage` after each successful worker artifact is persisted.
+- `WorkerRunner` passes the accumulated `handoffMessages` to `WorkerCliInvoker.invokeForWorker`.
+- `AgentPlanningService.invokeForWorker` currently builds a worker prompt from only `taskRun`, `profile`, `userRequest`, and approved capability context.
+- `buildSplitAgentPrompt` has no internal handoff section, so real CLI workers do not yet receive the upstream worker output even though the orchestration contract passes it.
+
+### Design Decision
+
+Phase G-2 injects handoff messages into the worker CLI prompt inside `packages/agent`.
+
+The `@harness/agent` package must not import `@harness/orchestration`. The prompt builder will define a minimal structural handoff type with only the fields required for prompt rendering:
+
+- `fromRole`
+- `fromTitle`
+- `content`
+- `artifactId`
+- optional `createdAt`
+
+`InternalAgentMessage` from `packages/orchestration` is structurally compatible with this prompt type, so the existing `WorkerCliInvoker` seam can pass it without adding a package dependency cycle.
+
+### Minimal Implementation Plan
+
+1. Add RED coverage in `agent-prompt-builder.test.mjs` for an `INTERNAL AGENT HANDOFF` user-prompt section.
+2. Add RED coverage in `agent-planning-service.test.mjs` proving `invokeForWorker` persists and sends the handoff section to the CLI adapter request.
+3. Extend `PromptBuildInput` with optional `handoffMessages`.
+4. Render a bounded handoff section before other optional context sections.
+5. Extend `AgentPlanningService.invokeForWorker` input with optional `handoffMessages` and pass it to `buildSplitAgentPrompt`.
+
+### Verification
+
+Target commands:
+
+```bash
+node --import tsx --test --test-force-exit packages/agent/src/agent-prompt-builder.test.mjs packages/agent/src/agent-planning-service.test.mjs
+npm run check
+npm run test
+npm run build
+```
+
+Expected outcome:
+
+- downstream local CLI workers receive prior worker outputs as bounded prompt context
+- prompt artifacts expose the same handoff context for operator review
+- no new IPC, DB, localhost, companion, or external A2A surface is introduced
+- approval gating and worker side-effect policy remain unchanged
