@@ -19,6 +19,7 @@ const MAIN_ENTRY = join(APP_ROOT, "out/main/main.js");
  */
 test("workbench launches and creates a thread", async () => {
   const userData = mkdtempSync(join(tmpdir(), "harness-e2e-"));
+  const projectDir = mkdtempSync(join(tmpdir(), "harness-e2e-project-"));
   const app = await electron.launch({
     args: [MAIN_ENTRY, `--user-data-dir=${userData}`],
     env: {
@@ -37,13 +38,20 @@ test("workbench launches and creates a thread", async () => {
     const sidebar = window.locator('aside[aria-label="Thread sidebar"]');
     await expect(sidebar).toBeVisible();
 
-    // Right panel Plan section should render its empty placeholder when
-    // no TaskRun is selected.
+    await window.getByRole("button", { name: "새 작업" }).click();
+    await window.getByLabel("제목").fill("E2E smoke thread");
+    await window.getByLabel("대상 폴더 (선택)").fill(projectDir);
+    await window.getByRole("button", { name: "생성" }).click();
+
     await expect(
-      window.locator('section[aria-label="Plan"]'),
+      window.getByRole("button", { name: /E2E smoke thread/ }),
+    ).toBeVisible();
+    await expect(
+      window.getByRole("region", { name: "새 대화 시작" }),
     ).toBeVisible();
   } finally {
     await app.close();
     rmSync(userData, { recursive: true, force: true });
+    rmSync(projectDir, { recursive: true, force: true });
   }
 });
