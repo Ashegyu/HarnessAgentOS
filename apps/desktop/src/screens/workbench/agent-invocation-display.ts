@@ -43,10 +43,12 @@ export const describeAgentInvocationForDisplay = (
     };
   }
 
-  const worker = /^Worker\[([^\]]+)\]\s*(.*)$/.exec(step.title);
-  if (worker) {
-    const agentName = worker[1]?.trim() || step.title;
-    const detail = worker[2]?.trim() || step.title;
+  const namedAgent = /^(?:Agent|Worker)\[([^\]]+)\]\s*(.*)$/.exec(
+    step.title,
+  );
+  if (namedAgent) {
+    const agentName = namedAgent[1]?.trim() || step.title;
+    const detail = namedAgent[2]?.trim() || step.title;
     return { agentName, detail, providerLabel };
   }
 

@@ -36,6 +36,7 @@ import {
 export interface WorkerCliInvoker {
   invokeForWorker(input: {
     taskRunId: string;
+    stepId?: string;
     profile: AgentProfile;
     userRequest: string;
     remoteEndpointId?: string;
@@ -182,6 +183,7 @@ export class WorkerRunner {
           planStep,
           profile,
           input.plan.taskRunId,
+          dbStep.id,
           remoteEndpoint,
           handoffMessages,
         );
@@ -348,6 +350,7 @@ export class WorkerRunner {
     step: WorkerStep,
     profile: AgentProfile | null,
     taskRunId: string,
+    stepId: string,
     remoteEndpoint: A2AEndpoint | null,
     handoffMessages: readonly InternalAgentMessage[],
   ): Promise<{
@@ -362,6 +365,7 @@ export class WorkerRunner {
       const { outputText, proposedActions, lifecycle } =
         await invoker.invokeForWorker({
           taskRunId,
+          stepId,
           profile,
           userRequest,
           ...(step.remoteEndpointId !== undefined

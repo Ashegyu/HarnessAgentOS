@@ -87,6 +87,7 @@ export const createPersistentA2AWorkerInvoker = (
       const startedAt = now();
       const promptArtifact = await options.state.createArtifact({
         taskRunId: input.taskRunId,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
         kind: "log",
         title: `A2A remote prompt: ${options.endpoint.name}`,
         uri: `harness:a2a-prompt/${input.taskRunId}/${createArtifactUriNonce()}`,
@@ -97,6 +98,7 @@ export const createPersistentA2AWorkerInvoker = (
         provider: invocationProvider(input.profile),
         model: `a2a:${options.endpoint.id}`,
         promptArtifactId: promptArtifact.id,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
       });
       await options.state.updateAgentInvocation(invocation.id, {
         status: "running",
@@ -118,6 +120,7 @@ export const createPersistentA2AWorkerInvoker = (
         const finishedAt = now();
         const rawOutputArtifact = await options.state.createArtifact({
           taskRunId: input.taskRunId,
+          ...(input.stepId ? { stepId: input.stepId } : {}),
           kind: "log",
           title: `A2A remote raw output: ${options.endpoint.name}`,
           uri: `harness:a2a-output/${input.taskRunId}/${invocation.id}/${createArtifactUriNonce()}`,

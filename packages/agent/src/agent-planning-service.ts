@@ -190,7 +190,20 @@ export class AgentPlanningService {
       input.model === undefined
         ? await this.loadApprovedLearnerModel(taskRun.id)
         : null;
-    const modelHint = input.model ?? approvedLearnerModel?.model;
+
+    // Phase 4: resolve the active AgentProfile so persona / prefix /
+    // suffix flow into the prompt, and so the visible invocation step
+    // carries the actual profile name used by the renderer.
+    const profiles = await this.deps.state.listAgentProfiles();
+    const settings = await this.deps.state.getSettings();
+    const resolved = resolveAgentProfile({
+      profiles,
+      activeAgentProfileId: settings.activeAgentProfileId,
+      legacyAgent: settings.agent,
+    });
+
+    const modelHint =
+      input.model ?? approvedLearnerModel?.model ?? resolved.tuning.model;
     const providers = this.deps.getProviderStatus();
     const providerHint: "claude" | "codex" | undefined =
       input.provider === "claude" || input.provider === "codex"
@@ -221,6 +234,7 @@ export class AgentPlanningService {
       }
     }
     const model = resolveModel(provider, modelHint);
+    const agentStepName = formatStepAgentName(resolved.profile?.name);
 
     // 1. plan step
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id))
@@ -229,7 +243,9 @@ export class AgentPlanningService {
       taskRunId: taskRun.id,
       index: stepIndex,
       kind: "plan",
-      title: `Agent plan (${provider}:${model})`,
+      title: agentStepName
+        ? `Agent[${agentStepName}] plan (${provider}:${model})`
+        : `Agent plan (${provider}:${model})`,
       status: "running",
       inputSummary: taskRun.userRequest.slice(0, 200),
     });
@@ -244,17 +260,6 @@ export class AgentPlanningService {
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
     );
-
-    // Phase 4: resolve the active AgentProfile so persona / prefix /
-    // suffix flow into the prompt. Falls through to legacy settings when
-    // no profile rows exist — see agent-profile-resolver.ts.
-    const profiles = await this.deps.state.listAgentProfiles();
-    const settings = await this.deps.state.getSettings();
-    const resolved = resolveAgentProfile({
-      profiles,
-      activeAgentProfileId: settings.activeAgentProfileId,
-      legacyAgent: settings.agent,
-    });
 
     const splitPrompt = buildSplitAgentPrompt({
       taskRun,
@@ -798,6 +803,7 @@ export class AgentPlanningService {
    */
   async invokeForWorker(input: {
     taskRunId: string;
+    stepId?: string;
     profile: AgentProfile;
     userRequest: string;
     handoffMessages?: readonly AgentHandoffPromptMessage[];
@@ -881,6 +887,7 @@ export class AgentPlanningService {
     // generatePlan calls.
     const promptArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
+      ...(input.stepId ? { stepId: input.stepId } : {}),
       kind: "log",
       title: `Worker prompt — ${input.profile.name}`,
       uri: `harness:worker-prompt/${taskRun.id}/${Date.now()}`,
@@ -891,6 +898,7 @@ export class AgentPlanningService {
       provider,
       model,
       promptArtifactId: promptArtifact.id,
+      ...(input.stepId ? { stepId: input.stepId } : {}),
     });
     const startedAt = new Date().toISOString();
     await this.deps.state.updateAgentInvocation(invocation.id, {
@@ -1014,6 +1022,7 @@ export class AgentPlanningService {
         : [];
       const rawOutputArtifact = await this.deps.state.createArtifact({
         taskRunId: taskRun.id,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
         kind: "log",
         title: `Worker raw output — ${input.profile.name}`,
         uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
@@ -1056,6 +1065,7 @@ export class AgentPlanningService {
       const diagnosticArtifact = await this.writeDiagnosticLog({
         title: `Worker diagnostic log — ${input.profile.name}`,
         taskRunId: taskRun.id,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
         invocationId: invocation.id,
         phase: "agent.invokeForWorker.cli",
         severity: isCancelled ? "warn" : "error",
@@ -1208,6 +1218,14 @@ const resolveModel = (
   preferred: string | undefined,
 ): string => {
   return normalizeModelForProvider(provider, preferred);
+};
+
+const formatStepAgentName = (name: string | undefined): string | null => {
+  const normalized = name
+    ?.replace(/[\[\]\r\n]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized && normalized.length > 0 ? normalized : null;
 };
 
 const toConcreteProvider = (

@@ -11,6 +11,7 @@ import {
 
 export interface A2AWorkerInvokeInput {
   taskRunId: string;
+  stepId?: string;
   profile: AgentProfile;
   userRequest: string;
   remoteEndpointId?: string;

@@ -244,7 +244,7 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
 
     assert.equal(calls.length, 1, "invoker must be called once");
     assert.equal(calls[0].taskRunId, taskRun.id);
-    assert.match(calls[0].stepId, /^step_/);
+    assert.match(calls[0].stepId, /^stp_/);
     assert.equal(calls[0].profileId, profile.id);
     assert.equal(calls[0].profileName, "CliCoder");
     // The full instruction must arrive at the invoker, not the 120-char
