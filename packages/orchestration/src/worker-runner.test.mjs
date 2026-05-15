@@ -349,7 +349,7 @@ test("runApproved passes prior worker outputs as internal handoff messages", asy
       calls[1].handoffMessages[0].content,
       /Planner handoff: inspect worker-runner first/,
     );
-    assert.match(calls[1].handoffMessages[0].artifactId, /^artifact_/);
+    assert.match(calls[1].handoffMessages[0].artifactId, /^art_/);
   } finally {
     closeDb(db);
     t.cleanup();

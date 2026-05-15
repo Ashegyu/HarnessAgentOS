@@ -17,6 +17,10 @@ import {
 } from "./orchestration-types.ts";
 import { assertActionTypeAllowed } from "./orchestration-policy.ts";
 import { formatWorkerStepArtifact } from "./orchestration-trace.ts";
+import {
+  createInternalAgentMessage,
+  type InternalAgentMessage,
+} from "./internal-agent-bus.ts";
 
 /**
  * Minimal CLI invocation contract that the worker-runner depends on.
@@ -35,6 +39,7 @@ export interface WorkerCliInvoker {
     profile: AgentProfile;
     userRequest: string;
     remoteEndpointId?: string;
+    handoffMessages?: readonly InternalAgentMessage[];
   }): Promise<{
     outputText: string;
     proposedActions?: AgentProposedAction[];
@@ -108,6 +113,7 @@ export class WorkerRunner {
     }> = [];
     const policyReport: string[] = [];
     let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
+    const handoffMessages: InternalAgentMessage[] = [];
     const baseStepIndex = (
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
@@ -177,6 +183,7 @@ export class WorkerRunner {
           profile,
           input.plan.taskRunId,
           remoteEndpoint,
+          handoffMessages,
         );
         body = outcome.body;
         proposedActions = outcome.proposedActions;
@@ -208,6 +215,19 @@ export class WorkerRunner {
         outputSummary: `worker artifact ${artifact.id}`,
       });
       updatedSteps.push({ ...planStep, status });
+      if (status === "succeeded") {
+        handoffMessages.push(
+          createInternalAgentMessage({
+            taskRunId: input.plan.taskRunId,
+            planId: input.plan.id,
+            fromStepId: planStep.id,
+            fromRole: planStep.role,
+            fromTitle: planStep.title,
+            content: body,
+            artifactId: artifact.id,
+          }),
+        );
+      }
       if (status === "succeeded" && proposedActions.length > 0) {
         for (const [proposalIndex, raw] of proposedActions.entries()) {
           const details = toProposedActionDetails(raw);
@@ -329,6 +349,7 @@ export class WorkerRunner {
     profile: AgentProfile | null,
     taskRunId: string,
     remoteEndpoint: A2AEndpoint | null,
+    handoffMessages: readonly InternalAgentMessage[],
   ): Promise<{
     body: string;
     proposedActions: AgentProposedAction[];
@@ -346,6 +367,7 @@ export class WorkerRunner {
           ...(step.remoteEndpointId !== undefined
             ? { remoteEndpointId: step.remoteEndpointId }
             : {}),
+          handoffMessages: [...handoffMessages],
         });
       // Prefix with a small attribution line so the artifact reader
       // sees which profile produced the text. Persona snippet is kept
