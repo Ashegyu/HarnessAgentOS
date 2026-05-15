@@ -106,6 +106,26 @@ test("builds a chronological local agent chain with animated running edge", () =
   });
 });
 
+test("exposes explicit visible agent-name labels for graph nodes", () => {
+  const graph = buildAgentTopology({
+    taskRun: taskRun(),
+    steps: [step({ id: "step_coder", title: "Worker[Coder] 구현" })],
+    invocations: [
+      invocation({
+        id: "inv_coder",
+        stepId: "step_coder",
+      }),
+    ],
+    approvals: [],
+    remoteTaskRefs: [],
+  });
+
+  assert.equal(
+    graph.nodes.find((node) => node.id === "agent:inv_coder")?.displayLabel,
+    "Agent: Coder",
+  );
+});
+
 test("adds waiting approval and remote A2A attention nodes", () => {
   const graph = buildAgentTopology({
     taskRun: taskRun({ status: "waiting_for_approval" }),
