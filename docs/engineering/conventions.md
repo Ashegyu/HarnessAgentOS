@@ -117,6 +117,8 @@ Packages:
 - runner는 temp directory에서 실행한다.
 - renderer smoke는 핵심 상태 표시 위주로 시작한다.
 - `npm run verify`는 check + test + build를 포함한다.
+- `npm run verify:smoke`는 desktop `smoke:all`을 실행해 서비스 레벨 E2E, fake agent smoke, Electron Playwright E2E를 확인한다.
+- `npm run verify:release`는 `verify`와 `verify:smoke`를 순서대로 실행하는 릴리즈 직전 게이트다.
 
 ## 금지 사항
 

@@ -101,6 +101,13 @@ $env:CSC_IDENTITY_AUTO_DISCOVERY='false'; npm run build
 git diff --check
 ```
 
+릴리즈 직전 smoke 포함 기준:
+
+```powershell
+npm run verify:release
+git diff --check
+```
+
 Phase 8/A2A/IPC focused verification은 `phase-08-completion-checklist.md`를 따른다. 앱 scaffold/build/test 실행은 실제 구현 단계에서 수행한다. 이 문서 세트는 구현 기준이다.
 
 ## Legacy Reference Location

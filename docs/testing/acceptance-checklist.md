@@ -17,6 +17,8 @@
 - [ ] `npm --workspace=@harness/desktop run e2e`가 통과한다.
 - [ ] `npm --workspace=@harness/desktop run smoke:e2e`가 통과한다.
 - [ ] `npm --workspace=@harness/desktop run smoke:agent-fake`가 통과한다.
+- [ ] `npm run verify:smoke`가 통과한다.
+- [ ] 릴리즈 직전에는 `npm run verify:release`가 통과한다.
 - [ ] 실제 인증된 CLI가 있는 PC에서는 `npm --workspace=@harness/desktop run smoke:agent-live`를 수동으로 실행한다.
 
 ## Phase 0: Foundation
@@ -121,7 +123,8 @@
 
 - [ ] Phase 0-4가 모두 통과한다.
 - [ ] `npm run verify`가 통과한다.
-- [ ] 자동 스모크 명령 중 `e2e`, `smoke:e2e`, `smoke:agent-fake`가 통과한다.
+- [ ] `npm run verify:smoke`가 통과한다.
+- [ ] 릴리즈 직전 `npm run verify:release`가 통과한다.
 - [ ] 주요 사용자 flow 1-12를 수동으로 재현했다.
 - [ ] 알려진 리스크가 문서화되어 있다.
 - [ ] 다음 phase로 넘길 미완료 항목이 정리되어 있다.

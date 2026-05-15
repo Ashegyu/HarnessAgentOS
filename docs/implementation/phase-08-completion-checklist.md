@@ -83,15 +83,22 @@ Smoke:
 npm --workspace=@harness/desktop run e2e
 npm --workspace=@harness/desktop run smoke:e2e
 npm --workspace=@harness/desktop run smoke:agent-fake
+npm --workspace=@harness/desktop run smoke:all
+npm run verify:smoke
 $env:HARNESS_SMOKE_TIMEOUT_MS='60000'; $env:HARNESS_SMOKE_PROVIDER='codex'; npm --workspace=@harness/desktop run smoke:agent-live
 ```
 
 Repository-wide close-out:
 
 ```powershell
-npm run check
-npm run test
-$env:CSC_IDENTITY_AUTO_DISCOVERY='false'; npm run build
+npm run verify
+git diff --check
+```
+
+Release smoke close-out:
+
+```powershell
+npm run verify:release
 git diff --check
 ```
 

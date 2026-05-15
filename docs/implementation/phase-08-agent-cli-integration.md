@@ -888,6 +888,7 @@ agent가 만든 approval은 사람이 만든 approval과 동일하게 보여야 
 - `npm run verify` 통과.
 - `npm --workspace=@harness/desktop run e2e` 통과 (빌드된 Electron 앱 launch + thread 생성).
 - `npm --workspace=@harness/desktop run smoke:e2e` 통과 (서비스 레벨 사용자 흐름: fallback, approval, runner, artifact read).
+- `npm run verify:smoke` 또는 `npm run verify:release` 통과.
 - `npm --workspace=@harness/desktop run smoke:agent-fake` 추가 및 통과 (workspace 기준; `apps/desktop/package.json`의 scripts에 등록).
 - 실제 CLI가 설치된 환경에서는 `npm --workspace=@harness/desktop run smoke:agent-live -- --provider codex` 또는 `--provider claude`가 통과한다.
 

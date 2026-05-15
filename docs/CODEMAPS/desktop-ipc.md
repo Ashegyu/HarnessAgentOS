@@ -97,5 +97,10 @@ Phase 8 agent contract smoke remains split from desktop launch smoke:
 CI-suitable; `npm --workspace=@harness/desktop run smoke:agent-live` is manual
 and depends on an authenticated local `claude` or `codex` CLI.
 
+Use `npm --workspace=@harness/desktop run smoke:all` for the desktop smoke
+bundle, or `npm run verify:smoke` from the repository root. `smoke:all` ends
+with `rebuild:node` so subsequent Node tests are not left on the Electron
+native-module ABI.
+
 Node smoke scripts run `rebuild:node` before opening SQLite so they recover from
 a previous Electron ABI rebuild. Unit tests do the same through `npm run test`.
