@@ -61,6 +61,10 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     if (request.mcpConfigPath) {
       args.push("--mcp-config", request.mcpConfigPath);
     }
+    // HarnessAgentOS owns the invocation MCP surface. Without strict mode,
+    // Claude may also load user/project MCP configs and surface unrelated
+    // startup failures inside the workbench run.
+    args.push("--strict-mcp-config");
     if (process.env["ANTHROPIC_API_KEY"]) {
       args.splice(1, 0, "--bare");
     }

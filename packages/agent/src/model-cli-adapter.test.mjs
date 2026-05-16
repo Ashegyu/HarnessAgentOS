@@ -46,7 +46,16 @@ test("buildCliInvocation keeps Claude-specific flags on the Claude command", () 
     "claude-session",
     "--mcp-config",
     "C:\\tmp\\mcp.json",
+    "--strict-mcp-config",
   ]);
+});
+
+test("buildCliInvocation isolates Claude from external MCP configs", () => {
+  const plan = buildCliInvocation(baseRequest());
+
+  assert.equal(plan.command, "claude");
+  assert.ok(plan.args.includes("--strict-mcp-config"));
+  assert.ok(!plan.args.includes("--mcp-config"));
 });
 
 test("buildCliInvocation uses Codex exec syntax and folds system prompt into stdin", () => {

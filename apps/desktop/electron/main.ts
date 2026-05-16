@@ -49,6 +49,7 @@ import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
 import { eventBus } from "./event-bus";
 import { createA2AWorkerRouter } from "./a2a-worker-composition";
+import { createMcpProbe, resolveMcpCommand } from "./mcp-probe";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -215,7 +216,14 @@ const initServices = (): {
     if (active.length === 0) {
       return { mcpConfigPath: null, cleanup: async () => {} };
     }
-    const config = await buildClaudeMcpConfig(active, async (k) =>
+    const activeForConfig = await Promise.all(
+      active.map(async (server) =>
+        server.transport === "stdio" && server.command
+          ? { ...server, command: await resolveMcpCommand(server.command) }
+          : server,
+      ),
+    );
+    const config = await buildClaudeMcpConfig(activeForConfig, async (k) =>
       secretVault.read(k),
     );
     await mkdir(mcpTmpDir, { recursive: true });
@@ -307,120 +315,7 @@ const initServices = (): {
     },
   };
 
-  // Phase 4b — real MCP probe.
-  //   stdio  → spawn the command, send a JSON-RPC `initialize` request, wait
-  //            ≤3s for a response line. Any successful JSON reply counts as
-  //            healthy; non-zero exit / timeout / parse error counts as fail.
-  //   http   → fetch the URL with method HEAD, 3s AbortController timeout.
-  //   sse    → same as http; we just probe reachability, not the event stream.
-  const mcpProbe = async (
-    server: McpServerConfig,
-  ): Promise<McpServerHealth> => {
-    const checkedAt = new Date().toISOString();
-    const okResult = (): McpServerHealth => ({ okAt: checkedAt, checkedAt });
-    const failResult = (msg: string): McpServerHealth => ({
-      error: msg.slice(0, 400),
-      checkedAt,
-    });
-
-    if (server.transport === "stdio") {
-      const { spawn } = await import("node:child_process");
-      const command = server.command ?? "";
-      const args = server.args ? [...server.args] : [];
-      if (command.length === 0) return failResult("missing command");
-      try {
-        const child = spawn(command, args, {
-          stdio: ["pipe", "pipe", "pipe"],
-          shell: false,
-        });
-        const probe = new Promise<McpServerHealth>((resolve) => {
-          let resolved = false;
-          const finish = (h: McpServerHealth): void => {
-            if (resolved) return;
-            resolved = true;
-            try {
-              child.kill("SIGTERM");
-            } catch {
-              // ignore
-            }
-            resolve(h);
-          };
-          const timer = setTimeout(
-            () => finish(failResult("probe timeout (3s)")),
-            3000,
-          );
-          child.on("error", (e) => {
-            clearTimeout(timer);
-            finish(failResult(e.message));
-          });
-          child.on("exit", (code) => {
-            clearTimeout(timer);
-            if (!resolved) {
-              finish(
-                code === 0 ? okResult() : failResult(`exit ${code ?? "?"}`),
-              );
-            }
-          });
-          child.stdout?.on("data", (b: Buffer) => {
-            const text = b.toString("utf8");
-            for (const line of text.split("\n")) {
-              const trimmed = line.trim();
-              if (trimmed.length === 0) continue;
-              try {
-                const obj = JSON.parse(trimmed);
-                if (obj && typeof obj === "object") {
-                  clearTimeout(timer);
-                  finish(okResult());
-                  return;
-                }
-              } catch {
-                // not JSON — keep waiting for the next chunk
-              }
-            }
-          });
-          const initialize = JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "initialize",
-            params: {
-              protocolVersion: "2024-11-05",
-              capabilities: {},
-              clientInfo: { name: "HarnessAgentOS-probe", version: "0" },
-            },
-          });
-          try {
-            child.stdin?.write(`${initialize}\n`);
-          } catch (e) {
-            clearTimeout(timer);
-            finish(failResult(e instanceof Error ? e.message : String(e)));
-          }
-        });
-        return await probe;
-      } catch (e) {
-        return failResult(e instanceof Error ? e.message : String(e));
-      }
-    }
-
-    // http / sse — light reachability check.
-    const url = server.url ?? "";
-    if (url.length === 0) return failResult("missing url");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
-    try {
-      const res = await fetch(url, {
-        method: "HEAD",
-        signal: controller.signal,
-      });
-      // Any HTTP status — even 4xx — means we reached the server, which is
-      // enough for a transport-level probe. Network errors are the only fail.
-      void res.status;
-      return okResult();
-    } catch (e) {
-      return failResult(e instanceof Error ? e.message : String(e));
-    } finally {
-      clearTimeout(timer);
-    }
-  };
+  const mcpProbe = createMcpProbe();
 
   return {
     state,

@@ -1,0 +1,1384 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HarnessAgentOS — 동작 흐름 시각화</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base: #0a0d12;
+      --bg-elev: #11151c;
+      --bg-card: #161b24;
+      --bg-soft: #1d2330;
+      --line: rgba(255, 255, 255, 0.07);
+      --line-strong: rgba(255, 255, 255, 0.14);
+
+      --text: #e7ecf3;
+      --text-soft: #aab3c3;
+      --text-mute: #6f7a8d;
+
+      --accent: #7dd3fc;
+      --accent-bright: #38bdf8;
+      --primary: #818cf8;
+      --primary-bright: #6366f1;
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #fb7185;
+      --pink: #f472b6;
+      --teal: #2dd4bf;
+
+      --text-hero: clamp(2.4rem, 1.4rem + 4vw, 4.8rem);
+      --text-h2: clamp(1.6rem, 1.1rem + 1.4vw, 2.4rem);
+      --text-h3: clamp(1.15rem, 1rem + 0.5vw, 1.4rem);
+
+      --space-section: clamp(3.5rem, 2.5rem + 4vw, 6.5rem);
+
+      --radius-sm: 8px;
+      --radius: 14px;
+      --radius-lg: 22px;
+
+      --shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 12px 40px -16px rgba(0,0,0,0.6);
+      --shadow-elev: 0 1px 0 rgba(255,255,255,0.06) inset, 0 30px 60px -20px rgba(0,0,0,0.7);
+
+      --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background:
+        radial-gradient(1200px 700px at 80% -10%, rgba(99, 102, 241, 0.14), transparent 60%),
+        radial-gradient(900px 600px at 5% 20%, rgba(45, 212, 191, 0.08), transparent 60%),
+        var(--bg-base);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    code, .mono {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.92em;
+    }
+
+    a { color: var(--accent); }
+
+    /* ------ layout ------ */
+
+    .shell {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: clamp(2rem, 4vw, 4rem) clamp(1.2rem, 4vw, 3rem) 5rem;
+    }
+
+    header.hero {
+      padding-block: clamp(2rem, 4vw, 4rem);
+      border-bottom: 1px solid var(--line);
+      margin-bottom: var(--space-section);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      padding: 0.4rem 0.85rem;
+      border: 1px solid rgba(125, 211, 252, 0.25);
+      border-radius: 999px;
+      background: rgba(125, 211, 252, 0.06);
+    }
+    .eyebrow::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-bright);
+      box-shadow: 0 0 12px var(--accent-bright);
+    }
+
+    h1.title {
+      font-size: var(--text-hero);
+      line-height: 1.02;
+      letter-spacing: -0.035em;
+      font-weight: 800;
+      margin: 1.4rem 0 1.2rem;
+      max-width: 16ch;
+    }
+    h1.title em {
+      font-style: normal;
+      background: linear-gradient(120deg, var(--accent-bright) 0%, var(--primary-bright) 60%, var(--pink) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .lede {
+      max-width: 62ch;
+      font-size: clamp(1rem, 0.92rem + 0.4vw, 1.18rem);
+      color: var(--text-soft);
+    }
+
+    .meta-row {
+      margin-top: 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem 1.4rem;
+      color: var(--text-mute);
+      font-size: 0.85rem;
+    }
+    .meta-row span strong { color: var(--text-soft); font-weight: 600; }
+
+    section.block {
+      margin-bottom: var(--space-section);
+    }
+
+    .section-head {
+      margin-bottom: 2.4rem;
+    }
+    .section-head .num {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--text-mute);
+      letter-spacing: 0.08em;
+    }
+    .section-head h2 {
+      font-size: var(--text-h2);
+      line-height: 1.1;
+      letter-spacing: -0.025em;
+      font-weight: 700;
+      margin: 0.4rem 0 0.8rem;
+      max-width: 22ch;
+    }
+    .section-head p {
+      max-width: 70ch;
+      color: var(--text-soft);
+      margin: 0;
+    }
+
+    /* ------ cards ------ */
+
+    .card {
+      background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-elev) 100%);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: clamp(1.4rem, 1rem + 1.4vw, 2.2rem);
+      box-shadow: var(--shadow-card);
+      transition: border-color 200ms var(--ease-out), transform 200ms var(--ease-out);
+    }
+    .card:hover { border-color: var(--line-strong); }
+
+    .card h3 {
+      font-size: var(--text-h3);
+      letter-spacing: -0.015em;
+      margin: 0 0 0.4rem;
+      font-weight: 700;
+    }
+    .card .sub {
+      color: var(--text-mute);
+      font-size: 0.88rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.4rem;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.2rem;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.1rem;
+    }
+
+    /* ------ pills ------ */
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      border: 1px solid var(--line-strong);
+      background: var(--bg-soft);
+      color: var(--text-soft);
+    }
+    .pill.primary { color: var(--primary); border-color: rgba(129,140,248,0.35); background: rgba(129,140,248,0.08); }
+    .pill.accent  { color: var(--accent); border-color: rgba(125,211,252,0.35); background: rgba(125,211,252,0.08); }
+    .pill.success { color: var(--success); border-color: rgba(52,211,153,0.35); background: rgba(52,211,153,0.08); }
+    .pill.warning { color: var(--warning); border-color: rgba(251,191,36,0.35); background: rgba(251,191,36,0.08); }
+    .pill.danger  { color: var(--danger); border-color: rgba(251,113,133,0.35); background: rgba(251,113,133,0.08); }
+    .pill.pink    { color: var(--pink); border-color: rgba(244,114,182,0.35); background: rgba(244,114,182,0.08); }
+    .pill.teal    { color: var(--teal); border-color: rgba(45,212,191,0.35); background: rgba(45,212,191,0.08); }
+
+    /* ------ legend ------ */
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      margin-top: 1.2rem;
+      padding: 0.9rem 1.1rem;
+      border: 1px dashed var(--line-strong);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.02);
+    }
+    .legend .item {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      font-size: 0.85rem;
+      color: var(--text-soft);
+    }
+    .legend .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid var(--line-strong);
+    }
+
+    /* ------ SVG diagrams ------ */
+
+    .diagram-wrap {
+      margin-top: 1.5rem;
+      padding: 1.2rem;
+      background: rgba(255,255,255,0.018);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+    .diagram-wrap svg {
+      display: block;
+      width: 100%;
+      height: auto;
+      min-width: 700px;
+    }
+
+    .node-user    { fill: rgba(244, 114, 182, 0.16); stroke: var(--pink); }
+    .node-ui      { fill: rgba(125, 211, 252, 0.12); stroke: var(--accent); }
+    .node-ipc     { fill: rgba(129, 140, 248, 0.12); stroke: var(--primary); }
+    .node-svc     { fill: rgba(45, 212, 191, 0.10); stroke: var(--teal); }
+    .node-cli     { fill: rgba(251, 191, 36, 0.10); stroke: var(--warning); }
+    .node-store   { fill: rgba(255, 255, 255, 0.05); stroke: rgba(255,255,255,0.35); }
+    .node-success { fill: rgba(52, 211, 153, 0.12); stroke: var(--success); }
+    .node-danger  { fill: rgba(251, 113, 133, 0.10); stroke: var(--danger); }
+    .node-decide  { fill: rgba(255,255,255,0.04); stroke: var(--warning); stroke-dasharray: 4 3; }
+
+    .node-rect, .node-decide {
+      stroke-width: 1.4;
+    }
+    .node-text {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      fill: var(--text);
+    }
+    .node-text.small { font-size: 11px; font-weight: 500; fill: var(--text-soft); }
+    .node-text.mono  { font-family: 'JetBrains Mono', monospace; font-size: 11px; fill: var(--text-soft); }
+    .arrow {
+      stroke: rgba(255,255,255,0.35);
+      stroke-width: 1.5;
+      fill: none;
+      marker-end: url(#arrowhead);
+    }
+    .arrow.success { stroke: var(--success); }
+    .arrow.danger  { stroke: var(--danger); }
+    .arrow.dim     { stroke: rgba(255,255,255,0.18); stroke-dasharray: 4 3; }
+    .edge-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10.5px;
+      fill: var(--text-mute);
+    }
+    .lane-label {
+      font-family: 'Inter', sans-serif;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      fill: var(--text-mute);
+    }
+    .lane-bg {
+      fill: rgba(255,255,255,0.018);
+      stroke: var(--line);
+      stroke-dasharray: 6 4;
+      stroke-width: 1;
+    }
+
+    /* ------ comparison side-by-side ------ */
+
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.4rem;
+    }
+    @media (max-width: 880px) {
+      .compare { grid-template-columns: 1fr; }
+    }
+    .compare > article {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: clamp(1.3rem, 1rem + 1vw, 1.8rem);
+      background: var(--bg-card);
+      position: relative;
+      overflow: hidden;
+    }
+    .compare > article::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+    }
+    .compare > article.pipeline::before { background: linear-gradient(90deg, var(--pink), var(--primary), var(--accent)); }
+    .compare > article.chat::before     { background: linear-gradient(90deg, var(--teal), var(--accent), var(--primary)); }
+    .compare h3 {
+      margin: 0.4rem 0 0.4rem;
+      font-size: 1.25rem;
+      letter-spacing: -0.015em;
+    }
+    .compare ol {
+      padding-left: 1.2rem;
+      margin: 1rem 0 0;
+      color: var(--text-soft);
+    }
+    .compare ol li {
+      margin-bottom: 0.55rem;
+    }
+    .compare ol li code {
+      background: rgba(255,255,255,0.05);
+      padding: 1px 6px;
+      border-radius: 5px;
+      color: var(--accent);
+    }
+
+    /* ------ table ------ */
+
+    .feat-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin-top: 1.2rem;
+    }
+    .feat-table th,
+    .feat-table td {
+      text-align: left;
+      padding: 0.85rem 1rem;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    .feat-table th {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-mute);
+      font-weight: 600;
+    }
+    .feat-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+    .feat-table td.feature {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .feat-table td .pill {
+      margin-right: 0.3rem;
+      margin-bottom: 0.2rem;
+    }
+
+    /* ------ feature panels ------ */
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 1.4rem;
+    }
+    @media (max-width: 720px) {
+      .feature-grid { grid-template-columns: 1fr; }
+    }
+    .feature-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+    }
+    .feature-panel header { display: flex; align-items: center; gap: 0.7rem; }
+    .feature-panel header .icon {
+      width: 38px; height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--line-strong);
+      font-size: 1.05rem;
+    }
+    .feature-panel h4 {
+      font-size: 1.05rem;
+      letter-spacing: -0.01em;
+      margin: 0;
+      font-weight: 700;
+    }
+    .feature-panel p.what {
+      color: var(--text-soft);
+      margin: 0;
+      font-size: 0.94rem;
+    }
+    .feature-panel .micro-flow {
+      margin-top: auto;
+      border-top: 1px dashed var(--line-strong);
+      padding-top: 0.9rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.85;
+      color: var(--text-soft);
+    }
+    .feature-panel .micro-flow .step::before {
+      content: "→ ";
+      color: var(--primary);
+      margin-right: 0.1em;
+    }
+    .feature-panel .micro-flow .step:first-child::before {
+      content: "▸ ";
+      color: var(--accent);
+    }
+
+    /* ------ tldr boxes ------ */
+
+    .tldr {
+      display: flex;
+      gap: 0.8rem;
+      padding: 0.95rem 1.1rem;
+      margin-top: 1rem;
+      border-radius: var(--radius);
+      border-left: 3px solid var(--primary);
+      background: rgba(129,140,248,0.05);
+      color: var(--text-soft);
+      font-size: 0.92rem;
+    }
+    .tldr strong { color: var(--text); }
+
+    /* ------ footer ------ */
+
+    footer.foot {
+      margin-top: var(--space-section);
+      padding-top: 2rem;
+      border-top: 1px solid var(--line);
+      color: var(--text-mute);
+      font-size: 0.85rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem 2rem;
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .card, .compare > article, .feature-panel {
+        transition: border-color 200ms var(--ease-out), transform 200ms var(--ease-out);
+      }
+      .feature-panel:hover, .compare > article:hover { transform: translateY(-2px); border-color: var(--line-strong); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+
+    <!-- ====================== HERO ====================== -->
+    <header class="hero">
+      <span class="eyebrow">HarnessAgentOS · 동작 흐름 시각화</span>
+      <h1 class="title">사용자가 메시지를 보낸 순간부터<br/><em>완료까지</em>의 모든 길</h1>
+      <p class="lede">
+        HarnessAgentOS는 사용자 감독형 개발 워크벤치입니다.
+        에이전트가 자율적으로 움직이는 게 아니라 — <strong style="color:var(--text)">사용자가 입력 → 승인 → 실행</strong>의
+        체인을 직접 통제합니다. 이 문서는 그 체인이 두 가지 경로(파이프라인 선택 vs 미선택)에서
+        어떻게 갈라지는지, 그리고 각 기능이 그 안에서 어떤 자리에서 어떤 일을 하는지를
+        그림으로 풀어냅니다.
+      </p>
+      <div class="meta-row">
+        <span><strong>레이어</strong>: Renderer → Preload → Main → Services</span>
+        <span><strong>데이터</strong>: SQLite WAL (single source of truth)</span>
+        <span><strong>통신</strong>: <code>window.harness.*</code> IPC</span>
+      </div>
+    </header>
+
+    <!-- ====================== 01. 아키텍처 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">01 — ARCHITECTURE</div>
+        <h2>먼저 큰 그림: 4개의 레이어, 8개의 패키지</h2>
+        <p>
+          UI는 <code>window.harness.*</code> 한 줄로만 백엔드를 만집니다. 모든 사이드이펙트(파일/Shell/CLI/DB)는
+          Main 프로세스 안의 서비스가 책임지고, Renderer는 SQL도 파일도 못 만집니다.
+        </p>
+      </div>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1100 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HarnessAgentOS 레이어 구조">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.5)" />
+            </marker>
+          </defs>
+
+          <!-- Lane 1: Renderer -->
+          <rect class="lane-bg" x="20" y="20" width="1060" height="100" rx="10"/>
+          <text class="lane-label" x="40" y="46">RENDERER (REACT)</text>
+          <rect class="node-rect node-ui"  x="60"  y="60" width="180" height="46" rx="8"/>
+          <text class="node-text"          x="150" y="80" text-anchor="middle">ThreadSidebar</text>
+          <text class="node-text small"    x="150" y="96" text-anchor="middle">스레드 목록 · + 새 작업</text>
+          <rect class="node-rect node-ui"  x="280" y="60" width="240" height="46" rx="8"/>
+          <text class="node-text"          x="400" y="80" text-anchor="middle">WorkbenchShell</text>
+          <text class="node-text small"    x="400" y="96" text-anchor="middle">대화 트랜스크립트 · 입력창</text>
+          <rect class="node-rect node-ui"  x="560" y="60" width="240" height="46" rx="8"/>
+          <text class="node-text"          x="680" y="80" text-anchor="middle">RightPanel (7개 탭)</text>
+          <text class="node-text small"    x="680" y="96" text-anchor="middle">Plan · Agent · Timeline · …</text>
+          <rect class="node-rect node-ui"  x="840" y="60" width="200" height="46" rx="8"/>
+          <text class="node-text"          x="940" y="80" text-anchor="middle">⚙ Agents 패널</text>
+          <text class="node-text small"    x="940" y="96" text-anchor="middle">오케스트레이션 설정</text>
+
+          <!-- Lane 2: Preload (bridge) -->
+          <rect class="lane-bg" x="20" y="140" width="1060" height="62" rx="10"/>
+          <text class="lane-label" x="40" y="166">PRELOAD · contextBridge</text>
+          <rect class="node-rect node-ipc" x="60" y="158" width="980" height="34" rx="8"/>
+          <text class="node-text mono"      x="550" y="180" text-anchor="middle">window.harness.{ state, conversation, runner, agent, orchestration, capability, learner, events, … }</text>
+
+          <!-- Arrows: Renderer → Preload -->
+          <path class="arrow" d="M150 106 L150 158"/>
+          <path class="arrow" d="M400 106 L400 158"/>
+          <path class="arrow" d="M680 106 L680 158"/>
+          <path class="arrow" d="M940 106 L940 158"/>
+
+          <!-- Lane 3: Main IPC handlers -->
+          <rect class="lane-bg" x="20" y="220" width="1060" height="62" rx="10"/>
+          <text class="lane-label" x="40" y="246">MAIN PROCESS · IPC handlers (얇음)</text>
+          <rect class="node-rect node-ipc" x="60" y="240" width="980" height="32" rx="8"/>
+          <text class="node-text mono"      x="550" y="261" text-anchor="middle">state-ipc · conversation-ipc · agent-ipc · runner-ipc · orchestration-ipc · capability-ipc · learner-ipc · …</text>
+
+          <!-- Arrows preload → main -->
+          <path class="arrow" d="M550 192 L550 240"/>
+
+          <!-- Lane 4: Services / Packages -->
+          <rect class="lane-bg" x="20" y="300" width="1060" height="220" rx="10"/>
+          <text class="lane-label" x="40" y="326">PACKAGES · 비즈니스 로직</text>
+
+          <!-- Service nodes -->
+          <rect class="node-rect node-store" x="60"  y="346" width="180" height="64" rx="10"/>
+          <text class="node-text"            x="150" y="372" text-anchor="middle">@harness/storage</text>
+          <text class="node-text small"      x="150" y="390" text-anchor="middle">SQLite WAL · Repos</text>
+          <text class="node-text mono"       x="150" y="404" text-anchor="middle">LocalStateService</text>
+
+          <rect class="node-rect node-svc" x="260" y="346" width="180" height="64" rx="10"/>
+          <text class="node-text"          x="350" y="372" text-anchor="middle">@harness/runners</text>
+          <text class="node-text small"    x="350" y="390" text-anchor="middle">file · shell · git · test</text>
+          <text class="node-text mono"     x="350" y="404" text-anchor="middle">RunnerService</text>
+
+          <rect class="node-rect node-svc" x="460" y="346" width="180" height="64" rx="10"/>
+          <text class="node-text"          x="550" y="372" text-anchor="middle">@harness/quality</text>
+          <text class="node-text small"    x="550" y="390" text-anchor="middle">evidence 기반 게이트</text>
+          <text class="node-text mono"     x="550" y="404" text-anchor="middle">QualityEvaluator</text>
+
+          <rect class="node-rect node-svc" x="660" y="346" width="180" height="64" rx="10"/>
+          <text class="node-text"          x="750" y="372" text-anchor="middle">@harness/skillify-adapter</text>
+          <text class="node-text small"    x="750" y="390" text-anchor="middle">capability 추천</text>
+          <text class="node-text mono"     x="750" y="404" text-anchor="middle">CapabilityRegistry</text>
+
+          <rect class="node-rect node-svc" x="860" y="346" width="180" height="64" rx="10"/>
+          <text class="node-text"          x="950" y="372" text-anchor="middle">@harness/learner</text>
+          <text class="node-text small"    x="950" y="390" text-anchor="middle">trace 기반 추천</text>
+          <text class="node-text mono"     x="950" y="404" text-anchor="middle">LearnerAdvisor</text>
+
+          <rect class="node-rect node-svc" x="160" y="430" width="240" height="64" rx="10"/>
+          <text class="node-text"          x="280" y="456" text-anchor="middle">@harness/orchestration</text>
+          <text class="node-text small"    x="280" y="474" text-anchor="middle">Pipeline · Worker step</text>
+          <text class="node-text mono"     x="280" y="488" text-anchor="middle">OrchestrationPlanner</text>
+
+          <rect class="node-rect node-cli" x="440" y="430" width="240" height="64" rx="10"/>
+          <text class="node-text"          x="560" y="456" text-anchor="middle">@harness/agent</text>
+          <text class="node-text small"    x="560" y="474" text-anchor="middle">Claude · Codex CLI 호출</text>
+          <text class="node-text mono"     x="560" y="488" text-anchor="middle">AgentPlanningService</text>
+
+          <rect class="node-rect node-store" x="720" y="430" width="240" height="64" rx="10"/>
+          <text class="node-text"            x="840" y="456" text-anchor="middle">External CLIs</text>
+          <text class="node-text small"      x="840" y="474" text-anchor="middle">claude · codex · git · node</text>
+          <text class="node-text mono"       x="840" y="488" text-anchor="middle">subprocess (spawn)</text>
+
+          <!-- arrows main → services -->
+          <path class="arrow" d="M550 272 L550 346"/>
+          <path class="arrow dim" d="M550 410 L280 430"/>
+          <path class="arrow dim" d="M550 410 L560 430"/>
+          <path class="arrow dim" d="M560 494 L840 430"/>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="다이어그램 범례">
+        <div class="item"><span class="swatch" style="background:rgba(125,211,252,0.2); border-color:var(--accent)"></span>Renderer UI</div>
+        <div class="item"><span class="swatch" style="background:rgba(129,140,248,0.2); border-color:var(--primary)"></span>IPC · Bridge</div>
+        <div class="item"><span class="swatch" style="background:rgba(45,212,191,0.18); border-color:var(--teal)"></span>도메인 서비스</div>
+        <div class="item"><span class="swatch" style="background:rgba(251,191,36,0.18); border-color:var(--warning)"></span>CLI · 외부 프로세스</div>
+        <div class="item"><span class="swatch" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.4)"></span>저장소 / 외부</div>
+      </div>
+
+      <div class="tldr">
+        <span>💡</span>
+        <div><strong>핵심 규칙</strong> · Renderer는 SQL/파일/process를 직접 만지지 않는다. <code>window.harness.*</code> 외의 채널은 없다.
+          그래서 모든 흐름은 항상 <strong>UI → IPC → Service → 저장소/CLI</strong>의 단방향 호출을 따른다.</div>
+      </div>
+    </section>
+
+    <!-- ====================== 02. 두 갈래 흐름 비교 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">02 — TWO FORKS</div>
+        <h2>같은 입력, 두 가지 갈림길</h2>
+        <p>
+          사용자가 <strong>입력창에서 메시지를 보내는 순간</strong>, 코드는 단 한 가지를 본다:
+          이 메시지에 <code>orchPipelineId</code>가 있는가? 이 한 줄이 라우팅을 완전히 가른다.
+          (<code>WorkbenchShell.handleCreateTask</code> 분기점)
+        </p>
+      </div>
+
+      <div class="compare">
+        <article class="pipeline">
+          <span class="pill pink">A · 파이프라인 선택 후 질문</span>
+          <h3>오케스트레이션이 응답 생성을 통째로 소유</h3>
+          <p style="color:var(--text-soft); margin-top:0.5rem; font-size:0.96rem;">
+            드롭다운에서 파이프라인을 골라 보내면 <code>orchestration.draftPlan</code>이 호출되고
+            파이프라인의 step 순서대로 워커가 실행된다. <strong style="color:var(--text)">사용자의 선택 자체가 승인</strong>으로 간주되어
+            플랜이 자동 승인·실행된다.
+          </p>
+          <ol>
+            <li><code>conversation.createTask</code> → TaskRun 생성 + <em>pipeline-auto 마킹</em></li>
+            <li><code>orchestration.draftPlan({ pipelineId, mode })</code> 호출</li>
+            <li><code>OrchestrationPlanner.synthesizeFromPipeline()</code>이 step별 instruction 합성</li>
+            <li><code>orchestration_plan</code> approval 생성 → <strong>즉시 자동 승인</strong> ("per-message pipeline pick")</li>
+            <li><code>runApproved</code> → 각 step의 persona+instruction으로 CLI 호출 → Artifact 누적</li>
+          </ol>
+        </article>
+
+        <article class="chat">
+          <span class="pill accent">B · 파이프라인 미선택 후 질문</span>
+          <h3>모드(Template / Agent)에 따라 한 번 더 갈라짐</h3>
+          <p style="color:var(--text-soft); margin-top:0.5rem; font-size:0.96rem;">
+            드롭다운이 비어 있으면 일반 채팅 경로. 여기서 모드가 <code>template</code>이면 사전 정의 계획만 표시,
+            <code>agent</code>면 <strong style="color:var(--text)">실제 CLI</strong>가 호출되어 스트리밍 응답이 나온다.
+          </p>
+          <ol>
+            <li><code>conversation.createTask</code> → TaskRun 생성</li>
+            <li><strong>Agent 모드</strong>: <code>capability.proposeCandidates</code> + <code>learner.proposeRecommendation</code> 먼저 호출</li>
+            <li>advisory approval이 0개이고 Agent 모드라면 → <code>agent.generatePlan</code> 자동 트리거</li>
+            <li>CLI 스트리밍 → ApprovalRequest들 생성 → Plan 탭에서 <strong>사용자 수동 결정</strong></li>
+            <li><strong>Template 모드</strong>: CLI 호출 없음. 정적 plan만 표시 → 사용자 수동 승인 후 runner 실행</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+
+    <!-- ====================== 03. 시나리오 A 상세 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">03 — SCENARIO A</div>
+        <h2>시나리오 A · 파이프라인을 골라서 보냈을 때</h2>
+        <p>
+          예: 스레드 헤더에 <code>Pipeline: code-review</code> 배지가 있고, 입력창 드롭다운도 같은 값.
+          이 메시지는 일반 채팅 트랙으로 가지 않고 오케스트레이션 라인으로 들어간다.
+        </p>
+      </div>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1100 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="파이프라인 선택 시 흐름">
+          <defs>
+            <marker id="arrowhead2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.55)" />
+            </marker>
+            <marker id="arrowsuccess" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#34d399" />
+            </marker>
+          </defs>
+
+          <!-- Step 1: User -->
+          <rect class="node-rect node-user" x="420" y="20" width="260" height="56" rx="10"/>
+          <text class="node-text"           x="550" y="44" text-anchor="middle">사용자</text>
+          <text class="node-text small"     x="550" y="62" text-anchor="middle">메시지 + 드롭다운에서 Pipeline 선택</text>
+
+          <!-- arrow down -->
+          <path d="M550 76 L550 110" class="arrow" marker-end="url(#arrowhead2)"/>
+          <text class="edge-label" x="560" y="98">orchPipelineId 포함하여 전송</text>
+
+          <!-- Step 2: handleCreateTask -->
+          <rect class="node-rect node-ui" x="380" y="110" width="340" height="56" rx="10"/>
+          <text class="node-text"         x="550" y="134" text-anchor="middle">WorkbenchShell.handleCreateTask</text>
+          <text class="node-text mono"    x="550" y="152" text-anchor="middle">usingPipeline = true</text>
+
+          <!-- arrow down -->
+          <path d="M550 166 L550 200" class="arrow" marker-end="url(#arrowhead2)"/>
+
+          <!-- Step 3: conversation.createTask -->
+          <rect class="node-rect node-ipc" x="380" y="200" width="340" height="50" rx="10"/>
+          <text class="node-text mono"     x="550" y="222" text-anchor="middle">conversation.createTask</text>
+          <text class="node-text small"    x="550" y="240" text-anchor="middle">TaskRun 생성 → pipeline-auto 마킹</text>
+
+          <!-- Side: pipeline-auto ref -->
+          <rect class="node-rect node-store" x="760" y="200" width="280" height="50" rx="10"/>
+          <text class="node-text small"      x="900" y="222" text-anchor="middle">pipelineAutoTaskRunIdsRef</text>
+          <text class="node-text mono"       x="900" y="240" text-anchor="middle">.add(taskRunId)</text>
+          <path d="M720 225 L760 225" class="arrow dim" marker-end="url(#arrowhead2)"/>
+
+          <!-- arrow down -->
+          <path d="M550 250 L550 284" class="arrow" marker-end="url(#arrowhead2)"/>
+
+          <!-- Step 4: orchestration.draftPlan -->
+          <rect class="node-rect node-svc" x="360" y="284" width="380" height="68" rx="10"/>
+          <text class="node-text"          x="550" y="308" text-anchor="middle">orchestration.draftPlan</text>
+          <text class="node-text mono"     x="550" y="326" text-anchor="middle">{ pipelineId, mode: "single_worker" }</text>
+          <text class="node-text small"    x="550" y="343" text-anchor="middle">→ OrchestrationPlanner.synthesizeFromPipeline()</text>
+
+          <!-- arrow down -->
+          <path d="M550 352 L550 386" class="arrow" marker-end="url(#arrowhead2)"/>
+
+          <!-- Step 5: approval pending -->
+          <rect class="node-rect node-decide" x="360" y="386" width="380" height="60" rx="10"/>
+          <text class="node-text"             x="550" y="410" text-anchor="middle">orchestration_plan approval 생성</text>
+          <text class="node-text small"       x="550" y="428" text-anchor="middle">status: pending · 이미 pipeline-auto 마킹된 TaskRun</text>
+
+          <!-- arrow with label -->
+          <path d="M550 446 L550 480" class="arrow success" marker-end="url(#arrowsuccess)"/>
+          <text class="edge-label" x="560" y="468" fill="#34d399">사용자가 골랐다 = 동의했다</text>
+
+          <!-- Step 6: auto-approve & runApproved -->
+          <rect class="node-rect node-success" x="320" y="480" width="460" height="68" rx="10"/>
+          <text class="node-text"              x="550" y="504" text-anchor="middle">자동 승인 + orchestration.runApproved</text>
+          <text class="node-text mono"         x="550" y="522" text-anchor="middle">conversation.approve("auto-approved (per-message pipeline pick)")</text>
+          <text class="node-text small"        x="550" y="538" text-anchor="middle">autoInFlightRef pre-claim → 중복 실행 방지</text>
+
+          <!-- arrow down -->
+          <path d="M550 548 L550 582" class="arrow" marker-end="url(#arrowhead2)"/>
+
+          <!-- Step 7: worker runner loop -->
+          <rect class="node-rect node-cli" x="240" y="582" width="620" height="100" rx="10"/>
+          <text class="node-text"          x="550" y="606" text-anchor="middle">WorkerRunner — 파이프라인의 각 step 순서대로 실행</text>
+          <rect class="node-rect node-cli" x="270" y="624" width="170" height="46" rx="8"/>
+          <text class="node-text small"    x="355" y="644" text-anchor="middle">step 1 · Planner</text>
+          <text class="node-text mono"     x="355" y="660" text-anchor="middle">claude / codex</text>
+          <rect class="node-rect node-cli" x="465" y="624" width="170" height="46" rx="8"/>
+          <text class="node-text small"    x="550" y="644" text-anchor="middle">step 2 · Coder</text>
+          <text class="node-text mono"     x="550" y="660" text-anchor="middle">persona + instruction</text>
+          <rect class="node-rect node-cli" x="660" y="624" width="170" height="46" rx="8"/>
+          <text class="node-text small"    x="745" y="644" text-anchor="middle">step N · Reviewer</text>
+          <text class="node-text mono"     x="745" y="660" text-anchor="middle">CLI 호출</text>
+
+          <!-- arrow down -->
+          <path d="M550 682 L550 716" class="arrow success" marker-end="url(#arrowsuccess)"/>
+
+          <!-- Step 8: artifacts / done -->
+          <rect class="node-rect node-success" x="380" y="716" width="340" height="36" rx="8"/>
+          <text class="node-text"              x="550" y="740" text-anchor="middle">Artifact 누적 → TaskRun.status = done</text>
+        </svg>
+      </div>
+
+      <div class="tldr">
+        <span>🔑</span>
+        <div><strong>이 경로의 본질</strong> · 파이프라인을 고른다는 행위 자체가 "이 단계들을 그대로 실행해 달라"는 사전 동의로 처리됩니다.
+          그래서 매번 Approval 다이얼로그가 뜨지 않습니다. 단, AgentProfile의 <code>blockedActions</code>는
+          파이프라인 픽으로도 우회되지 않습니다 — 명시적 금지가 항상 최우선입니다.</div>
+      </div>
+    </section>
+
+    <!-- ====================== 04. 시나리오 B 상세 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">04 — SCENARIO B</div>
+        <h2>시나리오 B · 파이프라인을 안 골랐을 때</h2>
+        <p>
+          이때는 일반 채팅 경로. 모드 버튼(<code>Template</code> / <code>Agent</code>)이 다음 분기를 결정한다.
+          코드는 두 모드를 분명히 다르게 다룬다.
+        </p>
+      </div>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1100 820" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="파이프라인 미선택 흐름">
+          <defs>
+            <marker id="arrowhead3" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.55)" />
+            </marker>
+          </defs>
+
+          <!-- User -->
+          <rect class="node-rect node-user" x="420" y="20" width="260" height="56" rx="10"/>
+          <text class="node-text"           x="550" y="44" text-anchor="middle">사용자</text>
+          <text class="node-text small"     x="550" y="62" text-anchor="middle">메시지 + (Template | Agent), Pipeline 없음</text>
+
+          <path d="M550 76 L550 110" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <!-- handleCreateTask -->
+          <rect class="node-rect node-ui" x="380" y="110" width="340" height="56" rx="10"/>
+          <text class="node-text"         x="550" y="134" text-anchor="middle">handleCreateTask</text>
+          <text class="node-text mono"    x="550" y="152" text-anchor="middle">usingPipeline = false</text>
+
+          <path d="M550 166 L550 200" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <!-- createTask -->
+          <rect class="node-rect node-ipc" x="380" y="200" width="340" height="44" rx="10"/>
+          <text class="node-text mono"     x="550" y="226" text-anchor="middle">conversation.createTask → TaskRun 생성</text>
+
+          <!-- Diamond decision -->
+          <path d="M550 244 L640 312 L550 380 L460 312 Z" class="node-decide" stroke-width="1.4"/>
+          <text class="node-text"        x="550" y="308" text-anchor="middle">input.mode ?</text>
+          <text class="node-text small"  x="550" y="326" text-anchor="middle">Template vs Agent</text>
+
+          <!-- Left branch: Template -->
+          <path d="M460 312 L240 312" class="arrow" marker-end="url(#arrowhead3)"/>
+          <text class="edge-label" x="280" y="304">template</text>
+
+          <rect class="node-rect node-svc" x="60"  y="350" width="360" height="60" rx="10"/>
+          <text class="node-text"          x="240" y="374" text-anchor="middle">사전 정의된 Plan 템플릿 생성</text>
+          <text class="node-text small"    x="240" y="392" text-anchor="middle">CLI 호출 없음 · 정적 계획만 표시</text>
+
+          <path d="M240 410 L240 444" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-decide" x="60" y="444" width="360" height="56" rx="10"/>
+          <text class="node-text"             x="240" y="468" text-anchor="middle">Plan 탭 Approvals — 수동 검토 대기</text>
+          <text class="node-text small"       x="240" y="486" text-anchor="middle">status: ready_for_review</text>
+
+          <path d="M240 500 L240 540" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-success" x="60" y="540" width="360" height="56" rx="10"/>
+          <text class="node-text"              x="240" y="564" text-anchor="middle">사용자 [승인] → runner.executeApproved</text>
+          <text class="node-text small"        x="240" y="582" text-anchor="middle">파일/Shell/Git 실행 → done</text>
+
+          <!-- Right branch: Agent -->
+          <path d="M640 312 L860 312" class="arrow" marker-end="url(#arrowhead3)"/>
+          <text class="edge-label" x="800" y="304">agent</text>
+
+          <rect class="node-rect node-svc" x="680" y="350" width="360" height="64" rx="10"/>
+          <text class="node-text"          x="860" y="374" text-anchor="middle">capability.proposeCandidates</text>
+          <text class="node-text"          x="860" y="392" text-anchor="middle">+ learner.proposeRecommendation</text>
+          <text class="node-text small"    x="860" y="408" text-anchor="middle">advisory approval (capability_use / model_use)</text>
+
+          <path d="M860 414 L860 446" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-decide" x="680" y="446" width="360" height="56" rx="10"/>
+          <text class="node-text"             x="860" y="470" text-anchor="middle">advisoryApprovalCount == 0 ?</text>
+          <text class="node-text small"       x="860" y="488" text-anchor="middle">yes → agent 자동 호출 / no → 사용자 승인 대기</text>
+
+          <path d="M860 502 L860 536" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-cli" x="680" y="536" width="360" height="64" rx="10"/>
+          <text class="node-text"          x="860" y="560" text-anchor="middle">agent.generatePlan</text>
+          <text class="node-text small"    x="860" y="578" text-anchor="middle">AgentPlanningService → Claude/Codex CLI</text>
+          <text class="node-text mono"     x="860" y="594" text-anchor="middle">AgentInvocation (streaming)</text>
+
+          <path d="M860 600 L860 634" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-ui" x="680" y="634" width="360" height="50" rx="10"/>
+          <text class="node-text"         x="860" y="656" text-anchor="middle">Right Panel · Agent 탭 라이브 로그</text>
+          <text class="node-text small"   x="860" y="674" text-anchor="middle">onAgentStreamEvent 구독 → push 갱신</text>
+
+          <path d="M860 684 L860 716" class="arrow" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-decide" x="680" y="716" width="360" height="56" rx="10"/>
+          <text class="node-text"             x="860" y="740" text-anchor="middle">생성된 ApprovalRequest 수동 검토</text>
+          <text class="node-text small"       x="860" y="758" text-anchor="middle">승인 · 거부 · 재지시 · Configure</text>
+
+          <!-- Converge to merge note -->
+          <path d="M240 596 L240 700 L550 700 L550 740" class="arrow dim" marker-end="url(#arrowhead3)"/>
+          <path d="M860 772 L860 790" class="arrow dim" marker-end="url(#arrowhead3)"/>
+
+          <rect class="node-rect node-success" x="370" y="780" width="360" height="34" rx="8"/>
+          <text class="node-text"              x="550" y="802" text-anchor="middle">Quality Gate 통과 → markDone</text>
+        </svg>
+      </div>
+
+      <div class="grid-2" style="margin-top:1.4rem;">
+        <div class="card">
+          <span class="pill teal">Template 모드</span>
+          <h3>"CLI 없이도 일단 한 번 굴려보고 싶을 때"</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0;">
+            Claude/Codex가 PATH에 없거나, 단순 문서 수정처럼 굳이 모델을 안 써도 되는 작업.
+            사전 정의된 ActionPlan을 그대로 보여주고 사용자가 검토해서 승인하면 runner가 실행한다.
+            <strong style="color:var(--text)">자동 승인 없음, CLI 호출 없음.</strong>
+          </p>
+        </div>
+        <div class="card">
+          <span class="pill warning">Agent 모드</span>
+          <h3>"실제 CLI에게 시킨다"</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0;">
+            상태바에 <code>Claude ●</code> 혹은 <code>Codex ●</code>가 초록일 때만 활성화.
+            capability/learner 추천이 먼저 큐잉되고, advisory가 0이면 곧장 <code>agent.generatePlan</code>이
+            트리거되어 스트리밍 응답이 우측 패널 Agent 탭에 흐른다.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================== 05. 핵심 기능별 흐름 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">05 — FEATURE FLOWS</div>
+        <h2>각 기능이 동작할 때 안에서 일어나는 일</h2>
+        <p>
+          위 두 시나리오 안에 자리 잡은 작은 부품들. 각 부품이 호출되는 순간 어떤 패키지가 일하고
+          어떤 저장소가 갱신되는지 짧게 짚는다.
+        </p>
+      </div>
+
+      <div class="feature-grid">
+
+        <!-- Thread -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🧵</div>
+            <h4>Thread 생성</h4>
+          </header>
+          <p class="what">프로젝트 단위의 작업 묶음을 만든다. 대상 폴더와 기본 파이프라인을 함께 묶을 수 있다.</p>
+          <div>
+            <span class="pill accent">UI: ThreadSidebar</span>
+            <span class="pill primary">IPC: state.createThread</span>
+            <span class="pill teal">DB: threads (pipeline_id)</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">사용자 + 새 작업 → 폼 입력</div>
+            <div class="step">window.harness.state.createThread()</div>
+            <div class="step">ThreadRepository.insert (pipeline_id 포함)</div>
+            <div class="step">setSelectedThreadId(created.id)</div>
+            <div class="step">Workbench 빈 상태로 전환</div>
+          </div>
+        </article>
+
+        <!-- TaskRun -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">⚙️</div>
+            <h4>TaskRun 생성</h4>
+          </header>
+          <p class="what">메시지 하나 = TaskRun 하나. 응답·승인·아티팩트가 이 record에 매달려 자라난다.</p>
+          <div>
+            <span class="pill accent">UI: ConversationInput</span>
+            <span class="pill primary">IPC: conversation.createTask</span>
+            <span class="pill teal">DB: task_runs · steps</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">Enter 또는 [전송]</div>
+            <div class="step">handleCreateTask({ userRequest, mode, orchPipelineId? })</div>
+            <div class="step">TaskRun INSERT (status: drafting)</div>
+            <div class="step">파이프라인 있으면 pipelineAutoTaskRunIdsRef 마킹</div>
+            <div class="step">분기 1: orchestration / 분기 2: agent / 분기 3: template</div>
+          </div>
+        </article>
+
+        <!-- Approval -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🛡</div>
+            <h4>Approval 결정</h4>
+          </header>
+          <p class="what">사이드이펙트 직전의 마지막 관문. 승인 없이는 runner가 실행되지 않는다.</p>
+          <div>
+            <span class="pill primary">IPC: conversation.approve / .reject</span>
+            <span class="pill warning">DB: approvals (status)</span>
+            <span class="pill teal">Runner: executeApproved</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">pending approval → 4가지 결정</div>
+            <div class="step">승인 → runner.executeApproved</div>
+            <div class="step">이번 실행 전체 승인 → 같은 actionType 일괄 승인 큐</div>
+            <div class="step">거부 → 이유 기록 · checkpoint 생성</div>
+            <div class="step">재지시 → 새 instruction으로 plan 재생성</div>
+          </div>
+        </article>
+
+        <!-- Capability -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🧩</div>
+            <h4>Capability 제안</h4>
+          </header>
+          <p class="what">prompt를 보고 어떤 스킬을 추가로 컨텍스트에 넣을지 후보를 만들어 사용자에게 동의를 받는다.</p>
+          <div>
+            <span class="pill primary">IPC: capability.proposeCandidates</span>
+            <span class="pill teal">Pkg: skillify-adapter</span>
+            <span class="pill warning">Approval: capability_use</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">Agent 모드 createTask 직후 호출</div>
+            <div class="step">CapabilityRegistry.match(prompt)</div>
+            <div class="step">capability_use approval 큐잉</div>
+            <div class="step">승인 시 다음 agent 호출 prompt에 합쳐짐</div>
+          </div>
+        </article>
+
+        <!-- Learner -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">📚</div>
+            <h4>Learner 추천</h4>
+          </header>
+          <p class="what">과거 TaskRun의 LearningTrace에서 모델/접근법을 골라 다음 호출에 반영하도록 제안한다.</p>
+          <div>
+            <span class="pill primary">IPC: learner.proposeRecommendation</span>
+            <span class="pill teal">Pkg: learner (LearnerAdvisor)</span>
+            <span class="pill warning">Approval: model_use</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">capability 제안 직후 같은 자리에서 호출</div>
+            <div class="step">LearnerAdvisor.recommend(trace history)</div>
+            <div class="step">model_use approval 큐잉</div>
+            <div class="step">advisoryApprovalCount &gt; 0 이면 자동 generatePlan 보류</div>
+          </div>
+        </article>
+
+        <!-- Orchestration -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🎼</div>
+            <h4>Orchestration (Worker 실행)</h4>
+          </header>
+          <p class="what">파이프라인의 step들을 순서대로 굴린다. step마다 persona+instruction을 CLI에 주입한다.</p>
+          <div>
+            <span class="pill primary">IPC: orchestration.draftPlan / runApproved</span>
+            <span class="pill teal">Pkg: orchestration (Planner + WorkerRunner)</span>
+            <span class="pill pink">Approval: orchestration_plan</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">draftPlan → synthesizeFromPipeline → WorkerStep[]</div>
+            <div class="step">orchestration_plan approval 생성</div>
+            <div class="step">runApproved → WorkerRunner.run()</div>
+            <div class="step">step 순회 → AgentPlanningService → CLI</div>
+            <div class="step">artifacts/checkpoints 누적 → done</div>
+          </div>
+        </article>
+
+        <!-- Runner -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🛠</div>
+            <h4>Runner 실행 (file/shell/git/test)</h4>
+          </header>
+          <p class="what">approval이 떨어진 ActionPlanItem을 실제 시스템에 적용한다. 모든 사이드이펙트의 종착지.</p>
+          <div>
+            <span class="pill primary">IPC: runner.executeApproved</span>
+            <span class="pill teal">Pkg: runners (RunnerService)</span>
+            <span class="pill warning">Artifact: file / shell-log / git-diff / test-report</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">approval.actionType 확인</div>
+            <div class="step">file_write / shell / git_commit / test_run 분기</div>
+            <div class="step">subprocess 또는 fs 호출 → 결과 캡처</div>
+            <div class="step">Artifact INSERT · Step status 갱신</div>
+            <div class="step">onTaskRunChanged 이벤트 push → UI 갱신</div>
+          </div>
+        </article>
+
+        <!-- Quality -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">✅</div>
+            <h4>Quality Gate</h4>
+          </header>
+          <p class="what">실행 산출물(테스트 결과, diff 등)을 evidence로 모아 passed / warning / failed 판정.</p>
+          <div>
+            <span class="pill primary">IPC: quality.evaluate</span>
+            <span class="pill teal">Pkg: quality (QualityEvaluator)</span>
+            <span class="pill success">Action: markDone</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">Artifact 수집 (test logs, diff 등)</div>
+            <div class="step">QualityEvaluator.evaluate(evidence)</div>
+            <div class="step">quality_gate row 기록 (passed/warning/failed)</div>
+            <div class="step">passed 또는 warning일 때만 markDone 허용</div>
+          </div>
+        </article>
+
+        <!-- Agent panel events -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">📡</div>
+            <h4>실시간 스트리밍 (push 이벤트)</h4>
+          </header>
+          <p class="what">polling 대신 main → renderer push. agent 토큰 스트림과 TaskRun 변경을 즉시 반영한다.</p>
+          <div>
+            <span class="pill accent">UI: WorkbenchShell useEffect 구독</span>
+            <span class="pill primary">IPC: events.onAgentStreamEvent · onTaskRunChanged</span>
+            <span class="pill teal">Refetch: getTaskRunDetail / getThreadDetail</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">events 채널에서 push 수신</div>
+            <div class="step">progress 이벤트 → pushAgentProgress(taskRunId, event)</div>
+            <div class="step">started/result/failed → refreshProviders</div>
+            <div class="step">선택된 TaskRun이면 detail re-fetch</div>
+          </div>
+        </article>
+
+        <!-- Settings & Orchestration config -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🎛</div>
+            <h4>⚙ Agents 패널 (Orchestration 설정)</h4>
+          </header>
+          <p class="what">Worker 프로필과 실행 모드(Single / Planner+Worker / Multi)를 정의한다. 새 메시지부터 적용.</p>
+          <div>
+            <span class="pill accent">UI: OrchestrationPanel</span>
+            <span class="pill primary">IPC: settings.update</span>
+            <span class="pill teal">DB: settings (orchestration JSON)</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">사이드바 ⚙ Agents 클릭</div>
+            <div class="step">Worker 추가 · 역할/Provider/Model 지정</div>
+            <div class="step">저장 → settings JSON normalize 후 UPSERT</div>
+            <div class="step">다음 generatePlan부터 새 설정 적용</div>
+          </div>
+        </article>
+
+        <!-- Auto-approve -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">🤖</div>
+            <h4>자동 승인 (4가지 트리거)</h4>
+          </header>
+          <p class="what">사용자 부담을 줄이는 사전 동의 시스템. 단, AgentProfile의 BLOCK LIST는 항상 절대 우선.</p>
+          <div>
+            <span class="pill warning">trigger: global autoApprove</span>
+            <span class="pill warning">trigger: profile per-action allow</span>
+            <span class="pill warning">trigger: worker-file auto-execute</span>
+            <span class="pill pink">trigger: pipeline-pick consent</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">useEffect가 pending approval 감시</div>
+            <div class="step">blockedActions 포함되면 절대 자동승인 안 함</div>
+            <div class="step">4개 트리거 중 하나라도 맞으면 approve()</div>
+            <div class="step">actionType별 분기: orchestration_plan vs runner vs advisory</div>
+          </div>
+        </article>
+
+        <!-- Right panel tabs -->
+        <article class="feature-panel">
+          <header>
+            <div class="icon">📑</div>
+            <h4>Right Panel — TaskRun 7개 탭</h4>
+          </header>
+          <p class="what">선택한 TaskRun을 들여다보는 단일 페인. 7개 탭이 같은 detail 객체에서 각자 보기를 만든다.</p>
+          <div>
+            <span class="pill accent">Plan · Agent · Timeline · Artifacts</span>
+            <span class="pill accent">Quality · Capabilities · Orchestration</span>
+          </div>
+          <div class="micro-flow">
+            <div class="step">conversation.getTaskRunDetail(id)</div>
+            <div class="step">detail.taskRun / approvals / checkpoints / artifacts / qualityGate / capabilities</div>
+            <div class="step">탭마다 같은 detail을 다르게 슬라이스</div>
+            <div class="step">onTaskRunChanged push → 자동 re-fetch</div>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- ====================== 06. 빠른 비교 표 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">06 — QUICK REFERENCE</div>
+        <h2>한 표로 두 갈래 다시 보기</h2>
+        <p>같은 사용자 행위에 대해 두 경로가 무엇을 다르게 하는지 한 줄씩만 비교.</p>
+      </div>
+
+      <table class="feat-table" role="table" aria-label="파이프라인 선택 vs 미선택 비교">
+        <thead>
+          <tr>
+            <th>관심사</th>
+            <th><span class="pill pink">A · 파이프라인 선택</span></th>
+            <th><span class="pill accent">B · 파이프라인 미선택</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature">분기 조건</td>
+            <td><code>input.orchPipelineId</code> 존재 (드롭다운 값)</td>
+            <td><code>input.orchPipelineId</code> 비어 있음</td>
+          </tr>
+          <tr>
+            <td class="feature">핵심 IPC</td>
+            <td><code>orchestration.draftPlan</code> → <code>runApproved</code></td>
+            <td>(Agent) <code>agent.generatePlan</code><br/>(Template) 정적 plan 생성</td>
+          </tr>
+          <tr>
+            <td class="feature">CLI 호출 주체</td>
+            <td>각 WorkerStep이 persona+instruction으로 직접 호출</td>
+            <td>AgentPlanningService 한 번이 전체 prompt로 호출</td>
+          </tr>
+          <tr>
+            <td class="feature">승인</td>
+            <td><code>orchestration_plan</code> 자동승인 (파이프라인 픽 = 사전 동의)</td>
+            <td>각 ApprovalRequest 사용자 수동 결정 (또는 settings 토글)</td>
+          </tr>
+          <tr>
+            <td class="feature">실시간 로그 위치</td>
+            <td>Right Panel · Orchestration · Agent (worker별)</td>
+            <td>Right Panel · Agent (단일 invocation 스트림)</td>
+          </tr>
+          <tr>
+            <td class="feature">실패 회복</td>
+            <td>worker step 단위 재실행 / 파이프라인 끊고 일반 채팅으로</td>
+            <td>재지시 · Fallback (Template로) · 재시도</td>
+          </tr>
+          <tr>
+            <td class="feature">대표 사용 예</td>
+            <td>code-review, test-runner처럼 단계가 정해진 반복 작업</td>
+            <td>한 번짜리 즉흥 요청, 단순 수정, 정해진 절차 없는 탐색</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ====================== 07. 종합 흐름 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">07 — END-TO-END</div>
+        <h2>모든 부품을 한 그림에</h2>
+        <p>위에서 본 모든 흐름을 한 장에 압축. 색상으로 어떤 레이어가 일하는지 구분된다.</p>
+      </div>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1180 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="End-to-end 종합 흐름도">
+          <defs>
+            <marker id="arrowhead4" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.55)" />
+            </marker>
+            <marker id="arrowok" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#34d399" />
+            </marker>
+            <marker id="arrowbad" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#fb7185" />
+            </marker>
+          </defs>
+
+          <!-- USER -->
+          <rect class="node-rect node-user" x="500" y="20" width="180" height="50" rx="10"/>
+          <text class="node-text" x="590" y="50" text-anchor="middle">사용자 메시지</text>
+
+          <path d="M590 70 L590 100" class="arrow" marker-end="url(#arrowhead4)"/>
+
+          <!-- create task -->
+          <rect class="node-rect node-ipc" x="460" y="100" width="260" height="46" rx="10"/>
+          <text class="node-text mono" x="590" y="128" text-anchor="middle">conversation.createTask</text>
+
+          <!-- Decision: pipeline? -->
+          <path d="M590 146 L590 178" class="arrow" marker-end="url(#arrowhead4)"/>
+          <path d="M590 180 L700 230 L590 280 L480 230 Z" class="node-decide"/>
+          <text class="node-text" x="590" y="226" text-anchor="middle">pipelineId ?</text>
+          <text class="node-text small" x="590" y="244" text-anchor="middle">파이프라인 선택?</text>
+
+          <!-- Left: pipeline branch -->
+          <path d="M480 230 L320 230" class="arrow" marker-end="url(#arrowhead4)"/>
+          <text class="edge-label" x="340" y="222" fill="#f472b6">YES (A)</text>
+
+          <rect class="node-rect node-svc" x="80" y="260" width="280" height="50" rx="10"/>
+          <text class="node-text mono" x="220" y="288" text-anchor="middle">orchestration.draftPlan</text>
+
+          <path d="M220 310 L220 340" class="arrow" marker-end="url(#arrowhead4)"/>
+
+          <rect class="node-rect node-success" x="80" y="340" width="280" height="50" rx="10"/>
+          <text class="node-text" x="220" y="364" text-anchor="middle">자동 승인 + runApproved</text>
+          <text class="node-text small" x="220" y="380" text-anchor="middle">per-message pipeline pick</text>
+
+          <path d="M220 390 L220 420" class="arrow" marker-end="url(#arrowhead4)"/>
+
+          <rect class="node-rect node-cli" x="80" y="420" width="280" height="50" rx="10"/>
+          <text class="node-text" x="220" y="448" text-anchor="middle">WorkerRunner — step loop</text>
+
+          <!-- Right: no pipeline branch -->
+          <path d="M700 230 L860 230" class="arrow" marker-end="url(#arrowhead4)"/>
+          <text class="edge-label" x="800" y="222" fill="#7dd3fc">NO (B)</text>
+
+          <!-- Sub-decision: mode -->
+          <path d="M880 230 L990 280 L880 330 L770 280 Z" class="node-decide"/>
+          <text class="node-text" x="880" y="278" text-anchor="middle">mode ?</text>
+
+          <!-- B-template -->
+          <path d="M770 280 L660 320" class="arrow" marker-end="url(#arrowhead4)"/>
+          <text class="edge-label" x="680" y="306">template</text>
+          <rect class="node-rect node-svc" x="450" y="320" width="240" height="46" rx="10"/>
+          <text class="node-text small" x="570" y="346" text-anchor="middle">정적 plan 생성 · CLI 없음</text>
+
+          <!-- B-agent -->
+          <path d="M990 280 L1080 320" class="arrow" marker-end="url(#arrowhead4)"/>
+          <text class="edge-label" x="1020" y="306">agent</text>
+          <rect class="node-rect node-svc" x="900" y="320" width="260" height="80" rx="10"/>
+          <text class="node-text small" x="1030" y="346" text-anchor="middle">capability.proposeCandidates</text>
+          <text class="node-text small" x="1030" y="364" text-anchor="middle">learner.proposeRecommendation</text>
+          <text class="node-text mono" x="1030" y="386" text-anchor="middle">→ agent.generatePlan (CLI)</text>
+
+          <!-- Approvals (both right paths) -->
+          <path d="M570 366 L570 410" class="arrow" marker-end="url(#arrowhead4)"/>
+          <path d="M1030 400 L1030 430 L800 430 L800 440" class="arrow" marker-end="url(#arrowhead4)"/>
+
+          <rect class="node-rect node-decide" x="450" y="440" width="700" height="50" rx="10"/>
+          <text class="node-text" x="800" y="464" text-anchor="middle">ApprovalRequest 검토</text>
+          <text class="node-text small" x="800" y="482" text-anchor="middle">승인 · 거부 · 재지시 · Configure</text>
+
+          <!-- runner -->
+          <path d="M800 490 L800 520" class="arrow success" marker-end="url(#arrowok)"/>
+          <text class="edge-label" x="810" y="510" fill="#34d399">approved</text>
+
+          <rect class="node-rect node-cli" x="640" y="520" width="320" height="46" rx="10"/>
+          <text class="node-text" x="800" y="548" text-anchor="middle">runner.executeApproved</text>
+
+          <!-- merge to quality -->
+          <path d="M220 470 L220 595 L520 595 L520 620" class="arrow" marker-end="url(#arrowhead4)"/>
+          <path d="M800 566 L800 595 L520 595 L520 620" class="arrow" marker-end="url(#arrowhead4)"/>
+
+          <rect class="node-rect node-svc" x="380" y="620" width="280" height="46" rx="10"/>
+          <text class="node-text" x="520" y="648" text-anchor="middle">QualityEvaluator.evaluate</text>
+
+          <path d="M520 666 L520 690 L590 690" class="arrow success" marker-end="url(#arrowok)"/>
+
+          <rect class="node-rect node-success" x="590" y="676" width="220" height="32" rx="8"/>
+          <text class="node-text" x="700" y="697" text-anchor="middle">markDone → 완료</text>
+
+          <!-- rejected path -->
+          <path d="M450 465 L420 465 L420 690 L380 690" class="arrow danger" marker-end="url(#arrowbad)"/>
+          <rect class="node-rect node-danger" x="200" y="676" width="180" height="32" rx="8"/>
+          <text class="node-text" x="290" y="697" text-anchor="middle">cancelled / 재지시</text>
+        </svg>
+      </div>
+
+      <div class="tldr">
+        <span>🧭</span>
+        <div><strong>핵심 정리</strong> · 라우팅의 갈림은 <code>pipelineId</code> 하나. 그 뒤에 모드(<code>template/agent</code>)가 다시 한 번 갈리고,
+          어느 길로 가도 <strong>승인 → 실행 → Quality Gate</strong>의 동일한 종착점으로 모인다.
+          이 도형이 머릿속에 있으면 어떤 기능이든 위치를 잡을 수 있다.</div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <span>HarnessAgentOS · 동작 흐름 시각화</span>
+      <span>출처 · <code>docs/USAGE.md</code>, <code>WorkbenchShell.handleCreateTask</code></span>
+      <span>workspace/app-flow-visualization.html</span>
+    </footer>
+
+  </div>
+</body>
+</html>

@@ -237,7 +237,7 @@ envSecretRefs:
 }
 ```
 
-이 JSON은 `userData/mcp-tmp/mcp-<uuid>.json`에 임시 파일로 (mode 0o600) 저장되고 `claude --mcp-config <path>` 인자로 전달됩니다. invocation 종료 시 자동 삭제됩니다.
+이 JSON은 `userData/mcp-tmp/mcp-<uuid>.json`에 임시 파일로 (mode 0o600) 저장되고 `claude --mcp-config <path> --strict-mcp-config` 인자로 전달됩니다. Claude의 user/project MCP 설정은 workbench 실행에 섞지 않습니다. invocation 종료 시 자동 삭제됩니다.
 
 ### 4.2 액션
 
@@ -245,7 +245,7 @@ envSecretRefs:
 |------|------|
 | **저장** | DB에 upsert |
 | **활성화 / 비활성화** | enabled 플래그 토글 |
-| **Health check** | stdio: spawn 후 JSON-RPC `initialize` 보내 응답 확인 (3s 타임아웃) <br> http/sse: HEAD 요청으로 reachability 확인 |
+| **Health check** | stdio: spawn 후 MCP 표준 `Content-Length` 프레임으로 JSON-RPC `initialize`를 보내 응답 확인 (3s 타임아웃, 줄 단위 JSON 응답도 호환) <br> http/sse: HEAD 요청 후 실패 시 GET으로 reachability 재확인 |
 | **삭제** | DB에서 제거. 활성 프로필이 참조 중이면 invocation 시 자동으로 빠짐 |
 
 ### 4.3 Provider 별 동작
@@ -454,6 +454,7 @@ OS 보안 저장소에 비밀 값을 암호화 저장합니다.
 | 증상 | 원인 | 해결 |
 |------|------|------|
 | MCP 서버가 invocation에서 사용되지 않음 | `enabled: false` 이거나 `scope: per-agent`인데 활성 프로필이 참조하지 않음 | 토글 켜기 / 프로필의 `mcpServerIds`에 추가 |
+| Windows에서 `npx`, `uvx`, `npm` 기반 MCP startup이 실패 | bare command가 `.cmd`/`.exe`로 해석되지 않거나 stdio probe가 MCP 프레임 응답을 못 읽는 경우 | 최신 앱에서는 PATH/PATHEXT 기준으로 command를 해석하고 `Content-Length` 프레임을 지원합니다. 그래도 실패하면 Health check의 stderr 메시지를 보고 실행 파일 경로/인자/secret을 확인하세요 |
 | Health check가 `probe timeout (3s)` | stdio MCP가 stdin에서 JSON-RPC를 읽지 못함 | 서버 구현체 검증 — 표준 MCP protocol을 따라야 함 |
 | `secret vault key "X" could not be resolved` | envSecretRefs에 참조한 키가 Secret Vault에 없음 | Secrets 탭에서 해당 키 등록 |
 | Skill이 prompt에 안 보임 | 소스가 disabled이거나 SKILL.md frontmatter 오류 | Refresh 시 콘솔에서 파싱 오류 확인 |
