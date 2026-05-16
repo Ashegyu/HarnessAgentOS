@@ -8,6 +8,7 @@ import type {
   TaskRun,
 } from "@harness/core";
 import { WorkerStepView } from "./WorkerStepView";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 interface OrchestrationPanelProps {
   taskRun: TaskRun | null;
@@ -228,6 +229,12 @@ export const OrchestrationPanel = ({
 
   return (
     <div className="orchestration-panel">
+      <header className="panel-header panel-header--inset">
+        <span className="panel-header__title">
+          Orchestration
+          <FeatureHelpButton featureId="orchestration" />
+        </span>
+      </header>
       <label className="orchestration-panel__toggle">
         <input
           type="checkbox"

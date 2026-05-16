@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
 import type { AgentPipeline, OrchestrationMode } from "@harness/core";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 export type ConversationMode = "template" | "agent";
 
@@ -192,7 +193,10 @@ export const ConversationInput = ({
   return (
     <div className="conversation-input">
       <div className="conversation-input__targetdir">
-        <span className="conversation-input__label">대상 폴더</span>
+        <span className="conversation-input__label">
+          대상 폴더
+          <FeatureHelpButton featureId="targetDir" />
+        </span>
         {showDirOverride ? (
           <input
             className="conversation-input__dir"
@@ -238,7 +242,10 @@ export const ConversationInput = ({
       </div>
       {orchEnabled && pipelines.length > 0 && (
         <label className="conversation-input__pipeline" title="이번 메시지를 거칠 파이프라인을 선택하세요. 매 메시지마다 자유롭게 바꿀 수 있습니다.">
-          <span className="conversation-input__pipeline-label">Pipeline</span>
+          <span className="conversation-input__pipeline-label">
+            Pipeline
+            <FeatureHelpButton featureId="pipelines" />
+          </span>
           <select
             className="conversation-input__pipeline-select"
             value={orchPipelineId}

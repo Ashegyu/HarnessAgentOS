@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { AgentPipeline, Thread } from "@harness/core";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 type ThreadsState =
   | { kind: "loading" }
@@ -134,7 +135,10 @@ export const ThreadSidebar = ({
   return (
     <aside className="thread-sidebar" aria-label="Thread sidebar">
       <header className="panel-header">
-        <span className="panel-header__title">Threads</span>
+        <span className="panel-header__title">
+          Threads
+          <FeatureHelpButton featureId="threads" />
+        </span>
         {!creating && (
           <button
             type="button"

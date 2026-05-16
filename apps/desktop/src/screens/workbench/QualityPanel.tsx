@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Artifact, QualityGateResult, TaskRun } from "@harness/core";
 import { RiskApprovalDialog } from "./RiskApprovalDialog";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 interface QualityPanelProps {
   taskRun: TaskRun;
@@ -164,6 +165,12 @@ export const QualityPanel = ({
 
   return (
     <div className="quality-panel">
+      <header className="panel-header panel-header--inset">
+        <span className="panel-header__title">
+          Quality
+          <FeatureHelpButton featureId="quality" />
+        </span>
+      </header>
       <div className="quality-panel__row">
         <span className={statusClass(status)}>{status}</span>
         <span className="muted">TaskRun status: {taskRun.status}</span>

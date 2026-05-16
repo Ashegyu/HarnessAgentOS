@@ -21,6 +21,7 @@ import {
   describeAgentInvocationForDisplay,
   orderedAgentInvocationsForDisplay,
 } from "./agent-invocation-display";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 interface AgentPanelProps {
   taskRun: TaskRun;
@@ -190,7 +191,10 @@ export const AgentPanel = ({
   return (
     <section className="agent-panel" aria-label="Agent invocation">
       <header className="panel-header panel-header--inset">
-        <span>Agent</span>
+        <span className="panel-header__title">
+          Agent
+          <FeatureHelpButton featureId="agentPlan" />
+        </span>
         {latest && (
           <span className="agent-panel__meta">
             {latest.provider}:{latest.model} · {formatLatency(latest.latencyMs)}

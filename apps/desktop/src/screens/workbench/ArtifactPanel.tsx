@@ -3,6 +3,7 @@ import type { Artifact, ArtifactKind } from "@harness/core";
 import { DiffViewer } from "./DiffViewer";
 import { LogViewer } from "./LogViewer";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 interface ArtifactPanelProps {
   artifacts: Artifact[];
@@ -74,11 +75,27 @@ export const ArtifactPanel = ({
   const visibleKinds = Array.from(groups.keys());
 
   if (artifacts.length === 0) {
-    return <div className="empty-state">아티팩트 없음</div>;
+    return (
+      <div className="artifact-panel">
+        <header className="panel-header panel-header--inset">
+          <span className="panel-header__title">
+            Artifacts
+            <FeatureHelpButton featureId="artifacts" />
+          </span>
+        </header>
+        <div className="empty-state">아티팩트 없음</div>
+      </div>
+    );
   }
 
   return (
     <div className="artifact-panel">
+      <header className="panel-header panel-header--inset">
+        <span className="panel-header__title">
+          Artifacts
+          <FeatureHelpButton featureId="artifacts" />
+        </span>
+      </header>
       <div className="artifact-panel__list">
         {visibleKinds.map((kind) => (
           <div key={kind} className="artifact-panel__group">

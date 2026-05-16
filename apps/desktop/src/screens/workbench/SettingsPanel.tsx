@@ -10,6 +10,9 @@ import { McpServersTab } from "./McpServersTab";
 import { PipelinesTab } from "./PipelinesTab";
 import { RemoteAgentsTab } from "./RemoteAgentsTab";
 import { SecretsTab } from "./SecretsTab";
+import { FeatureGuideTab } from "./FeatureGuideTab";
+import { FeatureHelpButton } from "./FeatureHelpButton";
+import type { FeatureHelpId } from "./feature-help";
 import { SkillSourcesTab } from "./SkillSourcesTab";
 
 interface Props {
@@ -18,6 +21,7 @@ interface Props {
 }
 
 type SettingsTabId =
+  | "guide"
   | "general"
   | "agents"
   | "remoteAgents"
@@ -32,6 +36,7 @@ interface SettingsTabDef {
 }
 
 const TABS: readonly SettingsTabDef[] = [
+  { id: "guide", label: "Guide" },
   { id: "general", label: "General" },
   { id: "agents", label: "Agents" },
   { id: "remoteAgents", label: "Remote Agents" },
@@ -40,6 +45,17 @@ const TABS: readonly SettingsTabDef[] = [
   { id: "skills", label: "Skills" },
   { id: "secrets", label: "Secrets" },
 ];
+
+const TAB_HELP: Record<SettingsTabId, FeatureHelpId> = {
+  guide: "workbench",
+  general: "settings",
+  agents: "agentProfiles",
+  remoteAgents: "remoteAgents",
+  pipelines: "pipelines",
+  mcp: "mcpServers",
+  skills: "skills",
+  secrets: "secrets",
+};
 
 type FormState =
   | { kind: "loading" }
@@ -124,6 +140,8 @@ export const SettingsPanel = ({
   const [state, dispatch] = useReducer(reducer, { kind: "loading" });
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
+  const activeTabLabel =
+    TABS.find((tab) => tab.id === activeTab)?.label ?? "Settings";
 
   useEffect(() => {
     let cancelled = false;
@@ -168,7 +186,10 @@ export const SettingsPanel = ({
     >
       <div className="settings-dialog">
         <header className="settings-dialog__header">
-          <span>설정</span>
+          <span className="settings-dialog__title">
+            설정
+            <FeatureHelpButton featureId="settings" />
+          </span>
           <button type="button" className="settings-dialog__close" onClick={onClose} aria-label="닫기">
             ✕
           </button>
@@ -194,6 +215,17 @@ export const SettingsPanel = ({
             </button>
           ))}
         </nav>
+
+        <div className="settings-dialog__feature-help">
+          <span>{activeTabLabel}</span>
+          <FeatureHelpButton featureId={TAB_HELP[activeTab]} />
+        </div>
+
+        {activeTab === "guide" && (
+          <div className="settings-dialog__body">
+            <FeatureGuideTab />
+          </div>
+        )}
 
         {activeTab === "agents" && (
           <div className="settings-dialog__body settings-dialog__body--flush">

@@ -12,6 +12,7 @@ import { InstinctPanel } from "./InstinctPanel";
 import { LearnerPanel } from "./LearnerPanel";
 import { OrchestrationPanel } from "./OrchestrationPanel";
 import { TaskRunStateActions } from "./TaskRunStateActions";
+import { FeatureHelpButton } from "./FeatureHelpButton";
 
 type TaskRunDetailState =
   | { kind: "idle" }
@@ -107,7 +108,10 @@ export const RightPanel = ({
     >
       <section className="right-panel__pinned" aria-label="TaskRun state">
         <header className="panel-header">
-          <span>TaskRun</span>
+          <span className="panel-header__title">
+            TaskRun
+            <FeatureHelpButton featureId="taskRun" />
+          </span>
         </header>
         <div className="panel-body panel-body--compact">
           {state.kind === "ready" ? (
@@ -191,13 +195,19 @@ export const RightPanel = ({
               <div className="right-panel__stack">
                 <section aria-label="Plan">
                   <header className="panel-header panel-header--inset">
-                    <span>Plan</span>
+                    <span className="panel-header__title">
+                      Plan
+                      <FeatureHelpButton featureId="agentPlan" />
+                    </span>
                   </header>
                   <PlanArtifactView artifacts={state.detail.artifacts} />
                 </section>
                 <section aria-label="Approvals">
                   <header className="panel-header panel-header--inset">
-                    <span>Approvals</span>
+                    <span className="panel-header__title">
+                      Approvals
+                      <FeatureHelpButton featureId="approvals" />
+                    </span>
                   </header>
                   <ApprovalPanel
                     approvals={state.detail.approvals}
@@ -310,7 +320,10 @@ export const RightPanel = ({
               <div className="right-panel__stack">
                 <section aria-label="Capabilities">
                   <header className="panel-header panel-header--inset">
-                    <span>Capabilities</span>
+                    <span className="panel-header__title">
+                      Capabilities
+                      <FeatureHelpButton featureId="capabilities" />
+                    </span>
                   </header>
                   <CapabilityPanel
                     key={state.detail.taskRun.id}
@@ -322,7 +335,10 @@ export const RightPanel = ({
                 </section>
                 <section aria-label="Learner">
                   <header className="panel-header panel-header--inset">
-                    <span>Learner</span>
+                    <span className="panel-header__title">
+                      Learner
+                      <FeatureHelpButton featureId="learner" />
+                    </span>
                   </header>
                   <LearnerPanel
                     key={state.detail.taskRun.id}
@@ -357,7 +373,10 @@ export const RightPanel = ({
             >
               <section aria-label="Instinct">
                 <header className="panel-header panel-header--inset">
-                  <span>Instinct</span>
+                  <span className="panel-header__title">
+                    Instinct
+                    <FeatureHelpButton featureId="instinct" />
+                  </span>
                 </header>
                 <InstinctPanel key={`${state.detail.taskRun.id}-instinct`} />
               </section>
