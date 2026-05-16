@@ -4861,6 +4861,105 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   justify-content: flex-end;
 }
 
+.skill-sources-tab__author {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.skill-sources-tab__author-header,
+.skill-sources-tab__preview-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.skill-sources-tab__author-header > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.skill-sources-tab__author-header strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.skill-sources-tab__author-header span,
+.skill-sources-tab__preview-meta span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.skill-sources-tab__author-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+}
+
+.skill-sources-tab__author-errors,
+.skill-sources-tab__author-warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.skill-sources-tab__author-errors {
+  color: var(--status-failed);
+}
+
+.skill-sources-tab__author-warnings,
+.skill-sources-tab__risk {
+  color: var(--status-warning);
+  font-size: 12px;
+}
+
+.skill-sources-tab__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+}
+
+.skill-sources-tab__preview-meta strong {
+  font-family: var(--font-mono);
+  color: var(--status-passed);
+  font-size: 11px;
+}
+
+.skill-sources-tab__preview-meta em {
+  font-style: normal;
+  color: var(--status-warning);
+  font-size: 11px;
+}
+
+.skill-sources-tab__preview pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .skill-sources-tab__list {
   list-style: none;
   margin: 0;

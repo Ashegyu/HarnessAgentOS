@@ -115,6 +115,8 @@ export const IPC_CHANNELS = {
     update: "skillSource:update",
     remove: "skillSource:remove",
     refresh: "skillSource:refresh",
+    previewSkillDraft: "skillSource:previewSkillDraft",
+    proposeSkillFile: "skillSource:proposeSkillFile",
   },
   /**
    * SecretVault management. Write/clear/listKeys only — there is no read

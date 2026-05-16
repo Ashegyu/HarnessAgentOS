@@ -22,7 +22,11 @@ import type {
   McpServerConfig,
   McpServerHealth,
   SkillResources,
+  SkillAuthorDraft,
+  SkillAuthorPreview,
+  SkillFileProposalResult,
   SkillSource,
+  SkillSourceRefreshResult,
   LearnerRecommendation,
   LearnerRecommendationApprovalResult,
   LearningTrace,
@@ -321,7 +325,13 @@ export interface HarnessDesktopApi {
     update(input: { source: SkillSource }): Promise<SkillSource>;
     remove(input: { sourceId: string }): Promise<void>;
     /** Re-scan the directory and refresh CapabilityRegistry. */
-    refresh(input: { sourceId: string }): Promise<{ skillCount: number }>;
+    refresh(input: { sourceId: string }): Promise<SkillSourceRefreshResult>;
+    previewSkillDraft(input: {
+      draft: SkillAuthorDraft;
+    }): Promise<SkillAuthorPreview>;
+    proposeSkillFile(input: {
+      draft: SkillAuthorDraft;
+    }): Promise<SkillFileProposalResult>;
   };
   /**
    * Secret vault. Plaintext values flow renderer → main one-way; the main

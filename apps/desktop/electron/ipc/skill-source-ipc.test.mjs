@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, closeDb, SqliteSkillSourceRepository } from "@harness/storage";
+import { openDb, closeDb, LocalStateService } from "@harness/storage";
 import { buildSkillSourceHandlers } from "./skill-source-ipc.ts";
 
 const tmp = () => {
@@ -16,7 +16,8 @@ const tmp = () => {
 
 const setupCtx = (file) => {
   const db = openDb({ filePath: file });
-  const skillSources = new SqliteSkillSourceRepository(db);
+  const state = new LocalStateService(db);
+  const skillSources = state.skillSources;
   // The handlers refresh the path-policy registry after add/update/remove
   // so callers can rely on "added → invocation sees it" semantics.
   const policyEvents = [];
@@ -28,12 +29,22 @@ const setupCtx = (file) => {
   // or when the user explicitly hits refresh.
   const registryEvents = [];
   const capabilityRegistry = {
-    refresh: async () => {
-      registryEvents.push("refresh");
-      return { skillCount: 0 };
+    refresh: async (source) => {
+      registryEvents.push({ kind: "refresh", sourceId: source.id });
+      return {
+        sourceId: source.id,
+        scannedCount: 0,
+        updatedCount: 0,
+        skillCount: 0,
+      };
     },
   };
-  return { db, ctx: { skillSources, pathPolicy, capabilityRegistry }, policyEvents, registryEvents };
+  return {
+    db,
+    ctx: { state, skillSources, pathPolicy, capabilityRegistry },
+    policyEvents,
+    registryEvents,
+  };
 };
 
 test("skillSource.list returns ok([]) on a fresh DB", async () => {
@@ -141,7 +152,76 @@ test("skillSource.refresh delegates to capabilityRegistry.refresh", async () => 
     const r = await h.refresh({ sourceId: added.id });
     assert.equal(r.ok, true);
     assert.equal(typeof r.value.skillCount, "number");
-    assert.deepEqual(registryEvents, ["refresh"]);
+    assert.deepEqual(registryEvents, [
+      { kind: "refresh", sourceId: added.id },
+    ]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("skillSource.previewSkillDraft validates generated SKILL.md before write", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildSkillSourceHandlers(ctx);
+    const added = (await h.add({ name: "A", rootDir: t.file + "-skills" })).value;
+    const r = await h.previewSkillDraft({
+      draft: {
+        sourceId: added.id,
+        slug: "review-helper",
+        name: "Review Helper",
+        description: "Summarize risky diffs before approval.",
+        triggerTerms: ["review", "diff"],
+        riskLevel: "low",
+        allowedActions: [],
+        body: "Use this skill to review a proposed patch.",
+      },
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.value.ok, true);
+    assert.equal(r.value.relativePath, "review-helper/SKILL.md");
+    assert.match(r.value.content, /name: "Review Helper"/);
+    assert.equal(r.value.parsed.name, "Review Helper");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("skillSource.proposeSkillFile creates a pending file_write approval without writing the file", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildSkillSourceHandlers(ctx);
+    const added = (await h.add({ name: "A", rootDir: t.file + "-skills" })).value;
+    const r = await h.proposeSkillFile({
+      draft: {
+        sourceId: added.id,
+        slug: "repair-helper",
+        name: "Repair Helper",
+        description: "Draft repair plans from failed quality gates.",
+        triggerTerms: ["repair"],
+        riskLevel: "medium",
+        allowedActions: ["file_write"],
+        body: "Use this skill when a quality gate fails.",
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.approval.actionType, "file_write");
+    assert.equal(r.value.approval.status, "pending");
+    assert.equal(
+      r.value.approval.proposedAction.filePatch.path,
+      "repair-helper/SKILL.md",
+    );
+    assert.match(
+      r.value.approval.proposedAction.filePatch.after,
+      /Draft repair plans/,
+    );
+    const detail = await ctx.state.getThreadDetail(r.value.threadId);
+    assert.equal(detail.taskRuns[0].status, "waiting_for_approval");
   } finally {
     closeDb(db);
     t.cleanup();

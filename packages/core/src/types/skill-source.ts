@@ -1,3 +1,6 @@
+import type { Approval, ApprovalActionType } from "./approval.ts";
+import type { CapabilityRiskLevel } from "./capability.ts";
+
 /**
  * SkillSource — a trusted-or-not directory under which `<root>/<id>/SKILL.md`
  * files live. See docs/design/agent-detailed-settings.md §4.3.
@@ -28,6 +31,55 @@ export interface SkillSource {
   registeredInPathPolicy: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SkillAuthorDraft {
+  sourceId: string;
+  slug: string;
+  name: string;
+  description: string;
+  triggerTerms: string[];
+  riskLevel: CapabilityRiskLevel;
+  allowedActions: ApprovalActionType[];
+  body: string;
+}
+
+export interface SkillAuthorValidationIssue {
+  field: keyof SkillAuthorDraft | "content";
+  message: string;
+}
+
+export interface SkillAuthorPreview {
+  ok: boolean;
+  errors: SkillAuthorValidationIssue[];
+  warnings: string[];
+  riskyActions: ApprovalActionType[];
+  sourceId: string;
+  relativePath: string;
+  content: string;
+  wouldOverwrite: boolean;
+  parsed?: {
+    id: string;
+    name: string;
+    description: string;
+    riskLevel: CapabilityRiskLevel;
+    triggerTerms: string[];
+    allowedActions: ApprovalActionType[];
+  };
+}
+
+export interface SkillFileProposalResult {
+  threadId: string;
+  taskRunId: string;
+  approval: Approval;
+  preview: SkillAuthorPreview;
+}
+
+export interface SkillSourceRefreshResult {
+  sourceId: string;
+  scannedCount: number;
+  updatedCount: number;
+  skillCount: number;
 }
 
 const ORIGIN_SET: ReadonlySet<string> = new Set(SKILL_SOURCE_ORIGINS);

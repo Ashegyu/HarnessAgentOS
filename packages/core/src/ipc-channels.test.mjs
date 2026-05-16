@@ -112,11 +112,14 @@ test("skillSource namespace exposes registration verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.skillSource).sort(), [
     "add",
     "list",
+    "previewSkillDraft",
+    "proposeSkillFile",
     "refresh",
     "remove",
     "update",
   ]);
   assert.equal(isAllowedChannel("skillSource:add"), true);
+  assert.equal(isAllowedChannel("skillSource:previewSkillDraft"), true);
 });
 
 test("secret namespace exposes write/clear/listKeys only (no read)", () => {

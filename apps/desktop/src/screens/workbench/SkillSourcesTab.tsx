@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SkillSource } from "@harness/core";
+import type {
+  ApprovalActionType,
+  CapabilityRiskLevel,
+  SkillAuthorPreview,
+  SkillSource,
+} from "@harness/core";
 import {
+  SKILL_AUTHOR_ACTION_CHOICES,
+  SKILL_AUTHOR_RISK_CHOICES,
   ORIGIN_LABELS,
   describeStatus,
   emptyAddDraft,
+  emptySkillAuthorDraft,
+  skillAuthorDraftToInput,
+  skillSlugFromName,
   validateAddDraft,
+  validateSkillAuthorDraft,
   type AddSourceDraft,
+  type SkillAuthorFormDraft,
 } from "./skill-source-form";
 
 type ListState =
@@ -21,6 +33,11 @@ export const SkillSourcesTab = (): JSX.Element => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addDraft, setAddDraft] = useState<AddSourceDraft>(emptyAddDraft());
+  const [authorDraft, setAuthorDraft] =
+    useState<SkillAuthorFormDraft | null>(null);
+  const [authorPreview, setAuthorPreview] =
+    useState<SkillAuthorPreview | null>(null);
+  const [authorBusy, setAuthorBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -41,6 +58,14 @@ export const SkillSourcesTab = (): JSX.Element => {
     () => validateAddDraft(addDraft, existing),
     [addDraft, existing],
   );
+  const authorErrors = useMemo(
+    () => (authorDraft ? validateSkillAuthorDraft(authorDraft) : []),
+    [authorDraft],
+  );
+  const selectedAuthorSource =
+    authorDraft !== null
+      ? existing.find((source) => source.id === authorDraft.sourceId) ?? null
+      : null;
 
   const pickDirectory = async (): Promise<void> => {
     setError(null);
@@ -133,12 +158,76 @@ export const SkillSourcesTab = (): JSX.Element => {
         sourceId: s.id,
       });
       // Surface the count via a transient banner instead of a modal.
-      setError(`재스캔 완료 — ${result.skillCount}개의 capability 로드됨`);
+      setError(
+        `재스캔 완료 — scanned ${result.scannedCount}, updated ${result.updatedCount}, total ${result.skillCount}`,
+      );
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openAuthor = (s: SkillSource): void => {
+    setAuthorDraft(emptySkillAuthorDraft(s.id));
+    setAuthorPreview(null);
+    setError(null);
+  };
+
+  const updateAuthor = (patch: Partial<SkillAuthorFormDraft>): void => {
+    setAuthorDraft((draft) => (draft ? { ...draft, ...patch } : draft));
+    setAuthorPreview(null);
+  };
+
+  const toggleAuthorAction = (
+    action: ApprovalActionType,
+    checked: boolean,
+  ): void => {
+    setAuthorDraft((draft) => {
+      if (!draft) return draft;
+      const actions = new Set(draft.allowedActions);
+      if (checked) actions.add(action);
+      else actions.delete(action);
+      return { ...draft, allowedActions: [...actions] };
+    });
+    setAuthorPreview(null);
+  };
+
+  const handlePreviewSkill = async (): Promise<void> => {
+    if (!authorDraft || authorErrors.length > 0) return;
+    setAuthorBusy(true);
+    setError(null);
+    try {
+      const preview = await window.harness.skillSource.previewSkillDraft({
+        draft: skillAuthorDraftToInput(authorDraft),
+      });
+      setAuthorPreview(preview);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setAuthorBusy(false);
+    }
+  };
+
+  const handleProposeSkillFile = async (): Promise<void> => {
+    if (!authorDraft || !authorPreview?.ok || authorErrors.length > 0) return;
+    setAuthorBusy(true);
+    setError(null);
+    try {
+      const result = await window.harness.skillSource.proposeSkillFile({
+        draft: skillAuthorDraftToInput(authorDraft),
+      });
+      setError(
+        `file_write 승인 대기 생성 — ${result.preview.relativePath} (${result.approval.id})`,
+      );
+      setAuthorDraft(null);
+      setAuthorPreview(null);
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setAuthorBusy(false);
     }
   };
 
@@ -192,7 +281,9 @@ export const SkillSourcesTab = (): JSX.Element => {
         <div
           className="skill-sources-tab__notice"
           style={{
-            color: error.startsWith("재스캔 완료")
+            color:
+              error.startsWith("재스캔 완료") ||
+              error.startsWith("file_write 승인")
               ? "var(--text-secondary)"
               : "var(--status-failed)",
           }}
@@ -277,6 +368,191 @@ export const SkillSourcesTab = (): JSX.Element => {
         </div>
       )}
 
+      {authorDraft !== null && (
+        <div className="skill-sources-tab__author">
+          <header className="skill-sources-tab__author-header">
+            <div>
+              <strong>SKILL.md 작성</strong>
+              <span>{selectedAuthorSource?.name ?? authorDraft.sourceId}</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={authorBusy}
+              onClick={() => {
+                setAuthorDraft(null);
+                setAuthorPreview(null);
+              }}
+            >
+              닫기
+            </button>
+          </header>
+          <div className="skill-sources-tab__author-grid">
+            <label className="settings-field">
+              <span className="settings-field__label">Skill ID</span>
+              <input
+                type="text"
+                className="settings-field__input"
+                value={authorDraft.slug}
+                disabled={authorBusy}
+                placeholder="review-helper"
+                onChange={(e) => updateAuthor({ slug: e.target.value })}
+              />
+            </label>
+            <label className="settings-field">
+              <span className="settings-field__label">이름</span>
+              <input
+                type="text"
+                className="settings-field__input"
+                value={authorDraft.name}
+                disabled={authorBusy}
+                placeholder="Review Helper"
+                onChange={(e) => {
+                  const name = e.target.value;
+                  updateAuthor({
+                    name,
+                    slug:
+                      authorDraft.slug.trim().length === 0
+                        ? skillSlugFromName(name)
+                        : authorDraft.slug,
+                  });
+                }}
+              />
+            </label>
+            <label className="settings-field">
+              <span className="settings-field__label">설명</span>
+              <input
+                type="text"
+                className="settings-field__input"
+                value={authorDraft.description}
+                disabled={authorBusy}
+                onChange={(e) =>
+                  updateAuthor({ description: e.target.value })
+                }
+              />
+            </label>
+            <label className="settings-field">
+              <span className="settings-field__label">Risk</span>
+              <select
+                className="settings-field__input"
+                value={authorDraft.riskLevel}
+                disabled={authorBusy}
+                onChange={(e) =>
+                  updateAuthor({
+                    riskLevel: e.target.value as CapabilityRiskLevel,
+                  })
+                }
+              >
+                {SKILL_AUTHOR_RISK_CHOICES.map((risk) => (
+                  <option key={risk} value={risk}>
+                    {risk}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="settings-field">
+            <span className="settings-field__label">Trigger terms</span>
+            <input
+              type="text"
+              className="settings-field__input"
+              value={authorDraft.triggerTermsText}
+              disabled={authorBusy}
+              placeholder="review, diff, approval"
+              onChange={(e) =>
+                updateAuthor({ triggerTermsText: e.target.value })
+              }
+            />
+          </label>
+          <div className="settings-field">
+            <span className="settings-field__label">Declared actions</span>
+            <div className="pipeline-step__option-row">
+              {SKILL_AUTHOR_ACTION_CHOICES.map((action) => (
+                <label key={action} className="pipeline-step__check">
+                  <input
+                    type="checkbox"
+                    disabled={authorBusy}
+                    checked={authorDraft.allowedActions.includes(action)}
+                    onChange={(e) =>
+                      toggleAuthorAction(action, e.target.checked)
+                    }
+                  />
+                  <span>{action}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <label className="settings-field">
+            <span className="settings-field__label">본문</span>
+            <textarea
+              className="settings-field__input settings-field__textarea"
+              rows={5}
+              value={authorDraft.body}
+              disabled={authorBusy}
+              onChange={(e) => updateAuthor({ body: e.target.value })}
+            />
+          </label>
+          {authorErrors.length > 0 && (
+            <ul className="skill-sources-tab__author-errors">
+              {authorErrors.map((e, i) => (
+                <li key={i}>{e.message}</li>
+              ))}
+            </ul>
+          )}
+          {authorPreview !== null && (
+            <div className="skill-sources-tab__preview">
+              <div className="skill-sources-tab__preview-meta">
+                <span>{authorPreview.relativePath}</span>
+                <strong>{authorPreview.ok ? "valid" : "invalid"}</strong>
+                {authorPreview.wouldOverwrite && <em>overwrite</em>}
+              </div>
+              {authorPreview.riskyActions.length > 0 && (
+                <div className="skill-sources-tab__risk">
+                  risky actions: {authorPreview.riskyActions.join(", ")}
+                </div>
+              )}
+              {authorPreview.errors.length > 0 && (
+                <ul className="skill-sources-tab__author-errors">
+                  {authorPreview.errors.map((issue, i) => (
+                    <li key={i}>{issue.message}</li>
+                  ))}
+                </ul>
+              )}
+              {authorPreview.warnings.length > 0 && (
+                <ul className="skill-sources-tab__author-warnings">
+                  {authorPreview.warnings.map((warning, i) => (
+                    <li key={i}>{warning}</li>
+                  ))}
+                </ul>
+              )}
+              <pre>{authorPreview.content}</pre>
+            </div>
+          )}
+          <div className="skill-sources-tab__add-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={authorBusy || authorErrors.length > 0}
+              onClick={() => void handlePreviewSkill()}
+            >
+              {authorBusy ? "검증 중…" : "검증 preview"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary btn--sm"
+              disabled={
+                authorBusy ||
+                authorErrors.length > 0 ||
+                authorPreview?.ok !== true
+              }
+              onClick={() => void handleProposeSkillFile()}
+            >
+              file_write 승인 생성
+            </button>
+          </div>
+        </div>
+      )}
+
       {list.kind === "loading" && (
         <div className="empty-state">불러오는 중…</div>
       )}
@@ -355,6 +631,14 @@ export const SkillSourcesTab = (): JSX.Element => {
                     disabled={busy}
                   >
                     {busy ? "..." : "재스캔"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--sm"
+                    onClick={() => openAuthor(s)}
+                    disabled={busy || authorBusy}
+                  >
+                    SKILL 작성
                   </button>
                   {s.origin === "custom" && (
                     <button

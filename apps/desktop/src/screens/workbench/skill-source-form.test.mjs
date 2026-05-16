@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import {
   describeStatus,
   emptyAddDraft,
+  emptySkillAuthorDraft,
   normalizePath,
+  skillAuthorDraftToInput,
+  skillSlugFromName,
   validateAddDraft,
+  validateSkillAuthorDraft,
 } from "./skill-source-form.ts";
 
 const SOURCE = (overrides = {}) => ({
@@ -91,4 +95,35 @@ test("emptyAddDraft returns empty strings", () => {
   const d = emptyAddDraft();
   assert.equal(d.name, "");
   assert.equal(d.rootDir, "");
+});
+
+test("skillSlugFromName creates a stable lowercase file-safe slug", () => {
+  assert.equal(skillSlugFromName("Review Helper!"), "review-helper");
+  assert.equal(skillSlugFromName("   "), "new-skill");
+});
+
+test("skillAuthorDraftToInput trims fields and splits trigger terms", () => {
+  const input = skillAuthorDraftToInput({
+    ...emptySkillAuthorDraft("ss_1"),
+    slug: "Review-Helper",
+    name: " Review Helper ",
+    description: " Reviews diffs ",
+    triggerTermsText: "review, diff\napproval",
+    riskLevel: "medium",
+    allowedActions: ["file_write"],
+    body: "Body",
+  });
+
+  assert.equal(input.slug, "review-helper");
+  assert.equal(input.name, "Review Helper");
+  assert.deepEqual(input.triggerTerms, ["review", "diff", "approval"]);
+  assert.deepEqual(input.allowedActions, ["file_write"]);
+});
+
+test("validateSkillAuthorDraft requires source, slug, name, and description", () => {
+  const errors = validateSkillAuthorDraft(emptySkillAuthorDraft());
+  assert.ok(errors.some((error) => error.field === "sourceId"));
+  assert.ok(errors.some((error) => error.field === "slug"));
+  assert.ok(errors.some((error) => error.field === "name"));
+  assert.ok(errors.some((error) => error.field === "description"));
 });
