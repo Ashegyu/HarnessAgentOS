@@ -36,6 +36,9 @@ export const IPC_CHANNELS = {
     readArtifact: "runner:readArtifact",
     retryApproval: "runner:retryApproval",
   },
+  shadow: {
+    createPreview: "shadow:createPreview",
+  },
   quality: {
     evaluate: "quality:evaluate",
     getLatest: "quality:getLatest",

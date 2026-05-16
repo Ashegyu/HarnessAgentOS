@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Approval, ProposedActionDetails } from "@harness/core";
+import type { Approval, ProposedActionDetails, ShadowPreview } from "@harness/core";
 import { ConfigureActionDialog } from "./ConfigureActionDialog";
 
 interface ApprovalPanelProps {
@@ -71,6 +71,9 @@ export const ApprovalPanel = ({
   const [redirectInstruction, setRedirectInstruction] = useState("");
   const [configuring, setConfiguring] = useState<Approval | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shadowPreviews, setShadowPreviews] = useState<
+    Record<string, ShadowPreview>
+  >({});
 
   const guardedApprove = async (
     approvalId: string,
@@ -155,6 +158,19 @@ export const ApprovalPanel = ({
     }
   };
 
+  const guardedShadowPreview = async (approvalId: string): Promise<void> => {
+    setBusyId(approvalId);
+    setError(null);
+    try {
+      const preview = await window.harness.shadow.createPreview({ approvalId });
+      setShadowPreviews((prev) => ({ ...prev, [approvalId]: preview }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const pending = approvals.filter((a) => a.status === "pending");
   const approved = approvals.filter(
     (a) => a.status === "approved" || a.status === "always_approved_for_run",
@@ -173,6 +189,12 @@ export const ApprovalPanel = ({
         : (policy?.riskLevel ?? ACTION_RISK_HINT[a.actionType] ?? "low");
     const blocked =
       policy?.decision === "blocked" || HIGH_RISK_BLOCKED.has(a.actionType);
+    const canPreviewShadow =
+      a.actionType === "file_write" &&
+      a.proposedAction?.type === "file_write" &&
+      Boolean(a.proposedAction.filePatch) &&
+      !blocked;
+    const shadowPreview = shadowPreviews[a.id];
     return (
       <article key={a.id} className={`approval-card approval-card--${risk}`}>
         <header className="approval-card__header">
@@ -192,6 +214,12 @@ export const ApprovalPanel = ({
           <pre className="approval-card__details">
             {JSON.stringify(a.proposedAction, null, 2)}
           </pre>
+        )}
+        {shadowPreview && (
+          <p className="approval-card__auto-hint">
+            Shadow preview 생성됨: <code>{shadowPreview.relativePath}</code> ·
+            artifacts {shadowPreview.artifactIds.join(", ")}
+          </p>
         )}
         {a.actionType === "capability_use" && (
           <p className="approval-card__auto-hint">
@@ -265,6 +293,18 @@ export const ApprovalPanel = ({
             </button>
             <button
               type="button"
+              onClick={() => void guardedShadowPreview(a.id)}
+              disabled={busyId !== null || !canPreviewShadow}
+              title={
+                canPreviewShadow
+                  ? "실제 workspace에 쓰기 전에 shadow workspace에서 diff를 생성합니다."
+                  : "file_write 세부 지정 후 사용할 수 있습니다."
+              }
+            >
+              Shadow preview
+            </button>
+            <button
+              type="button"
               onClick={() => void guardedApprove(a.id, "once")}
               disabled={busyId !== null}
             >
@@ -309,6 +349,18 @@ export const ApprovalPanel = ({
               }
             >
               {a.proposedAction ? "세부 수정" : "세부 지정"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void guardedShadowPreview(a.id)}
+              disabled={busyId !== null || !canPreviewShadow}
+              title={
+                canPreviewShadow
+                  ? "실제 workspace에 쓰기 전에 shadow workspace에서 diff를 생성합니다."
+                  : "file_write 세부 지정 후 사용할 수 있습니다."
+              }
+            >
+              Shadow preview
             </button>
             <button
               type="button"

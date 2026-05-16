@@ -31,6 +31,7 @@ import {
   type RepairPlanDraft,
   type RunnerResultPayload,
   type RuntimeInfo,
+  type ShadowPreview,
   type TaskRun,
   type TaskRunDetail,
   type Thread,
@@ -150,6 +151,10 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.runner.retryApproval,
         input,
       ),
+  },
+  shadow: {
+    createPreview: (input) =>
+      invokeUnwrapped<ShadowPreview>(IPC_CHANNELS.shadow.createPreview, input),
   },
   quality: {
     evaluate: (input) =>

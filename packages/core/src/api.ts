@@ -35,6 +35,7 @@ import type {
   QualityGateInput,
   QualityGateResult,
   RepairPlanDraft,
+  ShadowPreview,
   Step,
   TaskRun,
   Thread,
@@ -136,6 +137,9 @@ export interface HarnessDesktopApi {
       artifactId: string;
     }): Promise<{ artifact: Artifact; content: string }>;
     retryApproval(input: { approvalId: string }): Promise<RunnerResultPayload>;
+  };
+  shadow: {
+    createPreview(input: { approvalId: string }): Promise<ShadowPreview>;
   };
   quality: {
     evaluate(input: QualityGateInput): Promise<QualityGateResult>;

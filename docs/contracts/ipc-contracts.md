@@ -390,6 +390,31 @@ interface RunnerResult {
 - `RUNNER_RETRY_NOT_BLOCKED`
 - `ARTIFACT_NOT_FOUND`
 
+## `window.harness.shadow`
+
+```ts
+shadow.createPreview(input: { approvalId: string }): Promise<ShadowPreview>;
+```
+
+`shadow.createPreview`는 `file_write` approval 전용 preview 경로다. 임시
+shadow workspace에 제안된 파일 내용을 쓰고 `diff`/`snapshot` artifact를
+남기지만 `TaskRun.targetDir`에는 쓰지 않는다. 실제 workspace 변경은 기존
+`runner.executeApproved` 경로로만 수행한다.
+
+```ts
+interface ShadowPreview {
+  id: string;
+  taskRunId: string;
+  approvalId: string;
+  targetDir: string;
+  relativePath: string;
+  shadowPath: string;
+  baselineHash?: string;
+  artifactIds: string[];
+  createdAt: string;
+}
+```
+
 ## `window.harness.quality`
 
 ```ts
@@ -954,7 +979,7 @@ events.onAgentStreamEvent(
 
 발생 조건:
 
-- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다.
+- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다.
 - `events:agentStreamEvent`: `agent.generatePlan` invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
 - 페이로드는 위 표에 명시된 shape만 — 채널 자체로 임의의 도메인 객체를 전달하지 않는다.
 - read-only IPC (예: `quality.getLatest`, `state.listThreads`)는 발행하지 않는다.

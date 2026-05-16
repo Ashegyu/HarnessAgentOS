@@ -11,6 +11,7 @@ import type {
   SecretVaultService,
 } from "@harness/storage";
 import type { RunnerService } from "@harness/runners";
+import type { ShadowWorkspaceService } from "@harness/runners";
 import type { QualityEvaluator } from "@harness/quality";
 import type {
   CapabilityRegistry,
@@ -30,6 +31,7 @@ import { registerAppIpc } from "./app-ipc";
 import { registerStateIpc } from "./state-ipc";
 import { registerConversationIpc } from "./conversation-ipc";
 import { registerRunnerIpc } from "./runner-ipc";
+import { registerShadowIpc } from "./shadow-ipc-register";
 import { registerQualityIpc } from "./quality-ipc";
 import { registerCapabilityIpc } from "./capability-ipc";
 import { registerLearnerIpc } from "./learner-ipc";
@@ -51,6 +53,7 @@ export interface IpcContext {
   state: LocalStateService;
   conversation: ConversationService;
   runner: RunnerService;
+  shadowWorkspace: ShadowWorkspaceService;
   artifactStore: ArtifactStore;
   qualityEvaluator: QualityEvaluator;
   qualityCompletion: TaskRunCompletionService;
@@ -86,6 +89,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     ctx.instinctService,
   );
   registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus);
+  registerShadowIpc({ shadow: ctx.shadowWorkspace }, eventBus);
   registerQualityIpc(
     ctx.state,
     ctx.qualityEvaluator,

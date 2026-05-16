@@ -31,10 +31,19 @@ test("declared namespaces match the phases shipped so far", () => {
     "runner",
     "secret",
     "settings",
+    "shadow",
     "skillSource",
     "state",
     "topology",
   ]);
+});
+
+test("shadow namespace exposes preview-only verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.shadow).sort(), [
+    "createPreview",
+  ]);
+  assert.equal(isAllowedChannel("shadow:createPreview"), true);
+  assert.equal(isAllowedChannel("shadow:promote"), false);
 });
 
 test("topology namespace exposes recommendation and feedback verbs", () => {

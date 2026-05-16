@@ -23,7 +23,7 @@ import type {
   McpServerHealth,
 } from "@harness/core";
 import type { SkillRootPolicy } from "./ipc/skill-source-ipc";
-import { RunnerService } from "@harness/runners";
+import { RunnerService, ShadowWorkspaceService } from "@harness/runners";
 import { QualityEvaluator } from "@harness/quality";
 import {
   CapabilityRegistry,
@@ -56,6 +56,7 @@ const initServices = (): {
   state: LocalStateService;
   conversation: ConversationService;
   runner: RunnerService;
+  shadowWorkspace: ShadowWorkspaceService;
   artifactStore: FilesystemArtifactStore;
   qualityEvaluator: QualityEvaluator;
   qualityCompletion: TaskRunCompletionService;
@@ -94,6 +95,11 @@ const initServices = (): {
     },
   });
   const runner = new RunnerService({ state, artifactStore });
+  const shadowWorkspace = new ShadowWorkspaceService({
+    state,
+    artifactStore,
+    shadowRootDir: join(userData, "shadow-workspaces"),
+  });
   const qualityEvaluator = new QualityEvaluator({ state });
   // Trace recorder is constructed first so the completion service can
   // stamp a LearningTrace as part of every markDone (Phase 6 acceptance).
@@ -401,6 +407,7 @@ const initServices = (): {
     state,
     conversation,
     runner,
+    shadowWorkspace,
     artifactStore,
     qualityEvaluator,
     qualityCompletion,
