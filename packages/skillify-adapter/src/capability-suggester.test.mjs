@@ -53,3 +53,38 @@ test("suggest reason includes matched terms", () => {
   assert.equal(out.length, 1);
   assert.match(out[0].reason, /rename|extract/);
 });
+
+test("suggest matches multi-word trigger terms", () => {
+  const out = suggestCapabilities({
+    prompt: "Please run the tests before editing",
+    capabilities: [cap({ triggerTerms: ["run the tests"] })],
+  });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].matchedTerms, ["run the tests"]);
+});
+
+test("suggest matches Korean trigger terms with polite suffixes", () => {
+  const out = suggestCapabilities({
+    prompt: "테스트 실행해줘",
+    capabilities: [cap({ triggerTerms: ["테스트 실행"] })],
+  });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].matchedTerms, ["테스트 실행"]);
+});
+
+test("suggest keeps multi-word trigger terms ordered", () => {
+  const out = suggestCapabilities({
+    prompt: "The tests should run before editing",
+    capabilities: [cap({ triggerTerms: ["run tests"] })],
+  });
+  assert.deepEqual(out, []);
+});
+
+test("suggest matches Korean single trigger terms inside a phrase", () => {
+  const out = suggestCapabilities({
+    prompt: "테스트실행해줘",
+    capabilities: [cap({ triggerTerms: ["테스트"] })],
+  });
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].matchedTerms, ["테스트"]);
+});

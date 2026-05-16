@@ -16,16 +16,16 @@ export const suggestCapabilities = (
   input: SuggestInput,
 ): CapabilitySuggestion[] => {
   const limit = input.limit ?? 5;
-  const tokens = tokenize(input.prompt);
-  if (tokens.size === 0) return [];
+  const promptTokens = tokenizeParts(input.prompt);
+  if (promptTokens.length === 0) return [];
 
   const out: CapabilitySuggestion[] = [];
   for (const cap of input.capabilities) {
     const matched: string[] = [];
     for (const term of cap.triggerTerms) {
-      const norm = term.toLowerCase();
-      if (norm.length === 0) continue;
-      if (tokens.has(norm)) {
+      const termTokens = tokenizeParts(term);
+      if (termTokens.length === 0) continue;
+      if (matchesTerm(promptTokens, termTokens)) {
         matched.push(term);
       }
     }
@@ -43,13 +43,32 @@ export const suggestCapabilities = (
   return out.slice(0, limit);
 };
 
-const tokenize = (prompt: string): Set<string> => {
-  const tokens = prompt
+const tokenizeParts = (input: string): string[] =>
+  input
     .toLowerCase()
     .split(/[^a-z0-9가-힣]+/u)
     .filter((t) => t.length > 0);
-  return new Set(tokens);
+
+const matchesTerm = (promptTokens: string[], termTokens: string[]): boolean => {
+  if (termTokens.length > promptTokens.length) return false;
+
+  for (let i = 0; i <= promptTokens.length - termTokens.length; i += 1) {
+    const matches = termTokens.every((termToken, offset) => {
+      const promptToken = promptTokens[i + offset];
+      return promptToken !== undefined && tokenMatches(promptToken, termToken);
+    });
+    if (matches) return true;
+  }
+  return false;
 };
+
+const tokenMatches = (promptToken: string, termToken: string): boolean => {
+  if (promptToken === termToken) return true;
+  if (containsKorean(termToken) && promptToken.includes(termToken)) return true;
+  return false;
+};
+
+const containsKorean = (value: string): boolean => /[가-힣]/u.test(value);
 
 const scoreCapability = (matchCount: number, cap: Capability): number => {
   const base = matchCount;

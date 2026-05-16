@@ -139,7 +139,8 @@ export const CapabilityPanel = ({
     if (suggestions.kind === "idle" || suggestions.suggestions.length === 0) {
       return (
         <div className="empty-state">
-          관련 추천이 없습니다. 좌측 입력에서 trigger term을 늘려보세요.
+          현재 요청과 일치하는 capability가 없습니다. 요청에 구체적인 작업
+          단어를 포함하거나 Skill 디렉터리 재스캔으로 등록 상태를 확인하세요.
         </div>
       );
     }

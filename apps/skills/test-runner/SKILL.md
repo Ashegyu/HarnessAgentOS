@@ -7,12 +7,19 @@ allowedActions:
   - shell_read
   - shell_exec
 triggerTerms:
+  - test
+  - tests
   - run tests
   - run the tests
   - execute tests
   - test suite
   - failing tests
   - test failures
+  - 테스트
+  - 테스트 실행
+  - 테스트 실패
+  - 실패한 테스트
+  - 검증
 ---
 
 # Test Runner Skill
