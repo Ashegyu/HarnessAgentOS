@@ -190,10 +190,14 @@ export class AgentPlanningService {
     // generatePlan resolves; anything else means the caller is layering
     // an agent plan on top of a template plan (we reject to keep the
     // approval ledger clean — see phase-08 §6).
-    if (taskRun.status !== "drafting" && taskRun.status !== "blocked") {
+    if (
+      taskRun.status !== "drafting" &&
+      taskRun.status !== "blocked" &&
+      taskRun.status !== "quality_failed"
+    ) {
       throw new AgentPlanningError(
         AGENT_MODE_MISMATCH,
-        `agent.generatePlan requires TaskRun status drafting|blocked (got ${taskRun.status})`,
+        `agent.generatePlan requires TaskRun status drafting|blocked|quality_failed (got ${taskRun.status})`,
       );
     }
 

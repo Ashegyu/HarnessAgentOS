@@ -16,7 +16,7 @@ import {
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import type { InstinctService } from "@harness/learner";
-import { QualityEvaluator } from "@harness/quality";
+import { QualityEvaluator, type RepairLoopService } from "@harness/quality";
 import type { HarnessEventBus } from "../event-bus";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -49,6 +49,7 @@ export const registerQualityIpc = (
   state: LocalStateService,
   evaluator: QualityEvaluator,
   completion: TaskRunCompletionService,
+  repairLoop: RepairLoopService,
   events: HarnessEventBus,
   instinctService?: InstinctService,
 ): void => {
@@ -163,7 +164,7 @@ export const registerQualityIpc = (
       if (typeof cast.instruction === "string")
         payload.instruction = cast.instruction;
       try {
-        const draft = await completion.createRepairPlan(payload);
+        const draft = await repairLoop.createRepairPlan(payload);
         events.taskRunChanged(draft.taskRun.id);
         return ok(draft);
       } catch (e) {

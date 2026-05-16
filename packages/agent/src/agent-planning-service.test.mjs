@@ -112,6 +112,28 @@ test("retryInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FOU
   );
 });
 
+test("generatePlan accepts quality_failed TaskRun for repair loop entry", async () => {
+  const taskRun = {
+    id: "tr-quality-failed",
+    threadId: "th-1",
+    userRequest: "repair",
+    targetDir: "/tmp",
+    status: "quality_failed",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const svc = new AgentPlanningService({
+    state: makeGateway({ getTaskRun: async () => taskRun }),
+    getProviderStatus: () => ({ claude: { available: false }, codex: { available: false } }),
+  });
+  await assert.rejects(
+    () => svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" }),
+    (err) =>
+      err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE",
+  );
+});
+
 test("generatePlan marks invocation cancelled (not failed) when queue rejects with AGENT_CANCELLED", async () => {
   const draftingTaskRun = {
     id: "tr-cancel",

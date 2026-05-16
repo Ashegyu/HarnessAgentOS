@@ -12,7 +12,7 @@ import type {
 } from "@harness/storage";
 import type { RunnerService } from "@harness/runners";
 import type { ShadowWorkspaceService } from "@harness/runners";
-import type { QualityEvaluator } from "@harness/quality";
+import type { QualityEvaluator, RepairLoopService } from "@harness/quality";
 import type {
   CapabilityRegistry,
   CapabilityService,
@@ -57,6 +57,7 @@ export interface IpcContext {
   artifactStore: ArtifactStore;
   qualityEvaluator: QualityEvaluator;
   qualityCompletion: TaskRunCompletionService;
+  repairLoop: RepairLoopService;
   capabilityService: CapabilityService;
   capabilityRegistry: CapabilityRegistry;
   skillSources: SkillSourceConfig[];
@@ -94,6 +95,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     ctx.state,
     ctx.qualityEvaluator,
     ctx.qualityCompletion,
+    ctx.repairLoop,
     eventBus,
     ctx.instinctService,
   );

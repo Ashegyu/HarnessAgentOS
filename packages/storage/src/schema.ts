@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -349,6 +349,28 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_repo_index_target
     ON repo_index_files(project_key, target_dir, updated_at)`,
+
+  // v19 — quality repair loop attempt ledger. Attempts remain in the same
+  // TaskRun history and make repeated failure signatures stoppable.
+  `CREATE TABLE IF NOT EXISTS repair_attempts (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    quality_gate_id TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    failure_signature TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('planned','waiting_for_approval','executed','passed','failed','stopped')),
+    invocation_id TEXT,
+    generated_approval_ids_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(quality_gate_id) REFERENCES quality_gate_results(id) ON DELETE CASCADE,
+    FOREIGN KEY(invocation_id) REFERENCES agent_invocations(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_repair_attempts_task_run
+    ON repair_attempts(task_run_id, attempt_index)`,
+  `CREATE INDEX IF NOT EXISTS idx_repair_attempts_signature
+    ON repair_attempts(task_run_id, failure_signature)`,
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,

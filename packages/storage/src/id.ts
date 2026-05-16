@@ -23,6 +23,7 @@ const PREFIXES = {
   skillSource: "ss_",
   agentPipeline: "pipe_",
   a2aEndpoint: "a2a_",
+  repairAttempt: "rpa_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;

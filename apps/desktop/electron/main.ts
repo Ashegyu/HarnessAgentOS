@@ -24,7 +24,7 @@ import type {
 } from "@harness/core";
 import type { SkillRootPolicy } from "./ipc/skill-source-ipc";
 import { RunnerService, ShadowWorkspaceService } from "@harness/runners";
-import { QualityEvaluator } from "@harness/quality";
+import { QualityEvaluator, RepairLoopService } from "@harness/quality";
 import {
   CapabilityRegistry,
   CapabilityService,
@@ -62,6 +62,7 @@ const initServices = (): {
   artifactStore: FilesystemArtifactStore;
   qualityEvaluator: QualityEvaluator;
   qualityCompletion: TaskRunCompletionService;
+  repairLoop: RepairLoopService;
   capabilityService: CapabilityService;
   capabilityRegistry: CapabilityRegistry;
   skillSources: SkillSourceConfig[];
@@ -267,6 +268,12 @@ const initServices = (): {
     },
   });
 
+  const repairLoop = new RepairLoopService({
+    state,
+    completion: qualityCompletion,
+    agentPlanning,
+  });
+
   // Phase D — pipeline workers use local CLI by default, or route through
   // the trusted remote A2A endpoint selected on the pipeline step.
   const orchestrationWorkerInvoker = createA2AWorkerRouter({
@@ -423,6 +430,7 @@ const initServices = (): {
     artifactStore,
     qualityEvaluator,
     qualityCompletion,
+    repairLoop,
     capabilityService,
     capabilityRegistry,
     skillSources,

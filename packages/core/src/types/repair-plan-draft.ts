@@ -8,4 +8,6 @@ export interface RepairPlanDraft {
   planArtifact: Artifact;
   checkpoint: Checkpoint;
   approvals: Approval[];
+  repairAttemptId?: string;
+  source?: "agent" | "template";
 }
