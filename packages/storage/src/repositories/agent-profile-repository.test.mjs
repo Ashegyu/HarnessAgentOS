@@ -194,6 +194,16 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
     assert.ok(all.every((p) => p.category.length > 0), "all profiles have a category");
     assert.ok(all.some((p) => p.name === "ECC Security Reviewer" && p.tags.includes("security")));
+    assert.match(
+      all.find((p) => p.name === "Planner")?.persona ?? "",
+      /한국어|요구사항/,
+      "seed persona should be Korean-facing",
+    );
+    assert.match(
+      all.find((p) => p.name === "ECC Build Error Resolver")?.persona ?? "",
+      /첫 번째 실제 실패|한국어/,
+      "framework seed persona should be Korean-facing",
+    );
     assertFrameworkProfilesPresent(all);
   } finally {
     closeDb(db);
@@ -210,6 +220,34 @@ test("AgentProfileRepository.ensureSeed is idempotent", async () => {
     await repo.ensureSeed();
     const all = await repo.list();
     assert.equal(all.length, EXPECTED_SEED_COUNT, "second call must not insert duplicates");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed localizes unmodified English seed text", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const legacy = await repo.create(
+      makeProfileInput({
+        name: "Planner",
+        role: "planner",
+        description:
+          "Strategic planning and task decomposition. Breaks complex requests into actionable steps and coordinates downstream agents.",
+        persona:
+          "You are a senior engineering lead specialising in requirement analysis and sprint planning. Your goal is to produce clear, unambiguous task breakdowns that a coding agent can implement without additional clarification.",
+        isDefault: true,
+      }),
+    );
+
+    await repo.ensureSeed();
+    const refreshed = await repo.get(legacy.id);
+
+    assert.match(refreshed.description, /실행 가능한 단계/);
+    assert.match(refreshed.persona, /요구사항 분석/);
   } finally {
     closeDb(db);
     t.cleanup();

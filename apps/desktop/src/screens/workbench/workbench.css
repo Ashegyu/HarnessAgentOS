@@ -4872,6 +4872,32 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-primary);
 }
 
+.agent-profiles-tab__role-help {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-profiles-tab__role-help strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.agent-profiles-tab__role-help p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.agent-profiles-tab__role-help span {
+  color: var(--text-muted);
+}
+
 .agent-profiles-tab__actions {
   display: flex;
   gap: var(--space-2);
@@ -5760,6 +5786,51 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   flex: 0 0 auto;
 }
 
+.pipeline-intent-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+}
+
+.pipeline-intent-filter .settings-field__input {
+  min-height: 34px;
+  font-size: 12px;
+}
+
+.pipeline-intent-filter__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pipeline-intent-filter__chip {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pipeline-intent-filter__chip:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-panel-elev);
+}
+
+.pipeline-intent-filter__summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .pipelines-tab__items {
   list-style: none;
   margin: 0;
@@ -5805,6 +5876,14 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .pipelines-tab__item-meta {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.pipelines-tab__item-reason {
+  font-size: 11px;
+  color: var(--status-passed);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pipelines-tab__editor {

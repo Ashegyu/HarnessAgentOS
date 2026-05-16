@@ -84,12 +84,197 @@ export interface TopologyTaskRunOption {
   createdAt: string;
 }
 
+export type PipelineIntentKey =
+  | "build_recovery"
+  | "refactor_safety"
+  | "review_hardening"
+  | "supervised_delivery"
+  | "none";
+
+export interface PipelineIntentPreset {
+  key: Exclude<PipelineIntentKey, "none">;
+  label: string;
+  requestHint: string;
+  reason: string;
+  keywords: readonly string[];
+  pipelineKeywords: readonly string[];
+  preferredPipelineIds: readonly string[];
+  preferredRoles: readonly WorkerRole[];
+}
+
+export interface RankedPipeline {
+  pipeline: AgentPipeline;
+  score: number;
+  intent: PipelineIntentKey;
+  recommended: boolean;
+  reason: string;
+  matchedRoles: WorkerRole[];
+}
+
 export const PIPELINE_WORKER_ACTION_CHOICES: readonly ApprovalActionType[] = [
   "file_write",
   "shell",
 ];
 
 export const PIPELINE_OUTPUT_CONTRACT_CHOICES = WORKER_OUTPUT_CONTRACTS;
+
+export const PIPELINE_INTENT_PRESETS: readonly PipelineIntentPreset[] = [
+  {
+    key: "build_recovery",
+    label: "Build Recovery",
+    requestHint: "빌드 에러",
+    reason: "빌드/타입/lint/test 실패 복구",
+    keywords: [
+      "빌드",
+      "build",
+      "typecheck",
+      "타입",
+      "lint",
+      "린트",
+      "컴파일",
+      "compile",
+      "테스트 실패",
+      "test fail",
+      "에러",
+      "error",
+      "오류",
+      "실패",
+      "failed",
+      "깨져",
+      "안돼",
+      "안되",
+      "exception",
+    ],
+    pipelineKeywords: [
+      "build",
+      "빌드",
+      "type",
+      "lint",
+      "test",
+      "테스트",
+      "복구",
+      "실패",
+    ],
+    preferredPipelineIds: ["pipe_template_build_recovery"],
+    preferredRoles: ["build-error-resolver", "tester", "reviewer"],
+  },
+  {
+    key: "refactor_safety",
+    label: "Refactor Safety",
+    requestHint: "리팩터링",
+    reason: "동작 보존 리팩터링",
+    keywords: [
+      "리팩터",
+      "리팩토",
+      "refactor",
+      "cleanup",
+      "정리",
+      "중복",
+      "dead code",
+      "구조 개선",
+      "분리",
+      "추출",
+      "rename",
+    ],
+    pipelineKeywords: [
+      "refactor",
+      "리팩터",
+      "리팩토",
+      "cleanup",
+      "정리",
+      "동작 보존",
+    ],
+    preferredPipelineIds: ["pipe_template_refactor_safety"],
+    preferredRoles: [
+      "planner",
+      "refactor-cleaner",
+      "build-error-resolver",
+      "tester",
+      "performance-reviewer",
+      "reviewer",
+    ],
+  },
+  {
+    key: "review_hardening",
+    label: "Parallel Review Hardening",
+    requestHint: "보안 리뷰",
+    reason: "보안/성능/정확성 병렬 검토",
+    keywords: [
+      "리뷰",
+      "review",
+      "검토",
+      "보안",
+      "security",
+      "취약",
+      "secret",
+      "injection",
+      "권한",
+      "성능",
+      "performance",
+      "병목",
+      "audit",
+      "hardening",
+      "위험",
+    ],
+    pipelineKeywords: [
+      "review",
+      "리뷰",
+      "hardening",
+      "보안",
+      "security",
+      "성능",
+      "performance",
+      "fan-out",
+    ],
+    preferredPipelineIds: ["pipe_template_review_hardening"],
+    preferredRoles: [
+      "planner",
+      "security-reviewer",
+      "performance-reviewer",
+      "reviewer",
+    ],
+  },
+  {
+    key: "supervised_delivery",
+    label: "Supervised Delivery",
+    requestHint: "기능 구현",
+    reason: "계획부터 구현/검증/리뷰까지 전체 전달",
+    keywords: [
+      "구현",
+      "implement",
+      "기능",
+      "feature",
+      "추가",
+      "add",
+      "수정",
+      "fix",
+      "패치",
+      "patch",
+      "개발",
+      "만들",
+      "연결",
+      "완료",
+    ],
+    pipelineKeywords: [
+      "supervised",
+      "delivery",
+      "구현",
+      "계획",
+      "검증",
+      "리뷰",
+    ],
+    preferredPipelineIds: ["pipe_template_supervised_delivery"],
+    preferredRoles: [
+      "orchestrator",
+      "planner",
+      "coder",
+      "build-error-resolver",
+      "tester",
+      "security-reviewer",
+      "reviewer",
+    ],
+  },
+] as const;
 
 const ACTION_SET: ReadonlySet<string> = new Set(APPROVAL_ACTION_TYPES);
 const OUTPUT_CONTRACT_SET: ReadonlySet<string> = new Set(
@@ -187,6 +372,104 @@ const READ_ONLY_PARALLEL_ROLES = new Set<string>([
   "performance-reviewer",
   "documenter",
 ]);
+
+const normalizeIntentText = (value: string): string =>
+  value.trim().toLocaleLowerCase("ko-KR");
+
+const countKeywordHits = (
+  text: string,
+  keywords: readonly string[],
+): number =>
+  keywords.reduce(
+    (count, keyword) =>
+      text.includes(keyword.toLocaleLowerCase("ko-KR")) ? count + 1 : count,
+    0,
+  );
+
+const pipelineSearchText = (pipeline: AgentPipeline): string =>
+  normalizeIntentText(
+    [
+      pipeline.name,
+      pipeline.description,
+      ...pipeline.steps.flatMap((step) => [step.title, step.instruction]),
+    ].join(" "),
+  );
+
+export const inferPipelineIntent = (request: string): PipelineIntentKey => {
+  const text = normalizeIntentText(request);
+  if (text.length === 0) return "none";
+
+  const ranked = PIPELINE_INTENT_PRESETS.map((preset, index) => ({
+    preset,
+    index,
+    hits: countKeywordHits(text, preset.keywords),
+  }))
+    .filter((entry) => entry.hits > 0)
+    .sort((a, b) => b.hits - a.hits || a.index - b.index);
+
+  return ranked[0]?.preset.key ?? "supervised_delivery";
+};
+
+export const rankPipelinesForRequest = (
+  pipelines: readonly AgentPipeline[],
+  request: string,
+  profiles: readonly ProfileLite[] = [],
+): RankedPipeline[] => {
+  const intent = inferPipelineIntent(request);
+  if (intent === "none") {
+    return pipelines.map((pipeline) => ({
+      pipeline,
+      score: 0,
+      intent,
+      recommended: false,
+      reason: "",
+      matchedRoles: [],
+    }));
+  }
+
+  const preset =
+    PIPELINE_INTENT_PRESETS.find((entry) => entry.key === intent) ??
+    PIPELINE_INTENT_PRESETS[PIPELINE_INTENT_PRESETS.length - 1]!;
+  const roleByProfileId = new Map(
+    profiles.map((profile) => [profile.id, profile.role] as const),
+  );
+
+  return pipelines
+    .map((pipeline, index) => {
+      const text = pipelineSearchText(pipeline);
+      const roles = new Set(
+        pipeline.steps
+          .map((step) => roleByProfileId.get(step.agentProfileId))
+          .filter((role): role is WorkerRole => role !== undefined),
+      );
+      const matchedRoles = preset.preferredRoles.filter((role) =>
+        roles.has(role),
+      );
+      const explicitTemplate = preset.preferredPipelineIds.includes(
+        pipeline.id,
+      );
+      const pipelineKeywordHits = countKeywordHits(
+        text,
+        preset.pipelineKeywords,
+      );
+      const score =
+        (explicitTemplate ? 120 : 0) +
+        pipelineKeywordHits * 12 +
+        matchedRoles.length * 8;
+
+      return {
+        pipeline,
+        score,
+        intent,
+        recommended: score > 0,
+        reason: preset.reason,
+        matchedRoles,
+        originalIndex: index,
+      };
+    })
+    .sort((a, b) => b.score - a.score || a.originalIndex - b.originalIndex)
+    .map(({ originalIndex: _originalIndex, ...entry }) => entry);
+};
 
 export const validatePipelineDraft = (
   draft: PipelineDraft,

@@ -13,6 +13,11 @@ import {
   planLegacyMigration,
   type MigrationPlan,
 } from "./legacy-profile-migration";
+import {
+  WORKER_ROLE_METADATA,
+  roleLabel,
+  roleOptionLabel,
+} from "./role-metadata";
 
 interface Props {
   /** Used to flash a saved-confirmation back to the parent. */
@@ -113,6 +118,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
     if (categoryFilter === "all") return list.profiles;
     return list.profiles.filter((p) => p.category === categoryFilter);
   }, [categoryFilter, list]);
+  const selectedRoleMetadata = draft
+    ? WORKER_ROLE_METADATA[draft.role]
+    : null;
 
   const handleSave = async (): Promise<void> => {
     if (!draft || validationErrors.length > 0) return;
@@ -303,20 +311,20 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
           list.profiles.length === 0 &&
           !list.migrationPlan && (
             <div className="empty-state">
-              등록된 프로필이 없습니다. "+ 새 프로필" 버튼으로 시작하세요.
+              등록된 프로필이 없습니다. "새 프로필" 버튼으로 시작하세요.
             </div>
           )}
         {list.kind === "ready" && list.profiles.length > 0 && (
           <div className="agent-profiles-tab__filters">
             <label className="settings-field">
-              <span className="settings-field__label">Category</span>
+              <span className="settings-field__label">분류</span>
               <select
                 className="settings-field__input"
                 value={categoryFilter}
                 disabled={saving}
                 onChange={(e) => setCategoryFilter(e.target.value)}
               >
-                <option value="all">all</option>
+                <option value="all">전체</option>
                 {categories.map((category) => (
                   <option key={category} value={category}>
                     {category}
@@ -344,9 +352,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                       {p.name}
                     </span>
                     <span className="agent-profiles-tab__item-meta">
-                      {p.provider} · {p.role} · {p.category}
-                      {p.isDefault && " · default"}
-                      {isActive && " · active"}
+                      {p.provider} · {roleLabel(p.role)} · {p.category}
+                      {p.isDefault && " · 기본"}
+                      {isActive && " · 활성"}
                     </span>
                     {p.tags.length > 0 && (
                       <span className="agent-profiles-tab__tag-row">
@@ -377,7 +385,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
             </h3>
 
             <fieldset className="settings-fieldset">
-              <legend>Identity</legend>
+              <legend>기본 정보</legend>
               <label className="settings-field">
                 <span className="settings-field__label">이름</span>
                 <input
@@ -399,7 +407,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Category</span>
+                <span className="settings-field__label">분류</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -409,7 +417,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Tags</span>
+                <span className="settings-field__label">태그</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -420,7 +428,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Provider</span>
+                <span className="settings-field__label">실행 Provider</span>
                 <select
                   className="settings-field__input"
                   value={draft.provider}
@@ -435,7 +443,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 </select>
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Role</span>
+                <span className="settings-field__label">역할(Role)</span>
                 <select
                   className="settings-field__input"
                   value={draft.role}
@@ -446,23 +454,31 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 >
                   {WORKER_ROLES.map((role) => (
                     <option key={role} value={role}>
-                      {role}
+                      {roleOptionLabel(role)}
                     </option>
                   ))}
                 </select>
               </label>
+              {selectedRoleMetadata && (
+                <div className="agent-profiles-tab__role-help" role="note">
+                  <strong>{selectedRoleMetadata.label}</strong>
+                  <p>{selectedRoleMetadata.description}</p>
+                  <span>{selectedRoleMetadata.whenToUse}</span>
+                </div>
+              )}
             </fieldset>
 
             <fieldset className="settings-fieldset">
-              <legend>Persona</legend>
+              <legend>에이전트 프롬프트</legend>
               <p className="settings-field__hint">
-                자연어로 에이전트의 역할/관점을 설명하면 시스템 프롬프트
-                상단에 자동 주입됩니다.
+                이 내용은 시스템 프롬프트의 ROLE 블록에 들어갑니다. 기본 제공
+                에이전트 프롬프트는 한국어로 작성되어 있으며, 필요하면 이
+                화면에서 직접 조정할 수 있습니다.
               </p>
               <textarea
                 className="settings-field__input settings-field__textarea"
                 rows={4}
-                placeholder="예: 보안 관점에서 PR을 리뷰하는 시니어 엔지니어..."
+                placeholder="예: 보안 관점에서 PR을 리뷰하고, 심각도별로 근거와 수정 방향을 정리하세요."
                 value={draft.persona}
                 disabled={saving}
                 onChange={(e) => updateDraft("persona", e.target.value)}
@@ -470,9 +486,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
             </fieldset>
 
             <fieldset className="settings-fieldset">
-              <legend>Tuning</legend>
+              <legend>모델 튜닝</legend>
               <label className="settings-field">
-                <span className="settings-field__label">Model</span>
+                <span className="settings-field__label">모델</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -484,7 +500,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  Temperature (0–2, 비워두면 기본)
+                  Temperature (0-2, 비워두면 기본)
                 </span>
                 <input
                   type="text"
@@ -498,7 +514,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  Max tokens (비워두면 기본)
+                  최대 토큰 (비워두면 기본)
                 </span>
                 <input
                   type="text"
@@ -511,7 +527,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Hard timeout (ms)</span>
+                <span className="settings-field__label">전체 제한 시간 (ms)</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -522,7 +538,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  Idle timeout (ms)
+                  무응답 제한 시간 (ms)
                 </span>
                 <input
                   type="text"
@@ -535,7 +551,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
               </label>
               <label className="settings-field">
-                <span className="settings-field__label">Context depth</span>
+                <span className="settings-field__label">컨텍스트 깊이</span>
                 <input
                   type="text"
                   className="settings-field__input"
@@ -548,7 +564,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  System prompt prefix (조직 정책)
+                  시스템 프롬프트 앞부분 (조직 정책)
                 </span>
                 <textarea
                   className="settings-field__input settings-field__textarea"
@@ -562,7 +578,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
-                  System prompt suffix (말미 알림)
+                  시스템 프롬프트 뒷부분 (말미 알림)
                 </span>
                 <textarea
                   className="settings-field__input settings-field__textarea"
@@ -592,18 +608,18 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
             </fieldset>
 
             <fieldset className="settings-fieldset">
-              <legend>Permissions</legend>
+              <legend>권한 정책</legend>
               <p className="settings-field__hint">
-                Default = 글로벌 autoApprove 설정 따름. Block은 글로벌
-                autoApprove를 무효화합니다.
+                기본값은 전역 자동 승인 설정을 따릅니다. 차단은 전역 자동
+                승인보다 항상 우선합니다.
               </p>
               <table className="permissions-table">
                 <thead>
                   <tr>
                     <th>Action</th>
-                    <th>Default</th>
-                    <th>Auto-approve</th>
-                    <th>Block</th>
+                    <th>기본</th>
+                    <th>자동 승인</th>
+                    <th>차단</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -674,7 +690,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     onClick={() => void handleSetDefault()}
                     disabled={saving || draft.isDefault}
                   >
-                    Default로 지정
+                    기본으로 지정
                   </button>
                   <button
                     type="button"

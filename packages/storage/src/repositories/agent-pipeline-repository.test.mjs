@@ -150,6 +150,11 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       delivery.steps.find((step) => step.id === "build")?.allowedActions,
       ["shell", "file_write"],
     );
+    assert.match(
+      delivery.steps.find((step) => step.id === "plan")?.instruction ?? "",
+      /한국어/,
+      "seed step instructions should be Korean-facing",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -169,6 +174,52 @@ test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
       all.filter((p) => p.id === "pipe_template_refactor_safety").length,
       1,
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.ensureSeed localizes unmodified English templates", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    const profileByRole = new Map(
+      (await profiles.list()).map((p) => [p.role, p.id]),
+    );
+    const now = "2026-05-17T00:00:00.000Z";
+    const steps = [
+      {
+        id: "diagnose",
+        agentProfileId: profileByRole.get("build-error-resolver"),
+        title: "Diagnose first real failure",
+        instruction:
+          "Read the first real build, typecheck, lint, or test failure. Trace the owning module and propose the smallest corrective change.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: [],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+    ];
+    db.prepare(
+      `INSERT INTO agent_pipelines
+        (id, name, description, steps_json, created_at, updated_at)
+       VALUES (?,?,?,?,?,?)`,
+    ).run(
+      "pipe_template_build_recovery",
+      "Build Recovery",
+      "Focused failure-recovery flow for build, typecheck, lint, or test failures with verification and final review.",
+      JSON.stringify(steps),
+      now,
+      now,
+    );
+
+    await pipelines.ensureSeed();
+    const refreshed = await pipelines.get("pipe_template_build_recovery");
+
+    assert.match(refreshed.description, /집중 복구/);
+    assert.match(refreshed.steps[0].title, /첫 실제 실패/);
+    assert.match(refreshed.steps[0].instruction, /한국어/);
   } finally {
     closeDb(db);
     t.cleanup();

@@ -61,7 +61,7 @@
 | **활성화 토글** | OFF면 single-worker 모드로 동작 |
 | **기본 Mode** | `single_worker` / `planner_worker` / `multi_worker` |
 | **기본 Instruction** | 플래너 에이전트에게 항상 전달되는 시스템 지시 |
-| **Worker Profiles** | `role` + provider + model 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer` |
+| **Agent Profiles** | `role` + provider + model + 한국어 ROLE 프롬프트 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer` |
 
 ### 2.3 Approval 자동화
 
@@ -86,16 +86,19 @@ profile.permissions.autoApproveActions
 
 ### 3.1 필드 의미
 
-#### Identity 섹션
-- **Name** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
+#### 기본 정보 섹션
+- **이름** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
+- **분류/태그** — UI 필터와 profile 선택 힌트에 사용하는 메타데이터
 - **Provider** — `claude` / `codex` / `auto`
 - **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`를 사용합니다.
+- **Role 설명 카드** — 선택한 role의 책임, 사용 시점, 안전 경계를 표시합니다.
 - **Model** — 비워두면 provider 기본값
 - **CLI 경로 override** — 시스템 PATH의 CLI가 아닌 다른 바이너리를 쓰고 싶을 때
 
-#### Persona 섹션
-- **System Prompt Persona** — 에이전트 정체성. prompt 앞에 prefix로 합성됨
-- **System Prompt Prefix** — Persona 위에 더해지는 작업 컨텍스트
+#### 에이전트 프롬프트 섹션
+- **ROLE 프롬프트** — 에이전트 정체성. 시스템 프롬프트 앞쪽의 `ROLE` 블록으로 합성됩니다.
+- **기본 제공 프롬프트** — seed AgentProfile의 description/persona는 한국어로 저장되고 UI에서도 한국어로 표시됩니다.
+- **System Prompt Prefix** — ROLE 프롬프트 위에 더해지는 조직/프로젝트 정책
 - **System Prompt Suffix** — output contract 뒤에 추가되는 마무리 지시
 
 > ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX`. `--system-prompt` 인자로 Claude에 전달되어 `--resume`에서도 유지됩니다.
@@ -174,9 +177,23 @@ permissions:
 mcpServerIds: [mcp_fs, mcp_github]
 ```
 
-### 3.5 기본 Pipeline 템플릿
+### 3.5 Role 설명
 
-앱 시작 시 AgentProfile seed가 끝나면 Pipelines 탭에 role-aware 기본 템플릿이 추가됩니다. 이 seed는 idempotent하며, 같은 id 또는 이름의 pipeline이 이미 있으면 중복 생성하지 않습니다.
+| Role | 표시 이름 | 책임 | 주 사용 시점 |
+|------|----------|------|-------------|
+| `planner` | 계획 수립자 | 요구사항을 실행 단계, 위험, 검증 기준으로 분해 | 범위가 애매하거나 여러 단계가 필요한 작업 시작 |
+| `coder` | 구현 담당자 | 승인된 계획을 코드 변경으로 구현 | 기능 추가, 버그 수정, multi-file 변경 |
+| `reviewer` | 정확성 리뷰어 | 동작 회귀, 유지보수성, 누락 테스트 검토 | 구현 후 최종 검토 또는 read-only 병렬 검토 |
+| `tester` | 검증 담당자 | 테스트 설계, 실행, 증거 정리 | TDD, 회귀 검증, 빌드 복구 후 검증 |
+| `orchestrator` | 오케스트레이터 | worker 책임, 의존성, handoff, 승인 지점 설계 | 대형 작업을 여러 agent 흐름으로 나눌 때 |
+| `security-reviewer` | 보안 리뷰어 | secret, injection, path traversal, 승인 우회 점검 | 보안 경계나 외부 입력이 바뀌는 작업 |
+| `build-error-resolver` | 빌드 오류 해결자 | 실패 로그의 첫 실제 원인 추적과 최소 수정안 제안 | build/type/lint/test 실패 복구 |
+| `refactor-cleaner` | 리팩터링 정리자 | 동작 보존 리팩터링과 dead code/중복 정리 | 테스트로 보호된 구조 개선 |
+| `performance-reviewer` | 성능 리뷰어 | allocation, latency, repeated work, benchmark 누락 검토 | hot path, 반복 실행, 대용량 처리 변경 |
+
+### 3.6 기본 Pipeline 템플릿
+
+앱 시작 시 AgentProfile seed가 끝나면 Pipelines 탭에 role-aware 기본 템플릿이 추가됩니다. 이 seed는 idempotent하며, 같은 id 또는 이름의 pipeline이 이미 있으면 중복 생성하지 않습니다. 기본 템플릿의 step instruction 프롬프트는 한국어로 저장됩니다.
 
 | 템플릿 | 용도 |
 |------|------|
@@ -186,6 +203,8 @@ mcpServerIds: [mcp_fs, mcp_github]
 | Build Recovery | build/type/lint/test failure를 진단하고 검증과 리뷰까지 연결 |
 
 기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
+
+Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다.
 
 ---
 

@@ -946,6 +946,7 @@ pipeline.delete(input: { pipelineId: string }): Promise<void>;
 - pipeline step은 `agentProfileId`를 필수로 참조한다.
 - `remoteEndpointId`, `dependsOn`, `allowedActions`, `outputContract`는 orchestration planner가 immutable plan snapshot으로 확장할 때 사용한다.
 - 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
+- 기본 AgentProfile seed의 description/persona와 기본 pipeline step instruction은 한국어 UI 표시를 기준으로 저장한다.
 - 기본 템플릿 seed는 저장된 선택지를 추가할 뿐이며, 기본 실행 pipeline 지정이나 자동 실행을 수행하지 않는다.
 - `pipeline.run` 같은 직접 실행 IPC는 없다.
 

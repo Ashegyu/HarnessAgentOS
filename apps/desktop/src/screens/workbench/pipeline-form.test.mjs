@@ -7,6 +7,7 @@ import {
   serializePipelineDraft,
   pipelineToDraft,
   pipelineInputToDraft,
+  rankPipelinesForRequest,
   settingsWithDefaultPipeline,
   topologyTaskRunOptionsFromThreadDetails,
   moveStep,
@@ -27,11 +28,120 @@ const remoteEntry = (id, name = "Remote Reviewer", overrides = {}) => ({
   },
 });
 
+const pipeline = (id, name, stepProfileIds, description = "") => ({
+  id,
+  name,
+  description,
+  steps: stepProfileIds.map((profileId, index) => ({
+    id: `s${index + 1}`,
+    agentProfileId: profileId,
+    title: `${name} step ${index + 1}`,
+    instruction: "",
+    expectedArtifactKinds: ["log"],
+  })),
+  createdAt: "2026-05-15T00:00:00.000Z",
+  updatedAt: "2026-05-15T00:00:00.000Z",
+});
+
+const recommendationProfiles = [
+  profile("ap_orch", "Orchestrator", "orchestrator"),
+  profile("ap_plan", "Planner", "planner"),
+  profile("ap_code", "Coder", "coder"),
+  profile("ap_build", "Build", "build-error-resolver"),
+  profile("ap_test", "Tester", "tester"),
+  profile("ap_refactor", "Refactor", "refactor-cleaner"),
+  profile("ap_security", "Security", "security-reviewer"),
+  profile("ap_perf", "Performance", "performance-reviewer"),
+  profile("ap_review", "Reviewer", "reviewer"),
+];
+
+const seededPipelines = [
+  pipeline(
+    "pipe_template_supervised_delivery",
+    "Supervised Delivery",
+    [
+      "ap_orch",
+      "ap_plan",
+      "ap_code",
+      "ap_build",
+      "ap_test",
+      "ap_security",
+      "ap_review",
+    ],
+    "기본 구현 흐름",
+  ),
+  pipeline(
+    "pipe_template_refactor_safety",
+    "Refactor Safety",
+    ["ap_plan", "ap_refactor", "ap_build", "ap_perf", "ap_test", "ap_review"],
+    "동작 보존 리팩터링",
+  ),
+  pipeline(
+    "pipe_template_review_hardening",
+    "Parallel Review Hardening",
+    ["ap_plan", "ap_security", "ap_perf", "ap_review"],
+    "보안 성능 정확성 병렬 리뷰",
+  ),
+  pipeline(
+    "pipe_template_build_recovery",
+    "Build Recovery",
+    ["ap_build", "ap_test", "ap_review"],
+    "빌드 타입 테스트 실패 복구",
+  ),
+];
+
 test("emptyPipelineDraft starts blank with no steps", () => {
   const d = emptyPipelineDraft();
   assert.equal(d.id, null);
   assert.equal(d.name, "");
   assert.deepEqual(d.steps, []);
+});
+
+test("rankPipelinesForRequest prioritizes Build Recovery for build errors", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "현재 빌드 에러가 나는데 확인해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Build Recovery");
+  assert.equal(ranked[0].intent, "build_recovery");
+  assert.ok(ranked[0].recommended);
+  assert.ok(ranked[0].matchedRoles.includes("build-error-resolver"));
+});
+
+test("rankPipelinesForRequest prioritizes Refactor Safety for refactoring", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "리팩터링하고 중복 코드를 정리해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Refactor Safety");
+  assert.equal(ranked[0].intent, "refactor_safety");
+  assert.ok(ranked[0].matchedRoles.includes("refactor-cleaner"));
+});
+
+test("rankPipelinesForRequest prioritizes review hardening for security review", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "보안 리뷰와 성능 검토를 해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Parallel Review Hardening");
+  assert.equal(ranked[0].intent, "review_hardening");
+  assert.ok(ranked[0].matchedRoles.includes("security-reviewer"));
+});
+
+test("rankPipelinesForRequest keeps seed order when request is empty", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "   ",
+    recommendationProfiles,
+  );
+  assert.deepEqual(
+    ranked.map((entry) => entry.pipeline.name),
+    seededPipelines.map((entry) => entry.name),
+  );
+  assert.equal(ranked[0].recommended, false);
 });
 
 test("validatePipelineDraft requires name", () => {

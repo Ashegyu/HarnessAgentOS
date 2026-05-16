@@ -11,10 +11,12 @@ import {
   buildPipelineFanOutPreview,
   emptyPipelineDraft,
   moveStep,
+  PIPELINE_INTENT_PRESETS,
   PIPELINE_OUTPUT_CONTRACT_CHOICES,
   PIPELINE_WORKER_ACTION_CHOICES,
   pipelineInputToDraft,
   pipelineToDraft,
+  rankPipelinesForRequest,
   serializePipelineDraft,
   settingsWithDefaultPipeline,
   topologyTaskRunOptionsFromThreadDetails,
@@ -23,6 +25,10 @@ import {
   type PipelineStepDraft,
   type TopologyTaskRunOption,
 } from "./pipeline-form";
+import {
+  WORKER_ROLE_METADATA,
+  roleOptionLabel,
+} from "./role-metadata";
 
 type ListState =
   | { kind: "loading" }
@@ -43,6 +49,11 @@ interface PipelinesTabProps {
 
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+
+const roleDisplay = (role: string): string =>
+  role in WORKER_ROLE_METADATA
+    ? roleOptionLabel(role as AgentProfile["role"])
+    : role;
 
 const newStepId = (): string =>
   `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -80,6 +91,7 @@ export const PipelinesTab = ({
     string | null
   >(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [pipelineRequestFilter, setPipelineRequestFilter] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -152,6 +164,19 @@ export const PipelinesTab = ({
   const taskRunOptions = list.kind === "ready" ? list.taskRuns : [];
   const defaultPipelineId =
     list.kind === "ready" ? list.defaultPipelineId : "";
+  const rankedPipelines = useMemo(
+    () =>
+      list.kind === "ready"
+        ? rankPipelinesForRequest(
+            list.pipelines,
+            pipelineRequestFilter,
+            profiles,
+          )
+        : [],
+    [list, pipelineRequestFilter, profiles],
+  );
+  const activePipelineSuggestion =
+    rankedPipelines.find((entry) => entry.recommended) ?? null;
   const selectedTaskRunOption = taskRunOptions.find(
     (option) => option.id === recommendTaskRunId.trim(),
   );
@@ -260,6 +285,12 @@ export const PipelinesTab = ({
 
   const profileName = (id: string): string =>
     profiles.find((p) => p.id === id)?.name ?? `(missing: ${id})`;
+  const profileRoleDescription = (id: string): string => {
+    const profile = profiles.find((p) => p.id === id);
+    if (!profile) return "연결된 Agent Profile을 찾을 수 없습니다.";
+    const meta = WORKER_ROLE_METADATA[profile.role];
+    return `${meta.label}: ${meta.description}`;
+  };
   const remoteName = (id: string): string =>
     remoteEntries.find((entry) => entry.endpoint.id === id)?.endpoint.name ??
     `(missing remote: ${id})`;
@@ -380,9 +411,9 @@ export const PipelinesTab = ({
     <div className="pipelines-tab">
       <div className="pipelines-tab__banner" role="note">
         <strong>Agent Pipeline.</strong>{" "}
-        AgentProfile들을 순서대로 묶은 재사용 가능한 템플릿입니다. TaskRun을
-        시작할 때 모드 대신 이 파이프라인을 선택하면 각 step이 지정한
-        프로필로 실행됩니다.
+        여러 Agent Profile을 의존 관계로 묶은 재사용 가능한 실행 흐름입니다.
+        각 step은 role, 프롬프트, 허용 action, 출력 계약을 따로 가질 수
+        있으며 실행은 기존 승인/품질 게이트를 그대로 통과합니다.
       </div>
 
       <div className="pipelines-tab__split">
@@ -406,6 +437,45 @@ export const PipelinesTab = ({
               + 새 파이프라인
             </button>
           </header>
+          {list.kind === "ready" && list.pipelines.length > 0 && (
+            <div className="pipeline-intent-filter">
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  요청 유형 추천
+                </span>
+                <input
+                  type="text"
+                  className="settings-field__input"
+                  aria-label="파이프라인 요청 유형"
+                  value={pipelineRequestFilter}
+                  placeholder="예: 빌드 에러, 리팩터링, 보안 리뷰"
+                  onChange={(e) => setPipelineRequestFilter(e.target.value)}
+                />
+              </label>
+              <div
+                className="pipeline-intent-filter__chips"
+                role="group"
+                aria-label="요청 유형 빠른 선택"
+              >
+                {PIPELINE_INTENT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className="pipeline-intent-filter__chip"
+                    onClick={() => setPipelineRequestFilter(preset.requestHint)}
+                  >
+                    {preset.requestHint}
+                  </button>
+                ))}
+              </div>
+              {activePipelineSuggestion !== null && (
+                <p className="pipeline-intent-filter__summary">
+                  추천 우선: {activePipelineSuggestion.pipeline.name} ·{" "}
+                  {activePipelineSuggestion.reason}
+                </p>
+              )}
+            </div>
+          )}
           {list.kind === "loading" && (
             <div className="empty-state">불러오는 중…</div>
           )}
@@ -424,20 +494,31 @@ export const PipelinesTab = ({
           )}
           {list.kind === "ready" && (
             <ul className="pipelines-tab__items">
-              {list.pipelines.map((p) => (
-                <li key={p.id}>
+              {rankedPipelines.map((entry) => (
+                <li key={entry.pipeline.id}>
                   <button
                     type="button"
                     className={`pipelines-tab__item${
-                      selectedId === p.id ? " pipelines-tab__item--selected" : ""
+                      selectedId === entry.pipeline.id
+                        ? " pipelines-tab__item--selected"
+                        : ""
                     }`}
-                    onClick={() => setSelectedId(p.id)}
+                    onClick={() => setSelectedId(entry.pipeline.id)}
                   >
-                    <span className="pipelines-tab__item-name">{p.name}</span>
-                    <span className="pipelines-tab__item-meta">
-                      {p.steps.length} step{p.steps.length === 1 ? "" : "s"}
-                      {p.id === defaultPipelineId ? " · 기본" : ""}
+                    <span className="pipelines-tab__item-name">
+                      {entry.pipeline.name}
                     </span>
+                    <span className="pipelines-tab__item-meta">
+                      {entry.pipeline.steps.length} step
+                      {entry.pipeline.id === defaultPipelineId
+                        ? " · 기본"
+                        : ""}
+                    </span>
+                    {entry.recommended && (
+                      <span className="pipelines-tab__item-reason">
+                        추천 · {entry.reason}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -457,7 +538,11 @@ export const PipelinesTab = ({
               </h3>
 
               <fieldset className="settings-fieldset">
-                <legend>Topology Recommendation</legend>
+                <legend>Topology 추천</legend>
+                <p className="settings-field__hint">
+                  최근 TaskRun의 요청, capability, instinct trace를 보고 적절한
+                  role 조합과 dependency 구조를 draft로 제안합니다.
+                </p>
                 <div className="pipeline-recommendation__controls">
                   <label className="settings-field pipeline-recommendation__task">
                     <span className="settings-field__label">TaskRun ID</span>
@@ -538,7 +623,7 @@ export const PipelinesTab = ({
                               <span>
                                 {entry.step.allowedActions?.length
                                   ? entry.step.allowedActions.join(", ")
-                                  : "no direct side effects"}
+                                  : "직접 side effect 없음"}
                               </span>
                             </li>
                           ))}
@@ -586,7 +671,7 @@ export const PipelinesTab = ({
               </fieldset>
 
               <fieldset className="settings-fieldset">
-                <legend>Identity</legend>
+                <legend>기본 정보</legend>
                 <label className="settings-field">
                   <span className="settings-field__label">이름</span>
                   <input
@@ -612,7 +697,11 @@ export const PipelinesTab = ({
               </fieldset>
 
               <fieldset className="settings-fieldset">
-                <legend>Steps (순서대로 실행)</legend>
+                <legend>Steps</legend>
+                <p className="settings-field__hint">
+                  각 step의 Instruction은 해당 에이전트에게 전달되는 사용자
+                  프롬프트입니다. 기본 템플릿의 프롬프트는 한국어로 제공됩니다.
+                </p>
                 {draft.steps.length === 0 && (
                   <p className="settings-field__hint">
                     아래 "step 추가" 버튼으로 첫 step을 만드세요.
@@ -628,7 +717,7 @@ export const PipelinesTab = ({
                         <input
                           type="text"
                           className="settings-field__input"
-                          placeholder="Step 제목 (예: Plan)"
+                          placeholder="Step 제목 (예: 계획 수립)"
                           value={step.title}
                           disabled={saving}
                           onChange={(e) =>
@@ -681,7 +770,7 @@ export const PipelinesTab = ({
                         >
                           {profiles.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} ({p.role})
+                              {p.name} - {roleOptionLabel(p.role)}
                             </option>
                           ))}
                           {/* If the step references a profile not in the list
@@ -695,6 +784,9 @@ export const PipelinesTab = ({
                             </option>
                           )}
                         </select>
+                        <span className="settings-field__hint">
+                          {profileRoleDescription(step.agentProfileId)}
+                        </span>
                       </label>
                       <label className="settings-field">
                         <span className="settings-field__label">
@@ -743,7 +835,7 @@ export const PipelinesTab = ({
                             })
                           }
                         >
-                          <option value="">Role default</option>
+                          <option value="">Role 기본값</option>
                           {PIPELINE_OUTPUT_CONTRACT_CHOICES.map((contract) => (
                             <option key={contract} value={contract}>
                               {contract}
@@ -753,7 +845,7 @@ export const PipelinesTab = ({
                       </label>
                       <div className="settings-field">
                         <span className="settings-field__label">
-                          Dependencies
+                          의존 Step
                         </span>
                         <div className="pipeline-step__option-grid">
                           {draft.steps
@@ -787,7 +879,7 @@ export const PipelinesTab = ({
                       </div>
                       <div className="settings-field">
                         <span className="settings-field__label">
-                          Allowed Actions
+                          허용 Action
                         </span>
                         <div className="pipeline-step__option-row">
                           {PIPELINE_WORKER_ACTION_CHOICES.map((action) => (
@@ -821,20 +913,20 @@ export const PipelinesTab = ({
                               updateStep(i, { allowedActions: null })
                             }
                           >
-                            Default
+                            Role 기본값
                           </button>
                         </div>
                       </div>
                       <label className="settings-field">
                         <span className="settings-field__label">
-                          Instruction (이 step에 전달)
+                          Instruction (이 step에 전달되는 프롬프트)
                         </span>
                         <textarea
                           className="settings-field__input settings-field__textarea"
                           rows={2}
                           value={step.instruction}
                           disabled={saving}
-                          placeholder="예: 변경된 파일을 분석하고 위험 요소를 정리하세요."
+                          placeholder="예: 변경된 파일을 분석하고 위험 요소를 한국어로 정리하세요."
                           onChange={(e) =>
                             updateStep(i, { instruction: e.target.value })
                           }
@@ -855,9 +947,9 @@ export const PipelinesTab = ({
 
               {fanOutPreview !== null && draft.steps.length > 0 && (
                 <fieldset className="settings-fieldset">
-                  <legend>Fan-out Preview</legend>
+                  <legend>Fan-out 미리보기</legend>
                   <div className="pipeline-fanout__order">
-                    <span>Output order</span>
+                    <span>출력 순서</span>
                     <strong>{fanOutPreview.deterministicOrder.join(" -> ")}</strong>
                   </div>
                   {fanOutPreview.warnings.length > 0 && (
@@ -875,7 +967,6 @@ export const PipelinesTab = ({
                             <strong>Wave {wave.index + 1}</strong>
                             <span>
                               {wave.stepIds.length} step
-                              {wave.stepIds.length === 1 ? "" : "s"}
                             </span>
                           </div>
                           <span
@@ -886,8 +977,8 @@ export const PipelinesTab = ({
                             }`}
                           >
                             {wave.parallelizable
-                              ? "read-only parallel"
-                              : "serial preview"}
+                              ? "읽기 전용 병렬"
+                              : "순차 실행"}
                           </span>
                         </header>
                         {wave.warnings.length > 0 && (
@@ -902,14 +993,14 @@ export const PipelinesTab = ({
                             <li key={step.stepId}>
                               <div className="pipeline-fanout__step-title">
                                 <strong>{step.title}</strong>
-                                <span>{step.role}</span>
+                                <span>{roleDisplay(step.role)}</span>
                               </div>
                               <div className="pipeline-fanout__step-meta">
                                 <span>
-                                  deps:{" "}
+                                  의존성:{" "}
                                   {step.dependencyIds.length > 0
                                     ? step.dependencyIds.join(", ")
-                                    : "none"}
+                                    : "없음"}
                                 </span>
                                 <span>
                                   remote: {step.remoteEndpointLabel}

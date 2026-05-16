@@ -88,10 +88,11 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
     id: "agentProfiles",
     title: "Agent Profiles",
     summary:
-      "에이전트의 역할, 모델, 프롬프트, 권한 정책을 재사용 가능한 프로필로 관리합니다.",
+      "에이전트의 role, 한국어 프롬프트, 모델, 권한 정책을 재사용 가능한 프로필로 관리합니다.",
     details: [
-      "planner, coder, reviewer, tester와 보안/빌드/리팩터링/성능 전문 role별 실행 성향을 분리할 수 있습니다.",
-      "action type별 default, auto-approve, block 권한을 지정해 안전 경계를 세분화합니다.",
+      "계획, 구현, 리뷰, 검증, 오케스트레이션, 보안, 빌드 복구, 리팩터링, 성능 검토 role을 분리할 수 있습니다.",
+      "프로필 편집 화면에서 각 role의 설명과 사용 기준을 확인하고, 에이전트 ROLE 프롬프트를 한국어로 조정할 수 있습니다.",
+      "action type별 기본, 자동 승인, 차단 권한을 지정해 안전 경계를 세분화합니다.",
     ],
     location: "설정 > Agents",
   },
@@ -101,8 +102,10 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
     summary:
       "여러 Agent Profile을 순서 또는 의존 관계로 묶어 반복 가능한 작업 흐름을 만듭니다.",
     details: [
-      "각 step은 로컬 CLI 또는 신뢰된 원격 A2A endpoint를 사용할 수 있습니다.",
+      "각 step은 Agent Profile, 한국어 instruction 프롬프트, output contract, 허용 action을 따로 가질 수 있습니다.",
+      "요청 유형 추천에 '빌드 에러', '리팩터링', '보안 리뷰' 같은 문구를 입력하면 role 구성을 기준으로 맞는 템플릿을 우선 표시합니다.",
       "TaskRun을 시작할 때 파이프라인을 선택하면 orchestration plan이 생성되고 승인 흐름을 탑니다.",
+      "기본 템플릿은 저장된 선택지만 제공하며 자동 실행이나 기본 파이프라인 지정은 하지 않습니다.",
     ],
     location: "설정 > Pipelines 및 대화 입력의 Pipeline 선택",
   },

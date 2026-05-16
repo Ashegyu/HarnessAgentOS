@@ -124,6 +124,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     }
 
     const now = nowIso();
+    this.localizeLegacySeedPipelines({ existing, updatedAt: now });
     for (const template of pipelineSeedTemplates) {
       if (existingIds.has(template.id)) continue;
       const nameKey = template.name.trim().toLowerCase();
@@ -252,7 +253,215 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         pipeline.updatedAt,
       );
   }
+
+  private localizeLegacySeedPipelines(input: {
+    existing: readonly AgentPipeline[];
+    updatedAt: string;
+  }): void {
+    const desiredById = new Map(
+      pipelineSeedTemplates.map((template) => [template.id, template]),
+    );
+    for (const pipeline of input.existing) {
+      const desired = desiredById.get(pipeline.id);
+      const legacy = LEGACY_ENGLISH_PIPELINE_SEED_TEXT[pipeline.id];
+      if (!desired || !legacy) continue;
+      let changed = false;
+      const description =
+        pipeline.description === legacy.description
+          ? desired.description
+          : pipeline.description;
+      if (description !== pipeline.description) changed = true;
+      const desiredSteps = new Map(
+        desired.steps.map((step) => [step.id, step] as const),
+      );
+      const legacySteps = new Map(
+        legacy.steps.map((step) => [step.id, step] as const),
+      );
+      const steps = pipeline.steps.map((step) => {
+        const desiredStep = desiredSteps.get(step.id);
+        const legacyStep = legacySteps.get(step.id);
+        if (!desiredStep || !legacyStep) return step;
+        const title =
+          step.title === legacyStep.title ? desiredStep.title : step.title;
+        const instruction =
+          step.instruction === legacyStep.instruction
+            ? desiredStep.instruction
+            : step.instruction;
+        if (title !== step.title || instruction !== step.instruction) {
+          changed = true;
+          return { ...step, title, instruction };
+        }
+        return step;
+      });
+      if (!changed) continue;
+      this.db
+        .prepare(
+          `UPDATE agent_pipelines
+              SET description = ?, steps_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          description,
+          JSON.stringify(steps),
+          input.updatedAt,
+          pipeline.id,
+        );
+    }
+  }
 }
+
+const LEGACY_ENGLISH_PIPELINE_SEED_TEXT: Record<
+  string,
+  {
+    description: string;
+    steps: Array<{ id: string; title: string; instruction: string }>;
+  }
+> = {
+  pipe_template_supervised_delivery: {
+    description:
+      "Default implementation flow: orchestrate, plan, code, recover build failures, test, review security, and complete final review.",
+    steps: [
+      {
+        id: "topology",
+        title: "Coordinate worker topology",
+        instruction:
+          "Define worker ownership, dependencies, handoff payloads, approval checkpoints, and completion criteria for this request.",
+      },
+      {
+        id: "plan",
+        title: "Plan scope and risks",
+        instruction:
+          "Convert the request into a scoped implementation plan, identify likely files or modules, and call out concrete risks.",
+      },
+      {
+        id: "implement",
+        title: "Implement approved change",
+        instruction:
+          "Implement the approved plan with scoped edits. Propose file writes through Harness approvals only.",
+      },
+      {
+        id: "build",
+        title: "Resolve build or type failures",
+        instruction:
+          "Run targeted build, typecheck, lint, or test diagnostics as approved. If failures appear, propose the smallest corrective patch.",
+      },
+      {
+        id: "test",
+        title: "Verify changed paths",
+        instruction:
+          "Run or design focused verification for changed paths and summarize concrete evidence.",
+      },
+      {
+        id: "security",
+        title: "Review security boundary",
+        instruction:
+          "Review the proposed change for secrets, injection, unsafe file or shell access, and approval bypasses.",
+      },
+      {
+        id: "final-review",
+        title: "Final correctness review",
+        instruction:
+          "Review behavior, maintainability, missing tests, and unresolved risks before completion.",
+      },
+    ],
+  },
+  pipe_template_refactor_safety: {
+    description:
+      "Behavior-preserving cleanup flow with refactor, build recovery, verification, performance review, and final review.",
+    steps: [
+      {
+        id: "plan",
+        title: "Plan safe refactor scope",
+        instruction:
+          "Identify behavior that must remain stable, impacted files, regression risks, and the smallest safe cleanup slice.",
+      },
+      {
+        id: "refactor",
+        title: "Apply focused cleanup",
+        instruction:
+          "Refactor only the approved scope, preserve behavior, and remove dead code only with evidence.",
+      },
+      {
+        id: "build",
+        title: "Check build after refactor",
+        instruction:
+          "Run targeted diagnostics and propose minimal fixes for any build, type, lint, or test failures.",
+      },
+      {
+        id: "performance",
+        title: "Review performance regressions",
+        instruction:
+          "Inspect the refactor for allocation, latency, repeated work, and resource lifetime regressions.",
+      },
+      {
+        id: "test",
+        title: "Verify behavior preservation",
+        instruction:
+          "Run focused regression verification for the refactored behavior and report concrete evidence.",
+      },
+      {
+        id: "review",
+        title: "Review final refactor diff",
+        instruction:
+          "Review the final diff for behavior drift, overbroad cleanup, missing tests, and maintainability risks.",
+      },
+    ],
+  },
+  pipe_template_review_hardening: {
+    description:
+      "Read-only fan-out review flow for security, performance, and correctness checks after a planning step.",
+    steps: [
+      {
+        id: "plan",
+        title: "Define review scope",
+        instruction:
+          "Define the review target, changed surfaces, known risks, and evidence each reviewer should inspect.",
+      },
+      {
+        id: "security",
+        title: "Security review",
+        instruction:
+          "Review security-sensitive surfaces, permission changes, secrets, injection paths, and approval bypass risk.",
+      },
+      {
+        id: "performance",
+        title: "Performance review",
+        instruction:
+          "Review latency, allocation, hot paths, repeated work, and missing measurements or benchmarks.",
+      },
+      {
+        id: "correctness",
+        title: "Correctness review",
+        instruction:
+          "Review behavior, maintainability, missing verification, and contract drift.",
+      },
+    ],
+  },
+  pipe_template_build_recovery: {
+    description:
+      "Focused failure-recovery flow for build, typecheck, lint, or test failures with verification and final review.",
+    steps: [
+      {
+        id: "diagnose",
+        title: "Diagnose first real failure",
+        instruction:
+          "Read the first real build, typecheck, lint, or test failure. Trace the owning module and propose the smallest corrective change.",
+      },
+      {
+        id: "verify",
+        title: "Verify recovered path",
+        instruction:
+          "Run the narrow verification that proves the failure is resolved and summarize remaining test gaps.",
+      },
+      {
+        id: "review",
+        title: "Review recovery patch",
+        instruction:
+          "Review whether the fix treats the root cause without weakening checks, deleting tests, or masking failures.",
+      },
+    ],
+  },
+};
 
 interface SeedProfileRef {
   role: AgentProfile["role"];
@@ -305,14 +514,14 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
     id: "pipe_template_supervised_delivery",
     name: "Supervised Delivery",
     description:
-      "Default implementation flow: orchestrate, plan, code, recover build failures, test, review security, and complete final review.",
+      "오케스트레이션, 계획, 구현, 빌드 복구, 테스트, 보안 검토, 최종 리뷰를 연결하는 기본 구현 흐름입니다.",
     steps: [
       {
         id: "topology",
         profile: PROFILE_REFS.orchestrator,
-        title: "Coordinate worker topology",
+        title: "Worker topology 조정",
         instruction:
-          "Define worker ownership, dependencies, handoff payloads, approval checkpoints, and completion criteria for this request.",
+          "이 요청에 필요한 worker 책임 범위, 의존성, handoff payload, approval checkpoint, 완료 기준을 한국어로 정의하세요.",
         expectedArtifactKinds: ["orchestration_plan", "plan", "log"],
         dependsOn: [],
         allowedActions: [],
@@ -321,9 +530,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "plan",
         profile: PROFILE_REFS.planner,
-        title: "Plan scope and risks",
+        title: "범위와 위험 계획",
         instruction:
-          "Convert the request into a scoped implementation plan, identify likely files or modules, and call out concrete risks.",
+          "요청을 범위가 분명한 구현 계획으로 바꾸고, 영향을 받을 가능성이 높은 파일/모듈과 구체적인 위험을 한국어로 정리하세요.",
         expectedArtifactKinds: ["plan", "log"],
         dependsOn: ["topology"],
         allowedActions: [],
@@ -332,9 +541,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "implement",
         profile: PROFILE_REFS.coder,
-        title: "Implement approved change",
+        title: "승인된 변경 구현",
         instruction:
-          "Implement the approved plan with scoped edits. Propose file writes through Harness approvals only.",
+          "승인된 계획만 좁은 범위로 구현하세요. 파일 쓰기는 Harness approval을 통해서만 제안하고, 변경 경로와 검증 근거를 한국어로 보고하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["plan"],
         allowedActions: ["file_write"],
@@ -343,9 +552,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "build",
         profile: PROFILE_REFS.build,
-        title: "Resolve build or type failures",
+        title: "빌드/타입 실패 해결",
         instruction:
-          "Run targeted build, typecheck, lint, or test diagnostics as approved. If failures appear, propose the smallest corrective patch.",
+          "승인된 범위에서 build, typecheck, lint, test 진단을 실행하세요. 실패가 있으면 첫 실제 원인을 추적하고 가장 작은 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["implement"],
         allowedActions: ["shell", "file_write"],
@@ -354,9 +563,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "test",
         profile: PROFILE_REFS.tester,
-        title: "Verify changed paths",
+        title: "변경 경로 검증",
         instruction:
-          "Run or design focused verification for changed paths and summarize concrete evidence.",
+          "변경된 경로에 맞는 집중 검증을 실행하거나 설계하고, 실제 증거와 남은 검증 공백을 한국어로 요약하세요.",
         expectedArtifactKinds: ["test_result", "log"],
         dependsOn: ["build"],
         allowedActions: ["shell"],
@@ -365,9 +574,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "security",
         profile: PROFILE_REFS.security,
-        title: "Review security boundary",
+        title: "보안 경계 검토",
         instruction:
-          "Review the proposed change for secrets, injection, unsafe file or shell access, and approval bypasses.",
+          "제안된 변경에서 secret 노출, injection, unsafe file/shell access, approval bypass 가능성을 검토하고 심각도별로 한국어 보고서를 작성하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["implement"],
         allowedActions: [],
@@ -376,9 +585,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "final-review",
         profile: PROFILE_REFS.reviewer,
-        title: "Final correctness review",
+        title: "최종 정확성 리뷰",
         instruction:
-          "Review behavior, maintainability, missing tests, and unresolved risks before completion.",
+          "완료 전 동작 정확성, 유지보수성, 누락된 테스트, 미해결 위험을 검토하고 한국어로 최종 판단을 남기세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["test", "security"],
         allowedActions: [],
@@ -390,14 +599,14 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
     id: "pipe_template_refactor_safety",
     name: "Refactor Safety",
     description:
-      "Behavior-preserving cleanup flow with refactor, build recovery, verification, performance review, and final review.",
+      "동작 보존 리팩터링을 계획, 정리, 빌드 복구, 검증, 성능 검토, 최종 리뷰로 안전하게 진행하는 흐름입니다.",
     steps: [
       {
         id: "plan",
         profile: PROFILE_REFS.planner,
-        title: "Plan safe refactor scope",
+        title: "안전한 리팩터링 범위 계획",
         instruction:
-          "Identify behavior that must remain stable, impacted files, regression risks, and the smallest safe cleanup slice.",
+          "보존해야 할 동작, 영향 파일, 회귀 위험, 가장 작은 안전한 정리 단위를 한국어로 식별하세요.",
         expectedArtifactKinds: ["plan", "log"],
         dependsOn: [],
         allowedActions: [],
@@ -406,9 +615,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "refactor",
         profile: PROFILE_REFS.refactor,
-        title: "Apply focused cleanup",
+        title: "집중 정리 적용",
         instruction:
-          "Refactor only the approved scope, preserve behavior, and remove dead code only with evidence.",
+          "승인된 범위만 리팩터링하고 동작을 보존하세요. dead code는 증거가 있을 때만 제거하고 변경 이유를 한국어로 남기세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["plan"],
         allowedActions: ["file_write"],
@@ -417,9 +626,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "build",
         profile: PROFILE_REFS.build,
-        title: "Check build after refactor",
+        title: "리팩터링 후 빌드 확인",
         instruction:
-          "Run targeted diagnostics and propose minimal fixes for any build, type, lint, or test failures.",
+          "targeted diagnostics를 실행하고 build, type, lint, test 실패가 있으면 최소 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["refactor"],
         allowedActions: ["shell", "file_write"],
@@ -428,9 +637,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "performance",
         profile: PROFILE_REFS.performance,
-        title: "Review performance regressions",
+        title: "성능 회귀 검토",
         instruction:
-          "Inspect the refactor for allocation, latency, repeated work, and resource lifetime regressions.",
+          "리팩터링이 allocation, latency, repeated work, resource lifetime에 회귀를 만들었는지 read-only로 검토하고 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["refactor"],
         allowedActions: [],
@@ -439,9 +648,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "test",
         profile: PROFILE_REFS.tester,
-        title: "Verify behavior preservation",
+        title: "동작 보존 검증",
         instruction:
-          "Run focused regression verification for the refactored behavior and report concrete evidence.",
+          "리팩터링된 동작에 대한 focused regression verification을 실행하고 구체적 증거를 한국어로 보고하세요.",
         expectedArtifactKinds: ["test_result", "log"],
         dependsOn: ["build"],
         allowedActions: ["shell"],
@@ -450,9 +659,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "review",
         profile: PROFILE_REFS.reviewer,
-        title: "Review final refactor diff",
+        title: "최종 리팩터링 diff 리뷰",
         instruction:
-          "Review the final diff for behavior drift, overbroad cleanup, missing tests, and maintainability risks.",
+          "최종 diff에서 behavior drift, 과도한 정리, 누락된 테스트, 유지보수성 위험을 검토하고 한국어로 정리하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["test", "performance"],
         allowedActions: [],
@@ -464,14 +673,14 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
     id: "pipe_template_review_hardening",
     name: "Parallel Review Hardening",
     description:
-      "Read-only fan-out review flow for security, performance, and correctness checks after a planning step.",
+      "계획 step 이후 보안, 성능, 정확성 검토를 read-only fan-out으로 병렬 진행하는 흐름입니다.",
     steps: [
       {
         id: "plan",
         profile: PROFILE_REFS.planner,
-        title: "Define review scope",
+        title: "리뷰 범위 정의",
         instruction:
-          "Define the review target, changed surfaces, known risks, and evidence each reviewer should inspect.",
+          "리뷰 대상, 변경 surface, 알려진 위험, 각 reviewer가 확인해야 할 증거를 한국어로 정의하세요.",
         expectedArtifactKinds: ["plan", "log"],
         dependsOn: [],
         allowedActions: [],
@@ -480,9 +689,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "security",
         profile: PROFILE_REFS.security,
-        title: "Security review",
+        title: "보안 리뷰",
         instruction:
-          "Review security-sensitive surfaces, permission changes, secrets, injection paths, and approval bypass risk.",
+          "보안 민감 surface, 권한 변경, secret, injection path, approval bypass 위험을 read-only로 검토하고 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["plan"],
         allowedActions: [],
@@ -491,9 +700,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "performance",
         profile: PROFILE_REFS.performance,
-        title: "Performance review",
+        title: "성능 리뷰",
         instruction:
-          "Review latency, allocation, hot paths, repeated work, and missing measurements or benchmarks.",
+          "latency, allocation, hot path, repeated work, 누락된 measurement/benchmark를 read-only로 검토하고 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["plan"],
         allowedActions: [],
@@ -502,9 +711,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "correctness",
         profile: PROFILE_REFS.reviewer,
-        title: "Correctness review",
+        title: "정확성 리뷰",
         instruction:
-          "Review behavior, maintainability, missing verification, and contract drift.",
+          "동작 정확성, 유지보수성, 누락된 검증, contract drift를 read-only로 검토하고 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["plan"],
         allowedActions: [],
@@ -516,14 +725,14 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
     id: "pipe_template_build_recovery",
     name: "Build Recovery",
     description:
-      "Focused failure-recovery flow for build, typecheck, lint, or test failures with verification and final review.",
+      "build, typecheck, lint, test 실패를 진단하고 검증과 최종 리뷰까지 연결하는 집중 복구 흐름입니다.",
     steps: [
       {
         id: "diagnose",
         profile: PROFILE_REFS.build,
-        title: "Diagnose first real failure",
+        title: "첫 실제 실패 진단",
         instruction:
-          "Read the first real build, typecheck, lint, or test failure. Trace the owning module and propose the smallest corrective change.",
+          "build, typecheck, lint, test 로그에서 첫 실제 실패를 읽고 소유 모듈까지 추적하세요. 가장 작은 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: [],
         allowedActions: ["shell", "file_write"],
@@ -532,9 +741,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "verify",
         profile: PROFILE_REFS.tester,
-        title: "Verify recovered path",
+        title: "복구 경로 검증",
         instruction:
-          "Run the narrow verification that proves the failure is resolved and summarize remaining test gaps.",
+          "실패가 해결되었음을 증명하는 가장 좁은 검증을 실행하고 남은 테스트 공백을 한국어로 요약하세요.",
         expectedArtifactKinds: ["test_result", "log"],
         dependsOn: ["diagnose"],
         allowedActions: ["shell"],
@@ -543,9 +752,9 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
       {
         id: "review",
         profile: PROFILE_REFS.reviewer,
-        title: "Review recovery patch",
+        title: "복구 패치 리뷰",
         instruction:
-          "Review whether the fix treats the root cause without weakening checks, deleting tests, or masking failures.",
+          "수정이 check 약화, 테스트 삭제, 실패 은폐 없이 root cause를 해결했는지 검토하고 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["verify"],
         allowedActions: [],
