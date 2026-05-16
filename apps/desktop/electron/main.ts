@@ -40,8 +40,10 @@ import { OrchestrationService } from "@harness/orchestration";
 import {
   AgentInvocationQueue,
   AgentPlanningService,
+  RepoIndexService,
   buildClaudeMcpConfig,
   checkProviders as probeAgentProviders,
+  packRepoContext,
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
@@ -99,6 +101,9 @@ const initServices = (): {
     state,
     artifactStore,
     shadowRootDir: join(userData, "shadow-workspaces"),
+  });
+  const repoIndexService = new RepoIndexService({
+    store: state.repoIndex,
   });
   const qualityEvaluator = new QualityEvaluator({ state });
   // Trace recorder is constructed first so the completion service can
@@ -240,6 +245,13 @@ const initServices = (): {
       capabilityService.approvedPromptContexts({ taskRunId }),
     getApprovedLearnerModel: ({ taskRunId }) =>
       learnerAdvisor.approvedModelContext({ taskRunId }),
+    getRepoContext: async ({ taskRun, prompt }) => {
+      const files = await repoIndexService.refresh({
+        projectKey: taskRun.targetDir,
+        targetDir: taskRun.targetDir,
+      });
+      return packRepoContext({ prompt, files });
+    },
     recordLearnerSelection: ({ taskRunId, selectedModel, selectedCapabilities }) =>
       traceRecorder.recordSelection({
         taskRunId,

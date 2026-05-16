@@ -10,6 +10,7 @@ export * from "./thread-detail.ts";
 export * from "./quality-gate-result.ts";
 export * from "./repair-plan-draft.ts";
 export * from "./shadow-preview.ts";
+export * from "./repo-index.ts";
 export * from "./capability.ts";
 export * from "./learning-trace.ts";
 export * from "./instinct.ts";

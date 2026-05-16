@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -329,6 +329,26 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     FOREIGN KEY(invocation_id) REFERENCES agent_invocations(id) ON DELETE CASCADE,
     FOREIGN KEY(endpoint_id) REFERENCES a2a_endpoints(id) ON DELETE CASCADE
   )`,
+
+  // v18 — deterministic repository context index. SQLite remains the
+  // canonical state; scan output is cached here and packed into agent prompts.
+  `CREATE TABLE IF NOT EXISTS repo_index_files (
+    id TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL,
+    target_dir TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    file_kind TEXT NOT NULL CHECK(file_kind IN ('package','config','source','test','doc','style','other')),
+    size_bytes INTEGER NOT NULL,
+    mtime_ms INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    symbols_json TEXT NOT NULL DEFAULT '[]',
+    imports_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_key, target_dir, relative_path)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_repo_index_target
+    ON repo_index_files(project_key, target_dir, updated_at)`,
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,

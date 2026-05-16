@@ -15,3 +15,4 @@ export * from "./mcp-server-repository.ts";
 export * from "./skill-source-repository.ts";
 export * from "./agent-pipeline-repository.ts";
 export * from "./a2a-remote-agent-repository.ts";
+export * from "./repo-index-repository.ts";

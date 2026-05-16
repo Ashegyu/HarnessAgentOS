@@ -120,6 +120,19 @@ test("buildSplitAgentPrompt includes approved capability context", () => {
   assert.ok(userPrompt.includes("Keep edits small."));
 });
 
+test("buildSplitAgentPrompt includes packed repository context", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    repoContext: {
+      section: "REPOSITORY CONTEXT\n- selected files: 1\n\n### src/App.tsx\n- summary: App shell",
+      selectedFiles: ["src/App.tsx"],
+      indexedFileCount: 4,
+    },
+  });
+  assert.ok(userPrompt.includes("REPOSITORY CONTEXT"));
+  assert.ok(userPrompt.includes("src/App.tsx"));
+});
+
 test("buildSplitAgentPrompt omits capability context before approval", () => {
   const { userPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
   assert.ok(!userPrompt.includes("APPROVED SKILL CAPABILITIES"));

@@ -4,6 +4,7 @@ import type {
   QualityGateResult,
   TaskRun,
 } from "@harness/core";
+import type { PackedRepoContext } from "./context-packer.ts";
 
 /**
  * Phase 8 prompt budget (hard cap 80KB, soft caps per section).
@@ -25,6 +26,8 @@ export interface PromptBuildInput {
   instruction?: string;
   /** Prior local worker outputs handed off inside the same TaskRun. */
   handoffMessages?: readonly AgentHandoffPromptMessage[];
+  /** Deterministic repository map selected from the persisted repo index. */
+  repoContext?: PackedRepoContext | string | null;
   /** Latest non-failed artifacts the agent may use as context. */
   recentArtifacts?: Artifact[];
   /** When repairing a failed quality gate, the latest gate result. */
@@ -134,6 +137,10 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
   userSections.push(
     ["USER REQUEST", `- ${input.taskRun.userRequest.trim()}`].join("\n"),
   );
+  const repoContext = formatRepoContext(input.repoContext);
+  if (repoContext) {
+    userSections.push(repoContext);
+  }
   if (input.instruction && input.instruction.trim().length > 0) {
     userSections.push(
       ["REDIRECT INSTRUCTION", `- ${input.instruction.trim()}`].join("\n"),
@@ -193,6 +200,10 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
   sections.push(
     ["USER REQUEST", `- ${input.taskRun.userRequest.trim()}`].join("\n"),
   );
+  const repoContext = formatRepoContext(input.repoContext);
+  if (repoContext) {
+    sections.push(repoContext);
+  }
   if (input.instruction && input.instruction.trim().length > 0) {
     sections.push(
       ["REDIRECT INSTRUCTION", `- ${input.instruction.trim()}`].join("\n"),
@@ -282,4 +293,16 @@ const formatCapabilityContexts = (
     );
   }
   return lines.join("\n");
+};
+
+const formatRepoContext = (
+  context: PackedRepoContext | string | null | undefined,
+): string | null => {
+  if (typeof context === "string") {
+    const trimmed = context.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (!context) return null;
+  const trimmed = context.section.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };

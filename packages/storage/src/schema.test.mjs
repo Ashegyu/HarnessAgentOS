@@ -34,6 +34,7 @@ test("opening a fresh DB applies pragmas and creates all tables", () => {
         "learning_traces",
         "observations",
         "quality_gate_results",
+        "repo_index_files",
         "schema_meta",
         "steps",
         "task_runs",

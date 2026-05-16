@@ -26,12 +26,14 @@ import {
   type CapabilityPromptContext,
   type LearnerModelContext,
   type ProposedActionDetails,
+  type TaskRun,
 } from "@harness/core";
 import { redactSecrets } from "@harness/learner";
 import {
   buildSplitAgentPrompt,
   type AgentHandoffPromptMessage,
 } from "./agent-prompt-builder.ts";
+import type { PackedRepoContext } from "./context-packer.ts";
 import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
@@ -106,6 +108,15 @@ export interface AgentPlanningServiceDeps {
   getApprovedLearnerModel?: (input: {
     taskRunId: string;
   }) => Promise<LearnerModelContext | null>;
+  /**
+   * Main-process hook: returns a deterministic repository map packed
+   * from the persisted repo index. The agent package owns the packing
+   * contract, while storage remains injected behind this interface.
+   */
+  getRepoContext?: (input: {
+    taskRun: TaskRun;
+    prompt: string;
+  }) => Promise<PackedRepoContext | string | null>;
   /**
    * Main-process hook: records which approved advisory choices were
    * actually used for this invocation.
@@ -260,9 +271,14 @@ export class AgentPlanningService {
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
     );
+    const repoContext = await this.loadRepoContext(
+      taskRun,
+      taskRun.userRequest,
+    );
 
     const splitPrompt = buildSplitAgentPrompt({
       taskRun,
+      repoContext,
       recentArtifacts,
       qualityRisks,
       persona: resolved.persona,
@@ -323,7 +339,7 @@ export class AgentPlanningService {
     emitProgress(
       "context",
       "컨텍스트 수집 완료",
-      `${recentArtifacts.length}개 artifact, 품질 리포트 ${qualityRisks ? "있음" : "없음"}`,
+      `${recentArtifacts.length}개 artifact, 품질 리포트 ${qualityRisks ? "있음" : "없음"}, repo ${describeRepoContext(repoContext)}`,
     );
     emitProgress(
       "profile",
@@ -867,8 +883,10 @@ export class AgentPlanningService {
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
     );
+    const repoContext = await this.loadRepoContext(taskRun, input.userRequest);
     const prompt = buildSplitAgentPrompt({
       taskRun: { ...taskRun, userRequest: input.userRequest },
+      repoContext,
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
@@ -936,7 +954,7 @@ export class AgentPlanningService {
     emitProgress(
       "prompt",
       "Worker 프롬프트 구성 완료",
-      `system ${systemPrompt.length}자, user ${userPrompt.length}자, handoff ${input.handoffMessages?.length ?? 0}개`,
+      `system ${systemPrompt.length}자, user ${userPrompt.length}자, handoff ${input.handoffMessages?.length ?? 0}개, repo ${describeRepoContext(repoContext)}`,
     );
     emitProgress(
       "session",
@@ -1172,6 +1190,18 @@ export class AgentPlanningService {
     }
   }
 
+  private async loadRepoContext(
+    taskRun: TaskRun,
+    prompt: string,
+  ): Promise<PackedRepoContext | string | null> {
+    if (!this.deps.getRepoContext) return null;
+    try {
+      return await this.deps.getRepoContext({ taskRun, prompt });
+    } catch {
+      return null;
+    }
+  }
+
   private async recordLearnerSelection(input: {
     taskRunId: string;
     selectedModel?: string;
@@ -1232,6 +1262,14 @@ const toConcreteProvider = (
   provider: AgentProvider | null,
 ): "claude" | "codex" | undefined =>
   provider === "claude" || provider === "codex" ? provider : undefined;
+
+const describeRepoContext = (
+  context: PackedRepoContext | string | null,
+): string => {
+  if (!context) return "없음";
+  if (typeof context === "string") return `${context.length}자`;
+  return `${context.selectedFiles.length}/${context.indexedFileCount} files`;
+};
 
 const shortRationale = (a: AgentProposedAction): string => {
   const head =
