@@ -5572,6 +5572,114 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   margin-right: auto;
 }
 
+.pipeline-fanout__order {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-fanout__order strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.pipeline-fanout__waves {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-2);
+}
+
+.pipeline-fanout__wave {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+.pipeline-fanout__wave-header,
+.pipeline-fanout__step-title,
+.pipeline-fanout__step-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pipeline-fanout__wave-header {
+  justify-content: space-between;
+}
+
+.pipeline-fanout__wave-header > div,
+.pipeline-fanout__step-title {
+  min-width: 0;
+}
+
+.pipeline-fanout__wave-header strong,
+.pipeline-fanout__step-title strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.pipeline-fanout__wave-header span,
+.pipeline-fanout__step-title span,
+.pipeline-fanout__step-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pipeline-fanout__badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-panel-elev);
+  font-size: 11px;
+}
+
+.pipeline-fanout__badge--parallel {
+  color: var(--status-passed);
+  border-color: color-mix(in srgb, var(--status-passed) 40%, transparent);
+}
+
+.pipeline-fanout__steps,
+.pipeline-fanout__warnings,
+.pipeline-fanout__blockers {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.pipeline-fanout__steps {
+  color: var(--text-muted);
+}
+
+.pipeline-fanout__steps li {
+  margin: 4px 0;
+}
+
+.pipeline-fanout__warnings {
+  color: var(--status-warning);
+}
+
+.pipeline-fanout__blockers {
+  color: var(--status-failed);
+}
+
 .pipeline-steps {
   list-style: none;
   margin: 0;

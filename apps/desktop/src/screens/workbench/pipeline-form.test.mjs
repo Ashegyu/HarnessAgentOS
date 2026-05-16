@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildPipelineFanOutPreview,
   emptyPipelineDraft,
   validatePipelineDraft,
   serializePipelineDraft,
@@ -11,16 +12,16 @@ import {
   moveStep,
 } from "./pipeline-form.ts";
 
-const profile = (id, name = "Coder") => ({ id, name });
-const remoteEntry = (id, name = "Remote Reviewer") => ({
+const profile = (id, name = "Coder", role = "coder") => ({ id, name, role });
+const remoteEntry = (id, name = "Remote Reviewer", overrides = {}) => ({
   endpoint: {
     id,
     name,
     baseUrl: "https://agents.example.com/reviewer",
     agentCardUrl: "https://agents.example.com/reviewer/.well-known/agent-card.json",
     preferredTransport: "json-rpc",
-    enabled: true,
-    trusted: true,
+    enabled: overrides.enabled ?? true,
+    trusted: overrides.trusted ?? true,
     createdAt: "2026-05-15T00:00:00.000Z",
     updatedAt: "2026-05-15T00:00:00.000Z",
   },
@@ -442,4 +443,123 @@ test("moveStep is a no-op when target index is out of range", () => {
   const steps = [{ id: "a" }, { id: "b" }];
   assert.deepEqual(moveStep(steps, 0, -1).map((s) => s.id), ["a", "b"]);
   assert.deepEqual(moveStep(steps, 1, 1).map((s) => s.id), ["a", "b"]);
+});
+
+test("buildPipelineFanOutPreview groups independent read-only planner and reviewer steps", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Read-only Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_plan",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "review",
+        agentProfileId: "ap_review",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+    ],
+  };
+
+  const preview = buildPipelineFanOutPreview(d, [
+    profile("ap_plan", "Planner", "planner"),
+    profile("ap_review", "Reviewer", "reviewer"),
+  ]);
+
+  assert.equal(preview.waves.length, 1);
+  assert.deepEqual(preview.waves[0].stepIds, ["plan", "review"]);
+  assert.equal(preview.waves[0].parallelizable, true);
+  assert.deepEqual(preview.deterministicOrder, ["plan", "review"]);
+});
+
+test("buildPipelineFanOutPreview exposes blockers for side effects, role, and remote trust", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Blocked Flow",
+    steps: [
+      {
+        id: "code",
+        agentProfileId: "ap_code",
+        remoteEndpointId: "a2a_remote",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: [],
+        allowedActions: ["file_write"],
+      },
+    ],
+  };
+
+  const preview = buildPipelineFanOutPreview(
+    d,
+    [profile("ap_code", "Coder", "coder")],
+    [remoteEntry("a2a_remote", "Remote Coder", { trusted: false })],
+  );
+
+  const step = preview.waves[0].steps[0];
+  assert.equal(step.canRunReadOnlyParallel, false);
+  assert.equal(step.remoteEndpointTrusted, false);
+  assert.ok(step.blockers.some((blocker) => /side-effect/.test(blocker)));
+  assert.ok(step.blockers.some((blocker) => /coder role/.test(blocker)));
+  assert.ok(step.blockers.some((blocker) => /trusted/.test(blocker)));
+  assert.equal(preview.waves[0].hasSideEffects, true);
+});
+
+test("buildPipelineFanOutPreview keeps dependency waves and output order deterministic", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Wave Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_plan",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "review",
+        agentProfileId: "ap_review",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+      },
+      {
+        id: "docs",
+        agentProfileId: "ap_docs",
+        title: "Docs",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+      },
+    ],
+  };
+
+  const preview = buildPipelineFanOutPreview(d, [
+    profile("ap_plan", "Planner", "planner"),
+    profile("ap_review", "Reviewer", "reviewer"),
+    profile("ap_docs", "Documenter", "documenter"),
+  ]);
+
+  assert.deepEqual(preview.waves.map((wave) => wave.stepIds), [
+    ["plan"],
+    ["review", "docs"],
+  ]);
+  assert.equal(preview.waves[1].parallelizable, true);
+  assert.deepEqual(preview.deterministicOrder, ["plan", "review", "docs"]);
 });

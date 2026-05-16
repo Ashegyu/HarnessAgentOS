@@ -8,6 +8,7 @@ import type {
   WorkerOutputContract,
 } from "@harness/core";
 import {
+  buildPipelineFanOutPreview,
   emptyPipelineDraft,
   moveStep,
   PIPELINE_OUTPUT_CONTRACT_CHOICES,
@@ -159,6 +160,13 @@ export const PipelinesTab = ({
   );
   const validationErrors = useMemo(
     () => (draft ? validatePipelineDraft(draft, profiles, remoteEntries) : []),
+    [draft, profiles, remoteEntries],
+  );
+  const fanOutPreview = useMemo(
+    () =>
+      draft
+        ? buildPipelineFanOutPreview(draft, profiles, remoteEntries)
+        : null,
     [draft, profiles, remoteEntries],
   );
 
@@ -844,6 +852,90 @@ export const PipelinesTab = ({
                   + step 추가
                 </button>
               </fieldset>
+
+              {fanOutPreview !== null && draft.steps.length > 0 && (
+                <fieldset className="settings-fieldset">
+                  <legend>Fan-out Preview</legend>
+                  <div className="pipeline-fanout__order">
+                    <span>Output order</span>
+                    <strong>{fanOutPreview.deterministicOrder.join(" -> ")}</strong>
+                  </div>
+                  {fanOutPreview.warnings.length > 0 && (
+                    <ul className="pipeline-fanout__warnings">
+                      {fanOutPreview.warnings.map((warning, i) => (
+                        <li key={i}>{warning}</li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="pipeline-fanout__waves">
+                    {fanOutPreview.waves.map((wave) => (
+                      <article key={wave.index} className="pipeline-fanout__wave">
+                        <header className="pipeline-fanout__wave-header">
+                          <div>
+                            <strong>Wave {wave.index + 1}</strong>
+                            <span>
+                              {wave.stepIds.length} step
+                              {wave.stepIds.length === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                          <span
+                            className={`pipeline-fanout__badge${
+                              wave.parallelizable
+                                ? " pipeline-fanout__badge--parallel"
+                                : ""
+                            }`}
+                          >
+                            {wave.parallelizable
+                              ? "read-only parallel"
+                              : "serial preview"}
+                          </span>
+                        </header>
+                        {wave.warnings.length > 0 && (
+                          <ul className="pipeline-fanout__warnings">
+                            {wave.warnings.map((warning, i) => (
+                              <li key={i}>{warning}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <ol className="pipeline-fanout__steps">
+                          {wave.steps.map((step) => (
+                            <li key={step.stepId}>
+                              <div className="pipeline-fanout__step-title">
+                                <strong>{step.title}</strong>
+                                <span>{step.role}</span>
+                              </div>
+                              <div className="pipeline-fanout__step-meta">
+                                <span>
+                                  deps:{" "}
+                                  {step.dependencyIds.length > 0
+                                    ? step.dependencyIds.join(", ")
+                                    : "none"}
+                                </span>
+                                <span>
+                                  remote: {step.remoteEndpointLabel}
+                                  {step.remoteEndpointId !== null
+                                    ? step.remoteEndpointTrusted &&
+                                      step.remoteEndpointEnabled
+                                      ? " trusted"
+                                      : " blocked"
+                                    : ""}
+                                </span>
+                              </div>
+                              {step.blockers.length > 0 && (
+                                <ul className="pipeline-fanout__blockers">
+                                  {step.blockers.map((blocker, i) => (
+                                    <li key={i}>{blocker}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </li>
+                          ))}
+                        </ol>
+                      </article>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
 
               {validationErrors.length > 0 && (
                 <div

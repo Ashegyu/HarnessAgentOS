@@ -8,6 +8,7 @@ import type {
   ApprovalActionType,
   HarnessSettings,
   ThreadDetail,
+  WorkerRole,
   WorkerOutputContract,
 } from "@harness/core";
 
@@ -41,6 +42,37 @@ export interface PipelineDraft {
 export interface PipelineDraftError {
   field: "name" | "description" | "steps";
   message: string;
+}
+
+export interface PipelineFanOutStepPreview {
+  stepId: string;
+  title: string;
+  index: number;
+  dependencyIds: string[];
+  role: WorkerRole | "documenter" | "unknown";
+  remoteEndpointId: string | null;
+  remoteEndpointLabel: string;
+  remoteEndpointEnabled: boolean;
+  remoteEndpointTrusted: boolean;
+  allowedActions: ApprovalActionType[] | null;
+  canRunReadOnlyParallel: boolean;
+  blockers: string[];
+  warnings: string[];
+}
+
+export interface PipelineFanOutWave {
+  index: number;
+  stepIds: string[];
+  parallelizable: boolean;
+  hasSideEffects: boolean;
+  warnings: string[];
+  steps: PipelineFanOutStepPreview[];
+}
+
+export interface PipelineFanOutPreview {
+  waves: PipelineFanOutWave[];
+  deterministicOrder: string[];
+  warnings: string[];
 }
 
 export interface TopologyTaskRunOption {
@@ -144,7 +176,14 @@ export const settingsWithDefaultPipeline = (
 interface ProfileLite {
   id: string;
   name: string;
+  role?: WorkerRole | "documenter";
 }
+
+const READ_ONLY_PARALLEL_ROLES = new Set<string>([
+  "planner",
+  "reviewer",
+  "documenter",
+]);
 
 export const validatePipelineDraft = (
   draft: PipelineDraft,
@@ -240,6 +279,169 @@ export const validatePipelineDraft = (
     });
   }
   return errors;
+};
+
+export const buildPipelineFanOutPreview = (
+  draft: PipelineDraft,
+  profiles: readonly ProfileLite[],
+  remoteEntries: readonly A2ARegistryEntry[] = [],
+): PipelineFanOutPreview => {
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const remoteById = new Map(
+    remoteEntries.map((entry) => [entry.endpoint.id, entry] as const),
+  );
+  const stepIdSet = new Set(draft.steps.map((step) => step.id));
+  const dependencyById = new Map(
+    draft.steps.map(
+      (step, index) => [step.id, effectiveDependsOn(draft.steps, index)] as const,
+    ),
+  );
+  const steps = draft.steps.map((step, index): PipelineFanOutStepPreview => {
+    const profile = profileById.get(step.agentProfileId);
+    const role = profile?.role ?? "unknown";
+    const dependencyIds = dependencyById.get(step.id) ?? [];
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+    const allowedActions =
+      step.allowedActions !== null && step.allowedActions !== undefined
+        ? [...step.allowedActions]
+        : null;
+
+    if (allowedActions === null) {
+      blockers.push("Allowed Actions가 Default라 읽기 전용 병렬 대상이 아닙니다");
+      warnings.push("side-effect proposal 범위가 명시되지 않았습니다");
+    } else if (allowedActions.length > 0) {
+      blockers.push(
+        `side-effect proposal(${allowedActions.join(", ")})이 허용되어 병렬 대상이 아닙니다`,
+      );
+    }
+    if (!READ_ONLY_PARALLEL_ROLES.has(role)) {
+      blockers.push(`${role} role은 읽기 전용 병렬 대상이 아닙니다`);
+    }
+    for (const depId of dependencyIds) {
+      if (!stepIdSet.has(depId)) {
+        blockers.push(`unknown dependency (${depId})`);
+      }
+    }
+
+    const remoteEndpointId = step.remoteEndpointId?.trim() || null;
+    const remoteEntry =
+      remoteEndpointId !== null ? remoteById.get(remoteEndpointId) : undefined;
+    let remoteEndpointLabel = "Local CLI";
+    let remoteEndpointEnabled = true;
+    let remoteEndpointTrusted = true;
+    if (remoteEndpointId !== null) {
+      remoteEndpointLabel =
+        remoteEntry?.endpoint.name ?? `(missing remote: ${remoteEndpointId})`;
+      remoteEndpointEnabled = remoteEntry?.endpoint.enabled ?? false;
+      remoteEndpointTrusted = remoteEntry?.endpoint.trusted ?? false;
+      if (remoteEntry === undefined) {
+        blockers.push(`remote endpoint를 찾을 수 없습니다 (${remoteEndpointId})`);
+      } else {
+        if (!remoteEntry.endpoint.enabled) {
+          blockers.push("remote endpoint가 disabled 상태입니다");
+        }
+        if (!remoteEntry.endpoint.trusted) {
+          blockers.push("remote endpoint가 trusted 상태가 아닙니다");
+        }
+      }
+    }
+
+    return {
+      stepId: step.id,
+      title: step.title.trim() || step.id,
+      index,
+      dependencyIds,
+      role,
+      remoteEndpointId,
+      remoteEndpointLabel,
+      remoteEndpointEnabled,
+      remoteEndpointTrusted,
+      allowedActions,
+      canRunReadOnlyParallel: blockers.length === 0,
+      blockers,
+      warnings,
+    };
+  });
+  const stepPreviewById = new Map(
+    steps.map((step) => [step.stepId, step] as const),
+  );
+  const scheduled = new Set<string>();
+  const remaining = new Set(steps.map((step) => step.stepId));
+  const waves: PipelineFanOutWave[] = [];
+  const previewWarnings: string[] = [];
+
+  while (remaining.size > 0) {
+    const ready = steps
+      .filter(
+        (step) =>
+          remaining.has(step.stepId) &&
+          step.dependencyIds.every((depId) => {
+            if (!stepPreviewById.has(depId)) return true;
+            return scheduled.has(depId);
+          }),
+      )
+      .sort((a, b) => a.index - b.index);
+
+    if (ready.length === 0) {
+      const blocked = steps
+        .filter((step) => remaining.has(step.stepId))
+        .sort((a, b) => a.index - b.index)
+        .map((step) => ({
+          ...step,
+          blockers: [
+            ...step.blockers,
+            "dependency cycle 또는 미해결 dependency 때문에 wave를 확정할 수 없습니다",
+          ],
+          canRunReadOnlyParallel: false,
+        }));
+      previewWarnings.push("dependency cycle 또는 미해결 dependency가 있습니다");
+      waves.push(buildFanOutWave(waves.length, blocked));
+      break;
+    }
+
+    for (const step of ready) {
+      scheduled.add(step.stepId);
+      remaining.delete(step.stepId);
+    }
+    waves.push(buildFanOutWave(waves.length, ready));
+  }
+
+  return {
+    waves,
+    deterministicOrder: steps.map((step) => step.stepId),
+    warnings: previewWarnings,
+  };
+};
+
+const buildFanOutWave = (
+  index: number,
+  steps: PipelineFanOutStepPreview[],
+): PipelineFanOutWave => {
+  const hasSideEffects = steps.some(
+    (step) => step.allowedActions !== null && step.allowedActions.length > 0,
+  );
+  const hasDefaultActions = steps.some((step) => step.allowedActions === null);
+  const parallelizable =
+    steps.length > 1 && steps.every((step) => step.canRunReadOnlyParallel);
+  const warnings: string[] = [];
+  if (hasSideEffects) {
+    warnings.push("side-effect proposal이 포함되어 실행 시 approval이 필요합니다");
+  }
+  if (hasDefaultActions) {
+    warnings.push("Default action scope가 있어 읽기 전용 병렬 대상에서 제외됩니다");
+  }
+  if (steps.length > 1 && !parallelizable) {
+    warnings.push("동일 wave이지만 보수 정책상 순차 preview입니다");
+  }
+  return {
+    index,
+    stepIds: steps.map((step) => step.stepId),
+    parallelizable,
+    hasSideEffects,
+    warnings,
+    steps,
+  };
 };
 
 export const serializePipelineDraft = (
