@@ -42,6 +42,11 @@ import {
   normalizeModelForProvider,
   providerForModel,
 } from "./provider-detection.ts";
+import {
+  estimateModelUsage,
+  usageEstimateToRecord,
+  type ModelUsageEstimate,
+} from "./model-usage-estimator.ts";
 import { AgentInvocationQueue } from "./agent-invocation-queue.ts";
 import type {
   ModelCliAdapter,
@@ -531,6 +536,16 @@ export class AgentPlanningService {
     // the same thinking/tool/intermediate/final sections as the live UI.
     const redactedOutput = redactSecrets(assistantOutput, 200_000);
     const redactedRawOutput = redactSecrets(rawProviderOutput, 200_000);
+    const usageEstimate = estimateModelUsage({
+      provider,
+      model,
+      systemPrompt: redactedSystemPrompt,
+      prompt: redactedUserPrompt,
+      output: redactedOutput,
+      rawOutput: redactedRawOutput,
+    });
+    const providerCostEstimate = costEstimate;
+    costEstimate = costEstimate ?? usageEstimate.costUsd;
     const persistedStreamTranscript = buildPersistedStreamTranscript({
       events: persistedStreamEvents,
       invocationId: invocation.id,
@@ -538,6 +553,9 @@ export class AgentPlanningService {
       assistantText: redactedOutput,
       latencyMs,
       ...(costEstimate !== undefined ? { costEstimate } : {}),
+      usageEstimate,
+      costEstimateApproximate:
+        providerCostEstimate === undefined && usageEstimate.costUsd !== undefined,
     });
     const rawOutputArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
@@ -1028,15 +1046,25 @@ export class AgentPlanningService {
         result.rawStdout ?? result.stdout,
         200_000,
       );
+      const usageEstimate = estimateModelUsage({
+        provider,
+        model,
+        systemPrompt,
+        prompt: userPrompt,
+        output: redactedOutput,
+        rawOutput: redactedRawOutput,
+      });
+      const costEstimate = result.costEstimate ?? usageEstimate.costUsd;
       const persistedStreamTranscript = buildPersistedStreamTranscript({
         events: persistedStreamEvents,
         invocationId: invocation.id,
         rawOutput: redactedRawOutput,
         assistantText: redactedOutput,
         latencyMs: result.latencyMs,
-        ...(result.costEstimate !== undefined
-          ? { costEstimate: result.costEstimate }
-          : {}),
+        ...(costEstimate !== undefined ? { costEstimate } : {}),
+        usageEstimate,
+        costEstimateApproximate:
+          result.costEstimate === undefined && usageEstimate.costUsd !== undefined,
       });
       const parsedPlan = parseAgentPlan(redactedOutput);
       const proposedActions = parsedPlan.ok
@@ -1055,9 +1083,7 @@ export class AgentPlanningService {
         status: "succeeded",
         rawOutputArtifactId: rawOutputArtifact.id,
         latencyMs: result.latencyMs,
-        ...(result.costEstimate !== undefined
-          ? { costEstimate: result.costEstimate }
-          : {}),
+        ...(costEstimate !== undefined ? { costEstimate } : {}),
         finishedAt,
       });
       emitProgress(
@@ -1357,8 +1383,10 @@ const buildPersistedStreamTranscript = (input: {
   assistantText: string;
   latencyMs: number;
   costEstimate?: number;
+  usageEstimate?: ModelUsageEstimate;
+  costEstimateApproximate?: boolean;
 }): string => {
-  const events = [...input.events];
+  const events = enrichResultEvents([...input.events], input);
   if (!events.some((event) => event.type === "raw") && input.rawOutput.length > 0) {
     events.push({
       type: "raw",
@@ -1385,10 +1413,51 @@ const buildPersistedStreamTranscript = (input: {
       ...(input.costEstimate !== undefined
         ? { costEstimate: input.costEstimate }
         : {}),
+      ...(input.usageEstimate
+        ? {
+            usage: usageEstimateToRecord(input.usageEstimate),
+            usageApproximate: input.usageEstimate.approximate,
+          }
+        : {}),
+      ...(input.costEstimateApproximate !== undefined
+        ? { costEstimateApproximate: input.costEstimateApproximate }
+        : {}),
     });
   }
   return serializePersistedStreamEvents(events) || input.rawOutput;
 };
+
+const enrichResultEvents = (
+  events: AgentStreamEvent[],
+  input: {
+    latencyMs: number;
+    costEstimate?: number;
+    usageEstimate?: ModelUsageEstimate;
+    costEstimateApproximate?: boolean;
+  },
+): AgentStreamEvent[] =>
+  events.map((event) => {
+    if (event.type !== "result") return event;
+    return {
+      ...event,
+      latencyMs: event.latencyMs ?? input.latencyMs,
+      ...(event.costEstimate !== undefined
+        ? { costEstimate: event.costEstimate }
+        : input.costEstimate !== undefined
+          ? { costEstimate: input.costEstimate }
+          : {}),
+      ...(input.usageEstimate
+        ? {
+            usage: usageEstimateToRecord(input.usageEstimate),
+            usageApproximate: input.usageEstimate.approximate,
+          }
+        : {}),
+      ...(input.costEstimateApproximate !== undefined
+        ? { costEstimateApproximate: input.costEstimateApproximate }
+        : {}),
+    };
+  });
+
 
 const serializePersistedStreamEvents = (
   events: readonly AgentStreamEvent[],

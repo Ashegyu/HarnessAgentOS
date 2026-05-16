@@ -134,6 +134,9 @@ export type AgentStreamEvent =
       invocationId: string;
       latencyMs?: number;
       costEstimate?: number;
+      usage?: Record<string, unknown>;
+      usageApproximate?: boolean;
+      costEstimateApproximate?: boolean;
     }
   | {
       type: "failed";

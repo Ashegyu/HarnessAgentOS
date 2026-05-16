@@ -245,7 +245,9 @@ export const AgentStreamView = ({
           <span>
             응답 시간 {Math.round(parsed.resultMeta.durationMs / 100) / 10}s · 도구 {parsed.toolUses.length}개
             {parsed.resultMeta.costUsd !== undefined
-              ? ` · $${parsed.resultMeta.costUsd.toFixed(4)}`
+              ? ` · $${parsed.resultMeta.costUsd.toFixed(4)}${
+                  parsed.resultMeta.costEstimateApproximate ? " approx." : ""
+                }`
               : ""}
           </span>
         </div>
@@ -268,15 +270,28 @@ const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
   if (p.resultMeta) {
     out.push(["Duration", `${p.resultMeta.durationMs}ms (api ${p.resultMeta.durationApiMs}ms)`]);
     if (p.resultMeta.stopReason) out.push(["Stop", p.resultMeta.stopReason]);
-    if (p.resultMeta.costUsd !== undefined) out.push(["Cost", `$${p.resultMeta.costUsd.toFixed(4)}`]);
+    if (p.resultMeta.costUsd !== undefined) {
+      out.push([
+        "Cost",
+        `$${p.resultMeta.costUsd.toFixed(4)}${
+          p.resultMeta.costEstimateApproximate ? " (approx.)" : ""
+        }`,
+      ]);
+    }
     if (p.resultMeta.usage) {
       const u = p.resultMeta.usage;
       const parts: string[] = [];
       if (typeof u["input_tokens"] === "number") parts.push(`in=${u["input_tokens"]}`);
       if (typeof u["output_tokens"] === "number") parts.push(`out=${u["output_tokens"]}`);
+      if (typeof u["total_tokens"] === "number") parts.push(`total=${u["total_tokens"]}`);
       if (typeof u["cache_read_input_tokens"] === "number")
         parts.push(`cache_read=${u["cache_read_input_tokens"]}`);
-      if (parts.length > 0) out.push(["Tokens", parts.join(" ")]);
+      if (parts.length > 0) {
+        out.push([
+          "Tokens",
+          `${parts.join(" ")}${p.resultMeta.usageApproximate ? " (approx.)" : ""}`,
+        ]);
+      }
     }
     if (p.resultMeta.sessionId) out.push(["Session", p.resultMeta.sessionId]);
   }

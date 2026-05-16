@@ -25,6 +25,8 @@ export type ParsedStreamEntry =
       stopReason?: string;
       costUsd?: number;
       usage?: Record<string, unknown>;
+      usageApproximate?: boolean;
+      costEstimateApproximate?: boolean;
       sessionId?: string;
     }
   | { kind: "unknown"; raw: string };
@@ -76,6 +78,8 @@ export interface ParsedStream {
     stopReason?: string;
     costUsd?: number;
     usage?: Record<string, unknown>;
+    usageApproximate?: boolean;
+    costEstimateApproximate?: boolean;
     sessionId?: string;
   } | null;
   /** Lines that failed to parse — kept so a "Raw" view can still help debugging. */
@@ -184,7 +188,13 @@ export const setIntermediateAssistantText = (
 
 export const promoteIntermediateTextToFinal = (
   state: StreamParserState,
-  meta?: { latencyMs?: number; costEstimate?: number },
+  meta?: {
+    latencyMs?: number;
+    costEstimate?: number;
+    usage?: Record<string, unknown>;
+    usageApproximate?: boolean;
+    costEstimateApproximate?: boolean;
+  },
 ): StreamParserState => {
   const parsed = state.parsed;
   if (parsed.finalText === null) {
@@ -208,7 +218,21 @@ export const promoteIntermediateTextToFinal = (
       : parsed.resultMeta?.costUsd !== undefined
         ? { costUsd: parsed.resultMeta.costUsd }
         : {}),
-    ...(parsed.resultMeta?.usage ? { usage: parsed.resultMeta.usage } : {}),
+    ...(meta?.usage
+      ? { usage: meta.usage }
+      : parsed.resultMeta?.usage
+        ? { usage: parsed.resultMeta.usage }
+        : {}),
+    ...(meta?.usageApproximate !== undefined
+      ? { usageApproximate: meta.usageApproximate }
+      : parsed.resultMeta?.usageApproximate !== undefined
+        ? { usageApproximate: parsed.resultMeta.usageApproximate }
+        : {}),
+    ...(meta?.costEstimateApproximate !== undefined
+      ? { costEstimateApproximate: meta.costEstimateApproximate }
+      : parsed.resultMeta?.costEstimateApproximate !== undefined
+        ? { costEstimateApproximate: parsed.resultMeta.costEstimateApproximate }
+        : {}),
     ...(parsed.resultMeta?.sessionId ? { sessionId: parsed.resultMeta.sessionId } : {}),
   };
   return state;
@@ -280,6 +304,12 @@ const ingestLine = (state: StreamParserState, line: string): void => {
       ...(typeof obj["total_cost_usd"] === "number" ? { costUsd: obj["total_cost_usd"] as number } : {}),
       ...(typeof obj["usage"] === "object" && obj["usage"] !== null
         ? { usage: obj["usage"] as Record<string, unknown> }
+        : {}),
+      ...(typeof obj["usage_approximate"] === "boolean"
+        ? { usageApproximate: obj["usage_approximate"] as boolean }
+        : {}),
+      ...(typeof obj["cost_estimate_approximate"] === "boolean"
+        ? { costEstimateApproximate: obj["cost_estimate_approximate"] as boolean }
         : {}),
       ...(typeof obj["session_id"] === "string" ? { sessionId: obj["session_id"] as string } : {}),
     };
@@ -439,6 +469,15 @@ const ingestPersistedHarnessStreamEvent = (
         : {}),
       ...(typeof obj["costEstimate"] === "number"
         ? { costEstimate: obj["costEstimate"] as number }
+        : {}),
+      ...(isRecord(obj["usage"])
+        ? { usage: obj["usage"] as Record<string, unknown> }
+        : {}),
+      ...(typeof obj["usageApproximate"] === "boolean"
+        ? { usageApproximate: obj["usageApproximate"] as boolean }
+        : {}),
+      ...(typeof obj["costEstimateApproximate"] === "boolean"
+        ? { costEstimateApproximate: obj["costEstimateApproximate"] as boolean }
         : {}),
     });
     return true;

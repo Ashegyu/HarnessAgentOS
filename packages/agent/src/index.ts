@@ -15,3 +15,4 @@ export * from "./agent-profile-resolver";
 export * from "./mcp-config-builder";
 export * from "./repo-index-service";
 export * from "./context-packer";
+export * from "./model-usage-estimator";

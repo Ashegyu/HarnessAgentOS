@@ -63,6 +63,37 @@ test("result line populates finalText and resultMeta", () => {
   });
 });
 
+test("persisted harness result records approximate token metadata", () => {
+  const s = initStreamParserState();
+  hydrateSavedAgentOutput(
+    s,
+    [
+      line({
+        type: "assistant_text",
+        invocationId: "inv-1",
+        text: "done",
+      }),
+      line({
+        type: "result",
+        invocationId: "inv-1",
+        latencyMs: 123,
+        usage: {
+          input_tokens: 10,
+          output_tokens: 4,
+          total_tokens: 14,
+          estimate_source: "heuristic",
+          approximate: true,
+        },
+        usageApproximate: true,
+      }),
+    ].join(""),
+    { terminal: true },
+  );
+  assert.equal(s.parsed.finalText, "done");
+  assert.equal(s.parsed.resultMeta?.usage?.total_tokens, 14);
+  assert.equal(s.parsed.resultMeta?.usageApproximate, true);
+});
+
 test("result line normalizes harness_agent_plan output to the plan summary", () => {
   const s = initStreamParserState();
   const planOutput = {
