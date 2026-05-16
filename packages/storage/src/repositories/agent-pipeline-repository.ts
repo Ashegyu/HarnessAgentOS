@@ -1,4 +1,5 @@
 import {
+  type AgentProfile,
   MAX_PIPELINE_STEPS,
   isAgentPipelineStep,
   type AgentPipeline,
@@ -26,6 +27,7 @@ export interface AgentPipelineRepository {
   update(pipeline: AgentPipeline): Promise<AgentPipeline>;
   delete(id: string): Promise<void>;
   findByReferencedAgentProfileId(profileId: string): Promise<AgentPipeline[]>;
+  ensureSeed(): Promise<void>;
 }
 
 interface PipelineRow {
@@ -103,6 +105,48 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         pipeline.updatedAt,
       );
     return pipeline;
+  }
+
+  async ensureSeed(): Promise<void> {
+    const [existing, profiles] = await Promise.all([this.list(), this.profiles.list()]);
+    const existingIds = new Set(existing.map((p) => p.id));
+    const existingNames = new Set(
+      existing.map((p) => p.name.trim().toLowerCase()),
+    );
+    const profilesByName = new Map(
+      profiles.map((p) => [p.name.trim().toLowerCase(), p] as const),
+    );
+    const profilesByRole = new Map<AgentProfile["role"], AgentProfile>();
+    for (const profile of profiles) {
+      if (!profilesByRole.has(profile.role)) {
+        profilesByRole.set(profile.role, profile);
+      }
+    }
+
+    const now = nowIso();
+    for (const template of pipelineSeedTemplates) {
+      if (existingIds.has(template.id)) continue;
+      const nameKey = template.name.trim().toLowerCase();
+      if (existingNames.has(nameKey)) continue;
+      const steps = materializeSeedSteps({
+        steps: template.steps,
+        profilesByName,
+        profilesByRole,
+      });
+      if (steps === null) continue;
+      const pipeline: AgentPipeline = {
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        steps,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.validate(pipeline.name, pipeline.steps);
+      this.insertRow(pipeline);
+      existingIds.add(pipeline.id);
+      existingNames.add(nameKey);
+    }
   }
 
   async update(pipeline: AgentPipeline): Promise<AgentPipeline> {
@@ -191,7 +235,368 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
       }
     }
   }
+
+  private insertRow(pipeline: AgentPipeline): void {
+    this.db
+      .prepare(
+        `INSERT INTO agent_pipelines
+          (id, name, description, steps_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?)`,
+      )
+      .run(
+        pipeline.id,
+        pipeline.name,
+        pipeline.description,
+        JSON.stringify(pipeline.steps),
+        pipeline.createdAt,
+        pipeline.updatedAt,
+      );
+  }
 }
+
+interface SeedProfileRef {
+  role: AgentProfile["role"];
+  preferredNames: readonly string[];
+}
+
+interface SeedStepTemplate {
+  id: string;
+  profile: SeedProfileRef;
+  title: string;
+  instruction: string;
+  expectedArtifactKinds: AgentPipelineStep["expectedArtifactKinds"];
+  dependsOn?: AgentPipelineStep["dependsOn"];
+  allowedActions?: AgentPipelineStep["allowedActions"];
+  outputContract?: AgentPipelineStep["outputContract"];
+}
+
+interface SeedPipelineTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps: readonly SeedStepTemplate[];
+}
+
+const profileRef = (
+  role: AgentProfile["role"],
+  preferredNames: readonly string[],
+): SeedProfileRef => ({
+  role,
+  preferredNames,
+});
+
+const PROFILE_REFS = {
+  orchestrator: profileRef("orchestrator", [
+    "Ruflo Orchestrator",
+    "Agno Trace Planner",
+  ]),
+  planner: profileRef("planner", ["Planner"]),
+  coder: profileRef("coder", ["Codex Bulk Coder", "Coder"]),
+  refactor: profileRef("refactor-cleaner", ["ECC Refactor Cleaner"]),
+  build: profileRef("build-error-resolver", ["ECC Build Error Resolver"]),
+  tester: profileRef("tester", ["ECC TDD Guide", "Tester"]),
+  security: profileRef("security-reviewer", ["ECC Security Reviewer"]),
+  performance: profileRef("performance-reviewer", ["C# Performance Reviewer"]),
+  reviewer: profileRef("reviewer", ["Reviewer"]),
+} as const;
+
+const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
+  {
+    id: "pipe_template_supervised_delivery",
+    name: "Supervised Delivery",
+    description:
+      "Default implementation flow: orchestrate, plan, code, recover build failures, test, review security, and complete final review.",
+    steps: [
+      {
+        id: "topology",
+        profile: PROFILE_REFS.orchestrator,
+        title: "Coordinate worker topology",
+        instruction:
+          "Define worker ownership, dependencies, handoff payloads, approval checkpoints, and completion criteria for this request.",
+        expectedArtifactKinds: ["orchestration_plan", "plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "plan",
+        profile: PROFILE_REFS.planner,
+        title: "Plan scope and risks",
+        instruction:
+          "Convert the request into a scoped implementation plan, identify likely files or modules, and call out concrete risks.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["topology"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implement",
+        profile: PROFILE_REFS.coder,
+        title: "Implement approved change",
+        instruction:
+          "Implement the approved plan with scoped edits. Propose file writes through Harness approvals only.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["plan"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "build",
+        profile: PROFILE_REFS.build,
+        title: "Resolve build or type failures",
+        instruction:
+          "Run targeted build, typecheck, lint, or test diagnostics as approved. If failures appear, propose the smallest corrective patch.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: ["implement"],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+      {
+        id: "test",
+        profile: PROFILE_REFS.tester,
+        title: "Verify changed paths",
+        instruction:
+          "Run or design focused verification for changed paths and summarize concrete evidence.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["build"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "security",
+        profile: PROFILE_REFS.security,
+        title: "Review security boundary",
+        instruction:
+          "Review the proposed change for secrets, injection, unsafe file or shell access, and approval bypasses.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["implement"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "final-review",
+        profile: PROFILE_REFS.reviewer,
+        title: "Final correctness review",
+        instruction:
+          "Review behavior, maintainability, missing tests, and unresolved risks before completion.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["test", "security"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_refactor_safety",
+    name: "Refactor Safety",
+    description:
+      "Behavior-preserving cleanup flow with refactor, build recovery, verification, performance review, and final review.",
+    steps: [
+      {
+        id: "plan",
+        profile: PROFILE_REFS.planner,
+        title: "Plan safe refactor scope",
+        instruction:
+          "Identify behavior that must remain stable, impacted files, regression risks, and the smallest safe cleanup slice.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "refactor",
+        profile: PROFILE_REFS.refactor,
+        title: "Apply focused cleanup",
+        instruction:
+          "Refactor only the approved scope, preserve behavior, and remove dead code only with evidence.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["plan"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "build",
+        profile: PROFILE_REFS.build,
+        title: "Check build after refactor",
+        instruction:
+          "Run targeted diagnostics and propose minimal fixes for any build, type, lint, or test failures.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: ["refactor"],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+      {
+        id: "performance",
+        profile: PROFILE_REFS.performance,
+        title: "Review performance regressions",
+        instruction:
+          "Inspect the refactor for allocation, latency, repeated work, and resource lifetime regressions.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["refactor"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "test",
+        profile: PROFILE_REFS.tester,
+        title: "Verify behavior preservation",
+        instruction:
+          "Run focused regression verification for the refactored behavior and report concrete evidence.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["build"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "Review final refactor diff",
+        instruction:
+          "Review the final diff for behavior drift, overbroad cleanup, missing tests, and maintainability risks.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["test", "performance"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_review_hardening",
+    name: "Parallel Review Hardening",
+    description:
+      "Read-only fan-out review flow for security, performance, and correctness checks after a planning step.",
+    steps: [
+      {
+        id: "plan",
+        profile: PROFILE_REFS.planner,
+        title: "Define review scope",
+        instruction:
+          "Define the review target, changed surfaces, known risks, and evidence each reviewer should inspect.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "security",
+        profile: PROFILE_REFS.security,
+        title: "Security review",
+        instruction:
+          "Review security-sensitive surfaces, permission changes, secrets, injection paths, and approval bypass risk.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "performance",
+        profile: PROFILE_REFS.performance,
+        title: "Performance review",
+        instruction:
+          "Review latency, allocation, hot paths, repeated work, and missing measurements or benchmarks.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "correctness",
+        profile: PROFILE_REFS.reviewer,
+        title: "Correctness review",
+        instruction:
+          "Review behavior, maintainability, missing verification, and contract drift.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_build_recovery",
+    name: "Build Recovery",
+    description:
+      "Focused failure-recovery flow for build, typecheck, lint, or test failures with verification and final review.",
+    steps: [
+      {
+        id: "diagnose",
+        profile: PROFILE_REFS.build,
+        title: "Diagnose first real failure",
+        instruction:
+          "Read the first real build, typecheck, lint, or test failure. Trace the owning module and propose the smallest corrective change.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: [],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "Verify recovered path",
+        instruction:
+          "Run the narrow verification that proves the failure is resolved and summarize remaining test gaps.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["diagnose"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "Review recovery patch",
+        instruction:
+          "Review whether the fix treats the root cause without weakening checks, deleting tests, or masking failures.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+];
+
+const materializeSeedSteps = (input: {
+  steps: readonly SeedStepTemplate[];
+  profilesByName: ReadonlyMap<string, AgentProfile>;
+  profilesByRole: ReadonlyMap<AgentProfile["role"], AgentProfile>;
+}): AgentPipelineStep[] | null => {
+  const steps: AgentPipelineStep[] = [];
+  for (const template of input.steps) {
+    const profile = resolveSeedProfile({
+      ref: template.profile,
+      profilesByName: input.profilesByName,
+      profilesByRole: input.profilesByRole,
+    });
+    if (!profile) return null;
+    steps.push({
+      id: template.id,
+      agentProfileId: profile.id,
+      title: template.title,
+      instruction: template.instruction,
+      expectedArtifactKinds: template.expectedArtifactKinds,
+      ...(template.dependsOn !== undefined ? { dependsOn: template.dependsOn } : {}),
+      ...(template.allowedActions !== undefined
+        ? { allowedActions: template.allowedActions }
+        : {}),
+      ...(template.outputContract !== undefined
+        ? { outputContract: template.outputContract }
+        : {}),
+    });
+  }
+  return steps;
+};
+
+const resolveSeedProfile = (input: {
+  ref: SeedProfileRef;
+  profilesByName: ReadonlyMap<string, AgentProfile>;
+  profilesByRole: ReadonlyMap<AgentProfile["role"], AgentProfile>;
+}): AgentProfile | null => {
+  for (const name of input.ref.preferredNames) {
+    const profile = input.profilesByName.get(name.trim().toLowerCase());
+    if (profile) return profile;
+  }
+  return input.profilesByRole.get(input.ref.role) ?? null;
+};
 
 const validateStepTopology = (steps: readonly AgentPipelineStep[]): void => {
   const byId = new Map<string, AgentPipelineStep>();

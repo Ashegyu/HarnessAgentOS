@@ -110,6 +110,71 @@ test("AgentPipelineRepository.create assigns id, timestamps, round-trips steps",
   }
 });
 
+test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    await pipelines.ensureSeed();
+
+    const all = await pipelines.list();
+    const names = all.map((p) => p.name).sort();
+    assert.deepEqual(names, [
+      "Build Recovery",
+      "Parallel Review Hardening",
+      "Refactor Safety",
+      "Supervised Delivery",
+    ]);
+
+    const profileRoles = new Map(
+      (await profiles.list()).map((p) => [p.id, p.role]),
+    );
+    const delivery = all.find((p) => p.id === "pipe_template_supervised_delivery");
+    assert.ok(delivery, "Supervised Delivery template should exist");
+    assert.deepEqual(
+      delivery.steps.map((step) => profileRoles.get(step.agentProfileId)),
+      [
+        "orchestrator",
+        "planner",
+        "coder",
+        "build-error-resolver",
+        "tester",
+        "security-reviewer",
+        "reviewer",
+      ],
+    );
+    assert.deepEqual(
+      delivery.steps.find((step) => step.id === "security")?.allowedActions,
+      [],
+    );
+    assert.deepEqual(
+      delivery.steps.find((step) => step.id === "build")?.allowedActions,
+      ["shell", "file_write"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    await pipelines.ensureSeed();
+    await pipelines.ensureSeed();
+
+    const all = await pipelines.list();
+    assert.equal(all.length, 4);
+    assert.equal(
+      all.filter((p) => p.id === "pipe_template_refactor_safety").length,
+      1,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentPipelineRepository.create preserves a remoteEndpointId override", async () => {
   const { t, db, pipelines, profile, remoteAgents } = await setupRepos();
   try {

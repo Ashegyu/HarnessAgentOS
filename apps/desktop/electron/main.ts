@@ -415,6 +415,12 @@ app.whenReady().then(async () => {
   } catch {
     // non-fatal — UI still works with an empty profile list.
   }
+  // Seed reusable role-aware pipeline templates after profiles exist.
+  try {
+    await services.state.agentPipelines.ensureSeed();
+  } catch {
+    // non-fatal — users can still create pipelines manually.
+  }
   // Best-effort initial capability scan; missing skill directories are
   // non-fatal so first-run still succeeds.
   try {

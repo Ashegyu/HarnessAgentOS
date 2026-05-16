@@ -174,6 +174,19 @@ permissions:
 mcpServerIds: [mcp_fs, mcp_github]
 ```
 
+### 3.5 기본 Pipeline 템플릿
+
+앱 시작 시 AgentProfile seed가 끝나면 Pipelines 탭에 role-aware 기본 템플릿이 추가됩니다. 이 seed는 idempotent하며, 같은 id 또는 이름의 pipeline이 이미 있으면 중복 생성하지 않습니다.
+
+| 템플릿 | 용도 |
+|------|------|
+| Supervised Delivery | orchestrator → planner → coder → build-error-resolver → tester → security-reviewer → reviewer 흐름 |
+| Refactor Safety | behavior-preserving refactor, build recovery, test, performance review, final review |
+| Parallel Review Hardening | planner 이후 security/performance/correctness review를 read-only fan-out으로 수행 |
+| Build Recovery | build/type/lint/test failure를 진단하고 검증과 리뷰까지 연결 |
+
+기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
+
 ---
 
 ## 4. MCP 탭 — MCP 서버 연결
