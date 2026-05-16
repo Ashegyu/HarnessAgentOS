@@ -40,6 +40,8 @@ interface ProfileRow {
   id: string;
   name: string;
   description: string;
+  category: string;
+  tags_json: string;
   provider: string;
   role: string;
   persona: string;
@@ -57,6 +59,8 @@ const rowToProfile = (row: ProfileRow): AgentProfile => ({
   id: row.id,
   name: row.name,
   description: row.description,
+  category: row.category,
+  tags: JSON.parse(row.tags_json) as string[],
   provider: row.provider as AgentProfile["provider"],
   role: row.role as AgentProfile["role"],
   persona: row.persona,
@@ -98,12 +102,26 @@ const normalizeTuning = (
       : tuning.stallTimeoutMs,
 });
 
+const normalizeTags = (tags: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const tag of tags) {
+    const value = tag.trim().toLowerCase();
+    if (value.length === 0 || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+};
+
 const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
   ...profile,
+  category: profile.category.trim().toLowerCase() || "core",
+  tags: normalizeTags(profile.tags),
   tuning: normalizeTuning(profile.tuning, profile.provider),
 });
 
-const SELECT = `SELECT id, name, description, provider, role, persona,
+const SELECT = `SELECT id, name, description, category, tags_json, provider, role, persona,
        tuning_json, cli_json, permissions_json,
        mcp_server_ids_json, skill_source_ids_json,
        is_default, created_at, updated_at
@@ -153,7 +171,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     this.db
       .prepare(
         `UPDATE agent_profiles SET
-           name = ?, description = ?, provider = ?, role = ?, persona = ?,
+           name = ?, description = ?, category = ?, tags_json = ?, provider = ?, role = ?, persona = ?,
            tuning_json = ?, cli_json = ?, permissions_json = ?,
            mcp_server_ids_json = ?, skill_source_ids_json = ?,
            is_default = ?, updated_at = ?
@@ -162,6 +180,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       .run(
         updated.name,
         updated.description,
+        updated.category,
+        JSON.stringify(updated.tags),
         updated.provider,
         updated.role,
         updated.persona,
@@ -287,6 +307,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Planner",
         description:
           "Strategic planning and task decomposition. Breaks complex requests into actionable steps and coordinates downstream agents.",
+        category: "core",
+        tags: ["planning", "decomposition", "coordination"],
         provider: "auto",
         role: "planner",
         persona:
@@ -301,6 +323,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Coder",
         description:
           "Implements features and fixes bugs. Writes clean, well-typed code following the project's conventions.",
+        category: "core",
+        tags: ["coding", "implementation", "bugfix"],
         provider: "auto",
         role: "coder",
         persona:
@@ -315,6 +339,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Reviewer",
         description:
           "Reviews code changes for quality, security, and correctness. Produces a prioritised issue list.",
+        category: "core",
+        tags: ["review", "quality", "correctness"],
         provider: "auto",
         role: "reviewer",
         persona:
@@ -329,6 +355,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Tester",
         description:
           "Writes and runs tests to validate behaviour. Ensures new code paths are covered before merge.",
+        category: "core",
+        tags: ["testing", "verification", "tdd"],
         provider: "auto",
         role: "tester",
         persona:
@@ -347,6 +375,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Ruflo Orchestrator",
         description:
           "Plans hierarchical worker topologies and handoff contracts inspired by Ruflo's Queen Agent and background-worker model.",
+        category: "orchestration",
+        tags: ["ruflo", "queen-agent", "handoff", "worker-topology"],
         provider: "claude",
         role: "planner",
         persona:
@@ -362,6 +392,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Agno Trace Planner",
         description:
           "Designs auditable run-state and policy traces for production agent workflows using Agno-style observability patterns.",
+        category: "observability",
+        tags: ["agno", "trace", "audit", "policy"],
         provider: "claude",
         role: "planner",
         persona:
@@ -377,6 +409,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "Codex Bulk Coder",
         description:
           "Implements multi-file code changes from a proven plan while keeping dependency, network, and git actions under explicit approval.",
+        category: "implementation",
+        tags: ["codex", "bulk-codegen", "multi-file", "approved-plan"],
         provider: "codex",
         role: "coder",
         persona:
@@ -392,6 +426,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "ECC Refactor Cleaner",
         description:
           "Applies ECC-style focused cleanup for dead code, duplication, and maintainability issues after behavior is covered by tests.",
+        category: "refactoring",
+        tags: ["ecc", "cleanup", "dead-code", "maintainability"],
         provider: "codex",
         role: "coder",
         persona:
@@ -407,6 +443,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "ECC TDD Guide",
         description:
           "Guides RED/GREEN/REFACTOR test design and focused verification for new features and bug fixes.",
+        category: "testing",
+        tags: ["ecc", "tdd", "red-green-refactor", "coverage"],
         provider: "claude",
         role: "tester",
         persona:
@@ -422,6 +460,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "ECC Build Error Resolver",
         description:
           "Diagnoses build, typecheck, and runtime test failures incrementally with evidence-first fixes.",
+        category: "build",
+        tags: ["ecc", "build", "typecheck", "diagnostics"],
         provider: "codex",
         role: "tester",
         persona:
@@ -437,6 +477,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "ECC Security Reviewer",
         description:
           "Performs security-first review for secrets, injection, approval bypass, path traversal, and unsafe execution surfaces.",
+        category: "security",
+        tags: ["ecc", "security", "approval-bypass", "injection"],
         provider: "claude",
         role: "reviewer",
         persona:
@@ -452,6 +494,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         name: "C# Performance Reviewer",
         description:
           "Reviews .NET changes for allocation, GC pressure, async overhead, serialization, and benchmark coverage.",
+        category: "performance",
+        tags: ["dotnet", "csharp", "performance", "gc"],
         provider: "codex",
         role: "reviewer",
         persona:
@@ -501,16 +545,18 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     this.db
       .prepare(
         `INSERT INTO agent_profiles
-          (id, name, description, provider, role, persona,
+          (id, name, description, category, tags_json, provider, role, persona,
            tuning_json, cli_json, permissions_json,
            mcp_server_ids_json, skill_source_ids_json,
            is_default, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         p.id,
         p.name,
         p.description,
+        p.category,
+        JSON.stringify(p.tags),
         p.provider,
         p.role,
         p.persona,

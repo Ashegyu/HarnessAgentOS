@@ -60,6 +60,10 @@ export interface AgentProfile {
   id: string;
   name: string;
   description: string;
+  /** Broad domain bucket used for UI filtering and profile selection hints. */
+  category: string;
+  /** Fine-grained specialities; role remains the execution-stage contract. */
+  tags: readonly string[];
   provider: AgentProvider;
   role: WorkerRole;
   /** Natural-language role description injected into the system prompt. */
@@ -144,6 +148,8 @@ export const isAgentProfile = (v: unknown): v is AgentProfile => {
     typeof p.id === "string" &&
     typeof p.name === "string" &&
     typeof p.description === "string" &&
+    typeof p.category === "string" &&
+    isStringArray(p.tags) &&
     typeof p.provider === "string" &&
     VALID_PROVIDERS.includes(p.provider as AgentProvider) &&
     typeof p.role === "string" &&

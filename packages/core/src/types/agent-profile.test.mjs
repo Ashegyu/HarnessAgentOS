@@ -138,6 +138,8 @@ test("isAgentProfile validates a complete profile", () => {
     id: "ap_test12345678",
     name: "Reviewer Claude",
     description: "",
+    category: "security",
+    tags: ["review", "security"],
     provider: "claude",
     role: "reviewer",
     persona: "You are a security reviewer.",
@@ -171,6 +173,8 @@ test("isAgentProfile rejects unknown provider", () => {
     id: "ap_test12345678",
     name: "Bogus",
     description: "",
+    category: "core",
+    tags: [],
     provider: "openai",
     role: "coder",
     persona: "",
@@ -204,8 +208,43 @@ test("isAgentProfile rejects unknown role", () => {
     id: "ap_test12345678",
     name: "Bogus",
     description: "",
+    category: "core",
+    tags: [],
     provider: "claude",
     role: "destroyer",
+    persona: "",
+    tuning: {
+      model: "x",
+      timeoutMs: 1,
+      stallTimeoutMs: 1,
+      contextDepth: 1,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+    permissions: {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+    createdAt: "2026-05-12T00:00:00.000Z",
+    updatedAt: "2026-05-12T00:00:00.000Z",
+  };
+  assert.equal(isAgentProfile(profile), false);
+});
+
+test("isAgentProfile rejects missing taxonomy", () => {
+  const profile = {
+    id: "ap_test12345678",
+    name: "Bogus",
+    description: "",
+    provider: "claude",
+    role: "coder",
     persona: "",
     tuning: {
       model: "x",

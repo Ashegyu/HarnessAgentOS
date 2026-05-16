@@ -24,6 +24,8 @@ export interface ProfileDraft {
   id: string | null; // null = brand-new draft, not yet persisted
   name: string;
   description: string;
+  category: string;
+  tagsText: string;
   provider: AgentProfile["provider"];
   role: AgentProfile["role"];
   persona: string;
@@ -82,6 +84,8 @@ export const emptyDraft = (): ProfileDraft => ({
   id: null,
   name: "",
   description: "",
+  category: "core",
+  tagsText: "",
   provider: "auto",
   role: "coder",
   persona: "",
@@ -102,6 +106,8 @@ export const draftFromProfile = (p: AgentProfile): ProfileDraft => ({
   id: p.id,
   name: p.name,
   description: p.description,
+  category: p.category,
+  tagsText: p.tags.join(", "),
   provider: p.provider,
   role: p.role,
   persona: p.persona,
@@ -129,6 +135,9 @@ export const validateDraft = (
   const errors: DraftValidationError[] = [];
   if (draft.name.trim().length === 0) {
     errors.push({ field: "name", message: "이름은 필수입니다" });
+  }
+  if (draft.category.trim().length === 0) {
+    errors.push({ field: "category", message: "Category는 필수입니다" });
   }
   const timeout = textToNumOrUndefined(draft.timeoutMsText);
   if (timeout === undefined || timeout <= 0) {
@@ -208,6 +217,8 @@ export const serializeDraft = (
     id: draft.id ?? "ap_placeholder",
     name: draft.name.trim(),
     description: draft.description,
+    category: draft.category.trim().toLowerCase(),
+    tags: parseTags(draft.tagsText),
     provider: draft.provider,
     role: draft.role,
     persona: draft.persona,
@@ -228,4 +239,16 @@ export const serializeDraft = (
     skillSourceIds: [],
     isDefault: draft.isDefault,
   };
+};
+
+export const parseTags = (value: string): string[] => {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of value.split(",")) {
+    const tag = raw.trim().toLowerCase();
+    if (tag.length === 0 || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
 };

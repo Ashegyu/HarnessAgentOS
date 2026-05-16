@@ -187,6 +187,25 @@ test("buildSplitAgentPrompt injects persona above SYSTEM block", () => {
   );
 });
 
+test("buildSplitAgentPrompt injects profile metadata above persona", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    persona: "Reviewer persona",
+    profileMetadata: {
+      name: "ECC Security Reviewer",
+      role: "reviewer",
+      category: "security",
+      tags: ["ecc", "security"],
+    },
+  });
+  const profileIdx = systemPrompt.indexOf("PROFILE SELECTION");
+  const personaIdx = systemPrompt.indexOf("Reviewer persona");
+  assert.ok(profileIdx >= 0);
+  assert.ok(systemPrompt.includes("category: security"));
+  assert.ok(systemPrompt.includes("tags: ecc, security"));
+  assert.ok(profileIdx < personaIdx, "profile metadata must precede persona");
+});
+
 test("buildSplitAgentPrompt injects systemPromptPrefix above persona", () => {
   const { systemPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,

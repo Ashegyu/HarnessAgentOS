@@ -46,6 +46,12 @@ export interface PromptBuildInput {
   persona?: string;
   systemPromptPrefix?: string;
   systemPromptSuffix?: string;
+  profileMetadata?: {
+    name: string;
+    role: string;
+    category: string;
+    tags: readonly string[];
+  };
 }
 
 const trimmedOrNull = (s: string | undefined): string | null => {
@@ -58,10 +64,12 @@ const buildSystemBlock = (
   persona: string | undefined,
   prefix: string | undefined,
   suffix: string | undefined,
+  metadata: PromptBuildInput["profileMetadata"],
 ): string => {
   const parts: string[] = [];
   const trimmedPrefix = trimmedOrNull(prefix);
   if (trimmedPrefix) parts.push(trimmedPrefix);
+  if (metadata) parts.push(formatProfileMetadata(metadata));
   const trimmedPersona = trimmedOrNull(persona);
   if (trimmedPersona) parts.push(`ROLE\n${trimmedPersona}`);
   parts.push(SYSTEM_PROMPT.trim());
@@ -124,6 +132,7 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
     input.persona,
     input.systemPromptPrefix,
     input.systemPromptSuffix,
+    input.profileMetadata,
   );
   const userSections: string[] = [];
   userSections.push(
@@ -184,6 +193,22 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
     userPrompt = [head, middle.slice(0, Math.max(0, room)), "[...truncated]"].join("\n\n");
   }
   return { systemPrompt, userPrompt };
+};
+
+const formatProfileMetadata = (
+  metadata: NonNullable<PromptBuildInput["profileMetadata"]>,
+): string => {
+  const tags = metadata.tags ?? [];
+  const lines = [
+    "PROFILE SELECTION",
+    `- name: ${metadata.name}`,
+    `- role: ${metadata.role}`,
+    `- category: ${metadata.category || "core"}`,
+  ];
+  if (tags.length > 0) {
+    lines.push(`- tags: ${tags.join(", ")}`);
+  }
+  return lines.join("\n");
 };
 
 export const buildAgentPrompt = (input: PromptBuildInput): string => {

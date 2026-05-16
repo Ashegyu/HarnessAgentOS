@@ -27,6 +27,8 @@ const existingProfile = (overrides = {}) => ({
   id: "ap_existing",
   name: "Existing",
   description: "",
+  category: "core",
+  tags: [],
   provider: "claude",
   role: "coder",
   persona: "",
@@ -85,6 +87,8 @@ test("planLegacyMigration produces one input per worker, first marked default", 
   assert.ok(plan);
   assert.equal(plan.inputs.length, 2);
   assert.equal(plan.inputs[0].name, "Planner");
+  assert.equal(plan.inputs[0].category, "legacy");
+  assert.deepEqual(plan.inputs[0].tags, ["legacy-worker", "planner"]);
   assert.equal(plan.inputs[0].isDefault, true);
   assert.equal(plan.inputs[1].isDefault, false);
   // Tuning inherits the legacy global timeouts.
@@ -106,6 +110,8 @@ test("planLegacyMigration falls back to a single seed when only legacy globals e
   assert.equal(plan.inputs[0].isDefault, true);
   assert.equal(plan.inputs[0].tuning.model, "claude-sonnet-4");
   assert.equal(plan.inputs[0].provider, "claude");
+  assert.equal(plan.inputs[0].category, "legacy");
+  assert.deepEqual(plan.inputs[0].tags, ["legacy-agent", "coder"]);
 });
 
 test("planLegacyMigration ignores pristine global defaults (nothing to migrate)", () => {

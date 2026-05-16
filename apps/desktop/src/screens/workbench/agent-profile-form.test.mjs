@@ -11,6 +11,8 @@ const SAMPLE_PROFILE = {
   id: "ap_test",
   name: "Reviewer Claude",
   description: "PR security reviewer",
+  category: "security",
+  tags: ["review", "security", "review"],
   provider: "claude",
   role: "reviewer",
   persona: "PERSONA",
@@ -94,6 +96,8 @@ test("draftFromProfile populates permissionMap from auto/block lists", () => {
   assert.equal(d.temperatureText, "0.2");
   assert.equal(d.maxTokensText, "4096");
   assert.equal(d.systemPromptPrefix, "PREFIX");
+  assert.equal(d.category, "security");
+  assert.equal(d.tagsText, "review, security, review");
 });
 
 test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
@@ -101,6 +105,8 @@ test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
   const out = serializeDraft(d);
   assert.equal(out.id, SAMPLE_PROFILE.id);
   assert.equal(out.name, SAMPLE_PROFILE.name);
+  assert.equal(out.category, "security");
+  assert.deepEqual(out.tags, ["review", "security"]);
   assert.equal(out.persona, SAMPLE_PROFILE.persona);
   assert.equal(out.tuning.model, SAMPLE_PROFILE.tuning.model);
   assert.equal(out.tuning.temperature, 0.2);
@@ -128,5 +134,17 @@ test("serializeDraft handles a brand-new draft (id stays placeholder)", () => {
   const out = serializeDraft(d);
   assert.equal(out.id, "ap_placeholder");
   assert.equal(out.name, "Brand new");
+  assert.equal(out.category, "core");
+  assert.deepEqual(out.tags, []);
   assert.equal(out.persona, "test persona");
+});
+
+test("serializeDraft normalizes comma-separated tags", () => {
+  const d = emptyDraft();
+  d.name = "Tagged";
+  d.category = "Review";
+  d.tagsText = "Security, review, security,  dotnet ";
+  const out = serializeDraft(d);
+  assert.equal(out.category, "review");
+  assert.deepEqual(out.tags, ["security", "review", "dotnet"]);
 });

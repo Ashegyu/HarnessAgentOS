@@ -44,6 +44,8 @@ test("v7 migration creates agent_profiles with the expected columns", () => {
       "id",
       "name",
       "description",
+      "category",
+      "tags_json",
       "provider",
       "role",
       "persona",
@@ -296,6 +298,30 @@ test("readSchemaVersion reflects the current SCHEMA_VERSION", () => {
   try {
     const v = readSchemaVersion(db);
     assert.equal(v, SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v20 migration adds profile taxonomy columns", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasColumn(db, "agent_profiles", "category"), true);
+    assert.equal(hasColumn(db, "agent_profiles", "tags_json"), true);
+    db.prepare(
+      `INSERT INTO agent_profiles
+        (id,name,description,provider,role,persona,tuning_json,cli_json,
+         permissions_json,mcp_server_ids_json,skill_source_ids_json,
+         is_default,created_at,updated_at)
+       VALUES (?,?,'','claude','coder','','{}','{}','{}','[]','[]',0,?,?)`,
+    ).run("ap_tax", "Taxonomy", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+    const row = db
+      .prepare("SELECT category, tags_json FROM agent_profiles WHERE id = ?")
+      .get("ap_tax");
+    assert.equal(row.category, "core");
+    assert.equal(row.tags_json, "[]");
   } finally {
     closeDb(db);
     t.cleanup();

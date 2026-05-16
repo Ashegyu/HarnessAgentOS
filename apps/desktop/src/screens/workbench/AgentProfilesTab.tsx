@@ -48,6 +48,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,6 +102,17 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
     () => (draft ? validateDraft(draft) : []),
     [draft],
   );
+
+  const categories = useMemo(() => {
+    if (list.kind !== "ready") return [];
+    return [...new Set(list.profiles.map((p) => p.category).filter(Boolean))].sort();
+  }, [list]);
+
+  const visibleProfiles = useMemo(() => {
+    if (list.kind !== "ready") return [];
+    if (categoryFilter === "all") return list.profiles;
+    return list.profiles.filter((p) => p.category === categoryFilter);
+  }, [categoryFilter, list]);
 
   const handleSave = async (): Promise<void> => {
     if (!draft || validationErrors.length > 0) return;
@@ -294,9 +306,29 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               등록된 프로필이 없습니다. "+ 새 프로필" 버튼으로 시작하세요.
             </div>
           )}
+        {list.kind === "ready" && list.profiles.length > 0 && (
+          <div className="agent-profiles-tab__filters">
+            <label className="settings-field">
+              <span className="settings-field__label">Category</span>
+              <select
+                className="settings-field__input"
+                value={categoryFilter}
+                disabled={saving}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+              >
+                <option value="all">all</option>
+                {categories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
         {list.kind === "ready" && (
           <ul className="agent-profiles-tab__items">
-            {list.profiles.map((p) => {
+            {visibleProfiles.map((p) => {
               const isActive = list.activeId === p.id;
               const isSelected = selectedId === p.id;
               return (
@@ -312,10 +344,19 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                       {p.name}
                     </span>
                     <span className="agent-profiles-tab__item-meta">
-                      {p.provider} · {p.role}
+                      {p.provider} · {p.role} · {p.category}
                       {p.isDefault && " · default"}
                       {isActive && " · active"}
                     </span>
+                    {p.tags.length > 0 && (
+                      <span className="agent-profiles-tab__tag-row">
+                        {p.tags.slice(0, 4).map((tag) => (
+                          <span className="agent-profiles-tab__tag" key={tag}>
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </button>
                 </li>
               );
@@ -355,6 +396,27 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   value={draft.description}
                   disabled={saving}
                   onChange={(e) => updateDraft("description", e.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">Category</span>
+                <input
+                  type="text"
+                  className="settings-field__input"
+                  value={draft.category}
+                  disabled={saving}
+                  onChange={(e) => updateDraft("category", e.target.value)}
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">Tags</span>
+                <input
+                  type="text"
+                  className="settings-field__input"
+                  placeholder="security, review, dotnet"
+                  value={draft.tagsText}
+                  disabled={saving}
+                  onChange={(e) => updateDraft("tagsText", e.target.value)}
                 />
               </label>
               <label className="settings-field">

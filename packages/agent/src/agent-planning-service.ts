@@ -293,6 +293,16 @@ export class AgentPlanningService {
       persona: resolved.persona,
       systemPromptPrefix: resolved.systemPromptPrefix,
       systemPromptSuffix: resolved.systemPromptSuffix,
+      ...(resolved.profile
+        ? {
+            profileMetadata: {
+              name: resolved.profile.name,
+              role: resolved.profile.role,
+              category: resolved.profile.category,
+              tags: resolved.profile.tags,
+            },
+          }
+        : {}),
       capabilityContexts,
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
@@ -912,6 +922,12 @@ export class AgentPlanningService {
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
+      profileMetadata: {
+        name: input.profile.name,
+        role: input.profile.role,
+        category: input.profile.category,
+        tags: input.profile.tags,
+      },
       capabilityContexts,
       ...(input.handoffMessages && input.handoffMessages.length > 0
         ? { handoffMessages: input.handoffMessages }

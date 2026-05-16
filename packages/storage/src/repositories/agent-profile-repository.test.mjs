@@ -42,6 +42,8 @@ const tmp = () => {
 const makeProfileInput = (overrides = {}) => ({
   name: "Reviewer Claude",
   description: "",
+  category: "security",
+  tags: ["review", "security"],
   provider: "claude",
   role: "reviewer",
   persona: "You are a security reviewer.",
@@ -163,6 +165,8 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.equal(defaults.length, 1, "exactly one profile must be isDefault");
     assert.equal(defaults[0].role, "planner", "planner is the default");
     assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
+    assert.ok(all.every((p) => p.category.length > 0), "all profiles have a category");
+    assert.ok(all.some((p) => p.name === "ECC Security Reviewer" && p.tags.includes("security")));
     assertFrameworkProfilesPresent(all);
   } finally {
     closeDb(db);
@@ -286,6 +290,8 @@ test("AgentProfileRepository.create round-trips arrays and nested objects", asyn
     assert.equal(fetched.cli.envSecretRefs.ANTHROPIC_API_KEY, "anth_key");
     assert.equal(fetched.tuning.temperature, 0.2);
     assert.equal(fetched.tuning.systemPromptPrefix, "PREFIX");
+    assert.equal(fetched.category, "security");
+    assert.deepEqual(fetched.tags, ["review", "security"]);
   } finally {
     closeDb(db);
     t.cleanup();

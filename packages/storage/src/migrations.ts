@@ -45,6 +45,15 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE threads ADD COLUMN pipeline_id TEXT`);
     }
 
+    // v20 — profile taxonomy for framework-derived agents. `role` stays
+    // the execution-stage contract; category/tags express specialisation.
+    if (!hasColumn(db, "agent_profiles", "category")) {
+      db.exec(`ALTER TABLE agent_profiles ADD COLUMN category TEXT NOT NULL DEFAULT 'core'`);
+    }
+    if (!hasColumn(db, "agent_profiles", "tags_json")) {
+      db.exec(`ALTER TABLE agent_profiles ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`);
+    }
+
     // v6 — expand approvals.status CHECK to include 'executed'.
     // SQLite doesn't support ALTER CONSTRAINT; the table must be rebuilt.
     if (!approvalStatusAllows(db, "executed")) {

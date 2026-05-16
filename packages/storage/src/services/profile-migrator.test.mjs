@@ -22,6 +22,8 @@ test("workerProfileToAgentProfileInput fills tuning from legacy agent settings",
   assert.equal(ap.name, "Coder Claude");
   assert.equal(ap.provider, "claude");
   assert.equal(ap.role, "coder");
+  assert.equal(ap.category, "legacy");
+  assert.deepEqual(ap.tags, ["legacy-worker", "coder"]);
   assert.equal(ap.tuning.model, "claude-sonnet-4");
   assert.equal(ap.tuning.timeoutMs, 600_000);
   assert.equal(ap.tuning.stallTimeoutMs, 90_000);

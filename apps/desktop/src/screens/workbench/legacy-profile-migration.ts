@@ -49,6 +49,8 @@ const workerToInput = (
 ): CreateAgentProfilePayload => ({
   name: wp.name,
   description: "",
+  category: "legacy",
+  tags: ["legacy-worker", wp.role],
   provider: wp.provider,
   role: wp.role,
   persona: "",
@@ -80,6 +82,8 @@ const legacyAgentSeedInput = (
 ): CreateAgentProfilePayload => ({
   name: "Default agent (마이그레이션)",
   description: "기존 글로벌 agent 설정에서 자동 생성",
+  category: "legacy",
+  tags: ["legacy-agent", "coder"],
   provider: legacyAgent.provider ?? "auto",
   role: "coder",
   persona: "",

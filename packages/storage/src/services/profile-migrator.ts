@@ -22,6 +22,8 @@ export const workerProfileToAgentProfileInput = (
 ): CreateAgentProfileInput => ({
   name: wp.name,
   description: "",
+  category: "legacy",
+  tags: ["legacy-worker", wp.role],
   provider: wp.provider,
   role: wp.role,
   persona: "",
