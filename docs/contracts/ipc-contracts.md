@@ -174,7 +174,16 @@ export interface OrchestrationPlan {
 export interface WorkerStep {
   id: string;
   title: string;
-  role: "planner" | "coder" | "reviewer" | "tester";
+  role:
+    | "planner"
+    | "coder"
+    | "reviewer"
+    | "tester"
+    | "orchestrator"
+    | "security-reviewer"
+    | "build-error-resolver"
+    | "refactor-cleaner"
+    | "performance-reviewer";
   inputSummary: string;
   instruction?: string;
   expectedArtifactKinds: string[];

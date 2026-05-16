@@ -133,7 +133,7 @@ test("isAgentModelTuning allows optional temperature/maxTokens", () => {
   );
 });
 
-test("isAgentProfile validates a complete profile", () => {
+test("isAgentProfile validates a complete profile with expanded role", () => {
   const profile = {
     id: "ap_test12345678",
     name: "Reviewer Claude",
@@ -141,7 +141,7 @@ test("isAgentProfile validates a complete profile", () => {
     category: "security",
     tags: ["review", "security"],
     provider: "claude",
-    role: "reviewer",
+    role: "security-reviewer",
     persona: "You are a security reviewer.",
     tuning: {
       model: "claude-sonnet-4",

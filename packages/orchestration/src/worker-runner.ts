@@ -447,6 +447,36 @@ const roleBody = (role: WorkerRole): string => {
         "- Run existing suite",
         "- Add a regression test for the failing path",
       ].join("\n");
+    case "orchestrator":
+      return [
+        "Orchestrator produced a worker topology:",
+        "- Split work into bounded responsibilities",
+        "- Identify dependencies, handoffs, and approval checkpoints",
+      ].join("\n");
+    case "security-reviewer":
+      return [
+        "Security reviewer noted risks:",
+        "- Check for secret exposure, injection, path traversal, and approval bypasses",
+        "- Prioritize exploitable findings with exact evidence",
+      ].join("\n");
+    case "build-error-resolver":
+      return [
+        "Build-error resolver proposed diagnostics:",
+        "- Start from the first real build/type/test failure",
+        "- Verify the smallest corrective change with a targeted command",
+      ].join("\n");
+    case "refactor-cleaner":
+      return [
+        "Refactor cleaner summarized safe cleanup:",
+        "- Preserve behavior and keep changes reviewable",
+        "- Remove dead code only with evidence",
+      ].join("\n");
+    case "performance-reviewer":
+      return [
+        "Performance reviewer noted hotspots:",
+        "- Inspect allocations, latency, repeated work, and hot-path regressions",
+        "- Recommend benchmarks or focused measurements where useful",
+      ].join("\n");
     default:
       return `Unknown worker role`;
   }
@@ -477,6 +507,11 @@ const roleToActionIntent = (role: WorkerRole): string => {
     case "coder":
     case "reviewer":
     case "tester":
+    case "orchestrator":
+    case "security-reviewer":
+    case "build-error-resolver":
+    case "refactor-cleaner":
+    case "performance-reviewer":
       return "summarize";
     default:
       return "summarize";

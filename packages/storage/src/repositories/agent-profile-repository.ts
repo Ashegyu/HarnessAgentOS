@@ -231,9 +231,11 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     // that already has profiles (e.g. migrated from legacy settings); the
     // framework catalogue below is deduped by stable id/name independently.
     const coveredRoles = new Set(existing.map((p) => p.role));
-    const rolesToSeed = (
-      ["planner", "coder", "reviewer", "tester"] as const
-    ).filter((r) => !coveredRoles.has(r));
+    const rolesToSeed = new Set<AgentProfile["role"]>(
+      (["planner", "coder", "reviewer", "tester"] as const).filter(
+        (r) => !coveredRoles.has(r),
+      ),
+    );
 
     const now = nowIso();
     const hasExistingDefault = existing.some((p) => p.isDefault);
@@ -378,7 +380,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "orchestration",
         tags: ["ruflo", "queen-agent", "handoff", "worker-topology"],
         provider: "claude",
-        role: "planner",
+        role: "orchestrator",
         persona:
           "You are a workflow orchestrator. Decompose large goals into bounded worker tasks, define dependencies, handoff payloads, progress checkpoints, and result-merging rules. Prefer small verifiable slices and call out where Harness approvals are required before any side effect.",
         tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
@@ -395,7 +397,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "observability",
         tags: ["agno", "trace", "audit", "policy"],
         provider: "claude",
-        role: "planner",
+        role: "orchestrator",
         persona:
           "You are a production agent-flow planner focused on traceability. For every proposed workflow, define run-state transitions, policy checkpoints, observable evidence, failure recovery, and the exact data that should be persisted for review.",
         tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
@@ -429,7 +431,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "refactoring",
         tags: ["ecc", "cleanup", "dead-code", "maintainability"],
         provider: "codex",
-        role: "coder",
+        role: "refactor-cleaner",
         persona:
           "You are a refactoring specialist. Preserve behavior, avoid broad rewrites, remove dead code only with evidence, reduce meaningful duplication, and keep each change easy to review. Verify with the narrowest relevant tests before reporting completion.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
@@ -463,7 +465,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "build",
         tags: ["ecc", "build", "typecheck", "diagnostics"],
         provider: "codex",
-        role: "tester",
+        role: "build-error-resolver",
         persona:
           "You are a build-error resolver. Read the first real failure, trace it to the owning module, make the smallest corrective change, and rerun the targeted verification before widening scope. Do not mask errors by weakening tests or deleting checks.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
@@ -480,7 +482,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "security",
         tags: ["ecc", "security", "approval-bypass", "injection"],
         provider: "claude",
-        role: "reviewer",
+        role: "security-reviewer",
         persona:
           "You are a security reviewer. Prioritize exploitable issues, secret exposure, prompt-injection paths, approval bypasses, path traversal, unsafe shell execution, dependency risk, and overbroad permissions. Report findings by severity with exact evidence and remediation.",
         tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
@@ -497,7 +499,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         category: "performance",
         tags: ["dotnet", "csharp", "performance", "gc"],
         provider: "codex",
-        role: "reviewer",
+        role: "performance-reviewer",
         persona:
           "You are a read-only .NET performance reviewer. Inspect diffs for boxing, LINQ in hot paths, closure allocation, avoidable async state machines, per-frame allocations, string concatenation, collection growth, Span/Memory/ArrayPool/ObjectPool lifetime issues, System.Text.Json source-generation opportunities, and missing tests or benchmarks. Do not edit files.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
@@ -512,7 +514,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     // profile becomes the default when there is no existing default yet.
     let firstInserted = true;
     for (const entry of catalogue) {
-      if (!rolesToSeed.includes(entry.role as AgentProfile["role"])) continue;
+      if (!rolesToSeed.has(entry.role)) continue;
       const profile: AgentProfile = {
         ...entry,
         id: newId("agentProfile"),

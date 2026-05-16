@@ -491,7 +491,16 @@ swarm runtime을 도입하지 않고, 기존 orchestration pipeline을 역할 �
 ```ts
 export interface WorkerTopologyStep {
   id: string;
-  role: "planner" | "coder" | "reviewer" | "tester";
+  role:
+    | "planner"
+    | "coder"
+    | "reviewer"
+    | "tester"
+    | "orchestrator"
+    | "security-reviewer"
+    | "build-error-resolver"
+    | "refactor-cleaner"
+    | "performance-reviewer";
   agentProfileId: string;
   remoteEndpointId?: string;
   dependsOn: string[];
@@ -500,9 +509,9 @@ export interface WorkerTopologyStep {
 }
 ```
 
-`documenter` role은 현재 `AgentProfile.role`과 `agent_profiles.role` DB CHECK에 없으므로 첫 구현에서
-제외한다. 나중에 documentation 전담 worker가 필요하면 WorkerRole enum, DB migration, profile UI,
-pipeline serializer를 함께 확장한다.
+`documenter` role은 여전히 `AgentProfile.role`과 `agent_profiles.role` DB CHECK에 없으므로
+profile category/tag 또는 `planner` 계열로 표현한다. 문서 전담 실행 단계가 필요해지면
+WorkerRole enum, DB migration, profile UI, pipeline serializer를 함께 확장한다.
 
 ### 적용 방식
 
@@ -612,17 +621,23 @@ TaskRun.userRequest
 
 | 입력 신호 | Step 제안 |
 |---|---|
+| orchestration/topology/handoff 성격 capability 또는 instinct | `orchestrator`, `outputContract="plan"`, `allowedActions=[]` |
 | planning/documentation 성격 capability 또는 instinct | `planner`, `outputContract="plan"`, `allowedActions=[]` |
 | code/diff/file_write 성격 capability | `coder`, `outputContract="diff_proposal"`, `allowedActions=["file_write"]` |
-| review/risk/security 성격 capability 또는 failed quality instinct | `reviewer`, `outputContract="review"`, `allowedActions=[]` |
-| test/build/smoke 성격 capability 또는 반복 test failure instinct | `tester`, `outputContract="test_result"`, `allowedActions=["shell"]` |
+| refactor/cleanup/dead-code 성격 capability | `refactor-cleaner`, `outputContract="diff_proposal"`, `allowedActions=["file_write"]` |
+| build/type/lint failure 성격 capability | `build-error-resolver`, `outputContract="test_result"`, `allowedActions=["shell","file_write"]` |
+| test/smoke/regression 성격 capability 또는 반복 test failure instinct | `tester`, `outputContract="test_result"`, `allowedActions=["shell"]` |
+| security/approval-bypass/injection 성격 capability | `security-reviewer`, `outputContract="review"`, `allowedActions=[]` |
+| performance/latency/allocation 성격 capability | `performance-reviewer`, `outputContract="review"`, `allowedActions=[]` |
+| 일반 review/risk/quality 성격 capability 또는 failed quality instinct | `reviewer`, `outputContract="review"`, `allowedActions=[]` |
 | remote endpoint가 trusted+enabled이고 profile에 맞는 경우 | 해당 step의 `remoteEndpointId` 후보로만 표시, 기본 선택은 local |
 
-생성 후보는 기본적으로 linear topology를 만든다. reviewer/tester fan-out은 다음 조건을 모두 만족할 때만
+생성 후보는 기본적으로 linear topology를 만든다. `orchestrator`, `planner`, `reviewer`,
+`security-reviewer`, `performance-reviewer` fan-out은 다음 조건을 모두 만족할 때만
 제안한다.
 
 1. `planner` 또는 `coder` 산출물 이후 read-only 검토 단계다.
-2. fan-out step의 `allowedActions`가 `[]` 또는 `["shell"]`처럼 제한적이다.
+2. fan-out step의 `allowedActions`가 `[]`처럼 side effect를 허용하지 않는다.
 3. dependency cycle 없이 Phase 5 validator를 통과한다.
 4. 후보 설명에 fan-out 이유와 예상 검증 효과가 표시된다.
 

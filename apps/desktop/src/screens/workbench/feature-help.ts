@@ -90,7 +90,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
     summary:
       "에이전트의 역할, 모델, 프롬프트, 권한 정책을 재사용 가능한 프로필로 관리합니다.",
     details: [
-      "planner, coder, reviewer, tester 같은 역할별 실행 성향을 분리할 수 있습니다.",
+      "planner, coder, reviewer, tester와 보안/빌드/리팩터링/성능 전문 role별 실행 성향을 분리할 수 있습니다.",
       "action type별 default, auto-approve, block 권한을 지정해 안전 경계를 세분화합니다.",
     ],
     location: "설정 > Agents",

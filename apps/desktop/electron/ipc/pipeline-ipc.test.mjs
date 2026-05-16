@@ -22,6 +22,8 @@ const tmp = () => {
 const validProfileInput = (overrides = {}) => ({
   name: "Worker",
   description: "",
+  category: "test",
+  tags: ["coder"],
   provider: "claude",
   role: "coder",
   persona: "",

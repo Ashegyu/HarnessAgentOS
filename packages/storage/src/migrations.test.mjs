@@ -139,6 +139,96 @@ test("v7 migration rejects unknown provider/role via CHECK constraints", () => {
   }
 });
 
+test("v21 migration accepts expanded agent profile roles", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const ins = db.prepare(
+      `INSERT INTO agent_profiles
+        (id,name,description,provider,role,persona,tuning_json,cli_json,
+         permissions_json,mcp_server_ids_json,skill_source_ids_json,
+         is_default,created_at,updated_at)
+       VALUES (?,?,'',?,?,'','{}','{}','{}','[]','[]',0,?,?)`,
+    );
+    ins.run(
+      "ap_security",
+      "Security Reviewer",
+      "claude",
+      "security-reviewer",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    ins.run(
+      "ap_build",
+      "Build Resolver",
+      "codex",
+      "build-error-resolver",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    const roles = db
+      .prepare(`SELECT role FROM agent_profiles ORDER BY id`)
+      .all()
+      .map((row) => row.role);
+    assert.deepEqual(roles, ["build-error-resolver", "security-reviewer"]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v21 migration upgrades framework profile roles from legacy seed data", () => {
+  const t = tmp();
+  const db = new Database(t.file);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  try {
+    db.exec(`CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    db.exec(`CREATE TABLE agent_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL CHECK(provider IN ('auto','claude','codex')),
+      role TEXT NOT NULL CHECK(role IN ('planner','coder','reviewer','tester')),
+      persona TEXT NOT NULL DEFAULT '',
+      tuning_json TEXT NOT NULL,
+      cli_json TEXT NOT NULL,
+      permissions_json TEXT NOT NULL,
+      mcp_server_ids_json TEXT NOT NULL DEFAULT '[]',
+      skill_source_ids_json TEXT NOT NULL DEFAULT '[]',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+    db.prepare(
+      `INSERT INTO agent_profiles
+        (id,name,description,provider,role,persona,tuning_json,cli_json,
+         permissions_json,mcp_server_ids_json,skill_source_ids_json,
+         is_default,created_at,updated_at)
+       VALUES (?,?,'',?,?,'','{}','{}','{}','[]','[]',0,?,?)`,
+    ).run(
+      "ap_framework_ecc_security_reviewer",
+      "ECC Security Reviewer",
+      "claude",
+      "reviewer",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+
+    applyMigrations(db);
+
+    const row = db
+      .prepare(`SELECT role FROM agent_profiles WHERE id = ?`)
+      .get("ap_framework_ecc_security_reviewer");
+    assert.equal(row.role, "security-reviewer");
+    assert.equal(hasColumn(db, "agent_profiles", "category"), true);
+    assert.equal(hasColumn(db, "agent_profiles", "tags_json"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v8 migration creates mcp_servers with transport + scope CHECK", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

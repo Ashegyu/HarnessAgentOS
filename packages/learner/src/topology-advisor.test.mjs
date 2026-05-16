@@ -21,6 +21,8 @@ const tmp = () => {
 const profileInput = (role, name = role) => ({
   name,
   description: "",
+  category: "test",
+  tags: [role],
   provider: "codex",
   role,
   persona: "",
@@ -265,6 +267,50 @@ test("recommend uses active global instincts as topology signals", async () => {
       rec.pipelineDraft.steps.some(
         (step) => step.outputContract === "test_result",
       ),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("recommend maps specialized review prompts to expanded roles", async () => {
+  const { t, db, state } = await setup();
+  try {
+    for (const role of [
+      "planner",
+      "coder",
+      "security-reviewer",
+      "performance-reviewer",
+      "reviewer",
+    ]) {
+      await state.agentProfiles.create(profileInput(role));
+    }
+    const taskRun = await seedTaskRun(
+      state,
+      "security and performance review for approval bypass and latency risk",
+    );
+    const advisor = new TopologyAdvisor({ state });
+
+    const [rec] = await advisor.recommend({ taskRunId: taskRun.id });
+    assert.ok(rec);
+    const stepIds = rec.pipelineDraft.steps.map((step) => step.id);
+    assert.ok(
+      rec.pipelineDraft.steps.some(
+        (step) => step.outputContract === "review" && step.allowedActions.length === 0,
+      ),
+    );
+    assert.ok(
+      rec.pipelineDraft.steps.some((step) =>
+        step.id.includes("security-reviewer"),
+      ),
+      `expected security-reviewer step in ${stepIds.join(", ")}`,
+    );
+    assert.ok(
+      rec.pipelineDraft.steps.some((step) =>
+        step.id.includes("performance-reviewer"),
+      ),
+      `expected performance-reviewer step in ${stepIds.join(", ")}`,
     );
   } finally {
     closeDb(db);

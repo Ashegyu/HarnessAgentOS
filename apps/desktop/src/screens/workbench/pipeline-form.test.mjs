@@ -445,7 +445,7 @@ test("moveStep is a no-op when target index is out of range", () => {
   assert.deepEqual(moveStep(steps, 1, 1).map((s) => s.id), ["a", "b"]);
 });
 
-test("buildPipelineFanOutPreview groups independent read-only planner and reviewer steps", () => {
+test("buildPipelineFanOutPreview groups independent read-only planning and review steps", () => {
   const d = {
     ...emptyPipelineDraft(),
     name: "Read-only Flow",
@@ -468,18 +468,60 @@ test("buildPipelineFanOutPreview groups independent read-only planner and review
         dependsOn: [],
         allowedActions: [],
       },
+      {
+        id: "security",
+        agentProfileId: "ap_security",
+        title: "Security",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "perf",
+        agentProfileId: "ap_perf",
+        title: "Performance",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "topology",
+        agentProfileId: "ap_topology",
+        title: "Topology",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
     ],
   };
 
   const preview = buildPipelineFanOutPreview(d, [
     profile("ap_plan", "Planner", "planner"),
     profile("ap_review", "Reviewer", "reviewer"),
+    profile("ap_security", "Security", "security-reviewer"),
+    profile("ap_perf", "Performance", "performance-reviewer"),
+    profile("ap_topology", "Topology", "orchestrator"),
   ]);
 
   assert.equal(preview.waves.length, 1);
-  assert.deepEqual(preview.waves[0].stepIds, ["plan", "review"]);
+  assert.deepEqual(preview.waves[0].stepIds, [
+    "plan",
+    "review",
+    "security",
+    "perf",
+    "topology",
+  ]);
   assert.equal(preview.waves[0].parallelizable, true);
-  assert.deepEqual(preview.deterministicOrder, ["plan", "review"]);
+  assert.deepEqual(preview.deterministicOrder, [
+    "plan",
+    "review",
+    "security",
+    "perf",
+    "topology",
+  ]);
 });
 
 test("buildPipelineFanOutPreview exposes blockers for side effects, role, and remote trust", () => {

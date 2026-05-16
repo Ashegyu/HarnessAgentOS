@@ -23,6 +23,8 @@ const tmp = () => {
 const validProfileInput = (overrides = {}) => ({
   name: "RemoteReviewerProfile",
   description: "",
+  category: "test",
+  tags: ["reviewer"],
   provider: "codex",
   role: "reviewer",
   persona: "Review via remote A2A worker.",

@@ -53,49 +53,84 @@ interface RoleSignal {
 }
 
 const ROLE_ORDER: readonly WorkerRole[] = [
+  "orchestrator",
   "planner",
   "coder",
+  "refactor-cleaner",
+  "build-error-resolver",
   "tester",
+  "security-reviewer",
+  "performance-reviewer",
   "reviewer",
 ];
 
 const ROLE_TITLES: Record<WorkerRole, string> = {
+  orchestrator: "Coordinate worker topology",
   planner: "Plan scope and risks",
   coder: "Implement requested change",
+  "refactor-cleaner": "Refactor and clean safely",
+  "build-error-resolver": "Resolve build failures",
   tester: "Validate with focused tests",
+  "security-reviewer": "Review security risks",
+  "performance-reviewer": "Review performance risks",
   reviewer: "Review behavior and risks",
 };
 
 const ROLE_CONTRACTS: Record<WorkerRole, WorkerOutputContract> = {
+  orchestrator: "plan",
   planner: "plan",
   coder: "diff_proposal",
+  "refactor-cleaner": "diff_proposal",
+  "build-error-resolver": "test_result",
   tester: "test_result",
+  "security-reviewer": "review",
+  "performance-reviewer": "review",
   reviewer: "review",
 };
 
 const ROLE_ARTIFACTS: Record<WorkerRole, readonly ArtifactKind[]> = {
+  orchestrator: ["orchestration_plan", "plan", "log"],
   planner: ["plan", "log"],
   coder: ["diff", "log"],
+  "refactor-cleaner": ["diff", "log"],
+  "build-error-resolver": ["test_result", "diff", "log"],
   tester: ["test_result", "log"],
+  "security-reviewer": ["quality_report", "log"],
+  "performance-reviewer": ["quality_report", "log"],
   reviewer: ["quality_report", "log"],
 };
 
 const ROLE_ACTIONS: Record<WorkerRole, readonly ApprovalActionType[]> = {
+  orchestrator: [],
   planner: [],
   coder: ["file_write"],
+  "refactor-cleaner": ["file_write"],
+  "build-error-resolver": ["shell", "file_write"],
   tester: ["shell"],
+  "security-reviewer": [],
+  "performance-reviewer": [],
   reviewer: [],
 };
 
 const ROLE_PATTERNS: Record<WorkerRole, RegExp> = {
+  orchestrator:
+    /orchestrat|topolog|workflow|pipeline|multi[- ]?agent|handoff|delegate|coordination|오케스트레이션|토폴로지|파이프라인|위임/u,
   planner:
     /plan|design|spec|architecture|docs?|document|roadmap|phase|scope|risk|계획|설계|문서|분석/u,
   coder:
     /code|implement|patch|fix|write|refactor|typescript|react|electron|ipc|sqlite|구현|패치|수정|코드/u,
+  "refactor-cleaner":
+    /refactor|cleanup|dead code|duplication|maintainability|리팩터|리팩토링|정리|중복/u,
+  "build-error-resolver":
+    /build error|typecheck|compile|lint|failure|failed|error|빌드|타입|컴파일|실패/u,
   tester:
-    /test|verify|build|smoke|coverage|regression|quality gate|테스트|검증|빌드/u,
+    /test|verify|smoke|coverage|regression|quality gate|테스트|검증/u,
+  "security-reviewer":
+    /security|secret|xss|csrf|sql injection|injection|auth|approval bypass|path traversal|보안|시크릿|인젝션|권한/u,
+  "performance-reviewer":
+    /performance|latency|allocation|memory|hot path|benchmark|perf|성능|메모리|지연/u,
   reviewer:
-    /review|audit|security|risk|quality|contract|invariant|검토|리뷰|보안|위험|품질/u,
+    /review|audit|risk|quality|contract|invariant|검토|리뷰|위험|품질/u,
 };
 
 export class TopologyAdvisor {
@@ -420,22 +455,56 @@ const dependencyForRole = (
   role: WorkerRole,
   stepIdByRole: Map<WorkerRole, string>,
 ): string | null => {
-  if (role === "planner") return null;
-  if (role === "coder") return stepIdByRole.get("planner") ?? null;
-  return stepIdByRole.get("coder") ?? stepIdByRole.get("planner") ?? null;
+  if (role === "orchestrator" || role === "planner") return null;
+  if (
+    role === "coder" ||
+    role === "refactor-cleaner" ||
+    role === "build-error-resolver"
+  ) {
+    return firstStepId(stepIdByRole, ["planner", "orchestrator"]);
+  }
+  return firstStepId(stepIdByRole, [
+    "tester",
+    "build-error-resolver",
+    "refactor-cleaner",
+    "coder",
+    "planner",
+    "orchestrator",
+  ]);
 };
 
 const instructionForRole = (role: WorkerRole): string => {
   switch (role) {
+    case "orchestrator":
+      return "Design the worker topology, dependencies, handoff points, and approval checkpoints.";
     case "planner":
       return "Decompose the request, identify risks, and hand off a concrete implementation plan.";
     case "coder":
       return "Implement the approved plan using the repository conventions. Propose side effects only through approvals.";
+    case "refactor-cleaner":
+      return "Refactor safely, preserve behavior, remove dead code only with evidence, and keep the diff reviewable.";
+    case "build-error-resolver":
+      return "Diagnose the first real build, type, lint, or test failure. Propose the smallest fix and targeted verification.";
     case "tester":
       return "Run or design focused verification for the implemented change and report concrete evidence.";
+    case "security-reviewer":
+      return "Review for secrets, injection, path traversal, approval bypasses, unsafe shell usage, and permission drift.";
+    case "performance-reviewer":
+      return "Review for latency, allocation, repeated-work, hot-path, and resource-lifetime regressions.";
     case "reviewer":
       return "Review the result for correctness, regressions, and policy violations before completion.";
   }
+};
+
+const firstStepId = (
+  stepIdByRole: Map<WorkerRole, string>,
+  roles: readonly WorkerRole[],
+): string | null => {
+  for (const role of roles) {
+    const stepId = stepIdByRole.get(role);
+    if (stepId) return stepId;
+  }
+  return null;
 };
 
 const rationaleForRole = (

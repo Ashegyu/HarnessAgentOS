@@ -3,6 +3,8 @@ import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
 const APPROVAL_ACTION_TYPE_CHECK =
   "'capability_use','model_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
+const AGENT_PROFILE_ROLE_CHECK =
+  "'planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer'";
 
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
@@ -52,6 +54,14 @@ export const applyMigrations = (db: DatabaseType): void => {
     }
     if (!hasColumn(db, "agent_profiles", "tags_json")) {
       db.exec(`ALTER TABLE agent_profiles ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'`);
+    }
+    const agentProfileRolesAreExpanded = agentProfileRoleAllows(
+      db,
+      "orchestrator",
+    );
+    if (!agentProfileRolesAreExpanded) {
+      rebuildAgentProfiles(db);
+      upgradeFrameworkAgentProfileRoles(db);
     }
 
     // v6 — expand approvals.status CHECK to include 'executed'.
@@ -107,6 +117,69 @@ const approvalActionTypeAllows = (
     .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'`)
     .get() as { sql: string } | undefined;
   return row?.sql?.includes(`'${actionType}'`) ?? false;
+};
+
+const agentProfileRoleAllows = (
+  db: DatabaseType,
+  role: string,
+): boolean => {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_profiles'`)
+    .get() as { sql: string } | undefined;
+  return row?.sql?.includes(`'${role}'`) ?? false;
+};
+
+const rebuildAgentProfiles = (db: DatabaseType): void => {
+  db.exec(`DROP INDEX IF EXISTS idx_agent_profiles_default`);
+  db.exec(`ALTER TABLE agent_profiles RENAME TO agent_profiles_migration_old`);
+  db.exec(`CREATE TABLE agent_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'core',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    provider TEXT NOT NULL CHECK(provider IN ('auto','claude','codex')),
+    role TEXT NOT NULL CHECK(role IN (${AGENT_PROFILE_ROLE_CHECK})),
+    persona TEXT NOT NULL DEFAULT '',
+    tuning_json TEXT NOT NULL,
+    cli_json TEXT NOT NULL,
+    permissions_json TEXT NOT NULL,
+    mcp_server_ids_json TEXT NOT NULL DEFAULT '[]',
+    skill_source_ids_json TEXT NOT NULL DEFAULT '[]',
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  db.exec(`INSERT INTO agent_profiles (
+      id,name,description,category,tags_json,provider,role,persona,
+      tuning_json,cli_json,permissions_json,mcp_server_ids_json,
+      skill_source_ids_json,is_default,created_at,updated_at
+    )
+    SELECT
+      id,name,description,category,tags_json,provider,role,persona,
+      tuning_json,cli_json,permissions_json,mcp_server_ids_json,
+      skill_source_ids_json,is_default,created_at,updated_at
+    FROM agent_profiles_migration_old`);
+  db.exec(`DROP TABLE agent_profiles_migration_old`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_profiles_default
+    ON agent_profiles(is_default) WHERE is_default = 1`);
+};
+
+const upgradeFrameworkAgentProfileRoles = (db: DatabaseType): void => {
+  const updates = [
+    ["ap_framework_ruflo_orchestrator", "orchestrator"],
+    ["ap_framework_agno_trace_planner", "orchestrator"],
+    ["ap_framework_ecc_refactor_cleaner", "refactor-cleaner"],
+    ["ap_framework_ecc_build_resolver", "build-error-resolver"],
+    ["ap_framework_ecc_security_reviewer", "security-reviewer"],
+    ["ap_framework_dotnet_performance_reviewer", "performance-reviewer"],
+  ] as const;
+  const stmt = db.prepare(
+    `UPDATE agent_profiles SET role = ? WHERE id = ? AND role != ?`,
+  );
+  for (const [id, role] of updates) {
+    stmt.run(role, id, role);
+  }
 };
 
 const rebuildApprovals = (db: DatabaseType): void => {

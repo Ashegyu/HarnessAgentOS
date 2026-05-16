@@ -409,7 +409,7 @@ app.whenReady().then(async () => {
   } catch {
     // non-fatal — UI just won't pre-populate the sentinels.
   }
-  // Seed 4 example agent profiles (planner/coder/reviewer/tester) on first launch.
+  // Seed canonical and framework-derived agent profiles on first launch.
   try {
     await services.state.agentProfiles.ensureSeed();
   } catch {

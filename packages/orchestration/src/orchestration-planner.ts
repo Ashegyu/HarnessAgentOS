@@ -327,12 +327,17 @@ const defaultOutputContractForRole = (
 ): WorkerOutputContract => {
   switch (role) {
     case "planner":
+    case "orchestrator":
       return "plan";
     case "coder":
+    case "refactor-cleaner":
       return "diff_proposal";
     case "reviewer":
+    case "security-reviewer":
+    case "performance-reviewer":
       return "review";
     case "tester":
+    case "build-error-resolver":
       return "test_result";
     default:
       return "review";

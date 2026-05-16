@@ -27,16 +27,46 @@ const remoteEntry = (overrides = {}) => ({
   },
 });
 
-test("planWorkerWaves groups independent explicit read-only reviewer/planner steps", () => {
+test("planWorkerWaves groups independent explicit read-only planning and review steps", () => {
   const plan = planWorkerWaves([
     worker({ id: "plan", role: "planner", dependsOn: [], allowedActions: [] }),
     worker({ id: "review", role: "reviewer", dependsOn: [], allowedActions: [] }),
+    worker({
+      id: "security",
+      role: "security-reviewer",
+      dependsOn: [],
+      allowedActions: [],
+    }),
+    worker({
+      id: "perf",
+      role: "performance-reviewer",
+      dependsOn: [],
+      allowedActions: [],
+    }),
+    worker({
+      id: "topology",
+      role: "orchestrator",
+      dependsOn: [],
+      allowedActions: [],
+    }),
   ]);
 
   assert.equal(plan.waves.length, 1);
-  assert.deepEqual(plan.waves[0].stepIds, ["plan", "review"]);
+  assert.deepEqual(plan.waves[0].stepIds, [
+    "plan",
+    "review",
+    "security",
+    "perf",
+    "topology",
+  ]);
   assert.equal(plan.waves[0].parallelizable, true);
-  assert.deepEqual(plan.deterministicOrder, ["plan", "review"]);
+  assert.deepEqual(plan.deterministicOrder, [
+    "plan",
+    "review",
+    "security",
+    "perf",
+    "topology",
+  ]);
 });
 
 test("planWorkerWaves keeps default linear dependencies when dependsOn is absent", () => {

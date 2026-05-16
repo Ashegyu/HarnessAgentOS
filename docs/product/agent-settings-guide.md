@@ -61,7 +61,7 @@
 | **활성화 토글** | OFF면 single-worker 모드로 동작 |
 | **기본 Mode** | `single_worker` / `planner_worker` / `multi_worker` |
 | **기본 Instruction** | 플래너 에이전트에게 항상 전달되는 시스템 지시 |
-| **Worker Profiles** | role(planner/coder/reviewer/tester) + provider + model 조합 |
+| **Worker Profiles** | `role` + provider + model 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer` |
 
 ### 2.3 Approval 자동화
 
@@ -89,6 +89,7 @@ profile.permissions.autoApproveActions
 #### Identity 섹션
 - **Name** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
 - **Provider** — `claude` / `codex` / `auto`
+- **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`를 사용합니다.
 - **Model** — 비워두면 provider 기본값
 - **CLI 경로 override** — 시스템 PATH의 CLI가 아닌 다른 바이너리를 쓰고 싶을 때
 

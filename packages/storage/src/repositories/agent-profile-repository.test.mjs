@@ -23,11 +23,38 @@ const FRAMEWORK_PROFILE_NAMES = [
 ];
 
 const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
+const EXPECTED_ROLE_SET = [
+  "build-error-resolver",
+  "coder",
+  "orchestrator",
+  "performance-reviewer",
+  "planner",
+  "refactor-cleaner",
+  "reviewer",
+  "security-reviewer",
+  "tester",
+];
+const FRAMEWORK_PROFILE_ROLES = new Map([
+  ["Ruflo Orchestrator", "orchestrator"],
+  ["Agno Trace Planner", "orchestrator"],
+  ["Codex Bulk Coder", "coder"],
+  ["ECC Refactor Cleaner", "refactor-cleaner"],
+  ["ECC TDD Guide", "tester"],
+  ["ECC Build Error Resolver", "build-error-resolver"],
+  ["ECC Security Reviewer", "security-reviewer"],
+  ["C# Performance Reviewer", "performance-reviewer"],
+]);
 
 const assertFrameworkProfilesPresent = (profiles) => {
-  const names = new Set(profiles.map((p) => p.name));
+  const byName = new Map(profiles.map((p) => [p.name, p]));
   for (const name of FRAMEWORK_PROFILE_NAMES) {
-    assert.ok(names.has(name), `missing framework profile: ${name}`);
+    const profile = byName.get(name);
+    assert.ok(profile, `missing framework profile: ${name}`);
+    assert.equal(
+      profile.role,
+      FRAMEWORK_PROFILE_ROLES.get(name),
+      `unexpected framework role: ${name}`,
+    );
   }
 };
 
@@ -160,7 +187,7 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     const all = await repo.list();
     assert.equal(all.length, EXPECTED_SEED_COUNT, "must seed canonical and framework profiles");
     const roles = [...new Set(all.map((p) => p.role))].sort();
-    assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
+    assert.deepEqual(roles, EXPECTED_ROLE_SET);
     const defaults = all.filter((p) => p.isDefault);
     assert.equal(defaults.length, 1, "exactly one profile must be isDefault");
     assert.equal(defaults[0].role, "planner", "planner is the default");
@@ -206,7 +233,7 @@ test("AgentProfileRepository.ensureSeed fills only the missing canonical roles",
     // Existing reviewer row + 3 canonical roles + framework profiles.
     assert.equal(all.length, EXPECTED_SEED_COUNT, "ensureSeed fills roles and framework profiles");
     const roles = [...new Set(all.map((p) => p.role))].sort();
-    assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
+    assert.deepEqual(roles, EXPECTED_ROLE_SET);
     // The pre-existing row's id must survive — ensureSeed never
     // overwrites a role that's already present.
     const existingRow = all.find((p) => p.id === existing.id);

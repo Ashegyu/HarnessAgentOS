@@ -11,13 +11,27 @@ export const ORCHESTRATION_MODES: readonly OrchestrationMode[] = [
   "multi_worker",
 ];
 
-export type WorkerRole = "planner" | "coder" | "reviewer" | "tester";
+export type WorkerRole =
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "tester"
+  | "orchestrator"
+  | "security-reviewer"
+  | "build-error-resolver"
+  | "refactor-cleaner"
+  | "performance-reviewer";
 
 export const WORKER_ROLES: readonly WorkerRole[] = [
   "planner",
   "coder",
   "reviewer",
   "tester",
+  "orchestrator",
+  "security-reviewer",
+  "build-error-resolver",
+  "refactor-cleaner",
+  "performance-reviewer",
 ];
 
 export type WorkerOutputContract =

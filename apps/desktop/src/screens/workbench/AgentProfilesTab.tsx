@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentProfile, ApprovalActionType } from "@harness/core";
-import { APPROVAL_ACTION_TYPES } from "@harness/core";
+import { APPROVAL_ACTION_TYPES, WORKER_ROLES } from "@harness/core";
 import {
   draftFromProfile,
   emptyDraft,
@@ -444,10 +444,11 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("role", e.target.value as ProfileDraft["role"])
                   }
                 >
-                  <option value="planner">planner</option>
-                  <option value="coder">coder</option>
-                  <option value="reviewer">reviewer</option>
-                  <option value="tester">tester</option>
+                  {WORKER_ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
                 </select>
               </label>
             </fieldset>

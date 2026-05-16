@@ -34,6 +34,8 @@ const seedTaskRun = async (state) => {
 const validProfileInput = (overrides = {}) => ({
   name: "Coder",
   description: "",
+  category: "test",
+  tags: ["coder"],
   provider: "claude",
   role: "coder",
   persona: "",

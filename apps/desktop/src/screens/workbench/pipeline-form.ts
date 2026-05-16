@@ -181,7 +181,10 @@ interface ProfileLite {
 
 const READ_ONLY_PARALLEL_ROLES = new Set<string>([
   "planner",
+  "orchestrator",
   "reviewer",
+  "security-reviewer",
+  "performance-reviewer",
   "documenter",
 ]);
 

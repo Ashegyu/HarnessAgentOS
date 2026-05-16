@@ -22,6 +22,8 @@ const tmp = () => {
 const makeProfileInput = (overrides = {}) => ({
   name: "Reviewer",
   description: "",
+  category: "test",
+  tags: ["reviewer"],
   provider: "claude",
   role: "reviewer",
   persona: "",
