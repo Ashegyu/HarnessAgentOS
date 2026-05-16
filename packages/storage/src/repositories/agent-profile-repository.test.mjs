@@ -11,6 +11,26 @@ import {
   DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 
+const FRAMEWORK_PROFILE_NAMES = [
+  "Ruflo Orchestrator",
+  "Agno Trace Planner",
+  "Codex Bulk Coder",
+  "ECC Refactor Cleaner",
+  "ECC TDD Guide",
+  "ECC Build Error Resolver",
+  "ECC Security Reviewer",
+  "C# Performance Reviewer",
+];
+
+const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
+
+const assertFrameworkProfilesPresent = (profiles) => {
+  const names = new Set(profiles.map((p) => p.name));
+  for (const name of FRAMEWORK_PROFILE_NAMES) {
+    assert.ok(names.has(name), `missing framework profile: ${name}`);
+  }
+};
+
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-ap-"));
   return {
@@ -128,7 +148,7 @@ test("AgentProfileRepository.setDefault demotes the previous default atomically"
   }
 });
 
-test("AgentProfileRepository.ensureSeed inserts 4 profiles on empty DB", async () => {
+test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles on empty DB", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
@@ -136,13 +156,14 @@ test("AgentProfileRepository.ensureSeed inserts 4 profiles on empty DB", async (
     assert.deepEqual(await repo.list(), [], "pre-condition: table is empty");
     await repo.ensureSeed();
     const all = await repo.list();
-    assert.equal(all.length, 4, "must seed exactly 4 profiles");
-    const roles = all.map((p) => p.role).sort();
+    assert.equal(all.length, EXPECTED_SEED_COUNT, "must seed canonical and framework profiles");
+    const roles = [...new Set(all.map((p) => p.role))].sort();
     assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
     const defaults = all.filter((p) => p.isDefault);
     assert.equal(defaults.length, 1, "exactly one profile must be isDefault");
     assert.equal(defaults[0].role, "planner", "planner is the default");
     assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
+    assertFrameworkProfilesPresent(all);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -157,7 +178,7 @@ test("AgentProfileRepository.ensureSeed is idempotent", async () => {
     await repo.ensureSeed();
     await repo.ensureSeed();
     const all = await repo.list();
-    assert.equal(all.length, 4, "second call must not insert duplicates");
+    assert.equal(all.length, EXPECTED_SEED_COUNT, "second call must not insert duplicates");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -178,16 +199,47 @@ test("AgentProfileRepository.ensureSeed fills only the missing canonical roles",
     const existing = await repo.create(makeProfileInput({ name: "Existing" }));
     await repo.ensureSeed();
     const all = await repo.list();
-    // Existing reviewer row + 3 newly-seeded (planner, coder, tester).
-    assert.equal(all.length, 4, "ensureSeed fills the missing roles");
-    const roles = all.map((p) => p.role).sort();
+    // Existing reviewer row + 3 canonical roles + framework profiles.
+    assert.equal(all.length, EXPECTED_SEED_COUNT, "ensureSeed fills roles and framework profiles");
+    const roles = [...new Set(all.map((p) => p.role))].sort();
     assert.deepEqual(roles, ["coder", "planner", "reviewer", "tester"]);
     // The pre-existing row's id must survive — ensureSeed never
     // overwrites a role that's already present.
-    const reviewerRows = all.filter((p) => p.role === "reviewer");
-    assert.equal(reviewerRows.length, 1, "no duplicate reviewer row");
-    assert.equal(reviewerRows[0].id, existing.id, "existing row preserved");
-    assert.equal(reviewerRows[0].name, "Existing", "existing name preserved");
+    const existingRow = all.find((p) => p.id === existing.id);
+    assert.ok(existingRow, "existing reviewer row preserved");
+    assert.equal(existingRow.name, "Existing", "existing name preserved");
+    assert.equal(all.some((p) => p.name === "Reviewer"), false, "canonical reviewer is not duplicated");
+    assertFrameworkProfilesPresent(all);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed adds framework profiles when canonical roles already exist", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const existing = await Promise.all([
+      repo.create(makeProfileInput({ name: "Existing Planner", role: "planner", isDefault: true })),
+      repo.create(makeProfileInput({ name: "Existing Coder", role: "coder" })),
+      repo.create(makeProfileInput({ name: "Existing Reviewer", role: "reviewer" })),
+      repo.create(makeProfileInput({ name: "Existing Tester", role: "tester" })),
+    ]);
+
+    await repo.ensureSeed();
+    const all = await repo.list();
+
+    assert.equal(all.length, EXPECTED_SEED_COUNT, "framework profiles are added without canonical duplicates");
+    for (const profile of existing) {
+      assert.ok(all.some((p) => p.id === profile.id), `existing profile preserved: ${profile.name}`);
+    }
+    assert.equal(all.some((p) => p.name === "Planner"), false, "canonical planner is not duplicated");
+    assert.equal(all.some((p) => p.name === "Coder"), false, "canonical coder is not duplicated");
+    assert.equal(all.some((p) => p.name === "Reviewer"), false, "canonical reviewer is not duplicated");
+    assert.equal(all.some((p) => p.name === "Tester"), false, "canonical tester is not duplicated");
+    assertFrameworkProfilesPresent(all);
   } finally {
     closeDb(db);
     t.cleanup();

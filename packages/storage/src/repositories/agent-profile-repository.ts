@@ -7,6 +7,7 @@ import type {
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CLAUDE_MODEL,
   DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
@@ -31,7 +32,7 @@ export interface AgentProfileRepository {
   update(profile: AgentProfile): Promise<AgentProfile>;
   delete(id: string): Promise<void>;
   setDefault(id: string): Promise<AgentProfile>;
-  /** Idempotent: seeds 4 example profiles if the table is empty. */
+  /** Idempotent: seeds missing canonical profiles and curated framework profiles. */
   ensureSeed(): Promise<void>;
 }
 
@@ -107,6 +108,8 @@ const SELECT = `SELECT id, name, description, provider, role, persona,
        mcp_server_ids_json, skill_source_ids_json,
        is_default, created_at, updated_at
   FROM agent_profiles`;
+
+type SeedAgentProfile = Omit<AgentProfile, "createdAt" | "updatedAt" | "isDefault">;
 
 export class SqliteAgentProfileRepository implements AgentProfileRepository {
   private readonly db: HarnessDb;
@@ -205,26 +208,26 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
 
     // Determine which of the 4 canonical roles are already covered so we
     // only insert what is actually missing. This is safe to call on a DB
-    // that already has profiles (e.g. migrated from legacy settings) — we
-    // never overwrite or duplicate an existing role entry.
+    // that already has profiles (e.g. migrated from legacy settings); the
+    // framework catalogue below is deduped by stable id/name independently.
     const coveredRoles = new Set(existing.map((p) => p.role));
     const rolesToSeed = (
       ["planner", "coder", "reviewer", "tester"] as const
     ).filter((r) => !coveredRoles.has(r));
 
-    if (rolesToSeed.length === 0) return;
-
     const now = nowIso();
     const hasExistingDefault = existing.some((p) => p.isDefault);
+    const knownIds = new Set(existing.map((p) => p.id));
+    const knownNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
 
-    const defaultTuning: AgentModelTuning = {
-      model: "",
+    const defaultTuning = (model = ""): AgentModelTuning => ({
+      model,
       timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
       stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 10,
       systemPromptPrefix: "",
       systemPromptSuffix: "",
-    };
+    });
     const defaultCli: AgentCliEnv = {
       cliPathOverride: "",
       env: {},
@@ -237,10 +240,49 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       toolAllowlist: [],
       toolDenylist: [],
     };
+    const readOnlyPermissions: AgentPermissions = {
+      autoApproveActions: [],
+      blockedActions: [
+        "file_write",
+        "shell",
+        "dependency_install",
+        "git_commit",
+        "network",
+        "skill_script",
+      ],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    };
+    const codeProposalPermissions: AgentPermissions = {
+      autoApproveActions: [],
+      blockedActions: [
+        "dependency_install",
+        "git_commit",
+        "network",
+        "skill_script",
+      ],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    };
+    const testRunnerPermissions: AgentPermissions = {
+      autoApproveActions: [],
+      blockedActions: [
+        "file_write",
+        "dependency_install",
+        "git_commit",
+        "network",
+        "skill_script",
+      ],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    };
 
-    // Full catalogue of seed profiles (all 4 roles). Only entries whose
-    // role appears in `rolesToSeed` will actually be inserted.
-    const catalogue: Omit<AgentProfile, "id" | "createdAt" | "updatedAt" | "isDefault">[] = [
+    // Full catalogue of canonical seed profiles (all 4 roles). Only entries
+    // whose role appears in `rolesToSeed` will actually be inserted.
+    const catalogue: Omit<SeedAgentProfile, "id">[] = [
       {
         name: "Planner",
         description:
@@ -249,7 +291,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "planner",
         persona:
           "You are a senior engineering lead specialising in requirement analysis and sprint planning. Your goal is to produce clear, unambiguous task breakdowns that a coding agent can implement without additional clarification.",
-        tuning: defaultTuning,
+        tuning: defaultTuning(),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -263,7 +305,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "coder",
         persona:
           "You are an experienced full-stack engineer who writes concise, correct, and maintainable code. You follow the project's coding style, prefer editing existing files over creating new ones, and never add unnecessary abstractions.",
-        tuning: defaultTuning,
+        tuning: defaultTuning(),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -277,7 +319,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "reviewer",
         persona:
           "You are a meticulous code reviewer focused on correctness, security, and maintainability. You classify findings by severity (CRITICAL / HIGH / MEDIUM / LOW) and provide specific, actionable feedback with file and line references.",
-        tuning: defaultTuning,
+        tuning: defaultTuning(),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -291,7 +333,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "tester",
         persona:
           "You are a quality-assurance engineer who writes thorough, readable tests following a test-driven approach. You write the test first (RED), then confirm the implementation passes it (GREEN), and flag any coverage gaps.",
-        tuning: defaultTuning,
+        tuning: defaultTuning(),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -299,8 +341,131 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       },
     ];
 
-    // Insert only missing roles. The very first inserted profile becomes the
-    // default when there is no existing default yet.
+    const frameworkCatalogue: SeedAgentProfile[] = [
+      {
+        id: "ap_framework_ruflo_orchestrator",
+        name: "Ruflo Orchestrator",
+        description:
+          "Plans hierarchical worker topologies and handoff contracts inspired by Ruflo's Queen Agent and background-worker model.",
+        provider: "claude",
+        role: "planner",
+        persona:
+          "You are a workflow orchestrator. Decompose large goals into bounded worker tasks, define dependencies, handoff payloads, progress checkpoints, and result-merging rules. Prefer small verifiable slices and call out where Harness approvals are required before any side effect.",
+        tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_agno_trace_planner",
+        name: "Agno Trace Planner",
+        description:
+          "Designs auditable run-state and policy traces for production agent workflows using Agno-style observability patterns.",
+        provider: "claude",
+        role: "planner",
+        persona:
+          "You are a production agent-flow planner focused on traceability. For every proposed workflow, define run-state transitions, policy checkpoints, observable evidence, failure recovery, and the exact data that should be persisted for review.",
+        tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_codex_bulk_coder",
+        name: "Codex Bulk Coder",
+        description:
+          "Implements multi-file code changes from a proven plan while keeping dependency, network, and git actions under explicit approval.",
+        provider: "codex",
+        role: "coder",
+        persona:
+          "You are a Codex implementation worker for larger code batches. Follow the approved plan exactly, keep edits scoped to the assigned files, preserve existing architecture boundaries, and return changed paths plus verification evidence. Do not install dependencies or commit unless the Harness approval flow explicitly allows it.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_refactor_cleaner",
+        name: "ECC Refactor Cleaner",
+        description:
+          "Applies ECC-style focused cleanup for dead code, duplication, and maintainability issues after behavior is covered by tests.",
+        provider: "codex",
+        role: "coder",
+        persona:
+          "You are a refactoring specialist. Preserve behavior, avoid broad rewrites, remove dead code only with evidence, reduce meaningful duplication, and keep each change easy to review. Verify with the narrowest relevant tests before reporting completion.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_tdd_guide",
+        name: "ECC TDD Guide",
+        description:
+          "Guides RED/GREEN/REFACTOR test design and focused verification for new features and bug fixes.",
+        provider: "claude",
+        role: "tester",
+        persona:
+          "You are a TDD guide. Start by identifying the failing behavior and the smallest meaningful test, then define the minimal implementation signal and refactor checks. Distinguish test defects from product defects and report coverage gaps plainly.",
+        tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
+        cli: defaultCli,
+        permissions: testRunnerPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_build_resolver",
+        name: "ECC Build Error Resolver",
+        description:
+          "Diagnoses build, typecheck, and runtime test failures incrementally with evidence-first fixes.",
+        provider: "codex",
+        role: "tester",
+        persona:
+          "You are a build-error resolver. Read the first real failure, trace it to the owning module, make the smallest corrective change, and rerun the targeted verification before widening scope. Do not mask errors by weakening tests or deleting checks.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        cli: defaultCli,
+        permissions: testRunnerPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_security_reviewer",
+        name: "ECC Security Reviewer",
+        description:
+          "Performs security-first review for secrets, injection, approval bypass, path traversal, and unsafe execution surfaces.",
+        provider: "claude",
+        role: "reviewer",
+        persona:
+          "You are a security reviewer. Prioritize exploitable issues, secret exposure, prompt-injection paths, approval bypasses, path traversal, unsafe shell execution, dependency risk, and overbroad permissions. Report findings by severity with exact evidence and remediation.",
+        tuning: defaultTuning(DEFAULT_CLAUDE_MODEL),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_dotnet_performance_reviewer",
+        name: "C# Performance Reviewer",
+        description:
+          "Reviews .NET changes for allocation, GC pressure, async overhead, serialization, and benchmark coverage.",
+        provider: "codex",
+        role: "reviewer",
+        persona:
+          "You are a read-only .NET performance reviewer. Inspect diffs for boxing, LINQ in hot paths, closure allocation, avoidable async state machines, per-frame allocations, string concatenation, collection growth, Span/Memory/ArrayPool/ObjectPool lifetime issues, System.Text.Json source-generation opportunities, and missing tests or benchmarks. Do not edit files.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+    ];
+
+    // Insert only missing canonical roles. The very first inserted canonical
+    // profile becomes the default when there is no existing default yet.
     let firstInserted = true;
     for (const entry of catalogue) {
       if (!rolesToSeed.includes(entry.role as AgentProfile["role"])) continue;
@@ -312,7 +477,23 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         updatedAt: now,
       };
       this.insertRow(profile);
+      knownIds.add(profile.id);
+      knownNames.add(profile.name.trim().toLowerCase());
       firstInserted = false;
+    }
+
+    for (const entry of frameworkCatalogue) {
+      const nameKey = entry.name.trim().toLowerCase();
+      if (knownIds.has(entry.id) || knownNames.has(nameKey)) continue;
+      const profile: AgentProfile = {
+        ...entry,
+        isDefault: false,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.insertRow(profile);
+      knownIds.add(profile.id);
+      knownNames.add(nameKey);
     }
   }
 
