@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -60,3 +60,23 @@ test("file-write-readme fixture is valid EvalCase input", () => {
   assert.equal(parsed.id, "file-write-readme");
   assert.equal(parsed.attempts, 3);
 });
+
+test("all eval fixtures are valid EvalCase inputs", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const fixtureRoot = path.resolve(here, "../fixtures");
+  const fixturePaths = listFixturePaths(fixtureRoot);
+
+  assert.ok(fixturePaths.length >= 6);
+  for (const fixturePath of fixturePaths) {
+    const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+    const parsed = evalCaseSchema.parse(fixture);
+    assert.match(parsed.id, /^[a-z0-9-]+$/);
+  }
+});
+
+const listFixturePaths = (dir) =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) return listFixturePaths(abs);
+    return entry.name.endsWith(".eval.json") ? [abs] : [];
+  });

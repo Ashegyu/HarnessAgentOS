@@ -1,0 +1,21 @@
+{
+  "id": "repair-loop-convergence",
+  "kind": "capability",
+  "title": "Repair loop stops after one targeted repair",
+  "instruction": "Create src/util.ts with an add function; if quality fails, repair it once.",
+  "scenario": "fail-first-pass-second",
+  "attempts": 3,
+  "profile": {
+    "autoApprove": true
+  },
+  "grader": {
+    "kind": "code",
+    "assertion": {
+      "type": "repair_attempts_eq",
+      "expected": 1
+    }
+  },
+  "thresholds": {
+    "passAt3": 0.9
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "id": "pipeline-instruction-verbatim",
+  "kind": "regression",
+  "title": "Pipeline worker receives the full authored instruction",
+  "instruction": "Draft and invoke a pipeline worker without truncating the step instruction.",
+  "scenario": "ok-pipeline-echo",
+  "attempts": 3,
+  "grader": {
+    "kind": "code",
+    "assertion": {
+      "type": "recorded_request_contains",
+      "needle": "PHASE16_PIPELINE_VERBATIM: keep this exact instruction with [brackets], punctuation, and a long tail that must survive synthesis without truncation :: END-OF-PIPELINE-INSTRUCTION."
+    }
+  }
+}

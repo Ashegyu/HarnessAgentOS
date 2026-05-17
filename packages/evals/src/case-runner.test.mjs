@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { FakeModelCliAdapter } from "@harness/agent";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
 
 import { CaseRunner } from "./case-runner.ts";
+import { evalCaseSchema } from "./fixture-schema.ts";
 
 const makeDbFactory = () => {
   const dbs = [];
@@ -40,6 +42,32 @@ const fileWriteReadmeCase = {
     },
   },
   thresholds: { passAt3: 0.9 },
+};
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+
+const loadFixture = async (relativePath) => {
+  const fixturePath = path.resolve(here, "../fixtures", relativePath);
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8"));
+  return evalCaseSchema.parse(fixture);
+};
+
+const runFixture = async (fixture) => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "hgos-case-runner-"));
+  const dbFactory = makeDbFactory();
+  try {
+    const runner = new CaseRunner({
+      dbFactory: dbFactory.create,
+      workspaceRoot,
+      runId: `test-run-${fixture.id}`,
+      clock: () => 100,
+    });
+
+    return await runner.run(fixture);
+  } finally {
+    dbFactory.closeAll();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 };
 
 test("CaseRunner runs N attempts and aggregates pass metrics", async () => {
@@ -149,3 +177,26 @@ test("CaseRunner detects writes outside the attempt target directory", async () 
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
+
+const phase2FixturePaths = [
+  "capability/shell-pwd-echo.eval.json",
+  "capability/repair-loop-convergence.eval.json",
+  "regression/pipeline-instruction-verbatim.eval.json",
+  "regression/capability-context-injection.eval.json",
+  "regression/learner-model-context.eval.json",
+];
+
+for (const fixturePath of phase2FixturePaths) {
+  test(`CaseRunner passes Phase 2 fixture ${fixturePath}`, async () => {
+    const fixture = await loadFixture(fixturePath);
+
+    const result = await runFixture(fixture);
+
+    assert.equal(result.outcome, "passed");
+    assert.equal(
+      result.attempts.every((attempt) => attempt.passed),
+      true,
+      result.attempts.map((attempt) => attempt.graderReason).join("\n"),
+    );
+  });
+}

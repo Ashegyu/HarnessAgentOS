@@ -1,0 +1,19 @@
+{
+  "id": "learner-model-context",
+  "kind": "regression",
+  "title": "Approved learner model is used on a later invocation",
+  "instruction": "Invoke once, approve a learner model recommendation, then invoke again with that model selected.",
+  "scenario": "ok-two-invocations",
+  "attempts": 3,
+  "grader": {
+    "kind": "rule",
+    "rules": [
+      {
+        "description": "second recorded invocation uses the approved learner model",
+        "check": "regex",
+        "target": "recorded_request[1].model",
+        "pattern": "^claude-opus-4-7$"
+      }
+    ]
+  }
+}

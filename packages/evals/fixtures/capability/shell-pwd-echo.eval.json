@@ -1,0 +1,22 @@
+{
+  "id": "shell-pwd-echo",
+  "kind": "capability",
+  "title": "Shell action executes inside the attempt target directory",
+  "instruction": "Run a harmless shell command that prints the current working directory.",
+  "scenario": "ok-shell-pwd",
+  "attempts": 3,
+  "profile": {
+    "autoApprove": true
+  },
+  "grader": {
+    "kind": "code",
+    "assertion": {
+      "type": "approval_status",
+      "actionType": "shell",
+      "expected": "approved"
+    }
+  },
+  "thresholds": {
+    "passAt3": 0.9
+  }
+}

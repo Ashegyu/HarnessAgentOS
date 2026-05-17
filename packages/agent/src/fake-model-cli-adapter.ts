@@ -18,7 +18,12 @@ import type {
  * Scenarios:
  * - `ok-file-write` — one file_write action, accepted.
  * - `ok-shell` — one shell action, accepted.
+ * - `ok-shell-pwd` — one cross-platform cwd echo shell action, accepted.
  * - `ok-answer-only` — no proposed actions (information-only response).
+ * - `fail-first-pass-second` — first invocation writes a broken file,
+ *   later invocations write the repaired file.
+ * - `ok-pipeline-echo` — answer-only worker/pipeline response.
+ * - `ok-two-invocations` — answer-only response for multi-invocation evals.
  * - `bad-traversal` — file_write whose path traversal will be rejected
  *   by validateProposedActionDetails (filter, not all-or-nothing).
  * - `parse-error` — emits a fenced block with malformed JSON to test
@@ -31,7 +36,11 @@ export type FakeScenario =
   | "ok-file-write"
   | "ok-file-write-readme"
   | "ok-shell"
+  | "ok-shell-pwd"
   | "ok-answer-only"
+  | "fail-first-pass-second"
+  | "ok-pipeline-echo"
+  | "ok-two-invocations"
   | "bad-traversal"
   | "parse-error"
   | "aborted"
@@ -79,6 +88,7 @@ const fence = (tag: string, body: string): string =>
 const samplePlan = (
   scenario: Exclude<FakeScenario, "aborted" | "spawn-failed" | "parse-error">,
   request: ModelCliRequest,
+  invocationIndex: number,
 ): string => {
   if (scenario === "ok-file-write-readme") {
     return JSON.stringify(
@@ -157,10 +167,72 @@ const samplePlan = (
       2,
     );
   }
-  if (scenario === "ok-answer-only") {
+  if (scenario === "ok-shell-pwd") {
     return JSON.stringify(
       {
-        summary: "Already configured; no action needed.",
+        summary: "Print working directory.",
+        assumptions: [],
+        steps: [
+          { title: "echo cwd", rationale: "Verify cwd", risk: "low" },
+        ],
+        proposedActions: [
+          {
+            type: "shell",
+            command: 'node -e "console.log(process.cwd())"',
+            rationale: "Echo cwd inside the approved target directory",
+          },
+        ],
+        suggestedQualityChecks: [],
+        questions: [],
+      },
+      null,
+      2,
+    );
+  }
+  if (scenario === "fail-first-pass-second") {
+    const repaired = invocationIndex > 0;
+    return JSON.stringify(
+      {
+        summary: repaired
+          ? "Repair the add function."
+          : "Create an intentionally incomplete add function.",
+        assumptions: ["target directory is writable"],
+        steps: [
+          {
+            title: repaired ? "Repair util" : "Write util",
+            rationale: repaired
+              ? "Quality gate requested a targeted fix"
+              : "Seed a first-pass implementation",
+            risk: "low",
+          },
+        ],
+        proposedActions: [
+          {
+            type: "file_write",
+            path: "src/util.ts",
+            after: repaired
+              ? "export const add = (a: number, b: number): number => a + b;\n"
+              : "export const add = (a: number, b: number): number => a - b;\n",
+            rationale: repaired
+              ? "Replace the broken implementation with the passing one"
+              : "Create the first-pass implementation",
+          },
+        ],
+        suggestedQualityChecks: [],
+        questions: [],
+      },
+      null,
+      2,
+    );
+  }
+  if (
+    scenario === "ok-answer-only" ||
+    scenario === "ok-pipeline-echo" ||
+    scenario === "ok-two-invocations"
+  ) {
+    return JSON.stringify(
+      {
+        summary: `Already configured for ${scenario}; no action needed.`,
         assumptions: [],
         steps: [],
         proposedActions: [],
@@ -193,7 +265,11 @@ const samplePlan = (
   );
 };
 
-const sampleOutput = (scenario: FakeScenario, request: ModelCliRequest): string => {
+const sampleOutput = (
+  scenario: FakeScenario,
+  request: ModelCliRequest,
+  invocationIndex: number,
+): string => {
   if (scenario === "parse-error") {
     return [
       "I will emit invalid JSON to exercise the parser.",
@@ -203,7 +279,7 @@ const sampleOutput = (scenario: FakeScenario, request: ModelCliRequest): string 
   if (scenario === "aborted" || scenario === "spawn-failed") {
     return "";
   }
-  const planJson = samplePlan(scenario, request);
+  const planJson = samplePlan(scenario, request, invocationIndex);
   return [
     `Thinking through ${scenario}…`,
     "",
@@ -247,8 +323,11 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
   ): Promise<ModelCliResult> {
     this.recordedRequests.push(structuredClone(request));
     const start = this.now();
+    const invocationIndex = this.recordedRequests.length - 1;
     const scenario =
-      this.options.scenario ?? this.options.scenarios?.[0] ?? "ok-answer-only";
+      this.options.scenarios?.[invocationIndex] ??
+      this.options.scenario ??
+      "ok-answer-only";
     const chunkDelay = this.options.chunkDelayMs ?? 10;
     const finalLatency = this.options.finalLatencyMs ?? 50;
 
@@ -280,7 +359,7 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
       throw new AgentCliError("AGENT_CANCELLED", "aborted", "aborted");
     }
 
-    const stdout = sampleOutput(scenario, request);
+    const stdout = sampleOutput(scenario, request, invocationIndex);
     const chunks = chunkString(stdout, 64);
     for (const chunk of chunks) {
       await sleep(chunkDelay, signal);

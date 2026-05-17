@@ -101,3 +101,61 @@ test("recorded_request_contains checks fake adapter introspection", async () => 
     await rm(targetDir, { recursive: true, force: true });
   }
 });
+
+test("approval_status treats executed approvals as approved", async () => {
+  const targetDir = await mkdtemp(path.join(tmpdir(), "hgos-code-grader-"));
+  const { db, state } = makeState();
+  try {
+    const thread = await state.createThread({ title: "grader", targetDir });
+    const taskRun = await state.createTaskRun({
+      threadId: thread.id,
+      userRequest: "run shell",
+      targetDir,
+    });
+    const checkpointStep = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "approval",
+      title: "approval",
+      status: "succeeded",
+      inputSummary: "shell",
+    });
+    const checkpoint = await state.createCheckpoint({
+      taskRunId: taskRun.id,
+      stepId: checkpointStep.id,
+      reason: "before_shell",
+      stateRef: "{}",
+      summary: "before shell",
+    });
+    await state.createApproval({
+      taskRunId: taskRun.id,
+      checkpointId: checkpoint.id,
+      actionType: "shell",
+      actionSummary: "echo",
+      status: "executed",
+    });
+
+    const result = await runCodeGrader(
+      {
+        kind: "code",
+        assertion: {
+          type: "approval_status",
+          actionType: "shell",
+          expected: "approved",
+        },
+      },
+      {
+        targetDir,
+        state,
+        taskRunId: taskRun.id,
+        adapter: new FakeModelCliAdapter({ scenario: "ok-answer-only" }),
+        workspaceRoot: targetDir,
+      },
+    );
+
+    assert.equal(result.passed, true);
+  } finally {
+    closeDb(db);
+    await rm(targetDir, { recursive: true, force: true });
+  }
+});

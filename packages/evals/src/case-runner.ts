@@ -8,11 +8,18 @@ import {
   type ModelCliAdapter,
   type ModelCliRequest,
 } from "@harness/agent";
-import type { AgentProviderStatusMap } from "@harness/core";
+import {
+  TaskRunCompletionService,
+  type AgentProviderStatusMap,
+  type CapabilityPromptContext,
+} from "@harness/core";
+import { OrchestrationPlanner } from "@harness/orchestration";
+import { RepairLoopService } from "@harness/quality";
 import { RunnerService } from "@harness/runners";
 import {
   FilesystemArtifactStore,
   LocalStateService,
+  newId,
   openDb,
 } from "@harness/storage";
 
@@ -23,6 +30,7 @@ import {
 } from "./fs-snapshot.ts";
 import type { GraderResult } from "./graders/code-grader.ts";
 import { runCodeGrader } from "./graders/code-grader.ts";
+import { runRuleGrader } from "./graders/rule-grader.ts";
 import {
   computeConsistency,
   computePassAt1,
@@ -46,6 +54,26 @@ export interface CaseRunnerDeps {
   readonly runId: string;
   readonly clock?: () => number;
 }
+
+interface CaseRuntime {
+  capabilityContextsEnabled: boolean;
+  learnerModelEnabled: boolean;
+}
+
+interface CaseFlowInput {
+  readonly testCase: EvalCase;
+  readonly runtime: CaseRuntime;
+  readonly agentPlanning: AgentPlanningService;
+  readonly runner: RunnerService;
+  readonly state: LocalStateService;
+  readonly taskRunId: string;
+}
+
+const PHASE2_PIPELINE_VERBATIM_INSTRUCTION =
+  "PHASE16_PIPELINE_VERBATIM: keep this exact instruction with [brackets], punctuation, and a long tail that must survive synthesis without truncation :: END-OF-PIPELINE-INSTRUCTION.";
+
+const PHASE2_CAPABILITY_CONTEXT_INSTRUCTIONS =
+  "PHASE16_CAPABILITY_CONTEXT: git-summary capability approved for this TaskRun.";
 
 export class CaseRunner {
   private readonly deps: CaseRunnerDeps;
@@ -104,26 +132,38 @@ export class CaseRunner {
       });
       taskRunId = taskRun.id;
 
+      const runtime = this.createRuntime(testCase);
       const agentPlanning = new AgentPlanningService({
         state,
         getProviderStatus: () => providerStatus(),
         adapter,
         defaults: { timeoutMs: 30_000, stallTimeoutMs: 10_000 },
+        getApprovedCapabilityContexts: async () =>
+          runtime.capabilityContextsEnabled
+            ? [phase2CapabilityContext()]
+            : [],
+        getApprovedLearnerModel: async () =>
+          runtime.learnerModelEnabled
+            ? {
+                model: "claude-opus-4-7",
+                reason: "Phase 16 eval learner recommendation",
+                recommendationId: "phase16-rec-learner-model",
+                confidence: 0.9,
+              }
+            : null,
+        recordLearnerSelection: async () => undefined,
       });
 
-      await agentPlanning.generatePlan({
-        taskRunId: taskRun.id,
-        ...(testCase.provider ? { provider: testCase.provider } : {}),
-      });
-
-      const approvals = await state.listApprovalsByTaskRun(taskRun.id);
-      approvalsCreated = approvals.length;
-      approvalsManual = await this.processApprovals({
+      approvalsManual = await this.executeCaseFlow({
         testCase,
+        runtime,
+        agentPlanning,
         runner,
         state,
         taskRunId: taskRun.id,
       });
+      approvalsCreated = (await state.listApprovalsByTaskRun(taskRun.id))
+        .length;
 
       const graderResult = await this.runGrader(testCase, {
         adapter,
@@ -209,20 +249,18 @@ export class CaseRunner {
       readonly taskRunId: string;
     },
   ): Promise<GraderResult> {
-    if (testCase.grader.kind !== "code") {
-      return {
-        passed: false,
-        reason: `grader kind ${testCase.grader.kind} is not implemented in Phase 1`,
-      };
+    const adapter = {
+      getRecordedRequests: () =>
+        context.adapter.getRecordedRequests?.() ?? Object.freeze([]),
+    };
+    if (testCase.grader.kind === "rule") {
+      return runRuleGrader(testCase.grader, { adapter });
     }
     return runCodeGrader(testCase.grader, {
       targetDir: context.targetDir,
       state: context.state,
       taskRunId: context.taskRunId,
-      adapter: {
-        getRecordedRequests:
-          context.adapter.getRecordedRequests ?? (() => Object.freeze([])),
-      },
+      adapter,
       workspaceRoot: this.deps.workspaceRoot,
     });
   }
@@ -281,11 +319,205 @@ export class CaseRunner {
     );
   }
 
+  private createRuntime(_testCase: EvalCase): CaseRuntime {
+    return {
+      capabilityContextsEnabled: false,
+      learnerModelEnabled: false,
+    };
+  }
+
+  private async executeCaseFlow(input: CaseFlowInput): Promise<number> {
+    if (input.testCase.id === "repair-loop-convergence") {
+      return this.executeRepairLoopFlow(input);
+    }
+    if (input.testCase.id === "pipeline-instruction-verbatim") {
+      await this.executePipelineInstructionFlow(input);
+      return 0;
+    }
+    if (input.testCase.id === "capability-context-injection") {
+      return this.executeCapabilityContextFlow(input);
+    }
+    if (input.testCase.id === "learner-model-context") {
+      return this.executeLearnerModelFlow(input);
+    }
+
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
+    });
+    return this.processApprovals(input);
+  }
+
+  private async executeRepairLoopFlow(input: CaseFlowInput): Promise<number> {
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
+    });
+    let manualApprovals = await this.processApprovals(input);
+
+    await this.createEvalQualityGate({
+      state: input.state,
+      taskRunId: input.taskRunId,
+      status: "failed",
+      testsPassed: false,
+      knownRisks: ["first pass add() implementation failed unit expectation"],
+    });
+    await input.state.setTaskRunStatus(input.taskRunId, "quality_failed");
+
+    const repairLoop = new RepairLoopService({
+      state: input.state,
+      completion: new TaskRunCompletionService({ state: input.state }),
+      agentPlanning: input.agentPlanning,
+      maxAttempts: 2,
+    });
+    await repairLoop.createRepairPlan({
+      taskRunId: input.taskRunId,
+      instruction: "Repair src/util.ts so add(a, b) returns a + b.",
+    });
+    manualApprovals += await this.processApprovals(input);
+
+    await this.createEvalQualityGate({
+      state: input.state,
+      taskRunId: input.taskRunId,
+      status: "passed",
+      testsPassed: true,
+      knownRisks: [],
+    });
+    return manualApprovals;
+  }
+
+  private async executePipelineInstructionFlow(
+    input: CaseFlowInput,
+  ): Promise<void> {
+    const profile = await this.createEvalAgentProfile(input.state, {
+      name: "Pipeline Worker",
+      role: "coder",
+    });
+    const pipeline = await input.state.agentPipelines.create({
+      name: "Phase 16 Verbatim Pipeline",
+      description: "Regression fixture for preserving pipeline instructions.",
+      steps: [
+        {
+          id: "phase16_pipeline_step",
+          agentProfileId: profile.id,
+          title: "Preserve instruction",
+          instruction: PHASE2_PIPELINE_VERBATIM_INSTRUCTION,
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state: input.state });
+    const draft = await planner.draftPlan({
+      taskRunId: input.taskRunId,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const workerStep = draft.plan.workerSteps[0];
+    if (!workerStep?.instruction) {
+      throw new Error("pipeline fixture did not produce an instructed worker step");
+    }
+    await input.agentPlanning.invokeForWorker({
+      taskRunId: input.taskRunId,
+      profile,
+      userRequest: workerStep.instruction,
+    });
+  }
+
+  private async executeCapabilityContextFlow(
+    input: CaseFlowInput,
+  ): Promise<number> {
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
+    });
+    let manualApprovals = await this.processApprovals(input);
+
+    await input.state.setTaskRunStatus(input.taskRunId, "quality_failed");
+    input.runtime.capabilityContextsEnabled = true;
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+      instruction: "Use the approved Skillify capability context.",
+    });
+    manualApprovals += await this.processApprovals(input);
+    return manualApprovals;
+  }
+
+  private async executeLearnerModelFlow(
+    input: CaseFlowInput,
+  ): Promise<number> {
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+      model: "gpt-5.4",
+    });
+    let manualApprovals = await this.processApprovals(input);
+
+    await input.state.setTaskRunStatus(input.taskRunId, "quality_failed");
+    input.runtime.learnerModelEnabled = true;
+    await input.agentPlanning.generatePlan({
+      taskRunId: input.taskRunId,
+    });
+    manualApprovals += await this.processApprovals(input);
+    return manualApprovals;
+  }
+
+  private async createEvalQualityGate(input: {
+    readonly state: LocalStateService;
+    readonly taskRunId: string;
+    readonly status: "passed" | "failed";
+    readonly testsPassed: boolean;
+    readonly knownRisks: ReadonlyArray<string>;
+  }): Promise<void> {
+    await input.state.createQualityGateResult({
+      id: newId("qualityGate"),
+      taskRunId: input.taskRunId,
+      status: input.status,
+      testsPassed: input.testsPassed,
+      knownRisks: [...input.knownRisks],
+      evidenceArtifactIds: [],
+      createdAt: new Date(this.now()).toISOString(),
+    });
+  }
+
+  private async createEvalAgentProfile(
+    state: LocalStateService,
+    overrides: { readonly name?: string; readonly role?: "coder" } = {},
+  ) {
+    return state.agentProfiles.create({
+      name: overrides.name ?? "Eval Worker",
+      description: "",
+      category: "eval",
+      tags: [overrides.role ?? "coder"],
+      provider: "claude",
+      role: overrides.role ?? "coder",
+      persona: "Follow the eval fixture exactly.",
+      tuning: {
+        model: "claude-sonnet-4-6",
+        timeoutMs: 30_000,
+        stallTimeoutMs: 10_000,
+        contextDepth: 5,
+        systemPromptPrefix: "",
+        systemPromptSuffix: "",
+      },
+      cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+      permissions: {
+        autoApproveActions: [],
+        blockedActions: [],
+        allowedSkillIds: [],
+        toolAllowlist: [],
+        toolDenylist: [],
+      },
+      mcpServerIds: [],
+      skillSourceIds: [],
+      isDefault: false,
+    });
+  }
+
   private async seedTargetDir(
     _testCase: EvalCase,
     _targetDir: string,
   ): Promise<void> {
-    // Phase 1 fixtures start from an empty target directory.
+    // Eval fixtures start from an empty target directory unless a later
+    // phase adds an explicit fixture setup hook.
   }
 
   private async sumTokens(
@@ -306,4 +538,18 @@ export class CaseRunner {
 const providerStatus = (): AgentProviderStatusMap => ({
   claude: { available: true, version: "fake", queueDepth: 0 },
   codex: { available: true, version: "fake", queueDepth: 0 },
+});
+
+const phase2CapabilityContext = (): CapabilityPromptContext => ({
+  capability: {
+    id: "skillify:git-summary",
+    source: "phase16-eval",
+    name: "Git Summary",
+    description: "Summarize git state for prompt context regression tests.",
+    triggerTerms: ["git", "summary"],
+    riskLevel: "low",
+    requiresApproval: true,
+  },
+  reason: "Phase 16 eval approval",
+  instructions: PHASE2_CAPABILITY_CONTEXT_INSTRUCTIONS,
 });

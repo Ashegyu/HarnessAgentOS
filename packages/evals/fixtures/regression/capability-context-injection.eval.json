@@ -1,0 +1,15 @@
+{
+  "id": "capability-context-injection",
+  "kind": "regression",
+  "title": "Approved capability context reaches a later invocation",
+  "instruction": "Invoke once, approve a capability context, then invoke again with that context injected.",
+  "scenario": "ok-two-invocations",
+  "attempts": 3,
+  "grader": {
+    "kind": "code",
+    "assertion": {
+      "type": "recorded_request_contains",
+      "needle": "PHASE16_CAPABILITY_CONTEXT: git-summary capability approved for this TaskRun."
+    }
+  }
+}

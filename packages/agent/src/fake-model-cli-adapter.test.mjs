@@ -81,3 +81,28 @@ test("injected now and idGen make timestamps and session ids deterministic", asy
   const resultEvent = events.find((event) => event.type === "result");
   assert.equal(resultEvent.latencyMs, 0);
 });
+
+test("scenarios option advances per invocation", async () => {
+  const adapter = new FakeModelCliAdapter({
+    scenarios: ["fail-first-pass-second", "fail-first-pass-second"],
+    chunkDelayMs: 0,
+  });
+
+  const first = await adapter.invoke(request("first"), () => {});
+  const second = await adapter.invoke(request("second"), () => {});
+
+  assert.match(first.stdout, /a - b/);
+  assert.match(second.stdout, /a \+ b/);
+});
+
+test("ok-shell-pwd emits a cross-platform cwd echo command", async () => {
+  const adapter = new FakeModelCliAdapter({
+    scenario: "ok-shell-pwd",
+    chunkDelayMs: 0,
+  });
+
+  const result = await adapter.invoke(request("shell"), () => {});
+
+  assert.match(result.stdout, /node -e/);
+  assert.match(result.stdout, /process\.cwd/);
+});

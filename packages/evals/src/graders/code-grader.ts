@@ -78,7 +78,7 @@ const gradeApprovalStatus = async (
   if (!match) {
     return { passed: false, reason: `no approval of ${assertion.actionType}` };
   }
-  return match.status === assertion.expected
+  return approvalStatusMatches(match.status, assertion.expected)
     ? { passed: true }
     : {
         passed: false,
@@ -120,5 +120,17 @@ const isInsideOrSame = (parent: string, child: string): boolean => {
   return (
     relative.length === 0 ||
     (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+};
+
+const approvalStatusMatches = (
+  actual: string,
+  expected: "approved" | "rejected" | "pending",
+): boolean => {
+  if (expected !== "approved") return actual === expected;
+  return (
+    actual === "approved" ||
+    actual === "always_approved_for_run" ||
+    actual === "executed"
   );
 };
