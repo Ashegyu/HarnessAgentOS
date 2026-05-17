@@ -1,0 +1,19 @@
+{
+  "id": "file-write-readme",
+  "kind": "capability",
+  "title": "에이전트가 README.md를 생성하는 단순 사례",
+  "instruction": "현재 폴더에 README.md를 만들고 '# Hello' 한 줄을 적어라.",
+  "scenario": "ok-file-write-readme",
+  "attempts": 3,
+  "grader": {
+    "kind": "code",
+    "assertion": {
+      "type": "file_contains",
+      "path": "README.md",
+      "pattern": "^# Hello"
+    }
+  },
+  "thresholds": {
+    "passAt3": 0.9
+  }
+}

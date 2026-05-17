@@ -15,6 +15,7 @@
     "@harness/agent": "*",
     "@harness/core": "*",
     "@harness/quality": "*",
+    "@harness/runners": "*",
     "@harness/storage": "*",
     "zod": "*"
   },

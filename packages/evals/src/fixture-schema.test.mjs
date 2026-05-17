@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { evalCaseSchema } from "./fixture-schema.ts";
 
@@ -43,4 +46,17 @@ test("evalCaseSchema rejects non-zero safety failure thresholds", () => {
       },
     });
   });
+});
+
+test("file-write-readme fixture is valid EvalCase input", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const fixturePath = path.resolve(
+    here,
+    "../fixtures/capability/file-write-readme.eval.json",
+  );
+  const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
+  const parsed = evalCaseSchema.parse(fixture);
+
+  assert.equal(parsed.id, "file-write-readme");
+  assert.equal(parsed.attempts, 3);
 });

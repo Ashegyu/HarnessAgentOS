@@ -29,6 +29,7 @@ import type {
  */
 export type FakeScenario =
   | "ok-file-write"
+  | "ok-file-write-readme"
   | "ok-shell"
   | "ok-answer-only"
   | "bad-traversal"
@@ -37,7 +38,8 @@ export type FakeScenario =
   | "spawn-failed";
 
 export interface FakeModelCliAdapterOptions {
-  scenario: FakeScenario;
+  scenario?: FakeScenario;
+  scenarios?: ReadonlyArray<FakeScenario>;
   /**
    * Override per-chunk delay (default 10ms). Tests can drop to 0 to
    * resolve in a single tick; live demo runs use a small delay so the
@@ -48,6 +50,10 @@ export interface FakeModelCliAdapterOptions {
    * Final latency reported back in the result. Defaults to ~50ms.
    */
   finalLatencyMs?: number;
+  /** Phase 16 evals — deterministic clock injection for tests. */
+  now?: () => number;
+  /** Phase 16 evals — deterministic session/id generation for tests. */
+  idGen?: () => string;
 }
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -74,6 +80,33 @@ const samplePlan = (
   scenario: Exclude<FakeScenario, "aborted" | "spawn-failed" | "parse-error">,
   request: ModelCliRequest,
 ): string => {
+  if (scenario === "ok-file-write-readme") {
+    return JSON.stringify(
+      {
+        summary: "Create README.md.",
+        assumptions: ["target directory is writable"],
+        steps: [
+          {
+            title: "Create README.md",
+            rationale: "Satisfy the eval fixture",
+            risk: "low",
+          },
+        ],
+        proposedActions: [
+          {
+            type: "file_write",
+            path: "README.md",
+            after: "# Hello\n",
+            rationale: "Create the requested README heading",
+          },
+        ],
+        suggestedQualityChecks: [],
+        questions: [],
+      },
+      null,
+      2,
+    );
+  }
   if (scenario === "ok-file-write") {
     return JSON.stringify(
       {
@@ -182,8 +215,29 @@ const sampleOutput = (scenario: FakeScenario, request: ModelCliRequest): string 
 
 export class FakeModelCliAdapter implements ModelCliAdapter {
   private readonly options: FakeModelCliAdapterOptions;
-  constructor(options: FakeModelCliAdapterOptions) {
+  private readonly recordedRequests: ModelCliRequest[] = [];
+  private readonly now: () => number;
+  private readonly idGen: () => string;
+
+  constructor(options: FakeModelCliAdapterOptions = {}) {
     this.options = options;
+    this.now = options.now ?? (() => Date.now());
+    this.idGen =
+      options.idGen ?? (() => Math.random().toString(36).slice(2));
+  }
+
+  currentTimeMs(): number {
+    return this.now();
+  }
+
+  getRecordedRequests(): ReadonlyArray<ModelCliRequest> {
+    return Object.freeze(
+      this.recordedRequests.map((request) => structuredClone(request)),
+    );
+  }
+
+  clearRecordedRequests(): void {
+    this.recordedRequests.length = 0;
   }
 
   async invoke(
@@ -191,8 +245,10 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
     onEvent: (e: AgentStreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<ModelCliResult> {
-    const start = Date.now();
-    const { scenario } = this.options;
+    this.recordedRequests.push(structuredClone(request));
+    const start = this.now();
+    const scenario =
+      this.options.scenario ?? this.options.scenarios?.[0] ?? "ok-answer-only";
     const chunkDelay = this.options.chunkDelayMs ?? 10;
     const finalLatency = this.options.finalLatencyMs ?? 50;
 
@@ -244,11 +300,15 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
     onEvent({
       type: "result",
       invocationId: request.invocationId,
-      latencyMs: Date.now() - start,
+      latencyMs: this.now() - start,
       costEstimate: 0,
     });
 
     const provider: AgentProvider = request.modelConfig.provider;
+    const sessionId =
+      provider === "claude"
+        ? request.sessionId ?? `fake_${this.idGen()}`
+        : undefined;
     return {
       provider,
       model: request.modelConfig.model,
@@ -258,6 +318,7 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
       normalizedEvents: [],
       latencyMs: finalLatency,
       costEstimate: 0,
+      ...(sessionId ? { sessionId } : {}),
     };
   }
 }
