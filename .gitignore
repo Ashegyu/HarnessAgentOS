@@ -10,3 +10,4 @@ out/
 coverage/
 test-results/
 playwright-report/
+workspace/eval-runs/

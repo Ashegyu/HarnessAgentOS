@@ -1,0 +1,28 @@
+name: Meta Eval
+
+on:
+  pull_request:
+    paths:
+      - "packages/**"
+      - "scripts/eval/**"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches:
+      - master
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run eval
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-run-${{ github.sha }}
+          path: workspace/eval-runs/

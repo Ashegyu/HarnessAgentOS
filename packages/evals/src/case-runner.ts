@@ -42,6 +42,7 @@ import {
   computePassAtK,
   computePassToTheK,
 } from "./metrics.ts";
+import { sumTokensForTaskRun } from "./cost-tracker.ts";
 import type { EvalAttemptResult, EvalCase, EvalCaseResult } from "./types.ts";
 
 export interface EvalModelCliAdapter extends ModelCliAdapter {
@@ -57,6 +58,7 @@ export interface CaseRunnerDeps {
   readonly dbFactory?: () => LocalStateService;
   readonly workspaceRoot: string;
   readonly runId: string;
+  readonly runRoot?: string;
   readonly clock?: () => number;
 }
 
@@ -99,10 +101,11 @@ export class CaseRunner {
     testCase: EvalCase,
     attemptIdx: number,
   ): Promise<EvalAttemptResult> {
+    const runRoot =
+      this.deps.runRoot ??
+      path.join(this.deps.workspaceRoot, "eval-runs", this.deps.runId);
     const targetDir = path.join(
-      this.deps.workspaceRoot,
-      "eval-runs",
-      this.deps.runId,
+      runRoot,
       testCase.id,
       `attempt-${attemptIdx}`,
     );
@@ -666,9 +669,7 @@ export class CaseRunner {
     taskRunId: string | null,
   ): Promise<number> {
     if (!taskRunId) return 0;
-    const invocations = await state.listAgentInvocationsByTaskRun(taskRunId);
-    // Token accounting lands in a later eval phase; keep the field stable.
-    return invocations.length > 0 ? 0 : 0;
+    return sumTokensForTaskRun(state, taskRunId);
   }
 
   private now(): number {

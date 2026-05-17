@@ -14,6 +14,8 @@
     "check": "npm run check --workspaces --if-present",
     "rebuild:node": "npm --workspace apps/desktop run rebuild:node",
     "rebuild:electron": "npm --workspace apps/desktop run rebuild:electron",
+    "eval": "node --import tsx scripts/eval/run.mjs --suite=all",
+    "eval:smoke": "node --import tsx scripts/eval/run.mjs --suite=capability --real-cli",
     "test": "npm run rebuild:node --silent && node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\" \"apps/desktop/**/*.test.mjs\"",
     "verify": "npm run check && npm run test && npm run build",
     "verify:smoke": "npm --workspace=@harness/desktop run smoke:all",
