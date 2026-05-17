@@ -17,3 +17,4 @@ export * from "./agent-pipeline-repository.ts";
 export * from "./a2a-remote-agent-repository.ts";
 export * from "./repo-index-repository.ts";
 export * from "./repair-attempt-repository.ts";
+export * from "./eval-run-repository.ts";

@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -373,6 +373,24 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     ON repair_attempts(task_run_id, attempt_index)`,
   `CREATE INDEX IF NOT EXISTS idx_repair_attempts_signature
     ON repair_attempts(task_run_id, failure_signature)`,
+
+  // v22 — meta-evaluation run summaries. Attempts can also be written as
+  // workspace artifacts; this table keeps recent run lookup and trend queries
+  // fast without exposing eval state through renderer IPC.
+  `CREATE TABLE IF NOT EXISTS eval_runs (
+    id TEXT PRIMARY KEY,
+    suite TEXT NOT NULL CHECK(suite IN ('capability','regression','safety','all')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL CHECK(status IN ('running','passed','failed','partial')),
+    summary_json TEXT NOT NULL,
+    harness_sha TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_eval_runs_started_at
+    ON eval_runs(started_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_eval_runs_suite_status
+    ON eval_runs(suite, status)`,
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,

@@ -229,6 +229,54 @@ test("v21 migration upgrades framework profile roles from legacy seed data", () 
   }
 });
 
+test("v22 migration creates eval_runs with constraints and indexes", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasTable(db, "eval_runs"), true);
+    for (const col of [
+      "id",
+      "suite",
+      "started_at",
+      "finished_at",
+      "status",
+      "summary_json",
+      "harness_sha",
+      "created_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "eval_runs", col),
+        true,
+        `eval_runs is missing column ${col}`,
+      );
+    }
+    assert.equal(hasIndex(db, "idx_eval_runs_started_at"), true);
+    assert.equal(hasIndex(db, "idx_eval_runs_suite_status"), true);
+    assert.throws(() => {
+      db.prepare(
+        `INSERT INTO eval_runs(id, suite, started_at, status, summary_json)
+         VALUES('evrun_bad', 'capability', ?, 'INVALID', '{}')`,
+      ).run("2026-01-01T00:00:00.000Z");
+    });
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v22 migration is idempotent", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    applyMigrations(db);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+    assert.equal(hasTable(db, "eval_runs"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v8 migration creates mcp_servers with transport + scope CHECK", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

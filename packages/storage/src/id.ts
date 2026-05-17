@@ -24,6 +24,7 @@ const PREFIXES = {
   agentPipeline: "pipe_",
   a2aEndpoint: "a2a_",
   repairAttempt: "rpa_",
+  evalRun: "evrun_",
 } as const;
 
 export type IdKind = keyof typeof PREFIXES;

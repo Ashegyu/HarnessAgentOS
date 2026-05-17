@@ -6,4 +6,6 @@ export * from "./graders/code-grader.ts";
 export * from "./graders/rule-grader.ts";
 export * from "./graders/safety-grader.ts";
 export * from "./metrics.ts";
+export * from "./report-template.ts";
+export * from "./reporter.ts";
 export * from "./types.ts";

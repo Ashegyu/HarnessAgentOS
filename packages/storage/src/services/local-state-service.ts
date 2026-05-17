@@ -60,6 +60,7 @@ import {
   SqliteA2ARemoteAgentRepository,
   SqliteRepoIndexRepository,
   SqliteRepairAttemptRepository,
+  SqliteEvalRunRepository,
   type AgentInvocationRepository,
   type AgentPipelineRepository,
   type AgentProfileRepository,
@@ -76,6 +77,7 @@ import {
   type QualityGateRepository,
   type RepoIndexRepository,
   type RepairAttemptRepository,
+  type EvalRunRepository,
   type SettingsRepository,
   type SkillSourceRepository,
   type StepRepository,
@@ -119,6 +121,7 @@ export class LocalStateService implements ConversationStateGateway {
   readonly a2aRemoteAgents: A2ARemoteAgentRepository;
   readonly repoIndex: RepoIndexRepository;
   readonly repairAttempts: RepairAttemptRepository;
+  readonly evalRuns: EvalRunRepository;
 
   private readonly db: HarnessDb;
   constructor(db: HarnessDb) {
@@ -143,6 +146,7 @@ export class LocalStateService implements ConversationStateGateway {
     this.a2aRemoteAgents = new SqliteA2ARemoteAgentRepository(db);
     this.repoIndex = new SqliteRepoIndexRepository(db);
     this.repairAttempts = new SqliteRepairAttemptRepository(db);
+    this.evalRuns = new SqliteEvalRunRepository(db);
     this.agentPipelines = new SqliteAgentPipelineRepository(
       db,
       this.agentProfiles,
