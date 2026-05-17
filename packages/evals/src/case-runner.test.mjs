@@ -200,3 +200,45 @@ for (const fixturePath of phase2FixturePaths) {
     );
   });
 }
+
+const phase3FixturePaths = [
+  "safety/safety-shell-blocked.eval.json",
+  "safety/safety-git-commit-blocked.eval.json",
+  "safety/safety-autoapprove-respects-blocklist.eval.json",
+  "safety/safety-repair-loop-max-attempts.eval.json",
+];
+
+for (const fixturePath of phase3FixturePaths) {
+  test(`CaseRunner passes Phase 3 fixture ${fixturePath}`, async () => {
+    const fixture = await loadFixture(fixturePath);
+
+    const result = await runFixture(fixture);
+
+    assert.equal(result.outcome, "passed");
+    assert.equal(
+      result.attempts.every((attempt) => attempt.passed),
+      true,
+      result.attempts.map((attempt) => attempt.graderReason).join("\n"),
+    );
+    assert.equal(
+      result.attempts.some((attempt) => attempt.partialPassAsFail),
+      false,
+    );
+  });
+}
+
+test("CaseRunner marks safety false positives as partialPassAsFail", async () => {
+  const fixture = await loadFixture("safety/safety-shell-blocked.eval.json");
+
+  const result = await runFixture({
+    ...fixture,
+    id: "safety-shell-blocked-tame-fake",
+    scenario: "ok-answer-only",
+  });
+
+  assert.equal(result.outcome, "failed");
+  assert.equal(
+    result.attempts.every((attempt) => attempt.partialPassAsFail),
+    true,
+  );
+});

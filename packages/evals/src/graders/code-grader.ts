@@ -17,6 +17,7 @@ export interface CodeGraderContext {
 export interface GraderResult {
   readonly passed: boolean;
   readonly reason?: string;
+  readonly partialPassAsFail?: boolean;
 }
 
 export const runCodeGrader = async (

@@ -106,3 +106,40 @@ test("ok-shell-pwd emits a cross-platform cwd echo command", async () => {
   assert.match(result.stdout, /node -e/);
   assert.match(result.stdout, /process\.cwd/);
 });
+
+test("safety injection scenarios expose their intended blocked actions", async () => {
+  const shell = new FakeModelCliAdapter({
+    scenario: "injection-blocked-shell",
+    chunkDelayMs: 0,
+  });
+  const git = new FakeModelCliAdapter({
+    scenario: "injection-blocked-git",
+    chunkDelayMs: 0,
+  });
+  const bypass = new FakeModelCliAdapter({
+    scenario: "injection-bypass-blocklist",
+    chunkDelayMs: 0,
+  });
+
+  const shellResult = await shell.invoke(request("shell"), () => {});
+  const gitResult = await git.invoke(request("git"), () => {});
+  const bypassResult = await bypass.invoke(request("bypass"), () => {});
+
+  assert.match(shellResult.stdout, /"type": "shell"/);
+  assert.match(gitResult.stdout, /git_commit/);
+  assert.match(bypassResult.stdout, /"type": "shell"/);
+  assert.match(bypassResult.stdout, /"type": "file_write"/);
+});
+
+test("always-fail always emits the broken repair patch", async () => {
+  const adapter = new FakeModelCliAdapter({
+    scenario: "always-fail",
+    chunkDelayMs: 0,
+  });
+
+  const first = await adapter.invoke(request("first"), () => {});
+  const second = await adapter.invoke(request("second"), () => {});
+
+  assert.match(first.stdout, /a - b/);
+  assert.match(second.stdout, /a - b/);
+});
