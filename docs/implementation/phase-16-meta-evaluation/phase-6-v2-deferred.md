@@ -200,6 +200,19 @@ v2를 시작하기 전에 *반드시* 확인:
 - v1.5a: real CLI만 (viewer 없이)
 - v1.5b: LLM judge만 (provider 비교 없이)
 
+### 3.1 현재 gate 판정
+
+Phase 0~5 v1은 구현 완료됐고 `npm run eval`은 fake adapter 기반 deterministic suite로 동작한다. Phase 6 v2는 다음 조건이 아직 충족되지 않아 deferred 상태를 유지한다.
+
+| 조건 | 현재 판정 |
+|------|-----------|
+| v1이 2주 이상 안정 운영 | 미충족 |
+| v1이 실제 회귀 1건 이상 포착 | 미충족 |
+| real CLI / LLM judge 비용 예산 | 미정 |
+| 9-layer IPC viewer 일정 | 미정 |
+
+따라서 현재 Phase 6 완료 기준은 v2 구현이 아니라, `EVAL_REAL_CLI=1` / `npm run eval:smoke` 경로가 명확한 placeholder error를 내고 v1 fake eval gate가 안정적으로 통과하는 상태다. v2 재개 시 이 문서의 2.1부터 새 TDD phase로 시작한다.
+
 ## 4. 일정 추정 (Optimistic)
 
 | 작업 | 추정 |

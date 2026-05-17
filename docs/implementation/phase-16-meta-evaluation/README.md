@@ -1,6 +1,6 @@
 # 메타 평가 시스템 (Meta Evaluation) — 구현 계획서
 
-> **상태**: DRAFT · 사용자 confirm 대기 중 · 코드 미작성
+> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · Phase 6은 v2 gate 미충족으로 deferred
 > **작성**: 2026-05-17
 > **대상**: HarnessAgentOS의 회귀·품질·안전성을 측정하는 자체 평가 시스템 구축
 
@@ -35,7 +35,7 @@
 |---|------|------|
 | D1 | 새 패키지 `packages/evals` + `scripts/eval/run.mjs` | 기존 monorepo 패턴 일치 |
 | D2 | Fixture 포맷 = **JSON** (`*.eval.json`) | 의존성 0개, Zod 패턴 재활용 |
-| D3 | `SCHEMA_VERSION` 20 → **21**, 새 테이블 `eval_runs` | 컬럼: `id, suite, started_at, finished_at, status, summary_json` |
+| D3 | `eval_runs` 테이블 추가, 실제 적용 `SCHEMA_VERSION = 22` | v21은 기존 agent profile role 확장이 선점했으므로 Phase 4에서 v22로 재할당 |
 | D4 | Report 하이브리드: DB row + `workspace/eval-runs/<runId>/report.md` | DB=조회, md=PR 리뷰 |
 | D5 | Provider head-to-head는 **v1 인터페이스만, 실행 v2 deferred** | fixture에 `provider?` 필드만 미리 추가 |
 | D6 | LLM judge **v2 deferred**, v1은 code/rule grader만 | `Grader`를 discriminated union으로 확장 가능 |
@@ -47,13 +47,13 @@
 
 | Phase | 문서 | 한 줄 설명 | 복잡도 | 추정 |
 |-------|------|---------|--------|------|
-| 0 | [phase-0-types-schema.md](./phase-0-types-schema.md) | 타입·Zod schema·메트릭 함수 정의 (EDD: 정의 먼저) | Small | 1-2일 |
-| 1 | [phase-1-fake-introspection.md](./phase-1-fake-introspection.md) | FakeAdapter introspection + CaseRunner + capability 케이스 1개 | Medium | 2-3일 |
-| 2 | [phase-2-capability-regression.md](./phase-2-capability-regression.md) | capability +2, regression 3 (verbatim · injection · model) | Medium | 3-4일 |
-| 3 | [phase-3-safety.md](./phase-3-safety.md) | safety 4 케이스 + 3중 어설션 (이 프로젝트 차별점) | Medium-High | 3-4일 |
-| 4 | [phase-4-persistence.md](./phase-4-persistence.md) | migration v21 + `EvalRunRepository` + md reporter | Small-Medium | 1-2일 |
-| 5 | [phase-5-cli-ci.md](./phase-5-cli-ci.md) | `scripts/eval/run.mjs` CLI + 임계 exit code + `npm run eval` | Small | 1-2일 |
-| 6 | [phase-6-v2-deferred.md](./phase-6-v2-deferred.md) | real CLI · provider 비교 · LLM judge · viewer UI (deferred) | Medium | 별도 마일스톤 |
+| 0 | [phase-0-types-schema.md](./phase-0-types-schema.md) | 타입·Zod schema·메트릭 함수 정의 (EDD: 정의 먼저) | Small | 완료 |
+| 1 | [phase-1-fake-introspection.md](./phase-1-fake-introspection.md) | FakeAdapter introspection + CaseRunner + capability 케이스 1개 | Medium | 완료 |
+| 2 | [phase-2-capability-regression.md](./phase-2-capability-regression.md) | capability +2, regression 3 (verbatim · injection · model) | Medium | 완료 |
+| 3 | [phase-3-safety.md](./phase-3-safety.md) | safety 4 케이스 + 3중 어설션 (이 프로젝트 차별점) | Medium-High | 완료 |
+| 4 | [phase-4-persistence.md](./phase-4-persistence.md) | migration v22 + `EvalRunRepository` + md reporter | Small-Medium | 완료 |
+| 5 | [phase-5-cli-ci.md](./phase-5-cli-ci.md) | `scripts/eval/run.mjs` CLI + 임계 exit code + `npm run eval` | Small | 완료 |
+| 6 | [phase-6-v2-deferred.md](./phase-6-v2-deferred.md) | real CLI · provider 비교 · LLM judge · viewer UI (deferred) | Medium | gate 대기 |
 
 **v1 합계**: Medium-High · 11-17일 (1인 기준)
 
@@ -97,8 +97,12 @@ Phase 2와 Phase 3는 case-runner 공유 외에는 독립적이라 **병렬 진�
 | MEDIUM | RepairLoop 케이스가 기존 단위 테스트와 중복 | Phase 2 — full path 통합 신호 강조 |
 | LOW | `SCHEMA_VERSION = 21` 다른 브랜치와 충돌 | Phase 4 — 머지 직전 재확인 |
 
-## 8. 사용자 confirm 후 다음 단계
+## 8. v1 완료 상태
 
-1. 이 문서가 `workspace/eval-plan/`에서 `docs/implementation/phase-16-meta-evaluation/`으로 승격
-2. Phase 0부터 TDD로 진행 (RED → GREEN → IMPROVE)
-3. **두 단계 머지** 권장: Phase 0~1까지 머지 → 사용자 확인 → Phase 2~3 진행
+Phase 0~5는 TDD로 구현 완료됐다. 현재 진입점은 다음과 같다:
+
+```bash
+npm run eval
+```
+
+Phase 6은 [v2 진행 조건](./phase-6-v2-deferred.md#3-v2-진행-조건-gate)이 충족될 때 별도 마일스톤으로 재개한다.
