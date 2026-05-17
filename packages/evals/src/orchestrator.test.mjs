@@ -112,6 +112,39 @@ test("EvalOrchestrator filters a single case id", async () => {
   }
 });
 
+test("EvalOrchestrator can override attempts for real CLI smoke", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "hgos-orch-"));
+  const db = openDb({ filePath: path.join(root, "eval.db") });
+  const dbFactory = makeDbFactory();
+  try {
+    await writeFixture(root, "capability", {
+      ...fileWriteFixture,
+      attempts: 3,
+    });
+    const state = new LocalStateService(db);
+    const orchestrator = new EvalOrchestrator({
+      suite: "capability",
+      caseId: "file-write-readme",
+      fixturesRoot: root,
+      outDir: path.join(root, "out"),
+      state,
+      inMemoryDbFactory: dbFactory.create,
+      attemptsOverride: 1,
+      clock: () => 1_765_000_000_000,
+    });
+
+    const result = await orchestrator.run();
+
+    assert.equal(result.summary.cases.length, 1);
+    assert.equal(result.summary.cases[0].case.attempts, 1);
+    assert.equal(result.summary.cases[0].attempts.length, 1);
+  } finally {
+    dbFactory.closeAll();
+    closeDb(db);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("EvalOrchestrator finalizes failed status when thresholds fail", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "hgos-orch-"));
   const db = openDb({ filePath: path.join(root, "eval.db") });

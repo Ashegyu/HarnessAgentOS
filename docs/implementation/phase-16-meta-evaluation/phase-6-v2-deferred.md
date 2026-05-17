@@ -211,7 +211,7 @@ Phase 0~5 v1은 구현 완료됐고 `npm run eval`은 fake adapter 기반 determ
 | real CLI / LLM judge 비용 예산 | 미정 |
 | 9-layer IPC viewer 일정 | 미정 |
 
-따라서 현재 Phase 6 완료 기준은 v2 구현이 아니라, `EVAL_REAL_CLI=1` / `npm run eval:smoke` 경로가 명확한 placeholder error를 내고 v1 fake eval gate가 안정적으로 통과하는 상태다. v2 재개 시 이 문서의 2.1부터 새 TDD phase로 시작한다.
+따라서 현재 Phase 6 완료 기준은 전체 v2 구현이 아니라, v1.5a 범위에서 `EVAL_REAL_CLI=1` / `npm run eval:smoke`가 단일 capability smoke 케이스를 실제 `DefaultModelCliAdapter`로 실행하고, v1 fake eval gate가 안정적으로 통과하는 상태다. Provider 비교, LLM judge, viewer UI, cost trend는 gate 충족 후 이 문서의 2.2부터 별도 TDD phase로 시작한다.
 
 ## 4. 일정 추정 (Optimistic)
 

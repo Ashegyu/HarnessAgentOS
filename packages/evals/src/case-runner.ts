@@ -59,6 +59,8 @@ export interface CaseRunnerDeps {
   readonly workspaceRoot: string;
   readonly runId: string;
   readonly runRoot?: string;
+  readonly timeoutMs?: number;
+  readonly stallTimeoutMs?: number;
   readonly clock?: () => number;
 }
 
@@ -147,7 +149,10 @@ export class CaseRunner {
         state,
         getProviderStatus: () => providerStatus(),
         adapter,
-        defaults: { timeoutMs: 30_000, stallTimeoutMs: 10_000 },
+        defaults: {
+          timeoutMs: this.deps.timeoutMs ?? 30_000,
+          stallTimeoutMs: this.deps.stallTimeoutMs ?? 10_000,
+        },
         getApprovedCapabilityContexts: async () =>
           runtime.capabilityContextsEnabled
             ? [phase2CapabilityContext()]

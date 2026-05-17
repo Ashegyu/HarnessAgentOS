@@ -1,8 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import {
   openDb,
   closeDb,
@@ -14,6 +21,19 @@ import { RunnerService, RunnerError } from "./runner-service.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-runner-"));
+  return {
+    dir,
+    db: join(dir, "test.db"),
+    artifacts: join(dir, "artifacts"),
+    target: join(dir, "target"),
+    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+  };
+};
+
+const tmpUnderCwd = () => {
+  const parent = join(process.cwd(), "workspace");
+  mkdirSync(parent, { recursive: true });
+  const dir = mkdtempSync(join(parent, "hgos-runner-"));
   return {
     dir,
     db: join(dir, "test.db"),
@@ -116,6 +136,38 @@ test("file_write writes inside targetDir and emits diff artifact", async () => {
 
       const updatedTaskRun = await state.getTaskRun(approval.taskRunId);
       assert.equal(updatedTaskRun.status, "ready_for_review");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("file_write normalizes cwd-relative targetDir paths before execution", async () => {
+  const t = tmpUnderCwd();
+  try {
+    const { db, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      const cwdRelativeTargetFile = relative(
+        process.cwd(),
+        join(t.target, "README.md"),
+      );
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: cwdRelativeTargetFile, after: "# Hello\n" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+
+      await runner.executeApproved(approval.id);
+
+      assert.equal(readFileSync(join(t.target, "README.md"), "utf8"), "# Hello\n");
+      assert.equal(existsSync(join(t.target, cwdRelativeTargetFile)), false);
     } finally {
       closeDb(db);
     }

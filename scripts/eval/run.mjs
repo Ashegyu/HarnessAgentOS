@@ -4,91 +4,16 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { FakeModelCliAdapter } from "@harness/agent";
-import { EvalOrchestrator, resolveEvalRunOutDir } from "@harness/evals";
+import {
+  createEvalAdapterFactory,
+  EvalOrchestrator,
+  parseEvalCliArgs,
+  resolveEvalRunOutDir,
+} from "@harness/evals";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), "../..");
-const validSuites = new Set(["capability", "regression", "safety", "all"]);
-
-const parseArgs = (argv) => {
-  const args = {
-    suite: "all",
-    caseId: null,
-    outDir: null,
-    fixturesRoot: null,
-    dbPath: null,
-    realCli: process.env.EVAL_REAL_CLI === "1",
-  };
-
-  for (let idx = 0; idx < argv.length; idx += 1) {
-    const arg = argv[idx];
-    if (arg === "--real-cli") {
-      args.realCli = true;
-      continue;
-    }
-    if (arg === "--suite") {
-      args.suite = requiredValue(argv, idx, arg);
-      idx += 1;
-      continue;
-    }
-    if (arg.startsWith("--suite=")) {
-      args.suite = arg.slice("--suite=".length);
-      continue;
-    }
-    if (arg === "--case") {
-      args.caseId = requiredValue(argv, idx, arg);
-      idx += 1;
-      continue;
-    }
-    if (arg.startsWith("--case=")) {
-      args.caseId = arg.slice("--case=".length);
-      continue;
-    }
-    if (arg === "--out") {
-      args.outDir = requiredValue(argv, idx, arg);
-      idx += 1;
-      continue;
-    }
-    if (arg.startsWith("--out=")) {
-      args.outDir = arg.slice("--out=".length);
-      continue;
-    }
-    if (arg === "--fixtures") {
-      args.fixturesRoot = requiredValue(argv, idx, arg);
-      idx += 1;
-      continue;
-    }
-    if (arg.startsWith("--fixtures=")) {
-      args.fixturesRoot = arg.slice("--fixtures=".length);
-      continue;
-    }
-    if (arg === "--db") {
-      args.dbPath = requiredValue(argv, idx, arg);
-      idx += 1;
-      continue;
-    }
-    if (arg.startsWith("--db=")) {
-      args.dbPath = arg.slice("--db=".length);
-      continue;
-    }
-    throw new Error(`Unknown argument: ${arg}`);
-  }
-
-  if (!validSuites.has(args.suite)) {
-    throw new Error(`Invalid --suite=${args.suite}`);
-  }
-  return args;
-};
-
-const requiredValue = (argv, idx, flag) => {
-  const value = argv[idx + 1];
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${flag} requires a value`);
-  }
-  return value;
-};
 
 const resolvePath = (value) =>
   path.isAbsolute(value) ? value : path.resolve(repoRoot, value);
@@ -105,10 +30,7 @@ const readHarnessSha = () => {
 };
 
 const main = async () => {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.realCli) {
-    throw new Error("Real CLI eval is not wired yet; use fake eval until Phase 6.");
-  }
+  const args = parseEvalCliArgs(process.argv.slice(2), process.env);
 
   const outDirTemplate = args.outDir
     ? resolvePath(args.outDir)
@@ -137,12 +59,18 @@ const main = async () => {
         attemptDbs.push(db);
         return new LocalStateService(db);
       },
-      adapterFactory: ({ testCase }) =>
-        new FakeModelCliAdapter({
-          scenario: testCase.scenario,
-          chunkDelayMs: 0,
-        }),
+      adapterFactory: createEvalAdapterFactory({
+        realCli: args.realCli,
+        fakeChunkDelayMs: 0,
+      }),
       ...(harnessSha ? { harnessSha } : {}),
+      ...(args.attemptsOverride
+        ? { attemptsOverride: args.attemptsOverride }
+        : {}),
+      ...(args.timeoutMs ? { timeoutMs: args.timeoutMs } : {}),
+      ...(args.stallTimeoutMs
+        ? { stallTimeoutMs: args.stallTimeoutMs }
+        : {}),
     });
 
     const { summary, thresholdResults, overallPassed } = await orchestrator.run();

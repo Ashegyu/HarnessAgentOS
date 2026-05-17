@@ -22,6 +22,9 @@ export interface EvalOrchestratorOptions {
   readonly inMemoryDbFactory: () => LocalStateService;
   readonly adapterFactory?: CaseRunnerDeps["adapterFactory"];
   readonly harnessSha?: string;
+  readonly attemptsOverride?: number;
+  readonly timeoutMs?: number;
+  readonly stallTimeoutMs?: number;
   readonly clock?: () => number;
 }
 
@@ -55,6 +58,10 @@ export class EvalOrchestrator {
       dbFactory: this.options.inMemoryDbFactory,
       ...(this.options.adapterFactory
         ? { adapterFactory: this.options.adapterFactory }
+        : {}),
+      ...(this.options.timeoutMs ? { timeoutMs: this.options.timeoutMs } : {}),
+      ...(this.options.stallTimeoutMs
+        ? { stallTimeoutMs: this.options.stallTimeoutMs }
         : {}),
       ...(this.options.clock ? { clock: this.options.clock } : {}),
     });
@@ -114,7 +121,11 @@ export class EvalOrchestrator {
         const raw = JSON.parse(await readFile(path.join(suiteDir, file), "utf8"));
         const parsed = evalCaseSchema.parse(raw);
         if (this.options.caseId && parsed.id !== this.options.caseId) continue;
-        cases.push(parsed);
+        cases.push(
+          this.options.attemptsOverride
+            ? { ...parsed, attempts: this.options.attemptsOverride }
+            : parsed,
+        );
       }
     }
 

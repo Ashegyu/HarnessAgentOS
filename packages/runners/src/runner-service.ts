@@ -17,6 +17,7 @@ import {
 } from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
+import { relative as relativePath, resolve as resolveNodePath } from "node:path";
 import { FileRunner } from "./file-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { GitRunner } from "./git-runner.ts";
@@ -317,7 +318,11 @@ export class RunnerService {
         "file_write requires proposedAction.filePatch",
       );
     }
-    if (!isWithin(taskRun.targetDir, resolvePath(taskRun.targetDir, details.filePatch.path))) {
+    const executionPatch = {
+      ...details.filePatch,
+      path: normalizeFilePatchPath(taskRun.targetDir, details.filePatch.path),
+    };
+    if (!isWithin(taskRun.targetDir, resolvePath(taskRun.targetDir, executionPatch.path))) {
       throw new RunnerError(
         "RUNNER_TARGET_OUTSIDE_WORKSPACE",
         `File path escapes targetDir: ${details.filePatch.path}`,
@@ -325,7 +330,7 @@ export class RunnerService {
     }
     const r = await this.file.run({
       targetDir: taskRun.targetDir,
-      patch: details.filePatch,
+      patch: executionPatch,
     });
     result.changedFiles = [r.path];
 
@@ -333,9 +338,9 @@ export class RunnerService {
       taskRunId: taskRun.id,
       stepId: step.id,
       kind: "diff",
-      title: `diff: ${details.filePatch.path}`,
+      title: `diff: ${executionPatch.path}`,
       content: formatSimpleDiff({
-        path: details.filePatch.path,
+        path: executionPatch.path,
         before: r.beforeContent ?? undefined,
         after: r.afterContent,
       }),
@@ -561,4 +566,17 @@ const resolvePath = (cwd: string, p: string): string => {
   if (/^([a-zA-Z]:[\\/]|\/|\\\\)/.test(p)) return p;
   const sep = cwd.includes("\\") ? "\\" : "/";
   return cwd.endsWith(sep) ? `${cwd}${p}` : `${cwd}${sep}${p}`;
+};
+
+const normalizeFilePatchPath = (targetDir: string, patchPath: string): string => {
+  const cwdResolved = resolveNodePath(process.cwd(), patchPath);
+  if (!isWithin(targetDir, cwdResolved)) {
+    return patchPath;
+  }
+  const targetResolved = resolveNodePath(targetDir, patchPath);
+  if (targetResolved === cwdResolved) {
+    return patchPath;
+  }
+  const relativeToTarget = relativePath(targetDir, cwdResolved);
+  return relativeToTarget.length > 0 ? relativeToTarget : patchPath;
 };
