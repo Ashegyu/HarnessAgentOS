@@ -235,6 +235,83 @@
 - ShellRunner는 외부 cancellation을 받아들이고 적절히 cleanup 한다.
 - 기존 shell-runner 테스트와 agent-planning-service 테스트가 모두 통과한다.
 
+## 7-A. Phase 3.5 — Runner Cancellation Completion (사후 추가)
+
+### 배경
+
+Phase 3 머지 후 점검에서 cancellation chain이 **AgentInvocation 경로에서만 완결**됐고 RunnerService 경로는 여전히 끊겨 있음을 확인했다.
+
+- [runner-service.ts:384-389](../../packages/runners/src/runner-service.ts:384)에서 `this.shell.run({...})` 호출 시 `signal`을 전달하지 않음. ShellRunner는 Phase 3에서 `signal` 파라미터를 받지만, 정작 호출자가 안 넘김.
+- `test.run`은 내부적으로 `shell.run`을 호출하므로 동일 문제.
+- 추가로 `cancelTaskRun` 또는 `cancelExecution` IPC entry가 존재하지 않음 → 사용자가 진행 중인 approval 실행을 중단할 trigger 자체가 없다.
+
+결과: `TaskRunStatus = 'cancelled'` enum은 있지만 도달 가능한 코드 경로가 없고, ShellRunner의 signal 파라미터는 dead code로 머문다.
+
+### 수정 파일
+
+- `packages/runners/src/runner-service.ts` — 실행 중 task 추적 + cancelExecution 추가
+- `packages/runners/src/runner-service.test.mjs` — cancel 시나리오 테스트 추가
+- `packages/core/src/api.ts` — `runner.cancelExecution` 메서드 추가
+- `packages/core/src/types/runner.ts` (있는 경우) 또는 inline — 입력 타입
+- `apps/desktop/electron/ipc/runner-ipc.ts` — IPC 핸들러
+- `apps/desktop/electron/preload.ts` — contextBridge expose
+- `apps/desktop/src/types/window.d.ts` — renderer 타입
+- `apps/desktop/src/screens/workbench/TaskRunStateActions.tsx` — Stop 버튼
+- `docs/contracts/ipc-contracts.md` — 신규 IPC 계약 기록
+
+### 구현 계획
+
+1. **RunnerService에 in-flight tracking 추가**
+   - `private readonly inflight = new Map<string, AbortController>()` 추가 (key는 taskRunId).
+   - `executeApproved` 진입 시 `const controller = new AbortController(); this.inflight.set(taskRunId, controller)` 등록.
+   - shell/test runner 호출에 `signal: controller.signal` 전달.
+   - finally 블록에서 `this.inflight.delete(taskRunId)`.
+
+2. **cancelExecution 메서드 추가**
+   ```ts
+   async cancelExecution(input: { taskRunId: string }): Promise<{ cancelled: boolean }> {
+     const controller = this.inflight.get(input.taskRunId);
+     if (!controller) return { cancelled: false };
+     controller.abort();
+     return { cancelled: true };
+   }
+   ```
+   - 이미 abort 됐는지 여부는 호출자가 알 필요 없음.
+   - TaskRun status 전환은 `executeApproved`의 catch 블록에서 RUNNER_CANCELLED 감지 후 `setTaskRunStatus(taskRunId, 'cancelled')` 수행. 별도 race는 만들지 않는다.
+
+3. **IPC 9-레이어 등록**
+   - `HarnessDesktopApi.runner`에 `cancelExecution({ taskRunId }): Promise<{ cancelled: boolean }>` 추가.
+   - `runner-ipc.ts`에 handler 등록.
+   - preload에서 expose, renderer 타입 선언.
+   - `ipc-contracts.md`에 표 한 줄 추가.
+
+4. **UI 통합**
+   - `TaskRunStateActions.tsx`에 TaskRun.status가 `running`일 때만 Stop 버튼 노출.
+   - onClick → `window.harness.runner.cancelExecution({ taskRunId })` 호출 후 toast/banner로 결과 표시.
+   - 이미 cancel 진행 중 상태(double-click 방지)는 local component state로만 처리.
+
+5. **AgentInvocation과의 조율**
+   - `cancelInvocation`은 그대로 유지. TaskRun에 묶인 invocation이 있다면 사용자 UX 측면에서 두 cancel 모두 발화하는 것이 자연스러우나, 이 phase에서는 `cancelExecution`만 추가하고 invocation cancel은 사용자가 별도 버튼으로 수행하는 기존 흐름 유지 (UX 단순성).
+
+### 테스트
+
+- `executeApproved` 진행 중 `cancelExecution(taskRunId)` 호출 시 `RUNNER_CANCELLED`로 reject되고 TaskRun status가 `cancelled`로 전이.
+- 같은 taskRunId의 두 번째 executeApproved 호출은 첫 번째 cancel 이후 정상 진행 가능.
+- 존재하지 않는 taskRunId에 cancelExecution 호출 시 `{ cancelled: false }` 반환 (throw 금지).
+- `shell.run` mock spawn이 `signal.aborted = true`를 관찰하고 child.kill을 호출한 것을 확인.
+- `TaskRunStateActions` 컴포넌트 단위 테스트: `running` 상태에서만 Stop 버튼 렌더링.
+
+### 완료 기준
+
+- 사용자가 UI에서 진행 중인 approval 실행을 중단할 수 있다.
+- 중단 시 OS child process까지 종료 신호가 전달된다 (mock 기반으로 검증).
+- 기존 runner-service 테스트와 IPC contract 테스트가 모두 통과한다.
+- `npm run verify` 통과.
+
+### 추정
+
+Small-Medium · 1-2일.
+
 ## 8. 통합 검증
 
 각 Phase 완료 후 다음을 순서대로 실행한다:
@@ -250,6 +327,7 @@ npm run verify
 - Settings UI에서 profile 1개에 budget 설정 후 비싼 모델 자동 호출 → approval pending 으로 멈추는지 확인.
 - ApprovalPanel에서 자동 승인/차단된 approval 모두 결정 trace 토글이 동작하는지 확인.
 - 장시간 실행 shell command를 띄운 상태에서 cancel 버튼 → 프로세스 모니터로 child 종료 확인.
+- Phase 3.5 후: TaskRunStateActions의 Stop 버튼이 `running` 상태에서만 보이고, 클릭 시 RUNNER_CANCELLED 로 종료되는지 확인.
 
 ## 9. Phase 우선순위와 의존성
 
@@ -267,7 +345,8 @@ Phase 2 (Decision Trace) ◀────────────┘
 
 - **Phase 1 → Phase 2**: Budget 단계가 결정 trace의 한 단계가 되어야 하므로 Phase 1을 먼저.
 - **Phase 3은 독립**: cancellation 경로는 정책 경로와 분리되어 있어 병렬 진행 가능.
-- 권장 진행: Phase 1 (Medium, 2-3일) → Phase 2 (Small-Medium, 1-2일) → Phase 3 (Medium, 2일). 총 5-7일 추정.
+- **Phase 3.5는 Phase 3 이후**: ShellRunner가 signal을 받는 상태여야 RunnerService가 전달할 수 있음.
+- 권장 진행: Phase 1 (Medium, 2-3일) → Phase 2 (Small-Medium, 1-2일) → Phase 3 (Medium, 2일) → Phase 3.5 (Small-Medium, 1-2일). 총 6-9일 추정.
 
 ## 10. 위험 요소
 
