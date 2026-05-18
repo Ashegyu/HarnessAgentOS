@@ -119,10 +119,16 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
     const all = await pipelines.list();
     const names = all.map((p) => p.name).sort();
     assert.deepEqual(names, [
+      "Architecture RFC",
       "Build Recovery",
+      "Frontend Product Delivery",
+      "Image Asset Prompt Flow",
       "Parallel Review Hardening",
+      "Product PRD Discovery",
       "Refactor Safety",
+      "Skill and Agent Expansion",
       "Supervised Delivery",
+      "Visual Design Delivery",
     ]);
 
     const profileRoles = new Map(
@@ -155,6 +161,25 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       /한국어/,
       "seed step instructions should be Korean-facing",
     );
+
+    const prd = all.find((p) => p.id === "pipe_template_product_prd");
+    assert.ok(prd, "Product PRD Discovery template should exist");
+    assert.deepEqual(
+      prd.steps.map((step) => profileRoles.get(step.agentProfileId)),
+      ["planner", "planner", "orchestrator", "reviewer"],
+    );
+
+    const visual = all.find((p) => p.id === "pipe_template_image_asset_prompt");
+    assert.ok(visual, "Image Asset Prompt Flow template should exist");
+    assert.deepEqual(
+      visual.steps.map((step) => step.id),
+      ["brief", "image-prompts", "design-review", "handoff"],
+    );
+    assert.deepEqual(
+      visual.steps.find((step) => step.id === "image-prompts")?.allowedActions,
+      [],
+      "image prompt generation is read-only until a concrete image runner exists",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -169,7 +194,7 @@ test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
     await pipelines.ensureSeed();
 
     const all = await pipelines.list();
-    assert.equal(all.length, 4);
+    assert.equal(all.length, 10);
     assert.equal(
       all.filter((p) => p.id === "pipe_template_refactor_safety").length,
       1,

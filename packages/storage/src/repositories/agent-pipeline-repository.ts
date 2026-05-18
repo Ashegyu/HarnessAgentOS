@@ -499,6 +499,32 @@ const PROFILE_REFS = {
     "Ruflo Orchestrator",
     "Agno Trace Planner",
   ]),
+  product: profileRef("planner", ["Agno Product PRD Strategist", "Planner"]),
+  architecture: profileRef("orchestrator", [
+    "Ruflo Architecture Designer",
+    "Ruflo Orchestrator",
+  ]),
+  api: profileRef("planner", ["Agno API Contract Architect", "Planner"]),
+  skillCurator: profileRef("planner", ["Hermes Skill Curator", "Planner"]),
+  image: profileRef("planner", ["Hermes Image Prompt Designer", "Planner"]),
+  ux: profileRef("planner", ["ECC UX Flow Designer", "Planner"]),
+  designReview: profileRef("reviewer", [
+    "ECC Design QA Reviewer",
+    "Reviewer",
+  ]),
+  frontend: profileRef("coder", [
+    "Codex Frontend Implementer",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  documentation: profileRef("planner", [
+    "ECC Documentation Writer",
+    "Planner",
+  ]),
+  migration: profileRef("planner", [
+    "ECC Data Migration Planner",
+    "Planner",
+  ]),
   planner: profileRef("planner", ["Planner"]),
   coder: profileRef("coder", ["Codex Bulk Coder", "Coder"]),
   refactor: profileRef("refactor-cleaner", ["ECC Refactor Cleaner"]),
@@ -510,6 +536,422 @@ const PROFILE_REFS = {
 } as const;
 
 const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
+  {
+    id: "pipe_template_product_prd",
+    name: "Product PRD Discovery",
+    description:
+      "PRD, 사용자 시나리오, 성공 지표, scope/non-scope를 먼저 정리하는 제품 요구사항 흐름입니다.",
+    steps: [
+      {
+        id: "discovery",
+        profile: PROFILE_REFS.product,
+        title: "제품 문제와 사용자 정의",
+        instruction:
+          "사용자 요청을 목표 사용자, 문제 정의, 성공 지표, scope/non-scope, open question으로 정리한 PRD 초안을 한국어로 작성하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "requirements",
+        profile: PROFILE_REFS.planner,
+        title: "Acceptance criteria 정리",
+        instruction:
+          "PRD 초안을 실행 가능한 user story, acceptance criteria, edge case, 검증 기준으로 구체화하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["discovery"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "architecture-preview",
+        profile: PROFILE_REFS.architecture,
+        title: "아키텍처 영향 예비 검토",
+        instruction:
+          "요구사항이 시스템 경계, 데이터 모델, IPC/API, approval, storage, UI 상태에 미치는 영향을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["requirements"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "prd-review",
+        profile: PROFILE_REFS.reviewer,
+        title: "PRD 완성도 리뷰",
+        instruction:
+          "PRD가 구현 가능한 수준인지, 모호한 범위나 빠진 검증 기준이 있는지 검토하고 우선순위별 보완점을 한국어로 보고하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["requirements", "architecture-preview"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_architecture_rfc",
+    name: "Architecture RFC",
+    description:
+      "PRD를 시스템 설계, API/IPC 계약, migration 계획, 보안/성능 리뷰까지 연결하는 아키텍처 RFC 흐름입니다.",
+    steps: [
+      {
+        id: "system-design",
+        profile: PROFILE_REFS.architecture,
+        title: "시스템 아키텍처 설계",
+        instruction:
+          "요구사항을 모듈 책임, 데이터 흐름, IPC/API 경계, approval boundary, worker topology로 나눈 아키텍처 RFC 초안을 한국어로 작성하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "api-contract",
+        profile: PROFILE_REFS.api,
+        title: "API/IPC 계약 설계",
+        instruction:
+          "아키텍처 초안을 바탕으로 request/response schema, error code, 권한 경계, audit evidence, backward compatibility를 정의하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["system-design"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "migration-plan",
+        profile: PROFILE_REFS.migration,
+        title: "상태/migration 영향 검토",
+        instruction:
+          "SQLite/schema/state 변경이 필요한지 검토하고, idempotent migration, 기존 데이터 호환성, repository 테스트 범위를 한국어로 정리하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["system-design"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "security-review",
+        profile: PROFILE_REFS.security,
+        title: "아키텍처 보안 리뷰",
+        instruction:
+          "설계에서 secret, 권한 상승, approval bypass, path traversal, unsafe execution, untrusted input 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["system-design", "api-contract"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "performance-review",
+        profile: PROFILE_REFS.performance,
+        title: "아키텍처 성능 리뷰",
+        instruction:
+          "설계가 latency, allocation, synchronization, repeated work, DB contention, UI responsiveness에 미칠 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["system-design"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "rfc-final",
+        profile: PROFILE_REFS.reviewer,
+        title: "RFC 최종 리뷰",
+        instruction:
+          "아키텍처, API 계약, migration, 보안/성능 검토 결과를 합쳐 구현 전 남은 결정과 우선순위를 한국어로 정리하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: [
+          "api-contract",
+          "migration-plan",
+          "security-review",
+          "performance-review",
+        ],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_visual_design_delivery",
+    name: "Visual Design Delivery",
+    description:
+      "PRD를 UI/UX 흐름, visual spec, frontend 구현, 디자인 QA까지 연결하는 디자인 중심 전달 흐름입니다.",
+    steps: [
+      {
+        id: "product-brief",
+        profile: PROFILE_REFS.product,
+        title: "디자인용 제품 brief",
+        instruction:
+          "디자인에 필요한 사용자 목표, primary workflow, must-have state, tone, 제약 조건을 PRD brief로 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "ux-flow",
+        profile: PROFILE_REFS.ux,
+        title: "UI/UX flow 설계",
+        instruction:
+          "제품 brief를 화면 정보 구조, interaction state, empty/loading/error state, accessibility expectation, responsive behavior로 변환하세요.",
+        expectedArtifactKinds: ["plan", "snapshot", "log"],
+        dependsOn: ["product-brief"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "image-prompts",
+        profile: PROFILE_REFS.image,
+        title: "이미지/에셋 프롬프트 설계",
+        instruction:
+          "UI/UX flow에 필요한 이미지 생성 프롬프트, style constraints, variants, 검수 기준을 작성하세요. 실제 이미지 생성 호출은 하지 마세요.",
+        expectedArtifactKinds: ["file", "snapshot", "log"],
+        dependsOn: ["ux-flow"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "frontend-implementation",
+        profile: PROFILE_REFS.frontend,
+        title: "프론트엔드 구현 제안",
+        instruction:
+          "승인된 PRD/UX/image prompt 산출물을 바탕으로 기존 UI 패턴에 맞춘 최소 frontend 변경을 제안하세요. 파일 쓰기는 Harness approval로만 제안하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["ux-flow", "image-prompts"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "design-review",
+        profile: PROFILE_REFS.designReview,
+        title: "디자인 QA 리뷰",
+        instruction:
+          "UI 변경의 시각적 일관성, 접근성, overflow, 상태 누락, 모바일/데스크톱 레이아웃 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["frontend-implementation"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "UI 변경 검증",
+        instruction:
+          "변경된 UI에 대한 focused test, screenshot/manual verification 계획 또는 실행 증거를 한국어로 정리하세요.",
+        expectedArtifactKinds: ["test_result", "snapshot", "log"],
+        dependsOn: ["frontend-implementation"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "final-review",
+        profile: PROFILE_REFS.reviewer,
+        title: "디자인 전달 최종 리뷰",
+        instruction:
+          "구현, 디자인 QA, 검증 결과를 합쳐 release 전 남은 risk와 follow-up을 한국어로 정리하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["design-review", "verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_image_asset_prompt",
+    name: "Image Asset Prompt Flow",
+    description:
+      "이미지 생성 자체를 직접 실행하지 않고, 생성 프롬프트/스타일/검수 기준과 구현 handoff를 만드는 read-only 흐름입니다.",
+    steps: [
+      {
+        id: "brief",
+        profile: PROFILE_REFS.ux,
+        title: "비주얼 asset brief",
+        instruction:
+          "요청을 이미지 용도, 사용 위치, 브랜드/제품 맥락, 크기/aspect ratio, 금지 요소, 성공 기준으로 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "image-prompts",
+        profile: PROFILE_REFS.image,
+        title: "이미지 생성 프롬프트 작성",
+        instruction:
+          "생성 모델에 넘길 prompt, negative prompt, style guide, variant list, acceptance checklist를 한국어로 작성하세요. 네트워크나 외부 이미지 생성은 실행하지 마세요.",
+        expectedArtifactKinds: ["file", "snapshot", "log"],
+        dependsOn: ["brief"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "design-review",
+        profile: PROFILE_REFS.designReview,
+        title: "프롬프트/에셋 QA",
+        instruction:
+          "프롬프트가 제품 맥락, 접근성, 저작권/브랜드 위험, UI 사용성, 검수 가능성을 만족하는지 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["image-prompts"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "handoff",
+        profile: PROFILE_REFS.documentation,
+        title: "에셋 handoff 문서화",
+        instruction:
+          "이미지 프롬프트, 생성 옵션, expected output, 적용 위치, 구현자가 확인할 QA 기준을 handoff 문서로 정리하세요.",
+        expectedArtifactKinds: ["plan", "file", "log"],
+        dependsOn: ["image-prompts", "design-review"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_frontend_product_delivery",
+    name: "Frontend Product Delivery",
+    description:
+      "PRD, 아키텍처, UX, frontend 구현, 테스트, 디자인 QA를 한 흐름으로 묶은 제품 UI 전달 pipeline입니다.",
+    steps: [
+      {
+        id: "prd",
+        profile: PROFILE_REFS.product,
+        title: "제품 요구사항 정리",
+        instruction:
+          "기능 목표, 사용자 흐름, acceptance criteria, scope/non-scope를 구현 가능한 PRD로 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "architecture",
+        profile: PROFILE_REFS.architecture,
+        title: "UI 아키텍처 경계 설계",
+        instruction:
+          "PRD를 바탕으로 renderer state, IPC/API, 저장소, approval boundary, component ownership를 설계하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["prd"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "ux",
+        profile: PROFILE_REFS.ux,
+        title: "화면 흐름과 interaction 설계",
+        instruction:
+          "PRD와 아키텍처 제약을 바탕으로 화면 흐름, 상태, copy, responsive/accessibility expectation을 정의하세요.",
+        expectedArtifactKinds: ["plan", "snapshot", "log"],
+        dependsOn: ["prd"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implement",
+        profile: PROFILE_REFS.frontend,
+        title: "제품 UI 구현 제안",
+        instruction:
+          "승인된 PRD/아키텍처/UX를 바탕으로 기존 패턴에 맞는 최소 frontend 변경을 제안하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["architecture", "ux"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "test",
+        profile: PROFILE_REFS.tester,
+        title: "제품 UI 검증",
+        instruction:
+          "변경된 UI 흐름에 대한 focused test 또는 screenshot/manual verification 증거를 정리하세요.",
+        expectedArtifactKinds: ["test_result", "snapshot", "log"],
+        dependsOn: ["implement"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "design-qa",
+        profile: PROFILE_REFS.designReview,
+        title: "디자인 QA",
+        instruction:
+          "구현 결과의 사용성, 접근성, layout, text overflow, empty/loading/error state를 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["implement"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "final-review",
+        profile: PROFILE_REFS.reviewer,
+        title: "제품 UI 최종 리뷰",
+        instruction:
+          "테스트와 디자인 QA 결과를 종합해 release 가능한지, 남은 리스크가 무엇인지 한국어로 판단하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["test", "design-qa"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_skill_agent_expansion",
+    name: "Skill and Agent Expansion",
+    description:
+      "Hermes/ECC 패턴을 바탕으로 skill/agent 후보를 설계하고 Harness profile/pipeline 개선으로 연결하는 흐름입니다.",
+    steps: [
+      {
+        id: "skill-map",
+        profile: PROFILE_REFS.skillCurator,
+        title: "Skill/agent 후보 맵 작성",
+        instruction:
+          "반복 작업, 필요한 trigger, context budget, 금지 행동, 검증 기준을 분석해 skill/agent 후보 목록을 작성하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "topology",
+        profile: PROFILE_REFS.orchestrator,
+        title: "Agent topology 설계",
+        instruction:
+          "후보 skill/agent를 Harness AgentProfile과 pipeline topology로 표현하고, dependency, allowedActions, outputContract를 제안하세요.",
+        expectedArtifactKinds: ["orchestration_plan", "plan", "log"],
+        dependsOn: ["skill-map"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implement",
+        profile: PROFILE_REFS.coder,
+        title: "Agent/profile 변경 구현 제안",
+        instruction:
+          "승인된 topology만 바탕으로 profile/pipeline seed 또는 UI 변경을 최소 diff로 제안하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["topology"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "Agent/pipeline 검증",
+        instruction:
+          "새 profile과 pipeline이 idempotent seed, validation, 추천 랭킹, orchestration 변환을 통과하는지 검증하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["implement"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "Agent 확장 최종 리뷰",
+        instruction:
+          "새 agent/pipeline이 과도한 권한, 중복 역할, context overload, 유지보수 리스크를 만들지 않는지 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
   {
     id: "pipe_template_supervised_delivery",
     name: "Supervised Delivery",

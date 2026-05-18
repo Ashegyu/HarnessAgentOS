@@ -197,6 +197,12 @@ mcpServerIds: [mcp_fs, mcp_github]
 
 | 템플릿 | 용도 |
 |------|------|
+| Product PRD Discovery | PRD, 사용자 시나리오, 성공 지표, scope/non-scope를 구현 전 정리 |
+| Architecture RFC | 시스템 설계, API/IPC 계약, migration 영향, 보안/성능 리뷰를 연결 |
+| Visual Design Delivery | PRD → UX flow → image prompt → frontend 구현 → 디자인 QA 흐름 |
+| Image Asset Prompt Flow | 실제 이미지 호출 없이 image 생성 프롬프트, style guide, QA 기준을 handoff |
+| Frontend Product Delivery | 제품 요구사항, UI 아키텍처, UX, 구현, 검증, 디자인 QA를 연결 |
+| Skill and Agent Expansion | Hermes/ECC 패턴으로 skill/agent 후보와 Harness profile/pipeline 개선안을 설계 |
 | Supervised Delivery | orchestrator → planner → coder → build-error-resolver → tester → security-reviewer → reviewer 흐름 |
 | Refactor Safety | behavior-preserving refactor, build recovery, test, performance review, final review |
 | Parallel Review Hardening | planner 이후 security/performance/correctness review를 read-only fan-out으로 수행 |
@@ -204,7 +210,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 
 기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
 
-Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다.
+Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다. `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
 
 ---
 

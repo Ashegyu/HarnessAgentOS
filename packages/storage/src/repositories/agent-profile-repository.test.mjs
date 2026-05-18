@@ -13,13 +13,23 @@ import {
 
 const FRAMEWORK_PROFILE_NAMES = [
   "Ruflo Orchestrator",
+  "Ruflo Architecture Designer",
   "Agno Trace Planner",
+  "Agno Product PRD Strategist",
+  "Agno API Contract Architect",
+  "Hermes Skill Curator",
+  "Hermes Image Prompt Designer",
   "Codex Bulk Coder",
+  "Codex Frontend Implementer",
   "ECC Refactor Cleaner",
   "ECC TDD Guide",
   "ECC Build Error Resolver",
   "ECC Security Reviewer",
   "C# Performance Reviewer",
+  "ECC UX Flow Designer",
+  "ECC Design QA Reviewer",
+  "ECC Documentation Writer",
+  "ECC Data Migration Planner",
 ];
 
 const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
@@ -36,13 +46,23 @@ const EXPECTED_ROLE_SET = [
 ];
 const FRAMEWORK_PROFILE_ROLES = new Map([
   ["Ruflo Orchestrator", "orchestrator"],
+  ["Ruflo Architecture Designer", "orchestrator"],
   ["Agno Trace Planner", "orchestrator"],
+  ["Agno Product PRD Strategist", "planner"],
+  ["Agno API Contract Architect", "planner"],
+  ["Hermes Skill Curator", "planner"],
+  ["Hermes Image Prompt Designer", "planner"],
   ["Codex Bulk Coder", "coder"],
+  ["Codex Frontend Implementer", "coder"],
   ["ECC Refactor Cleaner", "refactor-cleaner"],
   ["ECC TDD Guide", "tester"],
   ["ECC Build Error Resolver", "build-error-resolver"],
   ["ECC Security Reviewer", "security-reviewer"],
   ["C# Performance Reviewer", "performance-reviewer"],
+  ["ECC UX Flow Designer", "planner"],
+  ["ECC Design QA Reviewer", "reviewer"],
+  ["ECC Documentation Writer", "planner"],
+  ["ECC Data Migration Planner", "planner"],
 ]);
 
 const assertFrameworkProfilesPresent = (profiles) => {
@@ -194,6 +214,10 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
     assert.ok(all.every((p) => p.category.length > 0), "all profiles have a category");
     assert.ok(all.some((p) => p.name === "ECC Security Reviewer" && p.tags.includes("security")));
+    assert.ok(all.some((p) => p.name === "Agno Product PRD Strategist" && p.tags.includes("prd")));
+    assert.ok(all.some((p) => p.name === "Ruflo Architecture Designer" && p.tags.includes("architecture")));
+    assert.ok(all.some((p) => p.name === "Hermes Image Prompt Designer" && p.tags.includes("image")));
+    assert.ok(all.some((p) => p.name === "ECC UX Flow Designer" && p.tags.includes("design")));
     assert.match(
       all.find((p) => p.name === "Planner")?.persona ?? "",
       /한국어|요구사항/,

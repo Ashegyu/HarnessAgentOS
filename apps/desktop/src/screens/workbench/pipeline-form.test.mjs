@@ -57,6 +57,24 @@ const recommendationProfiles = [
 
 const seededPipelines = [
   pipeline(
+    "pipe_template_product_prd",
+    "Product PRD Discovery",
+    ["ap_plan", "ap_plan", "ap_orch", "ap_review"],
+    "PRD 제품 요구사항 기획",
+  ),
+  pipeline(
+    "pipe_template_architecture_rfc",
+    "Architecture RFC",
+    ["ap_orch", "ap_plan", "ap_security", "ap_perf", "ap_review"],
+    "아키텍처 RFC API 계약 설계",
+  ),
+  pipeline(
+    "pipe_template_image_asset_prompt",
+    "Image Asset Prompt Flow",
+    ["ap_plan", "ap_plan", "ap_review", "ap_plan"],
+    "이미지 생성 프롬프트 비주얼 디자인 에셋",
+  ),
+  pipeline(
     "pipe_template_supervised_delivery",
     "Supervised Delivery",
     [
@@ -129,6 +147,38 @@ test("rankPipelinesForRequest prioritizes review hardening for security review",
   assert.equal(ranked[0].pipeline.name, "Parallel Review Hardening");
   assert.equal(ranked[0].intent, "review_hardening");
   assert.ok(ranked[0].matchedRoles.includes("security-reviewer"));
+});
+
+test("rankPipelinesForRequest prioritizes PRD discovery for product requirements", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "새 기능 PRD와 제품 요구사항을 먼저 잡아줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Product PRD Discovery");
+  assert.equal(ranked[0].intent, "product_prd");
+  assert.ok(ranked[0].matchedRoles.includes("planner"));
+});
+
+test("rankPipelinesForRequest prioritizes architecture RFC for architecture requests", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "아키텍쳐 설계와 API 계약을 문서화해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Architecture RFC");
+  assert.equal(ranked[0].intent, "architecture_design");
+  assert.ok(ranked[0].matchedRoles.includes("orchestrator"));
+});
+
+test("rankPipelinesForRequest prioritizes image asset flow for visual design", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "UI 디자인과 image 생성 프롬프트를 만들어줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Image Asset Prompt Flow");
+  assert.equal(ranked[0].intent, "visual_design");
 });
 
 test("rankPipelinesForRequest keeps seed order when request is empty", () => {

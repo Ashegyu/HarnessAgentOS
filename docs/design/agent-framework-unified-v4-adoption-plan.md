@@ -533,7 +533,7 @@ WorkerRole enum, DB migration, profile UI, pipeline serializer를 함께 확장�
 - DB migration 없이 기존 `agent_pipelines.steps_json`에 호환 저장하며, repository write 경계에서 step id 중복, unknown dependency, self dependency, cycle을 차단한다.
 - pipeline을 `OrchestrationPlan.workerSteps`로 변환할 때 pipeline step id dependency를 immutable WorkerStep id dependency로 스냅샷한다. `dependsOn`이 없는 기존 pipeline은 이전 step에 의존하는 linear topology로 해석한다.
 - `allowedActions`가 명시된 step은 해당 action allowlist로 worker proposal을 제한한다. 필드가 없는 기존 pipeline은 호환성을 위해 기존 proposal 동작을 유지한다.
-- `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery` 기본 pipeline template을 AgentProfile seed 이후 idempotent하게 추가한다. 이 seed는 저장된 template 선택지만 만들고, default pipeline 지정이나 자동 실행은 하지 않는다.
+- `Product PRD Discovery`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery` 기본 pipeline template을 AgentProfile seed 이후 idempotent하게 추가한다. 이 seed는 저장된 template 선택지만 만들고, default pipeline 지정이나 자동 실행은 하지 않는다.
 - 기본 AgentProfile seed의 description/persona와 기본 pipeline step instruction을 한국어로 저장하고, UI에는 role별 설명/사용 시점을 함께 표시한다.
 - worker-runner는 dependency topological order로 실행하고, explicit dependency가 있는 step에는 해당 ancestor output만 internal handoff로 전달한다.
 - worker가 step의 `allowedActions` 밖 action을 제안하면 downstream approval을 만들지 않고 policy report artifact로 남긴다.
