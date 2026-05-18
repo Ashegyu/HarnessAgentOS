@@ -684,9 +684,8 @@ export const PipelinesTab = ({
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">설명</span>
-                  <input
-                    type="text"
-                    className="settings-field__input"
+                  <textarea
+                    className="settings-field__input settings-field__textarea settings-field__textarea--compact"
                     value={draft.description}
                     disabled={saving}
                     onChange={(e) =>

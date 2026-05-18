@@ -5951,6 +5951,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   min-height: 96px;
   line-height: 1.5;
   resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settings-field__textarea--compact {
+  min-height: 72px;
 }
 
 .settings-dialog .btn {
@@ -6428,9 +6434,10 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .pipelines-tab__item-reason {
   font-size: 11px;
   color: var(--status-passed);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .pipelines-tab__editor {
@@ -6516,6 +6523,10 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .pipeline-recommendation__selected p {
   grid-column: 1 / -1;
   margin: 0;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .pipeline-recommendation__list {
@@ -6540,6 +6551,10 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   gap: var(--space-2);
 }
 
+.pipeline-recommendation__header > div {
+  min-width: 0;
+}
+
 .pipeline-recommendation__header h4 {
   margin: 0;
   font-size: 13px;
@@ -6551,6 +6566,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .pipeline-recommendation__confidence {
