@@ -2,7 +2,11 @@
 
 Local desktop development workbench. Serverless Electron + React + SQLite.
 
-See [docs/](docs/) for architecture, implementation phases, and contracts.
+## 문서
+
+- [workspace/README.html](workspace/README.html) — 전체 개요, 사용법, 핵심 개념, FAQ (브라우저에서 열기)
+- [workspace/app-flow-visualization.html](workspace/app-flow-visualization.html) — 동작 흐름 · 데이터 모델 · 상태 머신 · 가드레일 시각화
+- [docs/](docs/) — 아키텍처 결정, 구현 단계, IPC 계약 등 상세 문서
 
 ## Quick start
 

@@ -58,7 +58,9 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "사용자 요청 하나가 계획, 승인, 실행, 산출물, 품질 평가를 거쳐 완료되는 단위입니다.",
     details: [
       "TaskRun을 선택하면 우측 패널에서 plan, approvals, artifacts, quality 상태를 확인할 수 있습니다.",
-      "완료 처리는 통과 또는 경고 수준의 QualityGate가 있어야 가능합니다.",
+      "9가지 상태(drafting, waiting_for_approval, running, paused, blocked, quality_failed, ready_for_review, done, cancelled) 사이를 전이하며, markDone은 통과 또는 경고 수준의 QualityGate가 있어야 호출됩니다.",
+      "Pause / Resume / Retry / Cancel은 우측 액션 영역에서 비종료 상태일 때만 노출되며, Cancel은 비어있지 않은 사유와 함께 quality_report artifact를 남깁니다.",
+      "Retry는 blocked / quality_failed 상태에서만 가능하며 가장 최근에 승인된 action을 동일한 idempotent runner 경로로 다시 실행합니다.",
     ],
     location: "중앙 대화 타임라인 및 우측 패널",
   },
@@ -88,11 +90,12 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
     id: "agentProfiles",
     title: "Agent Profiles",
     summary:
-      "에이전트의 role, 한국어 프롬프트, 모델, 권한 정책을 재사용 가능한 프로필로 관리합니다.",
+      "에이전트의 role, 한국어 프롬프트, 모델, 권한 정책, 비용 한도를 재사용 가능한 프로필로 관리합니다.",
     details: [
       "계획, 구현, 리뷰, 검증, 오케스트레이션, 보안, 빌드 복구, 리팩터링, 성능 검토 role을 분리할 수 있습니다.",
       "프로필 편집 화면에서 각 role의 설명과 사용 기준을 확인하고, 에이전트 ROLE 프롬프트를 한국어로 조정할 수 있습니다.",
-      "action type별 기본, 자동 승인, 차단 권한을 지정해 안전 경계를 세분화합니다.",
+      "action type별 기본, 자동 승인, 차단 권한을 지정해 안전 경계를 세분화합니다. 차단(blockedActions)은 자동 승인 토글을 우회합니다.",
+      "Budget 섹션에서 호출당, TaskRun 누적, 일일 누적 USD 한도를 설정하면 추정 비용이 초과되는 자동 승인은 budget 단계에서 차단됩니다.",
     ],
     location: "설정 > Agents",
   },
@@ -171,7 +174,9 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "파일 쓰기, shell, network, git commit 같은 side effect를 사용자가 승인하기 전까지 막는 안전 게이트입니다.",
     details: [
       "승인은 pending, approved, executed 같은 상태로 추적됩니다.",
-      "전역 auto-approve가 켜져 있어도 profile block 또는 manual-only policy는 우선 적용됩니다.",
+      "전역 auto-approve가 켜져 있어도 profile block, manual-only policy, budget 초과는 우선 적용됩니다.",
+      "각 approval 카드의 '결정 trace' 토글로 7단계 결정 흐름(blocked → policy → budget → profile → manual policy → worker file → global)을 확인할 수 있습니다. 자동 승인된 결정도 어느 단계가 판단했는지 추적됩니다.",
+      "Skill 등록 시 신뢰 승격 전에는 script 실행 권한이 부여되지 않으며 모든 위험 capability는 approval 흐름을 거칩니다.",
     ],
     location: "우측 Plan > Approvals",
   },
@@ -215,7 +220,8 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "과거 trace와 결과를 이용해 모델, capability, 실행 패턴 추천을 개선하는 보조 레이어입니다.",
     details: [
       "Learner는 실행자가 아니라 추천자이며, side effect를 직접 수행하지 않습니다.",
-      "추천 결과는 approval과 agent prompt 구성에 반영될 수 있습니다.",
+      "추천 결과는 approval과 agent prompt 구성에 반영될 수 있고, 모델 추천에는 추정 비용(estimatedCostUsd)이 함께 표시됩니다.",
+      "LearningTrace는 reward, latency, success를 post-hoc 기록합니다. 비용 한도 enforcement는 Agent Profile의 Budget 설정과 결합해 사전(pre-execution) 단계에서 작동합니다.",
     ],
     location: "우측 Caps > Learner",
   },
