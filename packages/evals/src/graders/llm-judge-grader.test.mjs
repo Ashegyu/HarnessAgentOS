@@ -62,6 +62,30 @@ test("parseLlmJudgeOutput accepts JSON judge scores", () => {
   assert.deepEqual(parsed.risks, ["minor edge case"]);
 });
 
+test("parseLlmJudgeOutput accepts object-shaped rubric maps from real judges", () => {
+  const parsed = parseLlmJudgeOutput(
+    JSON.stringify({
+      score: 0.9,
+      passed: true,
+      rubric: {
+        correctness: {
+          score: 0.9,
+          reason: "Implementation matches the instruction.",
+        },
+      },
+      risks: [],
+    }),
+  );
+
+  assert.deepEqual(parsed.rubric, [
+    {
+      id: "correctness",
+      score: 0.9,
+      reason: "Implementation matches the instruction.",
+    },
+  ]);
+});
+
 test("parseLlmJudgeOutput rejects malformed output", () => {
   assert.throws(
     () => parseLlmJudgeOutput("not json"),

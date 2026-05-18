@@ -36,15 +36,18 @@ const MAX_SNAPSHOT_CHARS = 20_000;
 const judgeOutputSchema = z.object({
   score: z.number().min(0).max(1),
   passed: z.boolean().optional(),
-  rubric: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        score: z.number().min(0).max(1),
-        reason: z.string(),
-      }),
-    )
-    .default([]),
+  rubric: z.preprocess(
+    normalizeRubric,
+    z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          score: z.number().min(0).max(1),
+          reason: z.string(),
+        }),
+      )
+      .default([]),
+  ),
   risks: z.array(z.string()).default([]),
 });
 
@@ -208,3 +211,13 @@ const extractJsonPayload = (text: string): string => {
 
 const formatScore = (value: number): string =>
   Number(value.toFixed(2)).toString();
+
+function normalizeRubric(value: unknown): unknown {
+  if (Array.isArray(value) || value === undefined) return value;
+  if (typeof value !== "object" || value === null) return value;
+  return Object.entries(value as Record<string, unknown>).map(([id, entry]) =>
+    typeof entry === "object" && entry !== null && !Array.isArray(entry)
+      ? { id, ...(entry as Record<string, unknown>) }
+      : { id, score: entry, reason: "" },
+  );
+}
