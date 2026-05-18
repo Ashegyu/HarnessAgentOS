@@ -846,6 +846,71 @@ settings.update(input: HarnessSettings): Promise<HarnessSettings>;
 - `approval`: auto approval 편의 설정. 실제 실행 가능 여부는 service-layer `PolicyEvaluation`이 최종 결정한다.
 - `activeAgentProfileId`: 새 TaskRun에 사용할 active AgentProfile id
 
+## `window.harness.evals`
+
+Phase 16 eval 결과 조회용 read-only namespace다. Renderer는 markdown report 파일,
+SQLite DB, attempt artifact 경로를 직접 열지 않고 main process가 반환한 DTO만 사용한다.
+
+```ts
+type EvalRunSuite = "capability" | "regression" | "safety" | "all";
+type EvalRunStatus = "running" | "passed" | "failed" | "partial";
+
+interface EvalRunListFilters {
+  suite?: EvalRunSuite;
+  status?: EvalRunStatus;
+  limit?: number;
+}
+
+interface EvalRunListItem {
+  id: string;
+  suite: EvalRunSuite;
+  status: EvalRunStatus;
+  mode?: string;
+  startedAt: string;
+  finishedAt: string | null;
+  harnessSha: string | null;
+  caseCount: number;
+  attemptCount: number;
+  passedAttempts: number;
+  passRate: number;
+  totalTokens: number;
+  totalDurationMs: number;
+}
+
+interface EvalRunCaseView {
+  caseId: string;
+  title: string;
+  suite: "capability" | "regression" | "safety";
+  provider?: "claude" | "codex";
+  outcome: "passed" | "failed" | "partial";
+  attemptCount: number;
+  passedAttempts: number;
+  passAt3: number;
+  passToThe3: number;
+  totalTokens: number;
+  totalDurationMs: number;
+}
+
+interface EvalRunDetailView {
+  run: EvalRunListItem;
+  cases: EvalRunCaseView[];
+}
+
+evals.listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
+evals.getRun(input: { runId: string }): Promise<EvalRunDetailView>;
+```
+
+동작:
+
+- `listRuns`는 최근 eval run을 SQLite canonical state에서 조회한다. `limit`은 main process에서 1..100으로 제한한다.
+- `getRun`은 summary_json을 renderer-safe detail DTO로 변환한다. raw filesystem path, raw artifact content, process handle은 반환하지 않는다.
+- 이 namespace는 read-only다. eval 실행은 기존 `scripts/eval/run.mjs` CLI와 npm script가 담당한다.
+
+오류:
+
+- `EVAL_RUN_NOT_FOUND`
+- `STATE_INVALID_INPUT`
+
 ## `window.harness.agents`
 
 AgentProfile CRUD. renderer는 plaintext secret을 이 namespace로 읽지 않는다.

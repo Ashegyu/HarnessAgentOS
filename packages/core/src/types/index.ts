@@ -36,3 +36,4 @@ export * from "./mcp.ts";
 export * from "./skill-source.ts";
 export * from "./agent-pipeline.ts";
 export * from "./a2a.ts";
+export * from "./eval.ts";

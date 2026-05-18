@@ -1,6 +1,6 @@
 # Phase 7 — v2 Expansion Design Plan
 
-> **상태**: 설계 완료 · Phase 7.1~7.3 구현 완료 · Phase 7.4+ 대기
+> **상태**: 설계 완료 · Phase 7.1~7.4a 구현 완료 · Phase 7.4b+ 대기
 > **선행 조건**: v1 fake eval 안정화, v1.5a real CLI smoke, v1.5b performance summary
 > **목표**: provider 비교, LLM judge, viewer, cost trend, production latency 측정을 별도 gate로 안전하게 확장한다.
 
@@ -22,7 +22,8 @@
 | Phase 7.1 | 완료 | v2 provider/run/trend/latency 계약, fixture `providers`, CLI `--providers` parser |
 | Phase 7.2 | 완료 | provider별 case 확장, provider별 target/artifact 분리, provider comparison report, `eval:providers` script |
 | Phase 7.3 | 완료 | `llm_judge` schema, JSON output parser, fake known good/bad calibration, opt-in CaseRunner path |
-| Phase 7.4 | 대기 | viewer read-only UI |
+| Phase 7.4a | 완료 | read-only eval viewer IPC, Settings `Evals` 탭의 최근 run/detail 조회 |
+| Phase 7.4b | 대기 | attempt artifact drill-down, provider 비교/detail 확장 |
 | Phase 7.5 | 대기 | 장기간 cost trend |
 | Phase 7.6 | 대기 | production workload p95/p99 latency |
 
@@ -507,13 +508,13 @@ Viewer:
 
 ### Phase 7.4 — Viewer read-only UI
 
-목표: eval_runs 조회와 attempt artifact drill-down.
+목표: eval_runs 조회부터 시작하고, attempt artifact drill-down은 별도 후속 단계에서 붙인다.
 
 검증:
 
 - IPC tests
-- renderer utility tests
-- manual app smoke
+- renderer compile/check
+- manual app smoke 또는 desktop build
 
 ### Phase 7.5 — Cost trend
 

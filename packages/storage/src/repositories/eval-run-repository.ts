@@ -7,6 +7,7 @@ export type EvalRunStatus = "running" | "passed" | "failed" | "partial";
 export interface EvalRunSummaryPayload {
   readonly runId: string;
   readonly suite: EvalRunSuite;
+  readonly mode?: string;
   readonly startedAt: string;
   readonly finishedAt: string | null;
   readonly cases: ReadonlyArray<unknown>;

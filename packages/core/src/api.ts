@@ -46,6 +46,9 @@ import type {
   ThreadDetail,
   TopologyRecommendation,
   Checkpoint,
+  EvalRunDetailView,
+  EvalRunListFilters,
+  EvalRunListItem,
 } from "./types/index.ts";
 import type {
   ApproveInput,
@@ -297,6 +300,10 @@ export interface HarnessDesktopApi {
   settings: {
     get(): Promise<HarnessSettings>;
     update(input: HarnessSettings): Promise<HarnessSettings>;
+  };
+  evals: {
+    listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
+    getRun(input: { runId: string }): Promise<EvalRunDetailView>;
   };
   /**
    * AgentProfile CRUD. The renderer never touches plaintext secrets here —

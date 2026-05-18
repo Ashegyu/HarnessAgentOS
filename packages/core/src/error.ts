@@ -160,3 +160,6 @@ export const PIPELINE_IN_USE_BY_PROFILE_DELETE =
 
 // Remote A2A agent registry.
 export const A2A_ENDPOINT_NOT_FOUND = "A2A_ENDPOINT_NOT_FOUND" as const;
+
+// Eval viewer.
+export const EVAL_RUN_NOT_FOUND = "EVAL_RUN_NOT_FOUND" as const;

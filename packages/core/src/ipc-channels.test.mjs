@@ -20,6 +20,7 @@ test("declared namespaces match the phases shipped so far", () => {
     "app",
     "capability",
     "conversation",
+    "evals",
     "events",
     "instinct",
     "learner",
@@ -36,6 +37,16 @@ test("declared namespaces match the phases shipped so far", () => {
     "state",
     "topology",
   ]);
+});
+
+test("evals namespace exposes read-only viewer verbs", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.evals).sort(), [
+    "getRun",
+    "listRuns",
+  ]);
+  assert.equal(isAllowedChannel("evals:listRuns"), true);
+  assert.equal(isAllowedChannel("evals:getRun"), true);
+  assert.equal(isAllowedChannel("evals:deleteRun"), false);
 });
 
 test("shadow namespace exposes preview-only verbs", () => {

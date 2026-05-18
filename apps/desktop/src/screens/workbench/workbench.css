@@ -4726,6 +4726,233 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   /* AgentProfilesTab manages its own padding via the split layout. */
 }
 
+/* ── EvalsTab read-only viewer (Phase 16) ───────────────────── */
+
+.evals-tab {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+
+.evals-tab__list {
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.evals-tab__list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.evals-tab__items {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.evals-tab__item {
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.evals-tab__item:hover,
+.evals-tab__item--selected {
+  background: var(--bg-panel-elev);
+  border-color: var(--border-strong);
+}
+
+.evals-tab__item-title {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evals-tab__item-meta,
+.evals-tab__item-metrics {
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evals-tab__detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 22px;
+}
+
+.evals-tab__detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.evals-tab__detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.evals-tab__detail-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.evals-tab__detail-header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.evals-tab__status {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.evals-tab__status--passed {
+  color: var(--status-passed);
+  border-color: color-mix(in srgb, var(--status-passed) 38%, transparent);
+}
+
+.evals-tab__status--failed {
+  color: var(--status-failed);
+  border-color: color-mix(in srgb, var(--status-failed) 38%, transparent);
+}
+
+.evals-tab__status--partial {
+  color: var(--status-warning);
+  border-color: color-mix(in srgb, var(--status-warning) 38%, transparent);
+}
+
+.evals-tab__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.evals-tab__metrics > div {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.evals-tab__metrics dt {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.evals-tab__metrics dd {
+  margin: 4px 0 0 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.evals-tab__table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.evals-tab__table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.evals-tab__table th,
+.evals-tab__table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+.evals-tab__table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--bg-panel-elev);
+}
+
+.evals-tab__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.evals-tab__case-title,
+.evals-tab__case-id {
+  display: block;
+  max-width: 280px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evals-tab__case-title {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.evals-tab__case-id {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 /* ── AgentProfilesTab layout (Phase 5a) ────────────────────── */
 
 .agent-profiles-tab {
@@ -6243,6 +6470,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 @media (max-width: 860px) {
   .agent-profiles-tab,
+  .evals-tab,
   .remote-agents-tab__split,
   .mcp-servers-tab__split,
   .pipelines-tab__split {
@@ -6251,6 +6479,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   }
 
   .agent-profiles-tab__list,
+  .evals-tab__list,
   .remote-agents-tab__list,
   .mcp-servers-tab__list,
   .pipelines-tab__list {
@@ -6260,6 +6489,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   }
 
   .agent-profiles-tab__editor,
+  .evals-tab__detail,
   .remote-agents-tab__editor,
   .mcp-servers-tab__editor,
   .pipelines-tab__editor {

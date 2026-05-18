@@ -17,3 +17,4 @@ export * from "./reporter.ts";
 export * from "./thresholds.ts";
 export * from "./types.ts";
 export * from "./v2-contracts.ts";
+export * from "./viewer-read-model.ts";

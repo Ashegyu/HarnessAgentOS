@@ -14,6 +14,7 @@ import { FeatureGuideTab } from "./FeatureGuideTab";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 import type { FeatureHelpId } from "./feature-help";
 import { SkillSourcesTab } from "./SkillSourcesTab";
+import { EvalsTab } from "./EvalsTab";
 
 interface Props {
   onClose: () => void;
@@ -26,6 +27,7 @@ type SettingsTabId =
   | "agents"
   | "remoteAgents"
   | "pipelines"
+  | "evals"
   | "mcp"
   | "skills"
   | "secrets";
@@ -41,6 +43,7 @@ const TABS: readonly SettingsTabDef[] = [
   { id: "agents", label: "Agents" },
   { id: "remoteAgents", label: "Remote Agents" },
   { id: "pipelines", label: "Pipelines" },
+  { id: "evals", label: "Evals" },
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
   { id: "secrets", label: "Secrets" },
@@ -52,6 +55,7 @@ const TAB_HELP: Record<SettingsTabId, FeatureHelpId> = {
   agents: "agentProfiles",
   remoteAgents: "remoteAgents",
   pipelines: "pipelines",
+  evals: "settings",
   mcp: "mcpServers",
   skills: "skills",
   secrets: "secrets",
@@ -254,6 +258,12 @@ export const SettingsPanel = ({
         {activeTab === "remoteAgents" && (
           <div className="settings-dialog__body settings-dialog__body--flush">
             <RemoteAgentsTab />
+          </div>
+        )}
+
+        {activeTab === "evals" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <EvalsTab />
           </div>
         )}
 

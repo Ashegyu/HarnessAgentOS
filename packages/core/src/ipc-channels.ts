@@ -149,6 +149,11 @@ export const IPC_CHANNELS = {
     toggle: "remoteAgents:toggle",
     upsertCardSnapshot: "remoteAgents:upsertCardSnapshot",
   },
+  /** Phase 16 eval result viewer. Read-only renderer surface. */
+  evals: {
+    listRuns: "evals:listRuns",
+    getRun: "evals:getRun",
+  },
   events: {
     /**
      * One-way main → renderer push (id-only). Emitted whenever a TaskRun

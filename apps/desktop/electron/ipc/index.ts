@@ -48,6 +48,7 @@ import { registerSkillSourceIpc } from "./skill-source-ipc-register";
 import { registerSecretIpc } from "./secret-ipc-register";
 import { registerPipelineIpc } from "./pipeline-ipc-register";
 import { registerRemoteAgentsIpc } from "./remote-agents-ipc-register";
+import { registerEvalsIpc } from "./evals-ipc-register";
 import type { SkillRootPolicy } from "./skill-source-ipc";
 import { eventBus } from "../event-bus";
 
@@ -131,6 +132,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   });
   registerPipelineIpc({ pipelines: ctx.state.agentPipelines });
   registerRemoteAgentsIpc({ remoteAgents: ctx.state.a2aRemoteAgents });
+  registerEvalsIpc({ evalRuns: ctx.state.evalRuns });
   registerMcpIpc({
     mcp: ctx.state.mcpServers,
     probe: ctx.mcpProbe,

@@ -15,6 +15,9 @@ import {
   type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
   type EvolutionCandidate,
+  type EvalRunDetailView,
+  type EvalRunListFilters,
+  type EvalRunListItem,
   type HarnessSettings,
   type Instinct,
   type SkillResources,
@@ -326,6 +329,15 @@ const harnessApi: HarnessDesktopApi = {
     get: () => invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.get),
     update: (input) =>
       invokeUnwrapped<HarnessSettings>(IPC_CHANNELS.settings.update, input),
+  },
+  evals: {
+    listRuns: (input) =>
+      invokeUnwrapped<EvalRunListItem[]>(
+        IPC_CHANNELS.evals.listRuns,
+        input ?? {},
+      ),
+    getRun: (input) =>
+      invokeUnwrapped<EvalRunDetailView>(IPC_CHANNELS.evals.getRun, input),
   },
   // Settings/admin namespaces are implemented in main-process IPC handlers.
   // Keep the preload layer thin: it unwraps HarnessResult and exposes only
