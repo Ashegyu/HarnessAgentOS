@@ -47,6 +47,53 @@ export interface McpServerConfig {
   updatedAt: string;
 }
 
+export interface McpServerConfigDraft {
+  name: string;
+  description: string;
+  transport: McpTransport;
+  command?: string;
+  args?: readonly string[];
+  url?: string;
+  env: Readonly<Record<string, string>>;
+  envSecretRefs: Readonly<Record<string, string>>;
+  scope: McpScope;
+  enabled: boolean;
+}
+
+export interface McpServerGenerationRequest {
+  userIntent: string;
+  preferredTransport?: McpTransport;
+  profileIds?: readonly string[];
+}
+
+export interface GeneratedMcpServerDraft extends McpServerConfigDraft {
+  recommendedProfileIds: string[];
+  secretPlaceholders: string[];
+  rationale: string;
+}
+
+export interface McpServerDraftPreviewIssue {
+  field:
+    | keyof McpServerConfigDraft
+    | "content"
+    | "envSecretRefs";
+  message: string;
+}
+
+export interface McpServerDraftPreview {
+  ok: boolean;
+  errors: McpServerDraftPreviewIssue[];
+  warnings: string[];
+  server: McpServerConfigDraft;
+  wouldNameCollide: boolean;
+  sanitizedConfigKey: string;
+}
+
+export interface McpServerGenerationPreviewResult {
+  draft: GeneratedMcpServerDraft;
+  preview: McpServerDraftPreview;
+}
+
 const TRANSPORT_SET: ReadonlySet<string> = new Set(MCP_TRANSPORTS);
 const SCOPE_SET: ReadonlySet<string> = new Set(MCP_SCOPES);
 

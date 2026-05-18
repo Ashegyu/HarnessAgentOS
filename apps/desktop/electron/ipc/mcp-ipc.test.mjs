@@ -55,6 +55,64 @@ test("mcp.list returns ok([]) on a fresh DB", async () => {
   }
 });
 
+test("mcp.generateServerDraft returns preview without persisting a server", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const r = await h.generateServerDraft({
+      request: {
+        userIntent: "GitHub MCP with token auth",
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.draft.name, "GitHub MCP");
+    assert.equal(r.value.preview.ok, true);
+    assert.equal(r.value.preview.server.enabled, false);
+    assert.match(r.value.preview.warnings.join("\n"), /Codex MCP config/);
+    const list = await h.list();
+    assert.deepEqual(list.value, []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateServerDraft warns on sanitized name collision", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    await h.upsert({ server: stdio({ name: "GitHub MCP" }) });
+    const r = await h.generateServerDraft({
+      request: { userIntent: "GitHub server" },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.preview.wouldNameCollide, true);
+    assert.equal(r.value.preview.sanitizedConfigKey, "github_mcp");
+    assert.match(r.value.preview.warnings.join("\n"), /already exists/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateServerDraft rejects invalid generation request", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const r = await h.generateServerDraft({ request: { userIntent: "" } });
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("mcp.upsert creates then updates the same row", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);

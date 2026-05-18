@@ -1217,6 +1217,7 @@ MCP server registry. plaintext secret은 반환하지 않으며, main process가
 
 ```ts
 mcp.list(): Promise<McpServerConfig[]>;
+mcp.generateServerDraft(input: { request: McpServerGenerationRequest }): Promise<McpServerGenerationPreviewResult>;
 mcp.upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
 mcp.delete(input: { serverId: string }): Promise<void>;
 mcp.toggle(input: { serverId: string; enabled: boolean }): Promise<McpServerConfig>;
@@ -1226,6 +1227,7 @@ mcp.healthCheck(input: { serverId: string }): Promise<McpServerHealth>;
 동작:
 
 - `upsert`는 `server.id`가 기존 row와 매칭되면 update, 아니면 create로 동작한다.
+- `generateServerDraft`는 저장/파일쓰기/probe 없이 사용자 의도에서 MCP 서버 초안과 preview warning만 생성한다.
 - `healthCheck`는 renderer가 직접 process/network probe를 하지 않도록 main process handler로 격리한다.
 
 ## `window.harness.skillSource`

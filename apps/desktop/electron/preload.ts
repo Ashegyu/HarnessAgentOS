@@ -409,6 +409,8 @@ const harnessApi: HarnessDesktopApi = {
   },
   mcp: {
     list: () => invokeUnwrapped(IPC_CHANNELS.mcp.list),
+    generateServerDraft: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.mcp.generateServerDraft, input),
     upsert: (input) => invokeUnwrapped(IPC_CHANNELS.mcp.upsert, input),
     delete: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.mcp.delete, input);

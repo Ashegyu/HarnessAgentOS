@@ -39,6 +39,8 @@ import type {
   TaskRunCostSummary,
   RecordTopologyFeedbackInput,
   RecommendTopologyInput,
+  McpServerGenerationRequest,
+  McpServerGenerationPreviewResult,
   OrchestrationMode,
   OrchestrationPlan,
   OrchestrationRunResult,
@@ -363,6 +365,9 @@ export interface HarnessDesktopApi {
   };
   mcp: {
     list(): Promise<McpServerConfig[]>;
+    generateServerDraft(input: {
+      request: McpServerGenerationRequest;
+    }): Promise<McpServerGenerationPreviewResult>;
     /** Create when input.server.id is empty/unknown; otherwise update in place. */
     upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
     delete(input: { serverId: string }): Promise<void>;

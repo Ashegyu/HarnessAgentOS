@@ -4,11 +4,22 @@ import {
   err,
   harnessError,
   isMcpServerConfig,
+  isMcpTransport,
   ok,
   type HarnessResult,
+  type GeneratedMcpServerDraft,
   type McpServerConfig,
+  type McpServerConfigDraft,
+  type McpServerDraftPreview,
+  type McpServerDraftPreviewIssue,
+  type McpServerGenerationPreviewResult,
+  type McpServerGenerationRequest,
   type McpServerHealth,
 } from "@harness/core";
+import {
+  buildGeneratedMcpServerDraft,
+  sanitizeServerName,
+} from "@harness/agent";
 import type { McpServerRepository } from "@harness/storage";
 
 /**
@@ -44,6 +55,143 @@ const validateServerInput = (
   return { ok: true, value: raw as McpServerConfig };
 };
 
+const normalizeGenerationRequest = (
+  raw: unknown,
+):
+  | { ok: true; value: McpServerGenerationRequest }
+  | { ok: false; reason: string } => {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, reason: "request must be an object" };
+  }
+  const request = raw as Record<string, unknown>;
+  const preferredTransport = request.preferredTransport;
+  const profileIds = request.profileIds;
+  if (
+    typeof request.userIntent !== "string" ||
+    request.userIntent.trim().length === 0
+  ) {
+    return { ok: false, reason: "request.userIntent is required" };
+  }
+  if (
+    preferredTransport !== undefined &&
+    !isMcpTransport(preferredTransport)
+  ) {
+    return {
+      ok: false,
+      reason: "request.preferredTransport must be stdio, http, or sse",
+    };
+  }
+  if (
+    profileIds !== undefined &&
+    (!Array.isArray(profileIds) ||
+      !profileIds.every((id) => typeof id === "string"))
+  ) {
+    return { ok: false, reason: "request.profileIds must be a string array" };
+  }
+  return {
+    ok: true,
+    value: {
+      userIntent: request.userIntent.trim(),
+      preferredTransport,
+      profileIds: profileIds === undefined ? undefined : [...profileIds],
+    },
+  };
+};
+
+const draftServerOnly = (
+  draft: GeneratedMcpServerDraft,
+): McpServerConfigDraft => {
+  const server: McpServerConfigDraft = {
+    name: draft.name,
+    description: draft.description,
+    transport: draft.transport,
+    env: draft.env,
+    envSecretRefs: draft.envSecretRefs,
+    scope: draft.scope,
+    enabled: draft.enabled,
+  };
+  if (draft.transport === "stdio") {
+    server.command = draft.command;
+    server.args = draft.args;
+  } else {
+    server.url = draft.url;
+  }
+  return server;
+};
+
+const hasPlaceholder = (value: string | undefined): boolean =>
+  typeof value === "string" &&
+  (/<[^>]+>/.test(value) || /example\.com/i.test(value));
+
+const buildPreview = (
+  draft: GeneratedMcpServerDraft,
+  existing: readonly McpServerConfig[],
+): McpServerDraftPreview => {
+  const server = draftServerOnly(draft);
+  const errors: McpServerDraftPreviewIssue[] = [];
+  const warnings: string[] = [
+    "Codex MCP config delivery is not enabled; this draft only targets the Claude MCP config boundary.",
+  ];
+
+  const stamped = {
+    id: "mcp_preview",
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+    ...server,
+  };
+  if (!isMcpServerConfig(stamped)) {
+    errors.push({
+      field: "content",
+      message: "generated server failed McpServerConfig validation",
+    });
+  }
+
+  const sanitizedConfigKey = sanitizeServerName(server.name);
+  const existingKeys = new Set(existing.map((s) => sanitizeServerName(s.name)));
+  const wouldNameCollide = existingKeys.has(sanitizedConfigKey);
+  if (wouldNameCollide) {
+    warnings.push(
+      `Sanitized Claude MCP config key "${sanitizedConfigKey}" already exists; save with a different name to avoid suffix allocation.`,
+    );
+  }
+
+  if (server.transport === "stdio") {
+    if (hasPlaceholder(server.command)) {
+      warnings.push(
+        "Replace the placeholder command before enabling this server.",
+      );
+    }
+    if ((server.args ?? []).some(hasPlaceholder)) {
+      warnings.push(
+        "Replace placeholder args such as <allowed-root> before enabling this server.",
+      );
+    }
+  } else if (hasPlaceholder(server.url)) {
+    warnings.push("Replace the example URL before enabling this server.");
+  }
+
+  const secretRefs = Object.values(server.envSecretRefs);
+  if (secretRefs.length > 0) {
+    warnings.push(
+      `Create matching Secret Vault keys before health check: ${secretRefs.join(", ")}.`,
+    );
+  }
+  if (!server.enabled) {
+    warnings.push(
+      "Generated drafts start disabled; enable only after save and health check.",
+    );
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    server,
+    wouldNameCollide,
+    sanitizedConfigKey,
+  };
+};
+
 const wrap = async <T>(fn: () => Promise<T>): Promise<HarnessResult<T>> => {
   try {
     return ok(await fn());
@@ -58,6 +206,21 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
   return {
     list: async (): Promise<HarnessResult<McpServerConfig[]>> =>
       wrap(() => mcp.list()),
+
+    generateServerDraft: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<McpServerGenerationPreviewResult>> => {
+      const v = normalizeGenerationRequest(input?.request);
+      if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      return wrap(async () => {
+        const existing = await mcp.list();
+        const draft = buildGeneratedMcpServerDraft(v.value);
+        return {
+          draft,
+          preview: buildPreview(draft, existing),
+        };
+      });
+    },
 
     upsert: async (input: {
       server: unknown;

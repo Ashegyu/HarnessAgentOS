@@ -7488,6 +7488,36 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   min-height: 0;
 }
 
+.mcp-servers-tab__generator {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mcp-servers-tab__generator .settings-field {
+  flex: 1 1 auto;
+}
+
+.mcp-servers-tab__preview {
+  margin-bottom: var(--space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mcp-servers-tab__preview ul,
+.mcp-servers-tab__warnings ul {
+  margin: 4px 0 0 0;
+  padding-left: 20px;
+}
+
 .remote-agents-tab__form,
 .mcp-servers-tab__form {
   display: flex;
@@ -8189,6 +8219,11 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   .mcp-servers-tab__editor,
   .pipelines-tab__editor {
     padding: 18px;
+  }
+
+  .mcp-servers-tab__generator {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .activity-log__filters {

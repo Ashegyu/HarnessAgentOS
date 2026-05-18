@@ -1,4 +1,8 @@
-import type { McpServerConfig, McpTransport } from "@harness/core";
+import type {
+  GeneratedMcpServerDraft,
+  McpServerConfig,
+  McpTransport,
+} from "@harness/core";
 
 /**
  * Form state for the MCP server editor. Mirrors the runtime
@@ -68,6 +72,22 @@ export const serverDraftFromConfig = (c: McpServerConfig): ServerDraft => ({
   envSecretRefsText: recordToText(c.envSecretRefs),
   scope: c.scope,
   enabled: c.enabled,
+});
+
+export const mcpGeneratedDraftToFormDraft = (
+  draft: GeneratedMcpServerDraft,
+): ServerDraft => ({
+  id: null,
+  name: draft.name,
+  description: draft.description,
+  transport: draft.transport,
+  command: draft.command ?? "",
+  argsText: (draft.args ?? []).join(" "),
+  url: draft.url ?? "",
+  envText: recordToText(draft.env),
+  envSecretRefsText: recordToText(draft.envSecretRefs),
+  scope: draft.scope,
+  enabled: draft.enabled,
 });
 
 export interface ServerDraftError {

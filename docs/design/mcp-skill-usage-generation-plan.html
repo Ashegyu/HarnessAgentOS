@@ -680,7 +680,22 @@
     MCP config 생성은 "새 MCP 서버를 구현"하는 것과 "이미 존재하는 MCP 서버를 등록"하는 것을 분리한다.
     1차 구현은 등록 초안 생성에 집중한다.
   </p>
-  <pre><code>export interface GeneratedMcpConfigDraft {
+  <pre><code>export interface GeneratedMcpServerDraft extends McpServerConfigDraft {
+  recommendedProfileIds: string[];
+  secretPlaceholders: string[];
+  rationale: string;
+}
+
+export interface McpServerDraftPreview {
+  ok: boolean;
+  errors: McpServerDraftPreviewIssue[];
+  warnings: string[];
+  server: McpServerConfigDraft;
+  wouldNameCollide: boolean;
+  sanitizedConfigKey: string;
+}
+
+export interface McpServerConfigDraft {
   name: string;
   description: string;
   transport: "stdio" | "http" | "sse";
@@ -691,16 +706,15 @@
   envSecretRefs: Record&lt;string, string&gt;;
   scope: "global" | "per-agent";
   enabled: boolean;
-  recommendedProfileIds: string[];
-  healthCheckPlan: string;
-  rationale: string;
 }</code></pre>
   <ol>
     <li>generator는 plain secret 값을 만들지 않는다. 필요한 secret은 <code>envSecretRefs</code> key 이름만 제안한다.</li>
     <li>사용자는 UI에서 secret vault에 값을 저장하거나 기존 key를 선택한다.</li>
+    <li><code>mcp.generateServerDraft</code>는 저장/파일쓰기/probe 없이 초안과 preview warning만 반환한다.</li>
     <li><code>mcp.upsert</code> 전 validation과 duplicate name check를 실행한다.</li>
     <li><code>mcp.healthCheck</code>가 성공하면 profile binding 후보를 보여준다.</li>
     <li>실패하면 row는 disabled 상태로 저장하거나 저장 자체를 보류한다.</li>
+    <li>Codex MCP config 전달은 현재 보류 상태다. 생성/preview 문구와 실제 적용 경계는 Claude <code>--mcp-config</code>로 한정한다.</li>
   </ol>
 
   <h3>6.6 MCP scaffold 자동 생성 흐름</h3>

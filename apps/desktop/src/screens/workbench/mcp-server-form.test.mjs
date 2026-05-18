@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   emptyServerDraft,
+  mcpGeneratedDraftToFormDraft,
   serializeServerDraft,
   serverDraftFromConfig,
   validateServerDraft,
@@ -117,4 +118,28 @@ test("serializeServerDraft omits args field when text is whitespace-only", () =>
   d.argsText = "   ";
   const out = serializeServerDraft(d);
   assert.equal(out.args, undefined);
+});
+
+test("mcpGeneratedDraftToFormDraft converts generated preview into a new unsaved draft", () => {
+  const d = mcpGeneratedDraftToFormDraft({
+    name: "GitHub MCP",
+    description: "Generated MCP server draft for GitHub.",
+    transport: "stdio",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-github"],
+    env: {},
+    envSecretRefs: { GITHUB_PERSONAL_ACCESS_TOKEN: "github_token" },
+    scope: "global",
+    enabled: false,
+    recommendedProfileIds: [],
+    secretPlaceholders: ["github_token"],
+    rationale: "preview only",
+  });
+
+  assert.equal(d.id, null);
+  assert.equal(d.name, "GitHub MCP");
+  assert.equal(d.command, "npx");
+  assert.equal(d.argsText, "-y @modelcontextprotocol/server-github");
+  assert.equal(d.envSecretRefsText, "GITHUB_PERSONAL_ACCESS_TOKEN=github_token");
+  assert.equal(d.enabled, false);
 });

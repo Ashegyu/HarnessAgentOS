@@ -282,6 +282,7 @@ envSecretRefs:
 
 | 버튼 | 동작 |
 |------|------|
+| **초안 생성** | 사용자 설명에서 MCP 서버 등록 초안을 만든다. 저장/파일쓰기/probe는 하지 않고, Claude config key 충돌과 placeholder/secret warning만 preview로 보여준다 |
 | **저장** | DB에 upsert |
 | **활성화 / 비활성화** | enabled 플래그 토글 |
 | **Health check** | stdio: spawn 후 MCP 표준 `Content-Length` 프레임으로 JSON-RPC `initialize`를 보내 응답 확인 (3s 타임아웃, 줄 단위 JSON 응답도 호환) <br> http/sse: HEAD 요청 후 실패 시 GET으로 reachability 재확인 |

@@ -110,6 +110,7 @@ export const IPC_CHANNELS = {
   /** MCP server registry — upsert merges create+update. */
   mcp: {
     list: "mcp:list",
+    generateServerDraft: "mcp:generateServerDraft",
     upsert: "mcp:upsert",
     delete: "mcp:delete",
     toggle: "mcp:toggle",

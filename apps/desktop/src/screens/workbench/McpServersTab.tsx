@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { McpServerConfig, McpServerHealth } from "@harness/core";
+import type {
+  McpServerConfig,
+  McpServerGenerationPreviewResult,
+  McpServerHealth,
+} from "@harness/core";
 import {
   emptyServerDraft,
+  mcpGeneratedDraftToFormDraft,
   serializeServerDraft,
   serverDraftFromConfig,
   validateServerDraft,
@@ -28,6 +33,10 @@ export const McpServersTab = (): JSX.Element => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ServerDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generationIntent, setGenerationIntent] = useState("");
+  const [generationResult, setGenerationResult] =
+    useState<McpServerGenerationPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -50,7 +59,9 @@ export const McpServersTab = (): JSX.Element => {
       return;
     }
     if (selectedId === "__new__") {
-      setDraft(emptyServerDraft());
+      setDraft((current) =>
+        current?.id === null ? current : emptyServerDraft(),
+      );
       return;
     }
     const found = list.servers.find((s) => s.id === selectedId);
@@ -69,6 +80,35 @@ export const McpServersTab = (): JSX.Element => {
     setDraft((d) => (d ? { ...d, [field]: value } : d));
   };
 
+  const handleNewServer = (): void => {
+    setGenerationResult(null);
+    setError(null);
+    setDraft(emptyServerDraft());
+    setSelectedId("__new__");
+  };
+
+  const handleGenerateDraft = async (): Promise<void> => {
+    const userIntent = generationIntent.trim();
+    if (userIntent.length === 0) {
+      setError("MCP 서버 용도를 먼저 입력하세요.");
+      return;
+    }
+    setGenerating(true);
+    setError(null);
+    try {
+      const result = await window.harness.mcp.generateServerDraft({
+        request: { userIntent },
+      });
+      setGenerationResult(result);
+      setSelectedId("__new__");
+      setDraft(mcpGeneratedDraftToFormDraft(result.draft));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     if (!draft || validationErrors.length > 0) return;
     setSaving(true);
@@ -85,6 +125,7 @@ export const McpServersTab = (): JSX.Element => {
         },
       });
       await refresh();
+      setGenerationResult(null);
       setSelectedId(result.id);
     } catch (e) {
       setError(errorMessage(e));
@@ -101,6 +142,7 @@ export const McpServersTab = (): JSX.Element => {
     try {
       await window.harness.mcp.delete({ serverId: draft.id });
       await refresh();
+      setGenerationResult(null);
       setSelectedId(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -159,8 +201,8 @@ export const McpServersTab = (): JSX.Element => {
             <button
               type="button"
               className="btn btn--ghost btn--sm"
-              onClick={() => setSelectedId("__new__")}
-              disabled={saving}
+              onClick={handleNewServer}
+              disabled={saving || generating}
             >
               + 새 서버
             </button>
@@ -190,7 +232,11 @@ export const McpServersTab = (): JSX.Element => {
                     className={`mcp-servers-tab__item${
                       selectedId === s.id ? " mcp-servers-tab__item--selected" : ""
                     }`}
-                    onClick={() => setSelectedId(s.id)}
+                    onClick={() => {
+                      setGenerationResult(null);
+                      setError(null);
+                      setSelectedId(s.id);
+                    }}
                   >
                     <span className="mcp-servers-tab__item-name">
                       {s.name}{" "}
@@ -219,6 +265,74 @@ export const McpServersTab = (): JSX.Element => {
         </aside>
 
         <section className="mcp-servers-tab__editor">
+          <div className="mcp-servers-tab__generator">
+            <label className="settings-field">
+              <span className="settings-field__label">자동 초안</span>
+              <textarea
+                className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                value={generationIntent}
+                disabled={saving || generating}
+                placeholder="예: GitHub 이슈를 읽는 stdio MCP 서버가 필요합니다. 토큰은 vault 키로만 연결합니다."
+                onChange={(e) => setGenerationIntent(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => void handleGenerateDraft()}
+              disabled={saving || generating}
+            >
+              {generating ? "초안 생성 중…" : "초안 생성"}
+            </button>
+          </div>
+
+          {generationResult && (
+            <div className="mcp-servers-tab__preview" role="note">
+              <strong>Preview:</strong>{" "}
+              Claude config key{" "}
+              <code>{generationResult.preview.sanitizedConfigKey}</code>
+              {generationResult.draft.recommendedProfileIds.length > 0 && (
+                <>
+                  {" "}
+                  · profile 후보{" "}
+                  <code>
+                    {generationResult.draft.recommendedProfileIds.join(", ")}
+                  </code>
+                </>
+              )}
+              <div>{generationResult.draft.rationale}</div>
+              {generationResult.preview.errors.length > 0 && (
+                <div
+                  className="mcp-servers-tab__errors"
+                  style={{ color: "var(--status-failed)" }}
+                >
+                  <strong>오류:</strong>
+                  <ul>
+                    {generationResult.preview.errors.map((issue, i) => (
+                      <li key={i}>{issue.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {generationResult.preview.warnings.length > 0 && (
+                <div className="mcp-servers-tab__warnings">
+                  <strong>확인:</strong>
+                  <ul>
+                    {generationResult.preview.warnings.map((warning, i) => (
+                      <li key={i}>{warning}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && draft === null && (
+            <div style={{ color: "var(--status-failed)", marginBottom: 8 }}>
+              {error}
+            </div>
+          )}
+
           {draft === null ? (
             <div className="empty-state">
               MCP 서버를 선택하거나 새로 만들어 편집하세요.
