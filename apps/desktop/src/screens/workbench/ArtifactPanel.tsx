@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Artifact, ArtifactKind } from "@harness/core";
 import { DiffViewer } from "./DiffViewer";
 import { LogViewer } from "./LogViewer";
 import { stripEmbeddedOrchestrationPlanJson } from "./orchestration-plan-display";
 import { FeatureHelpButton } from "./FeatureHelpButton";
+import { filterArtifacts } from "./artifact-panel-model";
 
 interface ArtifactPanelProps {
   artifacts: Artifact[];
@@ -38,6 +39,7 @@ export const ArtifactPanel = ({
   const [openId, setOpenId] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (openId === null) {
@@ -64,14 +66,18 @@ export const ArtifactPanel = ({
     };
   }, [openId]);
 
+  const filteredArtifacts = useMemo(
+    () => filterArtifacts(artifacts, query),
+    [artifacts, query],
+  );
   const opened = openId
-    ? artifacts.find((a) => a.id === openId) ?? null
+    ? filteredArtifacts.find((a) => a.id === openId) ?? null
     : null;
   const displayContent =
     opened?.kind === "orchestration_plan" && content !== null
       ? stripEmbeddedOrchestrationPlanJson(content)
       : content;
-  const groups = groupByKind(artifacts);
+  const groups = groupByKind(filteredArtifacts);
   const visibleKinds = Array.from(groups.keys());
 
   if (artifacts.length === 0) {
@@ -96,6 +102,28 @@ export const ArtifactPanel = ({
           <FeatureHelpButton featureId="artifacts" />
         </span>
       </header>
+      <div className="artifact-panel__toolbar">
+        <input
+          type="search"
+          className="settings-field__input"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search artifacts"
+          aria-label="Search artifacts"
+        />
+        {query.trim().length > 0 ? (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => setQuery("")}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      {filteredArtifacts.length === 0 ? (
+        <div className="empty-state">검색 결과가 없습니다.</div>
+      ) : null}
       <div className="artifact-panel__list">
         {visibleKinds.map((kind) => (
           <div key={kind} className="artifact-panel__group">
