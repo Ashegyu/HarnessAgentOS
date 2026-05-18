@@ -82,6 +82,42 @@ test("claude and codex run in parallel", async () => {
   assert.equal(await a, "a");
 });
 
+test("same-provider independent lanes run in parallel", async () => {
+  const q = new AgentInvocationQueue();
+  const gate = deferred();
+  const order = [];
+  const a = q.enqueue({
+    provider: "codex",
+    invocationId: "worker-a",
+    laneKey: "worker:worker-a",
+    work: async () => {
+      order.push("a-start");
+      await gate.promise;
+      return "a";
+    },
+  });
+  const b = q.enqueue({
+    provider: "codex",
+    invocationId: "worker-b",
+    laneKey: "worker:worker-b",
+    work: async () => {
+      order.push("b-start");
+      return "b";
+    },
+  });
+
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.ok(order.includes("a-start"));
+  assert.ok(order.includes("b-start"));
+  assert.equal(q.getDepth("codex"), 2);
+  assert.equal(await b, "b");
+  assert.equal(q.getDepth("codex"), 1);
+  gate.resolve();
+  assert.equal(await a, "a");
+  assert.equal(q.getDepth("codex"), 0);
+});
+
 test("cancel queued entry rejects without invoking the work", async () => {
   const q = new AgentInvocationQueue();
   const block = deferred();

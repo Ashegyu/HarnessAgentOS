@@ -61,6 +61,47 @@ const parseJsonLines = (text) =>
     .filter((line) => line.trim().length > 0)
     .map((line) => JSON.parse(line));
 
+const deferred = () => {
+  let resolveFn;
+  let rejectFn;
+  const promise = new Promise((resolve, reject) => {
+    resolveFn = resolve;
+    rejectFn = reject;
+  });
+  return { promise, resolve: resolveFn, reject: rejectFn };
+};
+
+const workerProfile = (overrides = {}) => ({
+  id: "ap-worker",
+  name: "Worker",
+  description: "",
+  provider: "claude",
+  role: "coder",
+  persona: "Be precise.",
+  tuning: {
+    model: "claude-sonnet-4-6",
+    timeoutMs: 300_000,
+    stallTimeoutMs: 60_000,
+    contextDepth: 5,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  ...overrides,
+});
+
 test("cancelInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FOUND", async () => {
   const svc = new AgentPlanningService({
     state: makeGateway(),
@@ -834,4 +875,119 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     ),
   );
   assert.ok(persisted.some((event) => event.type === "result"));
+});
+
+test("invokeForWorker runs same-provider workers on independent lanes", async () => {
+  const taskRun = {
+    id: "tr-parallel-workers",
+    threadId: "th-parallel-workers",
+    userRequest: "original request",
+    targetDir: "/tmp/project",
+    status: "running",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = workerProfile({
+    id: "ap-parallel-worker",
+    name: "Parallel Worker",
+    provider: "codex",
+    tuning: {
+      model: "gpt-5.5",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+  });
+  const gate = deferred();
+  const starts = [];
+  const requests = [];
+  let artifactSeq = 0;
+  let invocationSeq = 0;
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      getThread: async () => ({
+        id: taskRun.threadId,
+        title: "thread",
+        agentSessionId: "shared-claude-session",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async (input) => ({
+        id: `inv-worker-${++invocationSeq}`,
+        taskRunId: input.taskRunId,
+        provider: input.provider,
+        model: input.model,
+        status: "queued",
+        promptArtifactId: input.promptArtifactId,
+        stepId: input.stepId,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      updateAgentInvocation: async (id, patch) => ({
+        id,
+        taskRunId: taskRun.id,
+        provider: "codex",
+        model: "gpt-5.5",
+        status: patch.status ?? "running",
+        promptArtifactId: "art-prompt",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        ...patch,
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
+    adapter: {
+      invoke: async (request) => {
+        starts.push(request.invocationId);
+        requests.push(request);
+        if (starts.length === 1) await gate.promise;
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `worker output from ${request.invocationId}`,
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 10,
+        };
+      },
+    },
+  });
+
+  const first = svc.invokeForWorker({
+    taskRunId: taskRun.id,
+    profile,
+    stepId: "step-worker-1",
+    userRequest: "worker one",
+  });
+  const second = svc.invokeForWorker({
+    taskRunId: taskRun.id,
+    profile,
+    stepId: "step-worker-2",
+    userRequest: "worker two",
+  });
+
+  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  assert.equal(starts.length, 2, "same-provider workers should start together");
+  assert.equal(requests.some((request) => request.sessionId !== undefined), false);
+
+  gate.resolve();
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+  assert.match(firstResult.outputText, /worker output/);
+  assert.match(secondResult.outputText, /worker output/);
 });

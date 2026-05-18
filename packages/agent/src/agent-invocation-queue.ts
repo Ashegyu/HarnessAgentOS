@@ -31,15 +31,18 @@ interface QueueEntry {
 }
 
 interface ProviderLane {
+  provider: "claude" | "codex";
   inflight: QueueEntry | null;
   waiting: QueueEntry[];
 }
 
 export class AgentInvocationQueue {
-  private readonly lanes: Record<"claude" | "codex", ProviderLane> = {
-    claude: { inflight: null, waiting: [] },
-    codex: { inflight: null, waiting: [] },
-  };
+  private readonly lanes = new Map<string, ProviderLane>(
+    providers.map((provider) => [
+      provider,
+      { provider, inflight: null, waiting: [] },
+    ]),
+  );
 
   /**
    * Submit `work` for `provider`. Resolves with the work's value or
@@ -50,10 +53,18 @@ export class AgentInvocationQueue {
   enqueue<T>(input: {
     provider: "claude" | "codex";
     invocationId: string;
+    /**
+     * Optional independent concurrency lane. Omit for the default
+     * provider FIFO behavior used by standalone agent.generatePlan.
+     * Pipeline worker calls use unique lanes so same-provider read-only
+     * workers can actually run in parallel.
+     */
+    laneKey?: string;
     work: AgentInvocationWork<T>;
   }): Promise<T> {
     const { provider, invocationId, work } = input;
-    const lane = this.lanes[provider];
+    const laneKey = normalizeLaneKey(provider, input.laneKey);
+    const lane = this.getOrCreateLane(provider, laneKey);
     const controller = new AbortController();
     return new Promise<T>((resolve, reject) => {
       const entry: QueueEntry = {
@@ -68,18 +79,18 @@ export class AgentInvocationQueue {
               (value) => {
                 lane.inflight = null;
                 resolve(value);
-                this.drain(provider);
+                this.drain(laneKey);
               },
               (err) => {
                 lane.inflight = null;
                 reject(err);
-                this.drain(provider);
+                this.drain(laneKey);
               },
             );
         },
       };
       lane.waiting.push(entry);
-      if (lane.inflight === null) this.drain(provider);
+      if (lane.inflight === null) this.drain(laneKey);
     });
   }
 
@@ -89,8 +100,7 @@ export class AgentInvocationQueue {
    * the actual rejection arrives through the original `enqueue` promise.
    */
   cancel(invocationId: string): boolean {
-    for (const provider of providers) {
-      const lane = this.lanes[provider];
+    for (const [laneKey, lane] of this.lanes) {
       if (lane.inflight && lane.inflight.invocationId === invocationId) {
         lane.inflight.controller.abort();
         return true;
@@ -102,6 +112,7 @@ export class AgentInvocationQueue {
         const entry = lane.waiting[idx]!;
         lane.waiting.splice(idx, 1);
         entry.reject(harnessError(AGENT_CANCELLED, "invocation cancelled before start"));
+        this.pruneLane(laneKey);
         return true;
       }
     }
@@ -110,27 +121,58 @@ export class AgentInvocationQueue {
 
   /** Depth = waiting + (1 if in-flight). Read by RuntimeStatusBar. */
   getDepth(provider: "claude" | "codex"): number {
-    const lane = this.lanes[provider];
-    return lane.waiting.length + (lane.inflight !== null ? 1 : 0);
+    let depth = 0;
+    for (const lane of this.lanes.values()) {
+      if (lane.provider !== provider) continue;
+      depth += lane.waiting.length + (lane.inflight !== null ? 1 : 0);
+    }
+    return depth;
   }
 
   /** True when the given invocationId is queued or currently running. */
   isBusy(invocationId: string): boolean {
-    for (const provider of providers) {
-      const lane = this.lanes[provider];
+    for (const lane of this.lanes.values()) {
       if (lane.inflight?.invocationId === invocationId) return true;
       if (lane.waiting.some((e) => e.invocationId === invocationId)) return true;
     }
     return false;
   }
 
-  private drain(provider: "claude" | "codex"): void {
-    const lane = this.lanes[provider];
+  private drain(laneKey: string): void {
+    const lane = this.lanes.get(laneKey);
+    if (!lane) return;
     if (lane.inflight !== null) return;
     const next = lane.waiting.shift();
-    if (!next) return;
+    if (!next) {
+      this.pruneLane(laneKey);
+      return;
+    }
     next.run();
+  }
+
+  private getOrCreateLane(
+    provider: "claude" | "codex",
+    laneKey: string,
+  ): ProviderLane {
+    const existing = this.lanes.get(laneKey);
+    if (existing) return existing;
+    const lane: ProviderLane = { provider, inflight: null, waiting: [] };
+    this.lanes.set(laneKey, lane);
+    return lane;
+  }
+
+  private pruneLane(laneKey: string): void {
+    if (defaultLaneKeys.has(laneKey)) return;
+    const lane = this.lanes.get(laneKey);
+    if (!lane || lane.inflight !== null || lane.waiting.length > 0) return;
+    this.lanes.delete(laneKey);
   }
 }
 
 const providers: ReadonlyArray<"claude" | "codex"> = ["claude", "codex"];
+const defaultLaneKeys = new Set<string>(providers);
+
+const normalizeLaneKey = (
+  provider: "claude" | "codex",
+  laneKey: string | undefined,
+): string => (laneKey ? `${provider}:${laneKey}` : provider);

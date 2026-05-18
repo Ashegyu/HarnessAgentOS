@@ -4391,8 +4391,43 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-primary);
 }
 
+.agent-panel__streams,
 .agent-panel__history {
   margin-top: var(--space-2);
+}
+
+.agent-panel__streams {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.agent-panel__stream {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border-subtle);
+}
+
+.agent-panel__stream:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.agent-panel__stream-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-panel__stream-meta--attention {
+  color: var(--status-warning);
 }
 
 .agent-panel__history summary {

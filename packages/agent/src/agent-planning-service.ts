@@ -894,11 +894,11 @@ export class AgentPlanningService {
     const tuning = input.profile.tuning;
     const model = resolveModel(provider, tuning.model);
 
-    // Resume the thread's prior claude session so worker shares
-    // conversation memory with the rest of the thread.
-    const thread = await this.deps.state.getThread(taskRun.threadId);
-    const existingSessionId =
-      provider === "claude" ? thread?.agentSessionId : undefined;
+    // Worker invocations are independent pipeline steps. They receive
+    // repo context and explicit handoffs in the prompt, so they do not
+    // resume the thread-level Claude session; sharing one session would
+    // make same-provider parallel workers contend on the provider CLI.
+    const existingSessionId = undefined;
 
     // Per-invocation MCP config (Phase 4b). Cleaned up via try/finally.
     let mcpConfigPath: string | null = null;
@@ -1032,6 +1032,7 @@ export class AgentPlanningService {
       const result = await this.queue.enqueue({
         provider,
         invocationId: invocation.id,
+        laneKey: `worker:${invocation.id}`,
         work: (signal) => {
           emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
           return this.adapter.invoke(
@@ -1042,21 +1043,6 @@ export class AgentPlanningService {
         },
       });
       emitProgress("parse", "Worker 응답 정리 중", `${result.stdout.length}자 출력`);
-      if (
-        provider === "claude" &&
-        result.sessionId &&
-        result.sessionId !== existingSessionId
-      ) {
-        try {
-          await this.deps.state.setThreadAgentSession(
-            taskRun.threadId,
-            result.sessionId,
-          );
-        } catch {
-          // best-effort — failing to record the session id must not
-          // tear down a successful worker invocation.
-        }
-      }
       const redactedOutput = redactSecrets(result.stdout, 200_000);
       const redactedRawOutput = redactSecrets(
         result.rawStdout ?? result.stdout,

@@ -367,9 +367,15 @@ const ChatTurn = ({
   // intact (one user bubble + one agent bubble + inline approval card)
   // and lets the stream sections own their own scroll without breaking
   // the parent transcript scroll.
+  const displayInvocations = useMemo(
+    () => orderedAgentInvocationsForDisplay(invocations),
+    [invocations],
+  );
   const latestInvocation =
-    invocations.length > 0 ? invocations[invocations.length - 1] : undefined;
-  const hasInvocation = invocations.length > 0;
+    displayInvocations.length > 0
+      ? displayInvocations[displayInvocations.length - 1]
+      : undefined;
+  const hasInvocation = displayInvocations.length > 0;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
   const statusBadge = deriveChatTurnStatusBadge({
     taskRunStatus: taskRun.status,
@@ -411,7 +417,7 @@ const ChatTurn = ({
             // lives in the right panel's Plan tab, so duplicating it
             // here would just confuse "which one is canonical?".
             <div className="inline-agent-stream-stack">
-              {invocations.map((invocation, index) => (
+              {displayInvocations.map((invocation, index) => (
                 <section
                   key={invocation.id}
                   className="inline-agent-stream-stack__item"

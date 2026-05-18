@@ -85,14 +85,13 @@ export const AgentPanel = ({
     [invocations],
   );
 
-  const latest =
-    displayInvocations.length > 0
-      ? displayInvocations[displayInvocations.length - 1]
-      : undefined;
-  const previousInvocations =
-    displayInvocations.length > 1 ? displayInvocations.slice(0, -1) : [];
-  const latestRemoteTask = latest
-    ? remoteTaskForInvocation(remoteTaskRefs, latest.id)
+  const activeInvocation =
+    [...displayInvocations]
+      .reverse()
+      .find((inv) => inv.status === "queued" || inv.status === "running") ??
+    displayInvocations[displayInvocations.length - 1];
+  const activeRemoteTask = activeInvocation
+    ? remoteTaskForInvocation(remoteTaskRefs, activeInvocation.id)
     : null;
   // Show this panel whenever there is at least one invocation (agent
   // mode OR pipeline workers), or when the task is still in `drafting`
@@ -121,7 +120,7 @@ export const AgentPanel = ({
   };
 
   const renderControls = (): JSX.Element => {
-    if (!latest) {
+    if (!activeInvocation) {
       // drafting state, no invocation yet. Suppress the explicit
       // "Agent plan 생성" button when the run is orchestration-driven —
       // that's the wrong handle for pipelines (the worker auto-runs).
@@ -151,16 +150,20 @@ export const AgentPanel = ({
       );
     }
     const canCancel =
-      latest.status === "queued" || latest.status === "running";
+      activeInvocation.status === "queued" ||
+      activeInvocation.status === "running";
     const canRetry =
-      latest.status === "failed" || latest.status === "cancelled";
+      activeInvocation.status === "failed" ||
+      activeInvocation.status === "cancelled";
     return (
       <>
         {canCancel && (
           <button
             type="button"
             disabled={busy !== null}
-            onClick={() => void handle("cancel", () => onCancel(latest.id))}
+            onClick={() =>
+              void handle("cancel", () => onCancel(activeInvocation.id))
+            }
           >
             {busy === "cancel" ? "취소 중…" : "취소"}
           </button>
@@ -169,7 +172,9 @@ export const AgentPanel = ({
           <button
             type="button"
             disabled={!agentAvailable || busy !== null}
-            onClick={() => void handle("retry", () => onRetry(latest.id))}
+            onClick={() =>
+              void handle("retry", () => onRetry(activeInvocation.id))
+            }
           >
             {busy === "retry" ? "재시도 중…" : "재시도"}
           </button>
@@ -195,81 +200,81 @@ export const AgentPanel = ({
           Agent
           <FeatureHelpButton featureId="agentPlan" />
         </span>
-        {latest && (
+        {activeInvocation && (
           <span className="agent-panel__meta">
-            {latest.provider}:{latest.model} · {formatLatency(latest.latencyMs)}
-            {latestRemoteTask && (
+            {displayInvocations.length > 1
+              ? `${displayInvocations.length} invocations`
+              : `${activeInvocation.provider}:${activeInvocation.model} · ${formatLatency(
+                  activeInvocation.latencyMs,
+                )}`}
+            {activeRemoteTask && (
               <span
                 className={`agent-panel__remote${
-                  remoteTaskNeedsAttention(latestRemoteTask)
+                  remoteTaskNeedsAttention(activeRemoteTask)
                     ? " agent-panel__remote--attention"
                     : ""
                 }`}
                 title={[
-                  remoteTaskAttentionLabel(latestRemoteTask),
-                  remoteTaskTitle(latestRemoteTask),
+                  remoteTaskAttentionLabel(activeRemoteTask),
+                  remoteTaskTitle(activeRemoteTask),
                 ]
                   .filter(Boolean)
                   .join(" · ")}
               >
-                {formatRemoteTaskLabel(latestRemoteTask)}
+                {formatRemoteTaskLabel(activeRemoteTask)}
               </span>
             )}
           </span>
         )}
       </header>
       <div className="panel-body panel-body--compact">
-        {latest ? (
-          <>
-            <AgentAnswerLabel
-              invocation={latest}
-              steps={steps}
-              ordinal={displayInvocations.length}
-            />
-            <AgentStreamView invocation={latest} />
-          </>
+        {displayInvocations.length > 0 ? (
+          <div className="agent-panel__streams">
+            {displayInvocations.map((invocation, index) => {
+              const remote = remoteTaskForInvocation(remoteTaskRefs, invocation.id);
+              return (
+                <section key={invocation.id} className="agent-panel__stream">
+                  <AgentAnswerLabel
+                    invocation={invocation}
+                    steps={steps}
+                    ordinal={index + 1}
+                  />
+                  {remote ? (
+                    <div
+                      className={`agent-panel__stream-meta${
+                        remoteTaskNeedsAttention(remote)
+                          ? " agent-panel__stream-meta--attention"
+                          : ""
+                      }`}
+                      title={[
+                        remoteTaskAttentionLabel(remote),
+                        remoteTaskTitle(remote),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    >
+                      {formatRemoteTaskLabel(remote)}
+                    </div>
+                  ) : null}
+                  <AgentStreamView invocation={invocation} />
+                  {invocation.errorCode && invocation.status !== "succeeded" && (
+                    <div className="agent-panel__error">
+                      <strong>{invocation.errorCode}</strong>
+                      <span>{invocation.errorMessage}</span>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         ) : (
           <div className="empty-state">
             Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요.
           </div>
         )}
         <InternalHandoffPanel handoffs={handoffs} />
-        {latest?.errorCode && latest.status !== "succeeded" && (
-          <div className="agent-panel__error">
-            <strong>{latest.errorCode}</strong>
-            <span>{latest.errorMessage}</span>
-          </div>
-        )}
         <div className="agent-panel__actions">{renderControls()}</div>
         {error && <div className="agent-panel__error">{error}</div>}
-        {previousInvocations.length > 0 && (
-          <details className="agent-panel__history" open>
-            <summary>이전 Agent 응답 ({previousInvocations.length})</summary>
-            <div className="agent-panel__history-streams">
-              {previousInvocations.map((inv, index) => {
-                const remote = remoteTaskForInvocation(remoteTaskRefs, inv.id);
-                return (
-                  <section key={inv.id} className="agent-panel__history-stream">
-                    <AgentAnswerLabel
-                      invocation={inv}
-                      steps={steps}
-                      ordinal={index + 1}
-                    />
-                    <header className="agent-panel__history-stream-head">
-                      <code title={inv.id}>{inv.id.slice(0, 16)}…</code>
-                      <span>
-                        {inv.status} · {formatLatency(inv.latencyMs)}
-                        {inv.errorCode ? ` · ${inv.errorCode}` : ""}
-                        {remote ? ` · ${formatRemoteTaskLabel(remote)}` : ""}
-                      </span>
-                    </header>
-                    <AgentStreamView invocation={inv} />
-                  </section>
-                );
-              })}
-            </div>
-          </details>
-        )}
       </div>
     </section>
   );
