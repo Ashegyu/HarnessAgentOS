@@ -1,4 +1,5 @@
 import type { EvalCaseKind, EvalCaseResult, EvalRunSummary } from "./types.ts";
+import { computePerformanceSummary } from "./performance-summary.ts";
 
 interface SuiteSummary {
   readonly suite: EvalCaseKind;
@@ -29,9 +30,33 @@ export const renderReport = (summary: EvalRunSummary): string => {
     lines.push(
       `| ${suite.suite} | ${suite.passed}/${suite.total} | ${pct(
         suite.passAt3Avg,
-      )} | ${pct(suite.passToThe3Avg)} | ${suite.totalTokens.toLocaleString(
-        "en-US",
-      )} | ${ms(suite.totalDurationMs)} |`,
+      )} | ${pct(suite.passToThe3Avg)} | ${formatNumber(
+        suite.totalTokens,
+      )} | ${formatDuration(suite.totalDurationMs)} |`,
+    );
+  }
+
+  lines.push("");
+  lines.push("## Performance Summary");
+  lines.push("");
+  lines.push(
+    "| Suite | Attempts | Avg Time | P50 Time | P95 Time | Avg Tokens | Tokens/Passed Attempt | Approvals Created | Manual Approvals | Attempt Pass Rate |",
+  );
+  lines.push(
+    "|-------|----------|----------|----------|----------|------------|-----------------------|-------------------|------------------|-------------------|",
+  );
+
+  for (const suite of computePerformanceSummary(summary.cases)) {
+    lines.push(
+      `| ${suite.suite} | ${formatNumber(suite.attemptCount)} | ${formatDuration(
+        suite.avgDurationMs,
+      )} | ${formatDuration(suite.p50DurationMs)} | ${formatDuration(
+        suite.p95DurationMs,
+      )} | ${formatNumber(suite.avgTokens)} | ${formatOptionalNumber(
+        suite.tokensPerPassedAttempt,
+      )} | ${formatNumber(suite.totalApprovalsCreated)} | ${formatNumber(
+        suite.totalApprovalsManual,
+      )} | ${pct(suite.passRate)} |`,
     );
   }
 
@@ -63,9 +88,9 @@ const renderCaseResult = (caseResult: EvalCaseResult): string[] => {
 
   for (const attempt of caseResult.attempts) {
     lines.push(
-      `| ${attempt.attemptIdx} | ${attempt.passed ? "PASS" : "FAIL"} | ${attempt.tokens.toLocaleString(
-        "en-US",
-      )} | ${ms(attempt.durationMs)} | ${attempt.gateStatus ?? "-"} | ${
+      `| ${attempt.attemptIdx} | ${attempt.passed ? "PASS" : "FAIL"} | ${formatNumber(
+        attempt.tokens,
+      )} | ${formatDuration(attempt.durationMs)} | ${attempt.gateStatus ?? "-"} | ${
         attempt.fsEscapeDetected ? "YES" : "-"
       } | ${attempt.partialPassAsFail ? "YES" : "-"} |`,
     );
@@ -130,9 +155,30 @@ const groupBySuite = (
 
 const pct = (value: number): string => `${Math.round(value * 100)}%`;
 
-const ms = (value: number): string => {
-  if (value < 1000) {
-    return `${value}ms`;
+const formatDuration = (value: number): string => {
+  if (!Number.isFinite(value) || value < 0) {
+    return "n/a";
   }
-  return `${(value / 1000).toFixed(1)}s`;
+  if (value === 0) {
+    return "<1ms";
+  }
+  if (value < 1000) {
+    return `${Math.round(value).toLocaleString("en-US")}ms`;
+  }
+  return `${(value / 1000).toLocaleString("en-US", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}s`;
 };
+
+const formatNumber = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    return "n/a";
+  }
+  return value.toLocaleString("en-US", {
+    maximumFractionDigits: 1,
+  });
+};
+
+const formatOptionalNumber = (value: number | null): string =>
+  value === null ? "n/a" : formatNumber(value);

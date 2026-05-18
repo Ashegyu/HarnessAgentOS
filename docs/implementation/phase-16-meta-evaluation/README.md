@@ -1,6 +1,6 @@
 # 메타 평가 시스템 (Meta Evaluation) — 구현 계획서
 
-> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · Phase 6은 v2 gate 미충족으로 deferred
+> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · v1.5a real CLI smoke 완료 · v1.5b eval performance summary 완료 · Phase 6은 v2 gate 미충족으로 deferred
 > **작성**: 2026-05-17
 > **대상**: HarnessAgentOS의 회귀·품질·안전성을 측정하는 자체 평가 시스템 구축
 
@@ -97,12 +97,20 @@ Phase 2와 Phase 3는 case-runner 공유 외에는 독립적이라 **병렬 진�
 | MEDIUM | RepairLoop 케이스가 기존 단위 테스트와 중복 | Phase 2 — full path 통합 신호 강조 |
 | LOW | `SCHEMA_VERSION = 21` 다른 브랜치와 충돌 | Phase 4 — 머지 직전 재확인 |
 
-## 8. v1 완료 상태
+## 8. v1 / v1.5 완료 상태
 
 Phase 0~5는 TDD로 구현 완료됐다. 현재 진입점은 다음과 같다:
 
 ```bash
 npm run eval
+```
+
+v1.5a는 `npm run eval:smoke` real CLI smoke 경로를 단일 capability case로 검증하는 범위까지 완료됐다.
+
+v1.5b는 기존 markdown eval report에 attempt-level Performance Summary를 추가하는 범위까지 완료됐다. 포함 지표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate다. 반복 실행용 fake 성능 요약은 다음 명령으로 확인한다:
+
+```bash
+npm run eval:perf
 ```
 
 Phase 6은 [v2 진행 조건](./phase-6-v2-deferred.md#3-v2-진행-조건-gate)이 충족될 때 별도 마일스톤으로 재개한다.

@@ -198,7 +198,8 @@ v2를 시작하기 전에 *반드시* 확인:
 
 조건 미충족 시 v2 시작 안 함. v1.5로 부분 도입 가능:
 - v1.5a: real CLI만 (viewer 없이)
-- v1.5b: LLM judge만 (provider 비교 없이)
+- v1.5b: 기존 markdown report에 attempt-level performance summary 추가 (viewer 없이)
+- v1.5c 이후 후보: LLM judge만 (provider 비교 없이)
 
 ### 3.1 현재 gate 판정
 
@@ -211,7 +212,11 @@ Phase 0~5 v1은 구현 완료됐고 `npm run eval`은 fake adapter 기반 determ
 | real CLI / LLM judge 비용 예산 | 미정 |
 | 9-layer IPC viewer 일정 | 미정 |
 
-따라서 현재 Phase 6 완료 기준은 전체 v2 구현이 아니라, v1.5a 범위에서 `EVAL_REAL_CLI=1` / `npm run eval:smoke`가 단일 capability smoke 케이스를 실제 `DefaultModelCliAdapter`로 실행하고, v1 fake eval gate가 안정적으로 통과하는 상태다. Provider 비교, LLM judge, viewer UI, cost trend는 gate 충족 후 이 문서의 2.2부터 별도 TDD phase로 시작한다.
+따라서 현재 Phase 6 완료 기준은 전체 v2 구현이 아니라, v1.5a 범위에서 `EVAL_REAL_CLI=1` / `npm run eval:smoke`가 단일 capability smoke 케이스를 실제 `DefaultModelCliAdapter`로 실행하고, v1 fake eval gate가 안정적으로 통과하는 상태다.
+
+v1.5b는 existing eval report의 `Summary by Suite` 아래에 attempt-level `Performance Summary` markdown table을 추가하는 범위까지 완료됐다. 이 표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate를 보여준다. `npm run eval:perf`는 fake adapter 기반 `--suite=all --attempts=10` 반복 실행용 단축 스크립트다.
+
+Provider 비교, LLM judge, viewer UI, cost trend 시각화는 여전히 v2 deferred이며, gate 충족 후 이 문서의 2.2부터 별도 TDD phase로 시작한다.
 
 ## 4. 일정 추정 (Optimistic)
 

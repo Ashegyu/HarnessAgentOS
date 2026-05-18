@@ -68,6 +68,61 @@ test("renderReport produces stable markdown sections", () => {
   assert.match(md, /\*\*Failure reasons\*\*/);
 });
 
+test("renderReport includes attempt-level performance summary", () => {
+  const md = renderReport({
+    ...makeSummary(),
+    cases: [
+      {
+        ...makeCaseResult("capability-case", "capability", false),
+        attempts: [
+          {
+            attemptIdx: 0,
+            passed: true,
+            tokens: 1_000,
+            durationMs: 1_000,
+            gateStatus: "passed",
+            approvalsCreated: 1,
+            approvalsManual: 0,
+            fsEscapeDetected: false,
+          },
+          {
+            attemptIdx: 1,
+            passed: false,
+            tokens: 2_000,
+            durationMs: 2_000,
+            gateStatus: "failed",
+            approvalsCreated: 2,
+            approvalsManual: 1,
+            fsEscapeDetected: false,
+            graderReason: "expected failure",
+          },
+          {
+            attemptIdx: 2,
+            passed: true,
+            tokens: 3_000,
+            durationMs: 4_000,
+            gateStatus: "passed",
+            approvalsCreated: 0,
+            approvalsManual: 0,
+            fsEscapeDetected: false,
+          },
+        ],
+        passAt1: 1,
+        passAt3: 1,
+        passToThe3: 0,
+        consistency: 2 / 3,
+        totalTokens: 6_000,
+        totalDurationMs: 7_000,
+        outcome: "partial",
+      },
+    ],
+  });
+
+  assert.match(md, /## Performance Summary/);
+  assert.match(md, /\| Suite \| Attempts \| Avg Time \| P50 Time \| P95 Time \| Avg Tokens \| Tokens\/Passed Attempt \| Approvals Created \| Manual Approvals \| Attempt Pass Rate \|/);
+  assert.match(md, /\| capability \| 3 \| 2\.3s \| 2\.0s \| 4\.0s \| 2,000 \| 3,000 \| 3 \| 1 \| 67% \|/);
+});
+
 test("writeMarkdownReport creates report.md", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "hgos-report-"));
   try {
