@@ -20,6 +20,13 @@ import {
 } from "./model-cli-invocation.ts";
 import { resolveProviderCommand } from "./provider-executable.ts";
 
+const DEFAULT_ABORT_KILL_GRACE_MS = 2_000;
+
+export interface DefaultModelCliAdapterDeps {
+  spawn?: typeof spawn;
+  abortKillGraceMs?: number;
+}
+
 /**
  * Phase 8 default ModelCliAdapter.
  *
@@ -37,6 +44,15 @@ import { resolveProviderCommand } from "./provider-executable.ts";
  * that assistant text as final in the UI.
  */
 export class DefaultModelCliAdapter implements ModelCliAdapter {
+  private readonly spawn: typeof spawn;
+  private readonly abortKillGraceMs: number;
+
+  constructor(deps: DefaultModelCliAdapterDeps = {}) {
+    this.spawn = deps.spawn ?? spawn;
+    this.abortKillGraceMs =
+      deps.abortKillGraceMs ?? DEFAULT_ABORT_KILL_GRACE_MS;
+  }
+
   async invoke(
     request: ModelCliRequest,
     onEvent: (e: AgentStreamEvent) => void,
@@ -62,13 +78,14 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       model,
     });
 
-    let child;
+    let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, invocation.args, {
+      child = this.spawn(command, invocation.args, {
         cwd: request.cwd,
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
         env: { ...process.env },
+        ...(signal ? { signal } : {}),
       });
     } catch (e) {
       throw new AgentCliError(
@@ -83,14 +100,28 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     let lastChunkAt = Date.now();
     let killedByUs = false;
     let killReason: "timeout" | "stall" | "aborted" | null = null;
+    let overallTimer: NodeJS.Timeout | undefined;
+    let stallTimer: NodeJS.Timeout | undefined;
+    let abortFallbackTimer: NodeJS.Timeout | undefined;
+    let closed = false;
+    let onAbort: () => void = () => {};
 
-    const overallTimer = setTimeout(() => {
+    const cleanup = (options?: { clearAbortFallback?: boolean }): void => {
+      if (overallTimer) clearTimeout(overallTimer);
+      if (stallTimer) clearInterval(stallTimer);
+      if (options?.clearAbortFallback !== false && abortFallbackTimer) {
+        clearTimeout(abortFallbackTimer);
+      }
+      if (signal) signal.removeEventListener("abort", onAbort);
+    };
+
+    overallTimer = setTimeout(() => {
       killReason = "timeout";
       killedByUs = true;
       child.kill("SIGKILL");
     }, timeoutMs);
 
-    const stallTimer = setInterval(() => {
+    stallTimer = setInterval(() => {
       if (Date.now() - lastChunkAt > stallTimeoutMs) {
         killReason = "stall";
         killedByUs = true;
@@ -98,7 +129,8 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       }
     }, Math.min(1_000, stallTimeoutMs));
 
-    const onAbort = (): void => {
+    onAbort = (): void => {
+      if (killReason === "aborted") return;
       killReason = "aborted";
       killedByUs = true;
       // SIGTERM first; if the child ignores it the SIGKILL fallback fires
@@ -108,13 +140,14 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       } catch {
         // ignore — child may already be exiting
       }
-      setTimeout(() => {
+      abortFallbackTimer = setTimeout(() => {
+        if (closed) return;
         try {
           child.kill("SIGKILL");
         } catch {
           // ignore
         }
-      }, 2_000);
+      }, this.abortKillGraceMs);
     };
     if (signal) {
       if (signal.aborted) onAbort();
@@ -147,8 +180,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     try {
       child.stdin?.end(invocation.stdin, "utf8");
     } catch (e) {
-      clearTimeout(overallTimer);
-      clearInterval(stallTimer);
+      cleanup();
       throw new AgentCliError(
         AGENT_SPAWN_FAILED,
         "spawn_failed",
@@ -158,14 +190,23 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     const exitCode = await new Promise<number>((resolve, reject) => {
       child.on("error", (err) => {
-        reject(
-          new AgentCliError(AGENT_SPAWN_FAILED, "spawn_failed", err.message),
-        );
+        if (killReason === "aborted" || signal?.aborted) {
+          cleanup({ clearAbortFallback: false });
+          reject(
+            new AgentCliError(
+              AGENT_CANCELLED,
+              "aborted",
+              "Invocation cancelled by user",
+            ),
+          );
+          return;
+        }
+        cleanup();
+        reject(new AgentCliError(AGENT_SPAWN_FAILED, "spawn_failed", err.message));
       });
       child.on("close", (code) => {
-        clearTimeout(overallTimer);
-        clearInterval(stallTimer);
-        if (signal) signal.removeEventListener("abort", onAbort);
+        closed = true;
+        cleanup();
         resolve(code ?? -1);
       });
     });

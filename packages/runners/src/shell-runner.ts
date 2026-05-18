@@ -24,6 +24,12 @@ export class ShellRunnerError extends Error {
 }
 
 const STDOUT_LIMIT = 1_000_000; // 1 MB
+const DEFAULT_ABORT_KILL_GRACE_MS = 2_000;
+
+export interface ShellRunnerDeps {
+  spawn?: typeof spawn;
+  abortKillGraceMs?: number;
+}
 
 /**
  * Phase 3 shell runner. Executes a single approved command in the
@@ -37,13 +43,30 @@ const STDOUT_LIMIT = 1_000_000; // 1 MB
  * first.
  */
 export class ShellRunner {
+  private readonly spawn: typeof spawn;
+  private readonly abortKillGraceMs: number;
+
+  constructor(deps: ShellRunnerDeps = {}) {
+    this.spawn = deps.spawn ?? spawn;
+    this.abortKillGraceMs =
+      deps.abortKillGraceMs ?? DEFAULT_ABORT_KILL_GRACE_MS;
+  }
+
   async run(input: {
     command: string;
     cwd: string;
     timeoutMs?: number;
     idleTimeoutMs?: number;
     env?: NodeJS.ProcessEnv;
+    signal?: AbortSignal;
   }): Promise<ShellRunResult> {
+    if (input.signal?.aborted) {
+      throw new ShellRunnerError(
+        "RUNNER_CANCELLED",
+        `Command cancelled before spawn: ${input.command}`,
+      );
+    }
+
     const safety = classifyShellCommand(input.command);
     if (safety.dangerous) {
       throw new ShellRunnerError(
@@ -54,11 +77,22 @@ export class ShellRunner {
 
     const start = Date.now();
     return new Promise<ShellRunResult>((resolveResult, reject) => {
-      const child = spawn(input.command, {
-        shell: true,
-        cwd: input.cwd,
-        env: { ...process.env, ...(input.env ?? {}) },
-      });
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = this.spawn(input.command, {
+          shell: true,
+          cwd: input.cwd,
+          env: { ...process.env, ...(input.env ?? {}) },
+        });
+      } catch (e) {
+        reject(
+          new ShellRunnerError(
+            "RUNNER_EXECUTION_FAILED",
+            `Failed to spawn: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+        );
+        return;
+      }
 
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
@@ -69,28 +103,65 @@ export class ShellRunner {
       const timeoutMs = input.timeoutMs ?? DEFAULT_RUNNER_SHELL_TIMEOUT_MS;
       const idleTimeoutMs =
         input.idleTimeoutMs ?? DEFAULT_RUNNER_IDLE_TIMEOUT_MS;
-      let hardTimer: NodeJS.Timeout;
+      let hardTimer: NodeJS.Timeout | undefined;
       let idleTimer: NodeJS.Timeout | undefined;
+      let abortFallbackTimer: NodeJS.Timeout | undefined;
+      let closed = false;
+      let onAbort: () => void = () => {};
 
-      const cleanup = (): void => {
-        clearTimeout(hardTimer);
+      const cleanup = (options?: { clearAbortFallback?: boolean }): void => {
+        if (hardTimer) clearTimeout(hardTimer);
         if (idleTimer) clearTimeout(idleTimer);
+        input.signal?.removeEventListener("abort", onAbort);
+        if (options?.clearAbortFallback !== false && abortFallbackTimer) {
+          clearTimeout(abortFallbackTimer);
+        }
       };
-      const fail = (message: string): void => {
+      const terminateForAbort = (): void => {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* ignore */
+        }
+        abortFallbackTimer = setTimeout(() => {
+          if (closed) return;
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            /* ignore */
+          }
+        }, this.abortKillGraceMs);
+      };
+      const fail = (
+        code: string,
+        message: string,
+        options?: { clearAbortFallback?: boolean },
+      ): void => {
         if (settled) return;
         settled = true;
-        cleanup();
+        cleanup(options);
+        reject(new ShellRunnerError(code, message));
+      };
+      const failExecution = (message: string): void => {
         try {
           child.kill();
         } catch {
           /* ignore */
         }
-        reject(new ShellRunnerError("RUNNER_EXECUTION_FAILED", message));
+        fail("RUNNER_EXECUTION_FAILED", message);
+      };
+      onAbort = (): void => {
+        terminateForAbort();
+        fail(
+          "RUNNER_CANCELLED",
+          `Command cancelled: ${input.command}`,
+          { clearAbortFallback: false },
+        );
       };
       const armIdleTimer = (): void => {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
-          fail(
+          failExecution(
             `Command idle timed out after ${idleTimeoutMs}ms: ${input.command}`,
           );
         }, idleTimeoutMs);
@@ -114,8 +185,14 @@ export class ShellRunner {
       child.stdout?.on("data", onStdout);
       child.stderr?.on("data", onStderr);
 
+      if (input.signal) {
+        if (input.signal.aborted) onAbort();
+        else input.signal.addEventListener("abort", onAbort, { once: true });
+      }
+      if (settled) return;
+
       hardTimer = setTimeout(() => {
-        fail(`Command timed out after ${timeoutMs}ms: ${input.command}`);
+        failExecution(`Command timed out after ${timeoutMs}ms: ${input.command}`);
       }, timeoutMs);
       armIdleTimer();
 
@@ -132,6 +209,8 @@ export class ShellRunner {
       });
 
       child.on("close", (code) => {
+        closed = true;
+        if (abortFallbackTimer) clearTimeout(abortFallbackTimer);
         if (settled) return;
         settled = true;
         cleanup();

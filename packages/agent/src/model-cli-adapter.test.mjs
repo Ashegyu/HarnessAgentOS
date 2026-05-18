@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
 import {
   buildCliInvocation,
   extractCodexExecPayload,
@@ -19,6 +21,36 @@ const baseRequest = (overrides = {}) => ({
   },
   sandbox: { primaryDir: "C:\\repo", enforceInPrompt: true },
   ...overrides,
+});
+
+const createMockChild = () => {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { end: () => {} };
+  child.killCalls = [];
+  child.kill = (signal) => {
+    child.killCalls.push(signal);
+    return true;
+  };
+  return child;
+};
+
+const makeAdapterRequest = () => ({
+  invocationId: "inv_1",
+  taskRunId: "tsk_1",
+  cwd: process.cwd(),
+  prompt: "answer",
+  modelConfig: {
+    provider: "codex",
+    model: "gpt-5.5",
+    timeoutMs: 5_000,
+    stallTimeoutMs: 5_000,
+  },
+  sandbox: {
+    primaryDir: process.cwd(),
+    enforceInPrompt: true,
+  },
 });
 
 test("buildCliInvocation keeps Claude-specific flags on the Claude command", () => {
@@ -149,5 +181,70 @@ test("formatProviderExitFailure falls back to stderr for non-Codex failures", ()
   assert.equal(
     formatProviderExitFailure("claude", 1, "", "auth failed\n"),
     "claude exited with code 1: auth failed",
+  );
+});
+
+test("DefaultModelCliAdapter passes AbortSignal into provider spawn options", async () => {
+  const controller = new AbortController();
+  const child = createMockChild();
+  const spawnCalls = [];
+  const adapter = new DefaultModelCliAdapter({
+    spawn: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      queueMicrotask(() => {
+        child.stdout.emit("data", Buffer.from('{"role":"assistant","text":"ok"}\n'));
+        child.emit("close", 0);
+      });
+      return child;
+    },
+  });
+
+  const result = await adapter.invoke(makeAdapterRequest(), () => {}, controller.signal);
+
+  assert.equal(result.stdout, "ok");
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].options.signal, controller.signal);
+});
+
+test("DefaultModelCliAdapter abort sends SIGTERM then SIGKILL fallback", async () => {
+  const controller = new AbortController();
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    spawn: () => child,
+    abortKillGraceMs: 1,
+  });
+
+  const run = adapter.invoke(makeAdapterRequest(), () => {}, controller.signal);
+  await Promise.resolve();
+  controller.abort();
+  assert.equal(child.killCalls[0], "SIGTERM");
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(
+    child.killCalls.includes("SIGKILL"),
+    `expected SIGKILL fallback, got ${JSON.stringify(child.killCalls)}`,
+  );
+  child.emit("close", null);
+  await assert.rejects(() => run, (err) => err.code === "AGENT_CANCELLED");
+});
+
+test("DefaultModelCliAdapter keeps SIGKILL fallback after abort error event", async () => {
+  const controller = new AbortController();
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    spawn: () => child,
+    abortKillGraceMs: 1,
+  });
+
+  const run = adapter.invoke(makeAdapterRequest(), () => {}, controller.signal);
+  await Promise.resolve();
+  controller.abort();
+  child.emit("error", new Error("AbortError"));
+
+  await assert.rejects(() => run, (err) => err.code === "AGENT_CANCELLED");
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(
+    child.killCalls.includes("SIGKILL"),
+    `expected SIGKILL fallback after abort error, got ${JSON.stringify(child.killCalls)}`,
   );
 });

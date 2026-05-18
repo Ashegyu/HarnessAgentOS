@@ -393,6 +393,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
   };
   const rawProviderOutput =
     '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"raw stream answer"}]}}\n';
+  let adapterSignal = null;
   const planOutput = {
     summary: "Project explained",
     assumptions: [],
@@ -481,7 +482,8 @@ test("generatePlan emits progress events before and after CLI invocation", async
       /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
     emitStreamEvent: (event) => events.push(event),
     adapter: {
-      invoke: async (request, onEvent) => {
+      invoke: async (request, onEvent, signal) => {
+        adapterSignal = signal;
         onEvent({
           type: "started",
           invocationId: request.invocationId,
@@ -504,6 +506,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
 
   await svc.generatePlan({ taskRunId: "tr-progress", provider: "claude" });
 
+  assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
     createStepInputs[0]?.title,
     "Agent[LocalPlanner] plan (claude:claude-opus-4-5)",
