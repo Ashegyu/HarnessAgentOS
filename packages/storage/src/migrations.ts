@@ -35,6 +35,13 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE approvals ADD COLUMN auto_approve_decision_json TEXT`);
     }
 
+    // v25 — global decision audit log ordering. Kept separate from the
+    // task-run index because Activity Log queries page by decision time.
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_approvals_decided_at
+        ON approvals(decided_at DESC)`,
+    );
+
     // v23 — nullable per-profile budget caps. Stored separately from
     // permissions_json so old profile rows remain valid and empty caps stay NULL.
     if (!hasColumn(db, "agent_profiles", "budget_json")) {

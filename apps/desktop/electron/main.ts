@@ -47,13 +47,19 @@ import {
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
-import { eventBus } from "./event-bus";
+import { eventBus, setDiagnosticsEmitter } from "./event-bus";
 import { createA2AWorkerRouter } from "./a2a-worker-composition";
 import { createMcpProbe, resolveMcpCommand } from "./mcp-probe";
+import { SystemDiagnosticsService } from "./services/system-diagnostics-service";
+import {
+  startDiagnosticsHeartbeat,
+  type DiagnosticsHeartbeatController,
+} from "./services/diagnostics-heartbeat";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainDb: HarnessDb | null = null;
+let diagnosticsHeartbeat: DiagnosticsHeartbeatController | null = null;
 
 const traceStartup = (step: string): void => {
   if (process.env.HARNESS_STARTUP_TRACE === "1") {
@@ -84,6 +90,7 @@ const initServices = (): {
   secretVault: SecretVaultService;
   skillRootPolicy: SkillRootPolicy;
   mcpProbe: (server: McpServerConfig) => Promise<McpServerHealth>;
+  diagnosticsService: SystemDiagnosticsService;
 } => {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
@@ -322,6 +329,12 @@ const initServices = (): {
   };
 
   const mcpProbe = createMcpProbe();
+  const diagnosticsService = new SystemDiagnosticsService({
+    database: state,
+    agentPlanning,
+    runner,
+    probeProviders,
+  });
 
   return {
     state,
@@ -346,6 +359,7 @@ const initServices = (): {
     secretVault,
     skillRootPolicy,
     mcpProbe,
+    diagnosticsService,
   };
 };
 
@@ -448,6 +462,13 @@ app.whenReady().then(async () => {
   }
   traceStartup("ipc:start");
   registerAllIpc(services);
+  diagnosticsHeartbeat = startDiagnosticsHeartbeat({
+    collect: () => services.diagnosticsService.collect(),
+    emit: (diagnostics) => eventBus.diagnosticsHeartbeat(diagnostics),
+  });
+  setDiagnosticsEmitter(() => {
+    void diagnosticsHeartbeat?.emitNow();
+  });
   traceStartup("window:start");
   createMainWindow();
   traceStartup("window:done");
@@ -465,6 +486,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  diagnosticsHeartbeat?.stop();
+  diagnosticsHeartbeat = null;
+  setDiagnosticsEmitter(null);
   if (mainDb && mainDb.open) mainDb.close();
   mainDb = null;
 });

@@ -11,15 +11,18 @@ import {
   type A2ARegistryEntry,
   type Approval,
   type Artifact,
+  type BudgetUsageSummary,
   type Capability,
   type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
   type EvolutionCandidate,
+  type DecisionLogPage,
   type EvalCostTrendFilters,
   type EvalCostTrendView,
   type EvalRunDetailView,
   type EvalRunListFilters,
   type EvalRunListItem,
+  type ExportApprovalResult,
   type HarnessSettings,
   type Instinct,
   type SkillResources,
@@ -40,7 +43,9 @@ import {
   type RuntimeLatencyFilters,
   type RuntimeLatencySummary,
   type ShadowPreview,
+  type SystemDiagnostics,
   type TaskRun,
+  type TaskRunCostSummary,
   type TaskRunDetail,
   type Thread,
   type ThreadDetail,
@@ -87,6 +92,8 @@ const harnessApi: HarnessDesktopApi = {
     getVersion: () => invokeUnwrapped<string>(IPC_CHANNELS.app.getVersion),
     getRuntimeInfo: () =>
       invokeUnwrapped<RuntimeInfo>(IPC_CHANNELS.app.getRuntimeInfo),
+    getDiagnostics: () =>
+      invokeUnwrapped<SystemDiagnostics>(IPC_CHANNELS.app.getDiagnostics),
     selectDirectory: () =>
       invokeUnwrapped<string | null>(IPC_CHANNELS.app.selectDirectory),
     selectFile: (input) =>
@@ -102,6 +109,16 @@ const harnessApi: HarnessDesktopApi = {
     deleteThread: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.state.deleteThread, input);
     },
+    exportDbSnapshot: (input) =>
+      invokeUnwrapped<ExportApprovalResult>(
+        IPC_CHANNELS.state.exportDbSnapshot,
+        input,
+      ),
+    exportThreadMarkdown: (input) =>
+      invokeUnwrapped<ExportApprovalResult>(
+        IPC_CHANNELS.state.exportThreadMarkdown,
+        input,
+      ),
   },
   conversation: {
     createTask: (input) =>
@@ -124,6 +141,11 @@ const harnessApi: HarnessDesktopApi = {
     getTaskRunDetail: (input) =>
       invokeUnwrapped<TaskRunDetail>(
         IPC_CHANNELS.conversation.getTaskRunDetail,
+        input,
+      ),
+    listDecisions: (input) =>
+      invokeUnwrapped<DecisionLogPage>(
+        IPC_CHANNELS.conversation.listDecisions,
         input,
       ),
     setProposedAction: (input) =>
@@ -229,6 +251,16 @@ const harnessApi: HarnessDesktopApi = {
     getTrace: (input) =>
       invokeUnwrapped<LearningTrace | null>(
         IPC_CHANNELS.learner.getTrace,
+        input,
+      ),
+    summarizeTaskRunCost: (input) =>
+      invokeUnwrapped<TaskRunCostSummary>(
+        IPC_CHANNELS.learner.summarizeTaskRunCost,
+        input,
+      ),
+    summarizeBudgetUsage: (input) =>
+      invokeUnwrapped<BudgetUsageSummary>(
+        IPC_CHANNELS.learner.summarizeBudgetUsage,
         input,
       ),
     recommend: (input) =>
@@ -469,6 +501,25 @@ const harnessApi: HarnessDesktopApi = {
           typeof payload === "object" &&
           typeof (payload as { type?: unknown }).type === "string" &&
           typeof (payload as { invocationId?: unknown }).invocationId === "string"
+        ) {
+          listener(payload);
+        }
+      };
+      ipcRenderer.on(channel, handler);
+      return () => {
+        ipcRenderer.off(channel, handler);
+      };
+    },
+    onDiagnosticsChanged: (listener) => {
+      const channel = IPC_CHANNELS.events.diagnosticsHeartbeat;
+      const handler = (
+        _e: IpcRendererEvent,
+        payload: SystemDiagnostics,
+      ): void => {
+        if (
+          payload &&
+          typeof payload === "object" &&
+          typeof (payload as { generatedAt?: unknown }).generatedAt === "string"
         ) {
           listener(payload);
         }

@@ -119,6 +119,10 @@ export class RunnerService {
     return { cancelled: true };
   }
 
+  getInflightCount(): number {
+    return this.inflight.size;
+  }
+
   private async executeApprovedInternal(
     approvalId: string,
     options: { allowExecuted: boolean },
@@ -341,6 +345,10 @@ export class RunnerService {
     result: RunnerResult;
   }): Promise<void> {
     const { taskRun, step, details, result } = args;
+    if (details.dbSnapshotExport) {
+      await this.runDbSnapshotExport({ taskRun, step, details, result });
+      return;
+    }
     if (!details.filePatch) {
       throw new RunnerError(
         "RUNNER_EXECUTION_FAILED",
@@ -376,6 +384,40 @@ export class RunnerService {
       summary: `${r.bytesWritten} bytes written to ${r.path}`,
     });
     result.artifactIds.push(diffArtifact.id);
+  }
+
+  private async runDbSnapshotExport(args: {
+    taskRun: TaskRun;
+    step: Step;
+    details: ProposedActionDetails;
+    result: RunnerResult;
+  }): Promise<void> {
+    const { taskRun, step, details, result } = args;
+    const targetPath = details.dbSnapshotExport?.targetPath;
+    if (!targetPath) {
+      throw new RunnerError(
+        "RUNNER_EXECUTION_FAILED",
+        "db snapshot export requires proposedAction.dbSnapshotExport.targetPath",
+      );
+    }
+    if (!isWithin(taskRun.targetDir, targetPath)) {
+      throw new RunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `Snapshot path escapes targetDir: ${targetPath}`,
+      );
+    }
+    await this.deps.state.writeDbSnapshot(targetPath);
+    result.changedFiles = [targetPath];
+
+    const snapshotArtifact = await this.persistArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "snapshot",
+      title: `db snapshot: ${targetPath}`,
+      content: `SQLite database snapshot exported to ${targetPath}`,
+      summary: `snapshot written to ${targetPath}`,
+    });
+    result.artifactIds.push(snapshotArtifact.id);
   }
 
   private async runShell(args: {
@@ -509,6 +551,9 @@ const mapActionToStepKind = (
 };
 
 const summarize = (details: ProposedActionDetails): string => {
+  if (details.dbSnapshotExport) {
+    return `db snapshot: ${details.dbSnapshotExport.targetPath}`;
+  }
   if (details.command) return `shell: ${details.command}`;
   if (details.filePatch) return `file: ${details.filePatch.path}`;
   return details.type;
@@ -518,6 +563,7 @@ const summarizeStepInput = (
   approval: Approval,
   details: ProposedActionDetails,
 ): string => {
+  if (details.dbSnapshotExport) return details.dbSnapshotExport.targetPath;
   if (details.command) return details.command;
   if (details.filePatch) return details.filePatch.path;
   return approval.actionSummary;

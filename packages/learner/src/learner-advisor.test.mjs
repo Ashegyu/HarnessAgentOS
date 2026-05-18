@@ -34,6 +34,45 @@ const seedTaskRun = async (state, request = "refactor and rename helper") => {
   });
 };
 
+const profileInput = (overrides = {}) => ({
+  name: "Cost-aware coder",
+  description: "Tracks spend",
+  category: "core",
+  tags: ["cost"],
+  provider: "codex",
+  role: "coder",
+  persona: "Cost-aware coding agent",
+  tuning: {
+    model: "gpt-5.5",
+    timeoutMs: 600_000,
+    stallTimeoutMs: 120_000,
+    contextDepth: 6,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: {
+    cliPathOverride: "",
+    env: {},
+    envSecretRefs: {},
+  },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+    budget: {
+      perInvocationUsd: 0.3,
+      perTaskRunUsd: 0.4,
+      perDayUsd: 1,
+    },
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: true,
+  ...overrides,
+});
+
 test("recommend returns conservative fallback with no history", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -141,6 +180,202 @@ test("recordDecision appends to decisions.jsonl", async () => {
     assert.equal(parsed.taskRunId, "tsk_test");
     assert.equal(parsed.decision, "rejected");
     assert.equal(parsed.reason, "too expensive");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("summarizeTaskRunCost adds active profile budget progress and invocation status counts", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, "implement cost panel");
+    const profile = await state.agentProfiles.create(profileInput());
+    await state.updateSettings({
+      ...(await state.getSettings()),
+      activeAgentProfileId: profile.id,
+    });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const firstTrace = await state.createLearningTrace({ taskRunId: taskRun.id });
+    const secondTrace = await state.createLearningTrace({ taskRunId: taskRun.id });
+    await state.updateLearningTrace(firstTrace.id, {
+      selectedModel: "gpt-5.5",
+      costEstimate: 0.125,
+      latencyMs: 1_000,
+      success: true,
+    });
+    await state.updateLearningTrace(secondTrace.id, {
+      selectedModel: "claude-opus",
+      costEstimate: 0.375,
+      latencyMs: 2_000,
+      success: false,
+    });
+    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
+      `${today}T01:00:00.000Z`,
+      firstTrace.id,
+    );
+    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
+      `${today}T01:01:00.000Z`,
+      secondTrace.id,
+    );
+
+    const promptArtifact = await state.createArtifact({
+      taskRunId: taskRun.id,
+      kind: "log",
+      title: "prompt",
+      uri: "memory://prompt",
+    });
+    const succeeded = await state.createAgentInvocation({
+      taskRunId: taskRun.id,
+      provider: "codex",
+      model: "gpt-5.5",
+      promptArtifactId: promptArtifact.id,
+    });
+    const failed = await state.createAgentInvocation({
+      taskRunId: taskRun.id,
+      provider: "claude",
+      model: "claude-opus",
+      promptArtifactId: promptArtifact.id,
+    });
+    await state.updateAgentInvocation(succeeded.id, { status: "succeeded" });
+    await state.updateAgentInvocation(failed.id, { status: "failed" });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const summary = await advisor.summarizeTaskRunCost({
+      taskRunId: taskRun.id,
+    });
+
+    assert.equal(summary.totalCostUsd, 0.5);
+    assert.equal(summary.totalLatencyMs, 3_000);
+    assert.equal(summary.invocationCount, 2);
+    assert.deepEqual(summary.agentInvocationStatusCounts, {
+      queued: 0,
+      running: 0,
+      succeeded: 1,
+      failed: 1,
+      cancelled: 0,
+    });
+    assert.equal(summary.budget.profileId, profile.id);
+    assert.deepEqual(
+      summary.budget.progress.map((row) => ({
+        scope: row.scope,
+        usedUsd: row.usedUsd,
+        limitUsd: row.limitUsd,
+        exceeded: row.exceeded,
+      })),
+      [
+        {
+          scope: "per_invocation",
+          usedUsd: 0.375,
+          limitUsd: 0.3,
+          exceeded: true,
+        },
+        {
+          scope: "per_task_run",
+          usedUsd: 0.5,
+          limitUsd: 0.4,
+          exceeded: true,
+        },
+        {
+          scope: "per_day",
+          usedUsd: 0.125,
+          limitUsd: 1,
+          exceeded: false,
+        },
+      ],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("summarizeBudgetUsage returns profile trends, daily totals, and top models", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const yesterdayDate = new Date(`${today}T00:00:00.000Z`);
+    yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
+    const yesterday = yesterdayDate.toISOString().slice(0, 10);
+    const coder = await state.agentProfiles.create(
+      profileInput({ name: "Coder", tuning: { ...profileInput().tuning, model: "gpt-5.5" } }),
+    );
+    const reviewer = await state.agentProfiles.create(
+      profileInput({
+        name: "Reviewer",
+        tuning: { ...profileInput().tuning, model: "claude-opus" },
+        isDefault: false,
+      }),
+    );
+    const coderTask = await seedTaskRun(state, "code");
+    const reviewerTask = await seedTaskRun(state, "review");
+    const first = await state.createLearningTrace({ taskRunId: coderTask.id });
+    const second = await state.createLearningTrace({ taskRunId: coderTask.id });
+    const third = await state.createLearningTrace({ taskRunId: reviewerTask.id });
+    await state.updateLearningTrace(first.id, {
+      selectedModel: "gpt-5.5",
+      costEstimate: 0.2,
+    });
+    await state.updateLearningTrace(second.id, {
+      selectedModel: "gpt-5.5",
+      costEstimate: 0.3,
+    });
+    await state.updateLearningTrace(third.id, {
+      selectedModel: "claude-opus",
+      costEstimate: 0.6,
+    });
+    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
+      `${today}T01:00:00.000Z`,
+      first.id,
+    );
+    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
+      `${yesterday}T01:00:00.000Z`,
+      second.id,
+    );
+    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
+      `${today}T02:00:00.000Z`,
+      third.id,
+    );
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const summary = await advisor.summarizeBudgetUsage({ days: 2 });
+
+    assert.equal(summary.days, 2);
+    assert.equal(summary.todayCostUsd, 0.8);
+    assert.equal(summary.windowCostUsd, 1.1);
+    assert.deepEqual(
+      summary.profiles.map((profile) => ({
+        id: profile.profileId,
+        today: profile.todayCostUsd,
+        window: profile.windowCostUsd,
+      })),
+      [
+        { id: coder.id, today: 0.2, window: 0.5 },
+        { id: reviewer.id, today: 0.6, window: 0.6 },
+      ],
+    );
+    assert.deepEqual(
+      summary.topModels.map((model) => ({
+        model: model.model,
+        total: model.totalCostUsd,
+        count: model.invocationCount,
+      })),
+      [
+        { model: "claude-opus", total: 0.6, count: 1 },
+        { model: "gpt-5.5", total: 0.5, count: 2 },
+      ],
+    );
   } finally {
     closeDb(db);
     t.cleanup();

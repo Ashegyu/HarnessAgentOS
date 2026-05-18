@@ -1,8 +1,17 @@
 import {
   LEARNER_TASK_NOT_FOUND,
+  type AgentProfile,
   type Approval,
+  type BudgetUsageDailyPoint,
+  type BudgetUsageModelSummary,
+  type BudgetUsageProfileSummary,
+  type BudgetUsageSummary,
   type CapabilitySuggestion,
   type EffortHint,
+  type TaskRunCostBudgetProgress,
+  type TaskRunCostBudgetScope,
+  type TaskRunCostStatusCounts,
+  type TaskRunCostSummary,
   type LearnerDecisionRecord,
   type LearnerModelContext,
   type LearnerRecommendation,
@@ -104,6 +113,135 @@ export class LearnerAdvisor {
     if (costHint) recommendation.costHint = costHint;
     if (latencyHint) recommendation.latencyHint = latencyHint;
     return recommendation;
+  }
+
+  async summarizeTaskRunCost(input: {
+    taskRunId: string;
+  }): Promise<TaskRunCostSummary> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+
+    const usageIsoDate = new Date().toISOString().slice(0, 10);
+    const [summary, invocations, settings, profiles] = await Promise.all([
+      this.deps.state.summarizeLearningTraceCostByTaskRun(input.taskRunId),
+      this.deps.state.listAgentInvocationsByTaskRun(input.taskRunId),
+      this.deps.state.getSettings(),
+      this.deps.state.listAgentProfiles(),
+    ]);
+    const activeProfile = resolveActiveProfile({
+      profiles,
+      activeAgentProfileId: settings.activeAgentProfileId,
+    });
+    const dailyCostUsd = await this.deps.state.sumLearningTraceCostByDay({
+      ...(activeProfile ? { profileId: activeProfile.id } : {}),
+      isoDate: usageIsoDate,
+    });
+    return {
+      ...summary,
+      agentInvocationStatusCounts: invocations.reduce<TaskRunCostStatusCounts>(
+        (acc, invocation) => ({
+          ...acc,
+          [invocation.status]: acc[invocation.status] + 1,
+        }),
+        {
+          queued: 0,
+          running: 0,
+          succeeded: 0,
+          failed: 0,
+          cancelled: 0,
+        },
+      ),
+      ...(activeProfile?.permissions.budget
+        ? {
+            budget: {
+              profileId: activeProfile.id,
+              profileName: activeProfile.name,
+              limits: activeProfile.permissions.budget,
+              progress: buildBudgetProgress({
+                budget: activeProfile.permissions.budget,
+                totalCostUsd: summary.totalCostUsd,
+                dailyCostUsd,
+                maxInvocationCostUsd: maxInvocationCost(summary),
+              }),
+              isoDate: usageIsoDate,
+            },
+          }
+        : {}),
+    };
+  }
+
+  async summarizeBudgetUsage(input: {
+    days?: number;
+    profileId?: string;
+  } = {}): Promise<BudgetUsageSummary> {
+    const days = clampDays(input.days);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const dateWindow = buildDateWindow(todayIso, days);
+    const sinceIso = `${dateWindow[0]}T00:00:00.000Z`;
+    const untilIso = `${dateWindow[dateWindow.length - 1]}T23:59:59.999Z`;
+    const [profiles, aggregates, traces] = await Promise.all([
+      this.deps.state.listAgentProfiles(),
+      this.deps.state.aggregateLearningTraceCostByProfileAndDay({
+        sinceIso,
+        untilIso,
+        ...(input.profileId ? { profileId: input.profileId } : {}),
+      }),
+      this.deps.state.listLearningTraces(),
+    ]);
+    const selectedProfiles = input.profileId
+      ? profiles.filter((profile) => profile.id === input.profileId)
+      : profiles;
+    const aggregateProfileIds = new Set(
+      aggregates.map((aggregate) => aggregate.profileId),
+    );
+    const summaryProfiles = [
+      ...selectedProfiles,
+      ...(aggregateProfileIds.has("unassigned") && !input.profileId
+        ? [unassignedProfile()]
+        : []),
+    ];
+    const profileSummaries = summaryProfiles.map((profile) =>
+      summarizeBudgetProfile({
+        profile,
+        aggregates: aggregates.filter(
+          (aggregate) => aggregate.profileId === profile.id,
+        ),
+        dateWindow,
+        todayIso,
+      }),
+    );
+    const windowCostUsd = profileSummaries.reduce(
+      (sum, profile) => sum + profile.windowCostUsd,
+      0,
+    );
+    const todayCostUsd = profileSummaries.reduce(
+      (sum, profile) => sum + profile.todayCostUsd,
+      0,
+    );
+    const profileByModel = profileModelMap(profiles);
+    const topModels = summarizeTopModels({
+      traces,
+      sinceIso,
+      untilIso,
+      profileId: input.profileId,
+      profileByModel,
+    });
+    return {
+      sinceIso,
+      untilIso,
+      todayIso,
+      days,
+      todayCostUsd,
+      windowCostUsd,
+      averageDailyCostUsd: windowCostUsd / days,
+      profiles: profileSummaries,
+      topModels,
+    };
   }
 
   /**
@@ -307,6 +445,219 @@ export class LearnerAdvisor {
     await fs.appendFile(file, `${line}\n`, "utf8");
   }
 }
+
+const resolveActiveProfile = (input: {
+  profiles: AgentProfile[];
+  activeAgentProfileId?: string;
+}): AgentProfile | null =>
+  (input.activeAgentProfileId
+    ? input.profiles.find((profile) => profile.id === input.activeAgentProfileId)
+    : null) ??
+  input.profiles.find((profile) => profile.isDefault) ??
+  null;
+
+const buildBudgetProgress = (input: {
+  budget: NonNullable<AgentProfile["permissions"]["budget"]>;
+  totalCostUsd: number;
+  dailyCostUsd: number;
+  maxInvocationCostUsd: number;
+}): TaskRunCostBudgetProgress[] => {
+  const rows: TaskRunCostBudgetProgress[] = [];
+  if (typeof input.budget.perInvocationUsd === "number") {
+    rows.push(
+      progressRow({
+        scope: "per_invocation",
+        label: "Per invocation",
+        usedUsd: input.maxInvocationCostUsd,
+        limitUsd: input.budget.perInvocationUsd,
+      }),
+    );
+  }
+  if (typeof input.budget.perTaskRunUsd === "number") {
+    rows.push(
+      progressRow({
+        scope: "per_task_run",
+        label: "TaskRun",
+        usedUsd: input.totalCostUsd,
+        limitUsd: input.budget.perTaskRunUsd,
+      }),
+    );
+  }
+  if (typeof input.budget.perDayUsd === "number") {
+    rows.push(
+      progressRow({
+        scope: "per_day",
+        label: "Today",
+        usedUsd: input.dailyCostUsd,
+        limitUsd: input.budget.perDayUsd,
+      }),
+    );
+  }
+  return rows;
+};
+
+const progressRow = (input: {
+  scope: TaskRunCostBudgetScope;
+  label: string;
+  usedUsd: number;
+  limitUsd: number;
+}): TaskRunCostBudgetProgress => {
+  const ratio =
+    input.limitUsd > 0
+      ? input.usedUsd / input.limitUsd
+      : input.usedUsd > 0
+        ? 1
+        : 0;
+  return {
+    ...input,
+    ratio,
+    exceeded: input.usedUsd > input.limitUsd,
+  };
+};
+
+const maxInvocationCost = (summary: TaskRunCostSummary): number =>
+  summary.invocations.reduce(
+    (max, invocation) => Math.max(max, invocation.cost),
+    0,
+  );
+
+const clampDays = (days: number | undefined): number => {
+  if (typeof days !== "number" || !Number.isFinite(days)) return 7;
+  return Math.max(1, Math.min(90, Math.floor(days)));
+};
+
+const buildDateWindow = (todayIso: string, days: number): string[] => {
+  const today = new Date(`${todayIso}T00:00:00.000Z`);
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(today);
+    date.setUTCDate(today.getUTCDate() - (days - index - 1));
+    return date.toISOString().slice(0, 10);
+  });
+};
+
+const summarizeBudgetProfile = (input: {
+  profile: AgentProfile;
+  aggregates: Array<{
+    dateIso: string;
+    totalCostUsd: number;
+    count: number;
+  }>;
+  dateWindow: string[];
+  todayIso: string;
+}): BudgetUsageProfileSummary => {
+  const byDate = new Map(
+    input.aggregates.map((aggregate) => [aggregate.dateIso, aggregate]),
+  );
+  const daily: BudgetUsageDailyPoint[] = input.dateWindow.map((dateIso) => {
+    const row = byDate.get(dateIso);
+    return {
+      dateIso,
+      totalCostUsd: row?.totalCostUsd ?? 0,
+      count: row?.count ?? 0,
+    };
+  });
+  const windowCostUsd = daily.reduce((sum, point) => sum + point.totalCostUsd, 0);
+  const todayCostUsd =
+    daily.find((point) => point.dateIso === input.todayIso)?.totalCostUsd ?? 0;
+  const dailyLimit = input.profile.permissions.budget?.perDayUsd;
+  return {
+    profileId: input.profile.id,
+    profileName: input.profile.name,
+    model: input.profile.tuning.model,
+    ...(input.profile.permissions.budget
+      ? { budget: input.profile.permissions.budget }
+      : {}),
+    todayCostUsd,
+    windowCostUsd,
+    averageDailyCostUsd: windowCostUsd / input.dateWindow.length,
+    ...(typeof dailyLimit === "number" && dailyLimit > 0
+      ? { dailyBudgetRatio: todayCostUsd / dailyLimit }
+      : {}),
+    daily,
+  };
+};
+
+const unassignedProfile = (): AgentProfile => ({
+  id: "unassigned",
+  name: "Unassigned model",
+  description: "Learning traces whose selected model does not match an Agent Profile.",
+  category: "system",
+  tags: [],
+  provider: "auto",
+  role: "coder",
+  persona: "",
+  tuning: {
+    model: "unknown",
+    timeoutMs: 0,
+    stallTimeoutMs: 0,
+    contextDepth: 0,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: {
+    cliPathOverride: "",
+    env: {},
+    envSecretRefs: {},
+  },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  createdAt: "",
+  updatedAt: "",
+});
+
+const profileModelMap = (profiles: AgentProfile[]): Map<string, string> => {
+  const byModel = new Map<string, string>();
+  for (const profile of profiles) {
+    const model = profile.tuning.model.trim();
+    if (model.length === 0 || byModel.has(model)) continue;
+    byModel.set(model, profile.id);
+  }
+  return byModel;
+};
+
+const summarizeTopModels = (input: {
+  traces: LearningTrace[];
+  sinceIso: string;
+  untilIso: string;
+  profileId?: string;
+  profileByModel: Map<string, string>;
+}): BudgetUsageModelSummary[] => {
+  const buckets = new Map<string, BudgetUsageModelSummary>();
+  for (const trace of input.traces) {
+    if (trace.createdAt < input.sinceIso || trace.createdAt > input.untilIso) {
+      continue;
+    }
+    const model = trace.selectedModel?.trim() || "unknown";
+    const profileId = input.profileByModel.get(model) ?? "unassigned";
+    if (input.profileId && input.profileId !== profileId) continue;
+    const current = buckets.get(model) ?? {
+      model,
+      totalCostUsd: 0,
+      invocationCount: 0,
+    };
+    buckets.set(model, {
+      model,
+      totalCostUsd: current.totalCostUsd + (trace.costEstimate ?? 0),
+      invocationCount: current.invocationCount + 1,
+    });
+  }
+  return [...buckets.values()]
+    .sort(
+      (left, right) =>
+        right.totalCostUsd - left.totalCostUsd ||
+        right.invocationCount - left.invocationCount ||
+        left.model.localeCompare(right.model),
+    )
+    .slice(0, 5);
+};
 
 const rerankWithTraceHistory = (
   suggestions: CapabilitySuggestion[],

@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -399,6 +399,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checkpoints_task_run_id ON checkpoints(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_approvals_decided_at ON approvals(decided_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_artifacts_task_run_id ON artifacts(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_endpoints_enabled ON a2a_endpoints(enabled, created_at)`,

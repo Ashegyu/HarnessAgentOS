@@ -16,6 +16,7 @@ import {
   type AgentPlanningStateGateway,
   type AgentPlanOutput,
   type AgentProgressStage,
+  type AgentQueueDepths,
   type AgentProfile,
   type AgentProposedAction,
   type AgentProvider,
@@ -180,6 +181,12 @@ export class AgentPlanningService {
   /** Exposed so main.ts can wire RuntimeStatusBar to live queue depth. */
   getQueue(): AgentInvocationQueue {
     return this.queue;
+  }
+
+  getQueueDepths(): AgentQueueDepths {
+    const claude = this.queue.getDepth("claude");
+    const codex = this.queue.getDepth("codex");
+    return { claude, codex, total: claude + codex };
   }
 
   async generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResult> {

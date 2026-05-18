@@ -10,6 +10,11 @@ export type FeatureHelpId =
   | "mcpServers"
   | "skills"
   | "secrets"
+  | "budget"
+  | "activityLog"
+  | "diagnostics"
+  | "backupExport"
+  | "shortcuts"
   | "agentPlan"
   | "approvals"
   | "artifacts"
@@ -156,6 +161,63 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
     ],
     location: "설정 > Secrets",
   },
+  budget: {
+    id: "budget",
+    title: "Budget Overview",
+    summary:
+      "LearningTrace 비용을 Agent Profile과 날짜 기준으로 묶어 예산 사용 추세를 보여줍니다.",
+    details: [
+      "오늘 누적, 기간 평균, profile별 사용량, top consumer model을 같은 화면에서 확인합니다.",
+      "Agent Profile에 설정된 per-invocation, per-TaskRun, per-day USD 한도와 실제 사용량을 비교합니다.",
+    ],
+    location: "설정 > Budget",
+  },
+  activityLog: {
+    id: "activityLog",
+    title: "Activity Log",
+    summary:
+      "자동 승인 또는 차단된 approval decision trace를 전역 audit log로 모아 보여줍니다.",
+    details: [
+      "수동 승인처럼 decision trace가 없는 approval은 audit row로 만들지 않습니다.",
+      "단계, action type, 날짜 범위로 필터링하고 50개 단위로 페이지를 넘깁니다.",
+    ],
+    location: "설정 > Activity",
+  },
+  diagnostics: {
+    id: "diagnostics",
+    title: "System Diagnostics",
+    summary:
+      "DB, Agent Queue, Provider, Runner 상태를 main process heartbeat로 보여주는 진단 화면입니다.",
+    details: [
+      "Renderer는 polling하지 않고 initial fetch 이후 diagnostics heartbeat push만 구독합니다.",
+      "DB 파일이 100MB를 넘거나 agent queue depth가 5를 넘으면 warning 상태로 표시됩니다.",
+      "TaskRun 상태 변경, agent invocation 시작/종료, runner 취소 시점에는 즉시 새 스냅샷을 받습니다.",
+    ],
+    location: "설정 > Diagnostics",
+  },
+  backupExport: {
+    id: "backupExport",
+    title: "Backup / Export",
+    summary:
+      "SQLite DB snapshot과 thread markdown export를 승인 기반 파일 쓰기로 생성합니다.",
+    details: [
+      "DB snapshot은 SQLite `VACUUM INTO`로 새 데이터베이스 파일을 만들며, 승인 전에는 파일을 쓰지 않습니다.",
+      "Thread markdown은 thread, TaskRun, approvals, artifact references를 하나의 문서로 직렬화합니다.",
+      "Restore는 이 단계 범위에 포함하지 않고 export only로 제한합니다.",
+    ],
+    location: "설정 > Backup",
+  },
+  shortcuts: {
+    id: "shortcuts",
+    title: "Keyboard Shortcuts",
+    summary:
+      "워크벤치 전역 단축키와 Command Palette 조작 키를 한 곳에서 확인하는 정적 참조표입니다.",
+    details: [
+      "Cmd/Ctrl+K는 Command Palette를 열고, Cmd/Ctrl+B/J는 좌우 drawer를 토글합니다.",
+      "Command Palette 내부에서는 Enter와 Up/Down으로 선택과 실행을 처리합니다.",
+    ],
+    location: "설정 > Shortcuts",
+  },
   agentPlan: {
     id: "agentPlan",
     title: "Agent Plan",
@@ -270,7 +332,16 @@ export const FEATURE_HELP_GROUPS: ReadonlyArray<{
   },
   {
     title: "안전과 증거",
-    ids: ["approvals", "artifacts", "quality", "secrets"],
+    ids: [
+      "approvals",
+      "artifacts",
+      "quality",
+      "secrets",
+      "budget",
+      "activityLog",
+      "diagnostics",
+      "backupExport",
+    ],
   },
   {
     title: "에이전트 구성",
@@ -281,6 +352,7 @@ export const FEATURE_HELP_GROUPS: ReadonlyArray<{
       "remoteAgents",
       "mcpServers",
       "skills",
+      "shortcuts",
     ],
   },
   {

@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import {
   AUTO_APPROVE_STEPS,
+  APPROVAL_ACTION_TYPES,
   APPROVAL_MESSAGE_REQUIRED,
   APPROVAL_NOT_FOUND,
   CONVERSATION_EMPTY_REQUEST,
@@ -16,10 +17,14 @@ import {
   validateProposedActionDetails,
   type Approval,
   type AutoApproveDecision,
+  type AutoApproveStep,
   type ApproveInput,
   type ConversationService,
   type ConversationTaskDraft,
   type CreateConversationTaskInput,
+  type DecisionLogFilter,
+  type DecisionLogInput,
+  type DecisionLogPage,
   type HarnessResult,
   type RedirectTaskInput,
   type RejectApprovalInput,
@@ -70,6 +75,92 @@ const parseAutoApproveDecision = (
       decidedAt: value.decidedAt,
       reason: value.reason,
     },
+  };
+};
+
+const isApprovalActionType = (value: unknown): boolean =>
+  typeof value === "string" &&
+  (APPROVAL_ACTION_TYPES as readonly string[]).includes(value);
+
+const parseDecisionLogInput = (
+  input: unknown,
+):
+  | { ok: true; value: DecisionLogInput }
+  | { ok: false; reason: string } => {
+  if (!isObject(input)) {
+    return { ok: false, reason: "input must be an object" };
+  }
+  const cast = input as {
+    limit?: unknown;
+    offset?: unknown;
+    filter?: unknown;
+  };
+  if (
+    typeof cast.limit !== "number" ||
+    !Number.isInteger(cast.limit) ||
+    cast.limit < 1 ||
+    cast.limit > 100
+  ) {
+    return { ok: false, reason: "limit must be an integer from 1 to 100" };
+  }
+  if (
+    typeof cast.offset !== "number" ||
+    !Number.isInteger(cast.offset) ||
+    cast.offset < 0
+  ) {
+    return { ok: false, reason: "offset must be a non-negative integer" };
+  }
+  const limit = cast.limit;
+  const offset = cast.offset;
+  if (cast.filter === undefined) {
+    return {
+      ok: true,
+      value: { limit, offset },
+    };
+  }
+  if (!isObject(cast.filter)) {
+    return { ok: false, reason: "filter must be an object when provided" };
+  }
+  const filterInput = cast.filter as {
+    decidedAtSteps?: unknown;
+    actionTypes?: unknown;
+    sinceIso?: unknown;
+    untilIso?: unknown;
+  };
+  const filter: DecisionLogFilter = {};
+  if (filterInput.decidedAtSteps !== undefined) {
+    if (
+      !Array.isArray(filterInput.decidedAtSteps) ||
+      !filterInput.decidedAtSteps.every(isAutoApproveStep)
+    ) {
+      return { ok: false, reason: "filter.decidedAtSteps is invalid" };
+    }
+    filter.decidedAtSteps = [...new Set(filterInput.decidedAtSteps)] as AutoApproveStep[];
+  }
+  if (filterInput.actionTypes !== undefined) {
+    if (
+      !Array.isArray(filterInput.actionTypes) ||
+      !filterInput.actionTypes.every(isApprovalActionType)
+    ) {
+      return { ok: false, reason: "filter.actionTypes is invalid" };
+    }
+    filter.actionTypes = [...new Set(filterInput.actionTypes)] as DecisionLogFilter["actionTypes"];
+  }
+  if (filterInput.sinceIso !== undefined) {
+    if (!isNonEmptyString(filterInput.sinceIso)) {
+      return { ok: false, reason: "filter.sinceIso must be a non-empty string" };
+    }
+    filter.sinceIso = filterInput.sinceIso;
+  }
+  if (filterInput.untilIso !== undefined) {
+    if (!isNonEmptyString(filterInput.untilIso)) {
+      return { ok: false, reason: "filter.untilIso must be a non-empty string" };
+    }
+    filter.untilIso = filterInput.untilIso;
+  }
+  return {
+    ok: true,
+    value: { limit, offset, filter },
   };
 };
 
@@ -362,6 +453,8 @@ export const registerConversationIpc = (
           approvals,
           artifacts,
           checkpoints,
+          qualityGates,
+          repairAttempts,
           agentInvocations,
           accumulatedTaskRunCostUsd,
           accumulatedDailyCostUsd,
@@ -371,6 +464,8 @@ export const registerConversationIpc = (
             state.listApprovalsByTaskRun(cast.taskRunId),
             state.listArtifactsByTaskRun(cast.taskRunId),
             state.listCheckpointsByTaskRun(cast.taskRunId),
+            state.listQualityGateResults(cast.taskRunId),
+            state.repairAttempts.listByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
             state.sumLearningTraceCostByTaskRun(cast.taskRunId),
             state.sumLearningTraceCostByDay({
@@ -393,6 +488,8 @@ export const registerConversationIpc = (
           approvals,
           artifacts,
           checkpoints,
+          qualityGates,
+          repairAttempts,
           agentInvocations,
           a2aRemoteTaskRefs,
           budgetUsage: {
@@ -403,6 +500,21 @@ export const registerConversationIpc = (
         });
       } catch (e) {
         return mapServiceError<TaskRunDetail>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.conversation.listDecisions,
+    async (_e, input: unknown): Promise<HarnessResult<DecisionLogPage>> => {
+      const parsed = parseDecisionLogInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      try {
+        return ok(await state.listDecisions(parsed.value));
+      } catch (e) {
+        return mapServiceError<DecisionLogPage>(e);
       }
     },
   );

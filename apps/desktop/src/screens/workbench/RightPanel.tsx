@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ProposedActionDetails, TaskRunDetail } from "@harness/core";
 import { AgentPanel } from "./AgentPanel";
 import { AgentTopologyPanel } from "./AgentTopologyPanel";
@@ -10,6 +10,8 @@ import { QualityPanel } from "./QualityPanel";
 import { CapabilityPanel } from "./CapabilityPanel";
 import { InstinctPanel } from "./InstinctPanel";
 import { LearnerPanel } from "./LearnerPanel";
+import { CostPanel } from "./CostPanel";
+import { DecisionsPanel } from "./DecisionsPanel";
 import { OrchestrationPanel } from "./OrchestrationPanel";
 import { TaskRunStateActions } from "./TaskRunStateActions";
 import { FeatureHelpButton } from "./FeatureHelpButton";
@@ -20,7 +22,7 @@ type TaskRunDetailState =
   | { kind: "ready"; detail: TaskRunDetail }
   | { kind: "error"; taskRunId: string; message: string };
 
-type RightPanelTab =
+export type RightPanelTab =
   | "plan"
   | "agent"
   | "graph"
@@ -29,7 +31,9 @@ type RightPanelTab =
   | "quality"
   | "capabilities"
   | "instinct"
-  | "orchestration";
+  | "orchestration"
+  | "cost"
+  | "decisions";
 
 // `label` is the short string baked into the icon column; `tooltip` carries
 // the full meaning for the hover bubble (and for screen readers via title).
@@ -48,6 +52,8 @@ const TABS: ReadonlyArray<{
   { id: "capabilities", label: "Caps", tooltip: "Capabilities", icon: "⚙" },
   { id: "instinct", label: "Inst", tooltip: "Instinct", icon: "※" },
   { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "⌥" },
+  { id: "cost", label: "Cost", tooltip: "Cost", icon: "$" },
+  { id: "decisions", label: "Decs", tooltip: "Decisions", icon: "◇" },
 ];
 
 interface RightPanelProps {
@@ -71,6 +77,8 @@ interface RightPanelProps {
   onAgentCancel: (invocationId: string) => Promise<void>;
   onAgentUseFallback: (taskRunId: string) => Promise<void>;
   agentAvailable: boolean;
+  activeTab: RightPanelTab;
+  onActiveTabChange: (tab: RightPanelTab) => void;
   /**
    * True when this TaskRun was created by picking a pipeline at submit
    * time. The pipeline pick IS the user's consent, so AgentPanel must
@@ -97,9 +105,10 @@ export const RightPanel = ({
   onAgentCancel,
   onAgentUseFallback,
   agentAvailable,
+  activeTab,
+  onActiveTabChange,
   pipelineAutoLaunched,
 }: RightPanelProps): JSX.Element => {
-  const [activeTab, setActiveTab] = useState<RightPanelTab>("plan");
   const [topologyExpanded, setTopologyExpanded] = useState(false);
 
   useEffect(() => {
@@ -114,6 +123,15 @@ export const RightPanel = ({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [topologyExpanded]);
+
+  const jumpToApproval = useCallback((approvalId: string): void => {
+    onActiveTabChange("plan");
+    window.setTimeout(() => {
+      document
+        .getElementById(`approval-card-${approvalId}`)
+        ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 0);
+  }, [onActiveTabChange]);
 
   return (
     <>
@@ -180,7 +198,7 @@ export const RightPanel = ({
                     ? "right-panel__tab right-panel__tab--active"
                     : "right-panel__tab"
                 }
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => onActiveTabChange(tab.id)}
                 title={tab.tooltip}
                 data-tooltip={tab.tooltip}
               >
@@ -335,6 +353,9 @@ export const RightPanel = ({
                 key={state.detail.taskRun.id}
                 taskRun={state.detail.taskRun}
                 artifacts={state.detail.artifacts}
+                approvals={state.detail.approvals}
+                qualityGates={state.detail.qualityGates}
+                repairAttempts={state.detail.repairAttempts}
                 onTaskRunChanged={onQualityChanged}
               />
             </div>
@@ -408,6 +429,30 @@ export const RightPanel = ({
                 </header>
                 <InstinctPanel key={`${state.detail.taskRun.id}-instinct`} />
               </section>
+            </div>
+
+            <div
+              role="tabpanel"
+              id="right-panel-panel-cost"
+              aria-labelledby="right-panel-tab-cost"
+              hidden={activeTab !== "cost"}
+            >
+              <CostPanel
+                key={`${state.detail.taskRun.id}-cost`}
+                taskRunId={state.detail.taskRun.id}
+              />
+            </div>
+
+            <div
+              role="tabpanel"
+              id="right-panel-panel-decisions"
+              aria-labelledby="right-panel-tab-decisions"
+              hidden={activeTab !== "decisions"}
+            >
+              <DecisionsPanel
+                approvals={state.detail.approvals}
+                onJumpToApproval={jumpToApproval}
+              />
             </div>
           </div>
         </div>

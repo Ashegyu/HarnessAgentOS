@@ -1,4 +1,11 @@
-import type { LearningTrace, LearningTracePatch } from "@harness/core";
+import type {
+  LearningTraceProfileDayAggregate,
+  LearningTrace,
+  LearningTracePatch,
+  TaskRunCostInvocationSummary,
+  TaskRunCostModelBreakdown,
+  TaskRunCostSummary,
+} from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
 
@@ -11,6 +18,12 @@ export interface LearningTraceRepository {
   getByTaskRun(taskRunId: string): Promise<LearningTrace | null>;
   /** Most recent first (by createdAt desc). */
   list(): Promise<LearningTrace[]>;
+  summarizeByTaskRun(taskRunId: string): Promise<TaskRunCostSummary>;
+  aggregateByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }): Promise<LearningTraceProfileDayAggregate[]>;
   sumCostByTaskRun(taskRunId: string): Promise<number>;
   sumCostByDay(input: {
     profileId?: string;
@@ -29,6 +42,22 @@ interface LearningTraceRow {
   success: number | null;
   failure_reason: string | null;
   created_at: string;
+}
+
+interface CostSummaryRow {
+  id: string;
+  model: string | null;
+  cost: number | null;
+  latency_ms: number | null;
+  success: number | null;
+  created_at: string;
+}
+
+interface ProfileDayAggregateRow {
+  profileId: string;
+  dateIso: string;
+  totalCostUsd: number;
+  count: number;
 }
 
 const rowToTrace = (r: LearningTraceRow): LearningTrace => {
@@ -159,30 +188,140 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
     return rows.map(rowToTrace);
   }
 
-  async sumCostByTaskRun(taskRunId: string): Promise<number> {
-    const row = this.db
+  async summarizeByTaskRun(taskRunId: string): Promise<TaskRunCostSummary> {
+    const rows = this.db
       .prepare(
-        `SELECT COALESCE(SUM(cost_estimate), 0) AS total
+        `SELECT id,
+                selected_model AS model,
+                cost_estimate AS cost,
+                latency_ms,
+                success,
+                created_at
          FROM learning_traces
-         WHERE task_run_id = ? AND cost_estimate IS NOT NULL`,
+         WHERE task_run_id = ?
+         ORDER BY datetime(created_at) ASC, rowid ASC`,
       )
-      .get(taskRunId) as { total: number } | undefined;
-    return row?.total ?? 0;
+      .all(taskRunId) as CostSummaryRow[];
+
+    const invocations = rows.map(rowToCostInvocation);
+    return {
+      taskRunId,
+      totalCostUsd: invocations.reduce((sum, item) => sum + item.cost, 0),
+      totalLatencyMs: invocations.reduce(
+        (sum, item) => sum + item.latencyMs,
+        0,
+      ),
+      invocationCount: invocations.length,
+      perModel: summarizePerModel(invocations),
+      invocations,
+    };
+  }
+
+  async sumCostByTaskRun(taskRunId: string): Promise<number> {
+    return (await this.summarizeByTaskRun(taskRunId)).totalCostUsd;
+  }
+
+  async aggregateByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }): Promise<LearningTraceProfileDayAggregate[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT profile_id AS profileId,
+                date_iso AS dateIso,
+                COALESCE(SUM(cost), 0) AS totalCostUsd,
+                COUNT(*) AS count
+         FROM (
+           SELECT COALESCE(
+                    (
+                      SELECT ap.id
+                      FROM agent_profiles ap
+                      WHERE json_extract(ap.tuning_json, '$.model') = lt.selected_model
+                      ORDER BY ap.is_default DESC, datetime(ap.created_at) ASC, ap.id ASC
+                      LIMIT 1
+                    ),
+                    'unassigned'
+                  ) AS profile_id,
+                  substr(lt.created_at, 1, 10) AS date_iso,
+                  COALESCE(lt.cost_estimate, 0) AS cost
+           FROM learning_traces lt
+           WHERE lt.created_at >= @sinceIso
+             AND lt.created_at <= @untilIso
+         )
+         WHERE @profileId IS NULL OR profile_id = @profileId
+         GROUP BY profile_id, date_iso
+         ORDER BY date_iso ASC, profile_id ASC`,
+      )
+      .all({
+        sinceIso: input.sinceIso,
+        untilIso: input.untilIso,
+        profileId: input.profileId ?? null,
+      }) as ProfileDayAggregateRow[];
+    return rows.map((row) => ({
+      profileId: row.profileId,
+      dateIso: row.dateIso,
+      totalCostUsd: row.totalCostUsd,
+      count: row.count,
+    }));
   }
 
   async sumCostByDay(input: {
     profileId?: string;
     isoDate: string;
   }): Promise<number> {
-    void input.profileId;
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(cost_estimate), 0) AS total
-         FROM learning_traces
-         WHERE substr(created_at, 1, 10) = ?
-           AND cost_estimate IS NOT NULL`,
-      )
-      .get(input.isoDate) as { total: number } | undefined;
-    return row?.total ?? 0;
+    const rows = await this.aggregateByProfileAndDay({
+      sinceIso: `${input.isoDate}T00:00:00.000Z`,
+      untilIso: `${input.isoDate}T23:59:59.999Z`,
+      ...(input.profileId ? { profileId: input.profileId } : {}),
+    });
+    return rows.reduce((sum, row) => sum + row.totalCostUsd, 0);
   }
 }
+
+const rowToCostInvocation = (
+  row: CostSummaryRow,
+): TaskRunCostInvocationSummary => {
+  const summary: TaskRunCostInvocationSummary = {
+    id: row.id,
+    model: normalizeModel(row.model),
+    cost: row.cost ?? 0,
+    latencyMs: row.latency_ms ?? 0,
+    createdAt: row.created_at,
+  };
+  if (row.success !== null) summary.success = row.success === 1;
+  return summary;
+};
+
+const normalizeModel = (model: string | null): string => {
+  const trimmed = model?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : "unknown";
+};
+
+const summarizePerModel = (
+  invocations: TaskRunCostInvocationSummary[],
+): TaskRunCostModelBreakdown[] => {
+  const byModel = invocations.reduce<Record<string, TaskRunCostModelBreakdown>>(
+    (acc, item) => {
+      const current = acc[item.model] ?? {
+        model: item.model,
+        cost: 0,
+        latencyMs: 0,
+        count: 0,
+      };
+      return {
+        ...acc,
+        [item.model]: {
+          model: item.model,
+          cost: current.cost + item.cost,
+          latencyMs: current.latencyMs + item.latencyMs,
+          count: current.count + 1,
+        },
+      };
+    },
+    {},
+  );
+  return Object.values(byModel).sort(
+    (left, right) => right.cost - left.cost || left.model.localeCompare(right.model),
+  );
+};

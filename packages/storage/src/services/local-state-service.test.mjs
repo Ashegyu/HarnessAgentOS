@@ -167,6 +167,83 @@ test("getThreadDetail picks latest plan deterministically when timestamps tie", 
   }
 });
 
+test("buildThreadMarkdown returns a complete thread export document", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "export me" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id,
+      userRequest: "produce artifact",
+      targetDir: "/tmp/export-me",
+    });
+    const step = await svc.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "plan",
+      title: "Plan",
+      status: "succeeded",
+    });
+    const checkpoint = await svc.createCheckpoint({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      reason: "before_edit",
+      stateRef: "harness:checkpoint/export",
+      summary: "checkpoint",
+    });
+    const approval = await svc.createApproval({
+      taskRunId: taskRun.id,
+      checkpointId: checkpoint.id,
+      actionType: "file_write",
+      actionSummary: "write export",
+    });
+    const artifact = await svc.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "log",
+      title: "log",
+      uri: "artifact://log/export",
+      summary: "evidence",
+    });
+    const markdown = await svc.buildThreadMarkdown(thread.id);
+    assert.ok(markdown);
+    assert.match(markdown, new RegExp(thread.id));
+    assert.match(markdown, new RegExp(taskRun.id));
+    assert.match(markdown, new RegExp(step.id));
+    assert.match(markdown, new RegExp(checkpoint.id));
+    assert.match(markdown, new RegExp(approval.id));
+    assert.match(markdown, new RegExp(artifact.id));
+    assert.match(markdown, /artifact:\/\/log\/export/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("getDatabaseDiagnostics reports WAL checkpoint and file sizes", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    await svc.createThread({ title: "diagnostics" });
+    const diagnostics = svc.getDatabaseDiagnostics();
+    assert.equal(typeof diagnostics.mainBytes, "number");
+    assert.equal(typeof diagnostics.walBytes, "number");
+    assert.equal(typeof diagnostics.shmBytes, "number");
+    assert.equal(
+      diagnostics.totalBytes,
+      diagnostics.mainBytes + diagnostics.walBytes + diagnostics.shmBytes,
+    );
+    assert.equal(typeof diagnostics.walCheckpoint.busy, "number");
+    assert.equal(typeof diagnostics.walCheckpoint.log, "number");
+    assert.equal(typeof diagnostics.walCheckpoint.checkpointed, "number");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("getThreadDetail prefers saved agent raw output over plan summary", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

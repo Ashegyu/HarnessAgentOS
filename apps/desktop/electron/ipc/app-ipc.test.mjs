@@ -8,4 +8,5 @@ test("preload uses the channel constants from @harness/core, not literals", () =
   // channel strings, this test asks the author to pause.
   assert.equal(typeof IPC_CHANNELS.app.getVersion, "string");
   assert.equal(typeof IPC_CHANNELS.app.getRuntimeInfo, "string");
+  assert.equal(typeof IPC_CHANNELS.app.getDiagnostics, "string");
 });

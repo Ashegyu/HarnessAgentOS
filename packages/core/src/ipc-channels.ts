@@ -9,6 +9,7 @@ export const IPC_CHANNELS = {
   app: {
     getVersion: "app:getVersion",
     getRuntimeInfo: "app:getRuntimeInfo",
+    getDiagnostics: "app:getDiagnostics",
     selectDirectory: "app:selectDirectory",
     selectFile: "app:selectFile",
   },
@@ -17,6 +18,8 @@ export const IPC_CHANNELS = {
     getThread: "state:getThread",
     createThread: "state:createThread",
     deleteThread: "state:deleteThread",
+    exportDbSnapshot: "state:exportDbSnapshot",
+    exportThreadMarkdown: "state:exportThreadMarkdown",
   },
   conversation: {
     createTask: "conversation:createTask",
@@ -24,6 +27,7 @@ export const IPC_CHANNELS = {
     approve: "conversation:approve",
     rejectApproval: "conversation:rejectApproval",
     getTaskRunDetail: "conversation:getTaskRunDetail",
+    listDecisions: "conversation:listDecisions",
     setProposedAction: "conversation:setProposedAction",
     pauseTask: "conversation:pauseTask",
     resumeTask: "conversation:resumeTask",
@@ -58,6 +62,8 @@ export const IPC_CHANNELS = {
   },
   learner: {
     getTrace: "learner:getTrace",
+    summarizeTaskRunCost: "learner:summarizeTaskRunCost",
+    summarizeBudgetUsage: "learner:summarizeBudgetUsage",
     recommend: "learner:recommend",
     proposeRecommendation: "learner:proposeRecommendation",
     recordSelection: "learner:recordSelection",
@@ -171,6 +177,11 @@ export const IPC_CHANNELS = {
      * passes through secret-redaction before broadcast.
      */
     agentStreamEvent: "events:agentStreamEvent",
+    /**
+     * One-way main -> renderer system health snapshot. Main owns the
+     * heartbeat; renderer subscribes only and never polls.
+     */
+    diagnosticsHeartbeat: "events:diagnosticsHeartbeat",
   },
 } as const;
 

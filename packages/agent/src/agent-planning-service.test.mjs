@@ -71,6 +71,18 @@ const deferred = () => {
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
 
+test("getQueueDepths reports empty provider queues for idle service", () => {
+  const svc = new AgentPlanningService({
+    state: makeGateway(),
+    getProviderStatus: () => null,
+  });
+  assert.deepEqual(svc.getQueueDepths(), {
+    claude: 0,
+    codex: 0,
+    total: 0,
+  });
+});
+
 const workerProfile = (overrides = {}) => ({
   id: "ap-worker",
   name: "Worker",

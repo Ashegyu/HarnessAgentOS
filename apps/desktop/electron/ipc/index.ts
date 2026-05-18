@@ -51,6 +51,7 @@ import { registerRemoteAgentsIpc } from "./remote-agents-ipc-register";
 import { registerEvalsIpc } from "./evals-ipc-register";
 import type { SkillRootPolicy } from "./skill-source-ipc";
 import { eventBus } from "../event-bus";
+import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
 
 export interface IpcContext {
   state: LocalStateService;
@@ -78,14 +79,15 @@ export interface IpcContext {
   skillRootPolicy: SkillRootPolicy;
   /** Phase 4 will plug a real http/stdio prober here. */
   mcpProbe: (server: McpServerConfig) => Promise<McpServerHealth>;
+  diagnosticsService: SystemDiagnosticsService;
 }
 
 /**
  * Single registration entry point.
  */
 export const registerAllIpc = (ctx: IpcContext): void => {
-  registerAppIpc();
-  registerStateIpc(ctx.state);
+  registerAppIpc({ diagnostics: ctx.diagnosticsService });
+  registerStateIpc(ctx.state, eventBus);
   registerConversationIpc(
     ctx.conversation,
     ctx.state,

@@ -13,10 +13,13 @@ import type {
   A2ARegistryEntry,
   Artifact,
   BudgetUsageSnapshot,
+  BudgetUsageSummary,
   Capability,
   CapabilityCandidateApprovalResult,
   CapabilitySuggestion,
   CreateAgentPipelineInput,
+  DecisionLogInput,
+  DecisionLogPage,
   HarnessSettings,
   EvolutionCandidate,
   Instinct,
@@ -31,6 +34,7 @@ import type {
   LearnerRecommendation,
   LearnerRecommendationApprovalResult,
   LearningTrace,
+  TaskRunCostSummary,
   RecordTopologyFeedbackInput,
   RecommendTopologyInput,
   OrchestrationMode,
@@ -39,6 +43,7 @@ import type {
   ProposedActionDetails,
   QualityGateInput,
   QualityGateResult,
+  RepairAttempt,
   RepairPlanDraft,
   ShadowPreview,
   Step,
@@ -52,8 +57,10 @@ import type {
   EvalCostTrendView,
   EvalRunListFilters,
   EvalRunListItem,
+  ExportApprovalResult,
   RuntimeLatencyFilters,
   RuntimeLatencySummary,
+  SystemDiagnostics,
 } from "./types/index.ts";
 import type {
   ApproveInput,
@@ -69,6 +76,8 @@ export interface TaskRunDetail {
   approvals: Approval[];
   artifacts: Artifact[];
   checkpoints: Checkpoint[];
+  qualityGates: QualityGateResult[];
+  repairAttempts: RepairAttempt[];
   /**
    * Phase 8 — non-empty when this TaskRun was created with
    * `mode: "agent"` and at least one `agent.generatePlan` has run.
@@ -108,6 +117,7 @@ export interface HarnessDesktopApi {
   app: {
     getVersion(): Promise<string>;
     getRuntimeInfo(): Promise<RuntimeInfo>;
+    getDiagnostics(): Promise<SystemDiagnostics>;
     /** Returns null when the user cancels the dialog. */
     selectDirectory(): Promise<string | null>;
     /**
@@ -132,6 +142,11 @@ export interface HarnessDesktopApi {
       pipelineId?: string;
     }): Promise<Thread>;
     deleteThread(input: { threadId: string }): Promise<void>;
+    exportDbSnapshot(input: { targetPath: string }): Promise<ExportApprovalResult>;
+    exportThreadMarkdown(input: {
+      threadId: string;
+      targetPath: string;
+    }): Promise<ExportApprovalResult>;
   };
   conversation: {
     createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;
@@ -139,6 +154,7 @@ export interface HarnessDesktopApi {
     approve(input: ApproveInput): Promise<Approval>;
     rejectApproval(input: RejectApprovalInput): Promise<Approval>;
     getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
+    listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
     setProposedAction(input: {
       approvalId: string;
       details: ProposedActionDetails;
@@ -204,6 +220,13 @@ export interface HarnessDesktopApi {
   };
   learner: {
     getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
+    summarizeTaskRunCost(input: {
+      taskRunId: string;
+    }): Promise<TaskRunCostSummary>;
+    summarizeBudgetUsage(input?: {
+      days?: number;
+      profileId?: string;
+    }): Promise<BudgetUsageSummary>;
     recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
     proposeRecommendation(input: {
       taskRunId: string;
@@ -409,6 +432,14 @@ export interface HarnessDesktopApi {
      */
     onAgentStreamEvent(
       listener: (event: AgentStreamEvent) => void,
+    ): () => void;
+    /**
+     * Subscribe to System Diagnostics snapshots. Main emits a 10s
+     * heartbeat and immediate pushes on TaskRun/agent/runner changes;
+     * renderer must not poll.
+     */
+    onDiagnosticsChanged(
+      listener: (diagnostics: SystemDiagnostics) => void,
     ): () => void;
   };
 }

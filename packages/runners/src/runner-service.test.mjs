@@ -75,6 +75,17 @@ const withTimeout = async (promise, ms, message) =>
     }),
   ]);
 
+test("getInflightCount returns zero when runner is idle", async () => {
+  const t = tmp();
+  const { db, runner } = await setup(t);
+  try {
+    assert.equal(runner.getInflightCount(), 0);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 const fakeRunnerHarness = (input = {}) => {
   const now = "2026-05-18T00:00:00.000Z";
   const taskRun = {
@@ -396,6 +407,41 @@ test("file_write writes inside targetDir and emits diff artifact", async () => {
 
       const updatedTaskRun = await state.getTaskRun(approval.taskRunId);
       assert.equal(updatedTaskRun.status, "ready_for_review");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("file_write dbSnapshotExport runs VACUUM INTO after approval", async () => {
+  const t = tmpUnderCwd();
+  try {
+    mkdirSync(t.target, { recursive: true });
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "export db",
+        targetDir: t.target,
+      });
+      const targetPath = join(t.target, "snapshot.db");
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_write",
+        actionSummary: "Export DB snapshot",
+        proposedAction: {
+          type: "file_write",
+          dbSnapshotExport: { targetPath },
+        },
+      });
+      await state.decideApproval(approval.id, "approved", "approve snapshot");
+      const result = await runner.executeApproved(approval.id);
+      assert.equal(existsSync(targetPath), true);
+      assert.deepEqual(result.changedFiles, [targetPath]);
+      const artifacts = await state.listArtifactsByTaskRun(draft.taskRun.id);
+      assert.ok(artifacts.some((artifact) => artifact.kind === "snapshot"));
     } finally {
       closeDb(db);
     }

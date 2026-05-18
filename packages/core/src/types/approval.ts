@@ -1,4 +1,5 @@
 import type { PolicyEvaluation } from "./policy.ts";
+import type { TaskRunStatus } from "./task-run.ts";
 
 export type ApprovalStatus =
   | "pending"
@@ -83,6 +84,10 @@ export interface ProposedModelUse {
   estimatedCostUsd?: number;
 }
 
+export interface ProposedDbSnapshotExport {
+  targetPath: string;
+}
+
 /**
  * Concrete execution detail attached to an Approval. Phase 2 stores
  * this on the approval row (column added by Phase 3 migration). The
@@ -97,6 +102,7 @@ export interface ProposedActionDetails {
   filePatch?: ProposedFilePatch;
   capabilityUse?: ProposedCapabilityUse;
   modelUse?: ProposedModelUse;
+  dbSnapshotExport?: ProposedDbSnapshotExport;
 }
 
 export interface Approval {
@@ -111,6 +117,39 @@ export interface Approval {
   autoApproveDecision?: AutoApproveDecision | null;
   decisionMessage?: string;
   decidedAt?: string;
+}
+
+export interface DecisionLogFilter {
+  decidedAtSteps?: AutoApproveStep[];
+  actionTypes?: ApprovalActionType[];
+  sinceIso?: string;
+  untilIso?: string;
+}
+
+export interface DecisionLogInput {
+  limit: number;
+  offset: number;
+  filter?: DecisionLogFilter;
+}
+
+export interface DecisionLogItem {
+  approval: Approval & {
+    autoApproveDecision: AutoApproveDecision;
+    decidedAt: string;
+  };
+  threadId: string;
+  threadTitle: string;
+  taskRunId: string;
+  taskRunUserRequest: string;
+  taskRunStatus: TaskRunStatus;
+}
+
+export interface DecisionLogPage {
+  items: DecisionLogItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
 }
 
 export interface CreateApprovalInput {

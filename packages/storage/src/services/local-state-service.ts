@@ -20,6 +20,8 @@ import {
   type CreateStepInput,
   type CreateTaskRunInput,
   type CreateThreadInput,
+  type DecisionLogInput,
+  type DecisionLogPage,
   type EvolutionCandidate,
   type EvolutionCandidateStatus,
   type HarnessSettings,
@@ -31,6 +33,7 @@ import {
   type QualityGateResult,
   type Step,
   type StepStatus,
+  type DatabaseDiagnosticsSnapshot,
   type TaskRun,
   type TaskRunStatus,
   type Thread,
@@ -38,6 +41,7 @@ import {
   type ProposedActionDetails,
   type UpdateAgentInvocationPatch,
 } from "@harness/core";
+import { statSync } from "node:fs";
 import type { HarnessDb } from "../db.ts";
 import {
   SqliteAgentInvocationRepository,
@@ -85,6 +89,7 @@ import {
   type TaskRunRepository,
   type ThreadRepository,
 } from "../repositories/index.ts";
+import { serializeThreadMarkdown } from "./thread-markdown-export.ts";
 
 const AGENT_PLAN_PLACEHOLDER_TITLE = "Awaiting agent plan";
 const AGENT_PLAN_PLACEHOLDER_SUMMARY_PREFIX = "Agent mode TaskRun";
@@ -153,6 +158,39 @@ export class LocalStateService implements ConversationStateGateway {
       this.agentProfiles,
       this.a2aRemoteAgents,
     );
+  }
+
+  getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
+    const dbPath =
+      typeof (this.db as unknown as { name?: unknown }).name === "string"
+        ? (this.db as unknown as { name: string }).name
+        : "";
+    const checkpoint = this.readWalCheckpoint();
+    const mainBytes = statBytes(dbPath);
+    const walBytes = statBytes(`${dbPath}-wal`);
+    const shmBytes = statBytes(`${dbPath}-shm`);
+    return {
+      mainBytes,
+      walBytes,
+      shmBytes,
+      totalBytes: mainBytes + walBytes + shmBytes,
+      walCheckpoint: checkpoint,
+    };
+  }
+
+  private readWalCheckpoint(): DatabaseDiagnosticsSnapshot["walCheckpoint"] {
+    try {
+      const row = this.db.prepare("PRAGMA wal_checkpoint(PASSIVE)").get() as
+        | { busy?: unknown; log?: unknown; checkpointed?: unknown }
+        | undefined;
+      return {
+        busy: finiteNumber(row?.busy),
+        log: finiteNumber(row?.log),
+        checkpointed: finiteNumber(row?.checkpointed),
+      };
+    } catch {
+      return { busy: 0, log: 0, checkpointed: 0 };
+    }
   }
 
   // -- Thread / TaskRun --------------------------------------------------
@@ -393,6 +431,10 @@ export class LocalStateService implements ConversationStateGateway {
     return this.approvals.listByTaskRun(taskRunId);
   }
 
+  async listDecisions(input: DecisionLogInput): Promise<DecisionLogPage> {
+    return this.approvals.listAllWithDecisionTrace(input);
+  }
+
   // -- Quality Gate -------------------------------------------------------
 
   async createQualityGateResult(
@@ -463,6 +505,18 @@ export class LocalStateService implements ConversationStateGateway {
 
   async sumLearningTraceCostByTaskRun(taskRunId: string): Promise<number> {
     return this.learningTraces.sumCostByTaskRun(taskRunId);
+  }
+
+  async summarizeLearningTraceCostByTaskRun(taskRunId: string) {
+    return this.learningTraces.summarizeByTaskRun(taskRunId);
+  }
+
+  async aggregateLearningTraceCostByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }) {
+    return this.learningTraces.aggregateByProfileAndDay(input);
   }
 
   async sumLearningTraceCostByDay(input: {
@@ -580,7 +634,39 @@ export class LocalStateService implements ConversationStateGateway {
   async listAgentProfiles() {
     return this.agentProfiles.list();
   }
+
+  async writeDbSnapshot(targetPath: string): Promise<void> {
+    this.db.prepare("VACUUM INTO ?").run(targetPath);
+  }
+
+  async buildThreadMarkdown(threadId: string): Promise<string | null> {
+    const thread = await this.threads.get(threadId);
+    if (!thread) return null;
+    const taskRuns = await this.taskRuns.listByThread(threadId);
+    const details = await Promise.all(
+      taskRuns.map(async (taskRun) => ({
+        taskRun,
+        steps: await this.steps.listByTaskRun(taskRun.id),
+        checkpoints: await this.checkpoints.listByTaskRun(taskRun.id),
+        approvals: await this.approvals.listByTaskRun(taskRun.id),
+        artifacts: await this.artifacts.listByTaskRun(taskRun.id),
+      })),
+    );
+    return serializeThreadMarkdown({ thread, taskRuns: details });
+  }
 }
+
+const statBytes = (path: string): number => {
+  if (!path || path === ":memory:") return 0;
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+};
+
+const finiteNumber = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) ? value : 0;
 
 const isAgentPlanPlaceholder = (
   title: string | null,

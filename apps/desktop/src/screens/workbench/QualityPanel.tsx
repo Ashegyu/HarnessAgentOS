@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Artifact, QualityGateResult, TaskRun } from "@harness/core";
+import type {
+  Approval,
+  Artifact,
+  QualityGateResult,
+  RepairAttempt,
+  TaskRun,
+} from "@harness/core";
 import { RiskApprovalDialog } from "./RiskApprovalDialog";
 import { FeatureHelpButton } from "./FeatureHelpButton";
+import {
+  buildRepairAttemptRows,
+  type RepairAttemptRow,
+} from "./quality-repair-model";
 
 interface QualityPanelProps {
   taskRun: TaskRun;
   artifacts: Artifact[];
+  approvals: Approval[];
+  qualityGates: QualityGateResult[];
+  repairAttempts: RepairAttempt[];
   /** Refresh callback after a status change. */
   onTaskRunChanged: () => Promise<void>;
 }
@@ -40,6 +53,9 @@ const statusClass = (status: QualityGateResult["status"]): string => {
 export const QualityPanel = ({
   taskRun,
   artifacts,
+  approvals,
+  qualityGates,
+  repairAttempts,
   onTaskRunChanged,
 }: QualityPanelProps): JSX.Element => {
   const [gateState, setGateState] = useState<GateState>({ kind: "idle" });
@@ -162,6 +178,16 @@ export const QualityPanel = ({
     taskRun.status === "ready_for_review" &&
     (gate.status === "passed" ||
       (gate.status === "warning" && knownRiskApproved));
+  const repairRows = useMemo(
+    () =>
+      buildRepairAttemptRows({
+        attempts: repairAttempts,
+        qualityGates,
+        approvals,
+        artifacts,
+      }),
+    [approvals, artifacts, qualityGates, repairAttempts],
+  );
 
   return (
     <div className="quality-panel">
@@ -274,6 +300,8 @@ export const QualityPanel = ({
         </details>
       ) : null}
 
+      <RepairAttemptsSection rows={repairRows} />
+
       {actionError ? <div className="error-message">{actionError}</div> : null}
 
       <div className="quality-panel__actions">
@@ -356,6 +384,72 @@ export const QualityPanel = ({
       ) : null}
     </div>
   );
+};
+
+const RepairAttemptsSection = ({
+  rows,
+}: {
+  rows: RepairAttemptRow[];
+}): JSX.Element => (
+  <details className="quality-panel__repair" open={rows.length > 0}>
+    <summary>Repair attempts ({rows.length})</summary>
+    {rows.length === 0 ? (
+      <div className="empty-state">repair attempt 기록이 없습니다.</div>
+    ) : (
+      <ol className="quality-panel__repair-list">
+        {rows.map((row) => (
+          <li key={row.attempt.id} className="quality-panel__repair-item">
+            <div className="quality-panel__repair-head">
+              <strong>Attempt {row.attemptNumber}</strong>
+              <span className={repairStatusClass(row.attempt.status)}>
+                {row.attempt.status}
+              </span>
+            </div>
+            <dl className="quality-panel__repair-meta">
+              <div>
+                <dt>gate</dt>
+                <dd>{row.gateStatus}</dd>
+              </div>
+              <div>
+                <dt>approvals</dt>
+                <dd>{row.generatedApprovals.length}</dd>
+              </div>
+              <div>
+                <dt>diffs</dt>
+                <dd>{row.diffArtifacts.length}</dd>
+              </div>
+            </dl>
+            {row.generatedApprovals.length > 0 ? (
+              <ul className="quality-panel__repair-links">
+                {row.generatedApprovals.map((approval) => (
+                  <li key={approval.id}>
+                    <code>{approval.id}</code> {approval.actionSummary}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {row.diffArtifacts.length > 0 ? (
+              <ul className="quality-panel__repair-links">
+                {row.diffArtifacts.map((artifact) => (
+                  <li key={artifact.id}>
+                    <code>{artifact.id}</code> {artifact.title}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    )}
+  </details>
+);
+
+const repairStatusClass = (status: RepairAttempt["status"]): string => {
+  if (status === "passed") return "status-pill status-pill--passed";
+  if (status === "failed" || status === "stopped")
+    return "status-pill status-pill--failed";
+  if (status === "executed") return "status-pill status-pill--warning";
+  return "status-pill status-pill--neutral";
 };
 
 const doneBlockedReason = (

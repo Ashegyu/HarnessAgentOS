@@ -15,6 +15,11 @@ import { FeatureHelpButton } from "./FeatureHelpButton";
 import type { FeatureHelpId } from "./feature-help";
 import { SkillSourcesTab } from "./SkillSourcesTab";
 import { EvalsTab } from "./EvalsTab";
+import { BudgetOverviewTab } from "./BudgetOverviewTab";
+import { ActivityLogTab } from "./ActivityLogTab";
+import { KeyboardShortcutsTab } from "./KeyboardShortcutsTab";
+import { SystemDiagnosticsTab } from "./SystemDiagnosticsTab";
+import { BackupExportTab } from "./BackupExportTab";
 
 interface Props {
   onClose: () => void;
@@ -30,7 +35,12 @@ type SettingsTabId =
   | "evals"
   | "mcp"
   | "skills"
-  | "secrets";
+  | "secrets"
+  | "budget"
+  | "activityLog"
+  | "diagnostics"
+  | "backupExport"
+  | "shortcuts";
 
 interface SettingsTabDef {
   id: SettingsTabId;
@@ -47,6 +57,11 @@ const TABS: readonly SettingsTabDef[] = [
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
   { id: "secrets", label: "Secrets" },
+  { id: "budget", label: "Budget" },
+  { id: "activityLog", label: "Activity" },
+  { id: "diagnostics", label: "Diagnostics" },
+  { id: "backupExport", label: "Backup" },
+  { id: "shortcuts", label: "Shortcuts" },
 ];
 
 const TAB_HELP: Record<SettingsTabId, FeatureHelpId> = {
@@ -59,6 +74,11 @@ const TAB_HELP: Record<SettingsTabId, FeatureHelpId> = {
   mcp: "mcpServers",
   skills: "skills",
   secrets: "secrets",
+  budget: "budget",
+  activityLog: "activityLog",
+  diagnostics: "diagnostics",
+  backupExport: "backupExport",
+  shortcuts: "shortcuts",
 };
 
 type FormState =
@@ -282,6 +302,36 @@ export const SettingsPanel = ({
         {activeTab === "secrets" && (
           <div className="settings-dialog__body">
             <SecretsTab />
+          </div>
+        )}
+
+        {activeTab === "budget" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <BudgetOverviewTab />
+          </div>
+        )}
+
+        {activeTab === "activityLog" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <ActivityLogTab />
+          </div>
+        )}
+
+        {activeTab === "diagnostics" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <SystemDiagnosticsTab />
+          </div>
+        )}
+
+        {activeTab === "backupExport" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <BackupExportTab />
+          </div>
+        )}
+
+        {activeTab === "shortcuts" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <KeyboardShortcutsTab />
           </div>
         )}
 

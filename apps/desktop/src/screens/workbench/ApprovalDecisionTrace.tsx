@@ -14,7 +14,7 @@ export interface AutoApproveTraceRow {
   result: string;
 }
 
-const STEP_LABELS: Record<AutoApproveStep, string> = {
+export const AUTO_APPROVE_STEP_LABELS: Record<AutoApproveStep, string> = {
   blocked_action: "Block floor",
   policy_blocked: "Policy blocked",
   budget_blocked: "Budget gate",
@@ -35,7 +35,7 @@ export const buildAutoApproveTraceRows = (
       index < decidedIndex ? "pass" : index === decidedIndex ? "stop" : "skip";
     return {
       step,
-      label: STEP_LABELS[step],
+      label: AUTO_APPROVE_STEP_LABELS[step],
       summary: summarizeStep(step, approval),
       status,
       result: resultLabel(status, decision.approved),

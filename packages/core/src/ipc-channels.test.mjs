@@ -152,10 +152,12 @@ test("secret namespace exposes write/clear/listKeys only (no read)", () => {
 test("events namespace exposes id-only + scoped chunk push channels", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.events).sort(), [
     "agentStreamEvent",
+    "diagnosticsHeartbeat",
     "taskRunChanged",
   ]);
   assert.equal(isAllowedChannel("events:taskRunChanged"), true);
   assert.equal(isAllowedChannel("events:agentStreamEvent"), true);
+  assert.equal(isAllowedChannel("events:diagnosticsHeartbeat"), true);
 });
 
 test("agent namespace exposes Phase 8 verbs", () => {
@@ -170,6 +172,7 @@ test("agent namespace exposes Phase 8 verbs", () => {
 
 test("app namespace exposes runtime + selectDirectory + selectFile", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.app).sort(), [
+    "getDiagnostics",
     "getRuntimeInfo",
     "getVersion",
     "selectDirectory",
@@ -181,6 +184,8 @@ test("state namespace exposes Phase 1 verbs only", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.state).sort(), [
     "createThread",
     "deleteThread",
+    "exportDbSnapshot",
+    "exportThreadMarkdown",
     "getThread",
     "listThreads",
   ]);
@@ -193,6 +198,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
     "createTask",
     "deleteTask",
     "getTaskRunDetail",
+    "listDecisions",
     "pauseTask",
     "redirectTask",
     "rejectApproval",
@@ -241,6 +247,8 @@ test("learner namespace exposes Phase 6 verbs", () => {
     "recordDecision",
     "recordOutcome",
     "recordSelection",
+    "summarizeBudgetUsage",
+    "summarizeTaskRunCost",
   ]);
 });
 
@@ -285,6 +293,7 @@ test("channel strings use namespace:verb format", () => {
 
 test("isAllowedChannel accepts declared channels", () => {
   assert.equal(isAllowedChannel("app:getVersion"), true);
+  assert.equal(isAllowedChannel("app:getDiagnostics"), true);
   assert.equal(isAllowedChannel("conversation:createTask"), true);
   assert.equal(isAllowedChannel("runner:executeApproved"), true);
   assert.equal(isAllowedChannel("runner:cancelExecution"), true);

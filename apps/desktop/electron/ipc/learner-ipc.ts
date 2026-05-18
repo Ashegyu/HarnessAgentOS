@@ -11,6 +11,8 @@ import {
   type LearnerRecommendationApprovalResult,
   type LearnerRecommendation,
   type LearningTrace,
+  type BudgetUsageSummary,
+  type TaskRunCostSummary,
 } from "@harness/core";
 import {
   LearnerAdvisor,
@@ -24,6 +26,11 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
+
+const optionalPositiveInteger = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) && v > 0
+    ? Math.floor(v)
+    : undefined;
 
 const wrapErr = <T>(e: unknown, code = LEARNER_TASK_NOT_FOUND): HarnessResult<T> => {
   if (e instanceof LearnerAdvisorError) {
@@ -57,6 +64,76 @@ export const registerLearnerIpc = (
         return ok(await advisor.getTrace({ taskRunId: cast.taskRunId }));
       } catch (e) {
         return wrapErr<LearningTrace | null>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.summarizeTaskRunCost,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<TaskRunCostSummary>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { taskRunId?: unknown };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      try {
+        return ok(
+          await advisor.summarizeTaskRunCost({ taskRunId: cast.taskRunId }),
+        );
+      } catch (e) {
+        return wrapErr<TaskRunCostSummary>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.summarizeBudgetUsage,
+    async (_e, input: unknown): Promise<HarnessResult<BudgetUsageSummary>> => {
+      if (input !== undefined && !isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = (input ?? {}) as {
+        days?: unknown;
+        profileId?: unknown;
+      };
+      if (
+        cast.profileId !== undefined &&
+        (typeof cast.profileId !== "string" || cast.profileId.trim().length === 0)
+      ) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "profileId must be a non-empty string when provided",
+          ),
+        );
+      }
+      const days = optionalPositiveInteger(cast.days);
+      if (cast.days !== undefined && days === undefined) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "days must be a positive number when provided",
+          ),
+        );
+      }
+      try {
+        return ok(
+          await advisor.summarizeBudgetUsage({
+            ...(days !== undefined ? { days } : {}),
+            ...(typeof cast.profileId === "string"
+              ? { profileId: cast.profileId }
+              : {}),
+          }),
+        );
+      } catch (e) {
+        return wrapErr<BudgetUsageSummary>(e);
       }
     },
   );

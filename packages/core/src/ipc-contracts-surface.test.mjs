@@ -19,6 +19,7 @@ const CONTRACTS_PATH = resolve(
 const eventPublicMethods = new Map([
   ["taskRunChanged", "onTaskRunChanged"],
   ["agentStreamEvent", "onAgentStreamEvent"],
+  ["diagnosticsHeartbeat", "onDiagnosticsChanged"],
 ]);
 
 const expectedPublicMethods = () => {

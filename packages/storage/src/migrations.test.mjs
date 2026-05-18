@@ -141,6 +141,23 @@ test("v24 migration adds nullable auto_approve_decision_json to approvals", () =
   }
 });
 
+test("v25 migration adds approvals decided_at index", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasIndex(db, "idx_approvals_decided_at"),
+      true,
+      "approvals.decided_at audit index must exist",
+    );
+    applyMigrations(db);
+    assert.equal(hasIndex(db, "idx_approvals_decided_at"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

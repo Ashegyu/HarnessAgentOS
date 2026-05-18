@@ -1,4 +1,5 @@
 import type { Approval } from "./approval.ts";
+import type { AgentBudget } from "./agent-profile.ts";
 import type { CapabilitySuggestion } from "./capability.ts";
 
 export interface LearningTrace {
@@ -61,4 +62,104 @@ export interface LearnerDecisionRecord {
   recommendationId: string;
   decision: "accepted" | "rejected";
   reason?: string;
+}
+
+export interface TaskRunCostModelBreakdown {
+  model: string;
+  cost: number;
+  latencyMs: number;
+  count: number;
+}
+
+export interface TaskRunCostInvocationSummary {
+  id: string;
+  model: string;
+  cost: number;
+  latencyMs: number;
+  createdAt: string;
+  success?: boolean;
+}
+
+export interface TaskRunCostStatusCounts {
+  queued: number;
+  running: number;
+  succeeded: number;
+  failed: number;
+  cancelled: number;
+}
+
+export type TaskRunCostBudgetScope =
+  | "per_invocation"
+  | "per_task_run"
+  | "per_day";
+
+export interface TaskRunCostBudgetProgress {
+  scope: TaskRunCostBudgetScope;
+  label: string;
+  usedUsd: number;
+  limitUsd: number;
+  ratio: number;
+  exceeded: boolean;
+}
+
+export interface TaskRunCostBudgetSummary {
+  profileId: string;
+  profileName: string;
+  limits: AgentBudget;
+  progress: TaskRunCostBudgetProgress[];
+  isoDate: string;
+}
+
+export interface TaskRunCostSummary {
+  taskRunId: string;
+  totalCostUsd: number;
+  totalLatencyMs: number;
+  invocationCount: number;
+  perModel: TaskRunCostModelBreakdown[];
+  invocations: TaskRunCostInvocationSummary[];
+  agentInvocationStatusCounts?: TaskRunCostStatusCounts;
+  budget?: TaskRunCostBudgetSummary;
+}
+
+export interface LearningTraceProfileDayAggregate {
+  profileId: string;
+  dateIso: string;
+  totalCostUsd: number;
+  count: number;
+}
+
+export interface BudgetUsageModelSummary {
+  model: string;
+  totalCostUsd: number;
+  invocationCount: number;
+}
+
+export interface BudgetUsageDailyPoint {
+  dateIso: string;
+  totalCostUsd: number;
+  count: number;
+}
+
+export interface BudgetUsageProfileSummary {
+  profileId: string;
+  profileName: string;
+  model: string;
+  budget?: AgentBudget;
+  todayCostUsd: number;
+  windowCostUsd: number;
+  averageDailyCostUsd: number;
+  dailyBudgetRatio?: number;
+  daily: BudgetUsageDailyPoint[];
+}
+
+export interface BudgetUsageSummary {
+  sinceIso: string;
+  untilIso: string;
+  todayIso: string;
+  days: number;
+  todayCostUsd: number;
+  windowCostUsd: number;
+  averageDailyCostUsd: number;
+  profiles: BudgetUsageProfileSummary[];
+  topModels: BudgetUsageModelSummary[];
 }

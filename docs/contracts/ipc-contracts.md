@@ -240,6 +240,27 @@ export interface RepairPlanDraft {
   checkpoint: Checkpoint;
   approvals: Approval[];
 }
+
+export type RepairAttemptStatus =
+  | "planned"
+  | "waiting_for_approval"
+  | "executed"
+  | "passed"
+  | "failed"
+  | "stopped";
+
+export interface RepairAttempt {
+  id: string;
+  taskRunId: string;
+  qualityGateId: string;
+  attemptIndex: number;
+  failureSignature: string;
+  status: RepairAttemptStatus;
+  invocationId?: string;
+  generatedApprovalIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
 ```
 
 `LocalStateService.createApproval` attaches a default `policyEvaluation` for every
@@ -255,6 +276,7 @@ manually changed to `approved`.
 ```ts
 app.getVersion(): Promise<string>;
 app.getRuntimeInfo(): Promise<RuntimeInfo>;
+app.getDiagnostics(): Promise<SystemDiagnostics>;
 /** Returns null when the user cancels the dialog. */
 app.selectDirectory(): Promise<string | null>;
 /** Returns null when the user cancels the dialog. */
@@ -266,6 +288,36 @@ interface RuntimeInfo {
   platform: string;
   appDataDir: string;
   documentsDir?: string;
+}
+
+interface SystemDiagnostics {
+  generatedAt: string;
+  thresholds: { dbWarnBytes: number; queueDepthWarn: number };
+  db: {
+    mainBytes: number;
+    walBytes: number;
+    shmBytes: number;
+    totalBytes: number;
+    walCheckpoint: { busy: number; log: number; checkpointed: number };
+    status: "ok" | "warning" | "error";
+    warning?: string;
+  };
+  queue: {
+    claude: number;
+    codex: number;
+    total: number;
+    status: "ok" | "warning" | "error";
+    warning?: string;
+  };
+  providers: {
+    status: "ok" | "warning" | "error";
+    items: AgentProviderStatusMap;
+    warning?: string;
+  };
+  runner: {
+    inflightCount: number;
+    status: "ok" | "warning" | "error";
+  };
 }
 ```
 
@@ -284,6 +336,11 @@ state.createThread(input: {
   pipelineId?: string;
 }): Promise<Thread>;
 state.deleteThread(input: { threadId: string }): Promise<void>;
+state.exportDbSnapshot(input: { targetPath: string }): Promise<ExportApprovalResult>;
+state.exportThreadMarkdown(input: {
+  threadId: string;
+  targetPath: string;
+}): Promise<ExportApprovalResult>;
 ```
 
 ```ts
@@ -303,6 +360,14 @@ interface ThreadDetail {
   taskRuns: TaskRun[];
   agentAnswers?: Record<string, string>;
 }
+
+interface ExportApprovalResult {
+  thread: Thread;
+  taskRun: TaskRun;
+  checkpoint: Checkpoint;
+  approval: Approval;
+  targetPath: string;
+}
 ```
 
 오류:
@@ -310,6 +375,11 @@ interface ThreadDetail {
 - `STATE_THREAD_NOT_FOUND`
 - `STATE_INVALID_INPUT`
 - `STATE_DB_ERROR`
+
+`state.exportDbSnapshot`와 `state.exportThreadMarkdown`는 파일을 즉시 쓰지 않고
+`file_write` approval을 생성한다. 승인 후 `runner.executeApproved`가
+DB snapshot은 `VACUUM INTO ?`, thread markdown은 승인 payload의 `filePatch`로
+실제 파일 쓰기를 수행한다.
 
 ## `window.harness.conversation`
 
@@ -320,6 +390,7 @@ conversation.approve(input: { approvalId: string; message?: string; scope?: Appr
 conversation.rejectApproval(input: { approvalId: string; message: string }): Promise<Approval>;
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
+conversation.listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
 conversation.pauseTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.resumeTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.cancelTask(input: { taskRunId: string; reason: string }): Promise<TaskRun>;
@@ -361,6 +432,8 @@ interface TaskRunDetail {
   artifacts: Artifact[];
   checkpoints: Checkpoint[];
   approvals: Approval[];
+  qualityGates: QualityGateResult[];
+  repairAttempts: RepairAttempt[];
   /**
    * Phase 8 — agent CLI invocations associated with this TaskRun.
    * Empty for template-mode TaskRuns. The renderer uses the latest entry to
@@ -381,6 +454,35 @@ interface TaskRunDetail {
     accumulatedDailyCostUsd: number;
     isoDate: string;
   };
+}
+
+interface DecisionLogInput {
+  limit: number; // 1..100, Activity Log uses 50
+  offset: number;
+  filter?: {
+    decidedAtSteps?: AutoApproveStep[];
+    actionTypes?: ApprovalActionType[];
+    sinceIso?: string;
+    untilIso?: string;
+  };
+}
+
+interface DecisionLogPage {
+  items: Array<{
+    approval: Approval & {
+      autoApproveDecision: AutoApproveDecision;
+      decidedAt: string;
+    };
+    threadId: string;
+    threadTitle: string;
+    taskRunId: string;
+    taskRunUserRequest: string;
+    taskRunStatus: TaskRunStatus;
+  }>;
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
 }
 ```
 
@@ -559,7 +661,87 @@ interface LearnerRecommendation {
   confidence: number;
 }
 
+interface TaskRunCostSummary {
+  taskRunId: string;
+  totalCostUsd: number;
+  totalLatencyMs: number;
+  invocationCount: number;
+  perModel: Array<{
+    model: string;
+    cost: number;
+    latencyMs: number;
+    count: number;
+  }>;
+  invocations: Array<{
+    id: string;
+    model: string;
+    cost: number;
+    latencyMs: number;
+    success?: boolean;
+    createdAt: string;
+  }>;
+  budget?: {
+    profileId: string;
+    profileName: string;
+    limits: {
+      perInvocationUsd?: number;
+      perTaskRunUsd?: number;
+      perDayUsd?: number;
+    };
+    progress: Array<{
+      scope: "per_invocation" | "per_task_run" | "per_day";
+      label: string;
+      usedUsd: number;
+      limitUsd: number;
+      ratio: number;
+      exceeded: boolean;
+    }>;
+    isoDate: string;
+  };
+}
+
+interface BudgetUsageSummary {
+  sinceIso: string;
+  untilIso: string;
+  todayIso: string;
+  days: number;
+  todayCostUsd: number;
+  windowCostUsd: number;
+  averageDailyCostUsd: number;
+  profiles: Array<{
+    profileId: string;
+    profileName: string;
+    model: string;
+    budget?: {
+      perInvocationUsd?: number;
+      perTaskRunUsd?: number;
+      perDayUsd?: number;
+    };
+    todayCostUsd: number;
+    windowCostUsd: number;
+    averageDailyCostUsd: number;
+    dailyBudgetRatio?: number;
+    daily: Array<{
+      dateIso: string;
+      totalCostUsd: number;
+      count: number;
+    }>;
+  }>;
+  topModels: Array<{
+    model: string;
+    totalCostUsd: number;
+    invocationCount: number;
+  }>;
+}
+
 learner.getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
+learner.summarizeTaskRunCost(input: {
+  taskRunId: string;
+}): Promise<TaskRunCostSummary>;
+learner.summarizeBudgetUsage(input?: {
+  days?: number;
+  profileId?: string;
+}): Promise<BudgetUsageSummary>;
 learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
 learner.proposeRecommendation(input: {
   taskRunId: string;
@@ -1142,6 +1324,7 @@ remoteAgents.upsertCardSnapshot(input: {
 |---|---|---|
 | id-only push | `events:taskRunChanged` | `{ taskRunId: string }` — renderer가 fresh state를 다시 fetch |
 | scoped chunk push | `events:agentStreamEvent` | `AgentStreamEvent` — invocationId-tagged, secret-redacted |
+| health heartbeat | `events:diagnosticsHeartbeat` | `SystemDiagnostics` — main-owned 10초 heartbeat + 즉시 변경 push |
 
 ```ts
 events.onTaskRunChanged(
@@ -1151,12 +1334,17 @@ events.onTaskRunChanged(
 events.onAgentStreamEvent(
   listener: (event: AgentStreamEvent) => void,
 ): () => void; // unsubscribe — renderer filters by invocationId
+
+events.onDiagnosticsChanged(
+  listener: (diagnostics: SystemDiagnostics) => void,
+): () => void; // unsubscribe — renderer must not poll
 ```
 
 발생 조건:
 
 - `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval/cancelExecution`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다. `runner.executeApproved/retryApproval`은 runner가 실패/취소 상태를 DB에 기록한 뒤 에러를 반환하는 경우에도 발행한다.
 - `events:agentStreamEvent`: `agent.generatePlan` invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
+- `events:diagnosticsHeartbeat`: main process가 10초 interval로 발행하고, TaskRun status 변경, agent invocation 시작/종료, runner cancel 시점에는 즉시 발행한다. renderer는 `app.getDiagnostics()`로 initial fetch 후 이 이벤트만 구독한다.
 - 페이로드는 위 표에 명시된 shape만 — 채널 자체로 임의의 도메인 객체를 전달하지 않는다.
 - read-only IPC (예: `quality.getLatest`, `state.listThreads`)는 발행하지 않는다.
 

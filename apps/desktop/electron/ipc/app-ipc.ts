@@ -3,6 +3,7 @@ import {
   IPC_CHANNELS,
   type HarnessResult,
   type RuntimeInfo,
+  type SystemDiagnostics,
   ok,
   err,
   harnessError,
@@ -10,11 +11,17 @@ import {
 } from "@harness/core";
 import { runtimeService } from "../services/runtime-service";
 
+export interface AppIpcDeps {
+  diagnostics?: {
+    collect(): Promise<SystemDiagnostics>;
+  };
+}
+
 /**
  * `app` namespace IPC handlers. Each handler returns HarnessResult<T>;
  * preload unwraps to either resolved value or thrown HarnessError.
  */
-export const registerAppIpc = (): void => {
+export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
   ipcMain.handle(
     IPC_CHANNELS.app.getVersion,
     async (): Promise<HarnessResult<string>> => {
@@ -42,6 +49,26 @@ export const registerAppIpc = (): void => {
           harnessError(
             APP_RUNTIME_UNAVAILABLE,
             "Failed to read runtime info",
+            String(e),
+          ),
+        );
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.app.getDiagnostics,
+    async (): Promise<HarnessResult<SystemDiagnostics>> => {
+      try {
+        if (!deps.diagnostics) {
+          throw new Error("diagnostics service is not registered");
+        }
+        return ok(await deps.diagnostics.collect());
+      } catch (e) {
+        return err(
+          harnessError(
+            APP_RUNTIME_UNAVAILABLE,
+            "Failed to read system diagnostics",
             String(e),
           ),
         );

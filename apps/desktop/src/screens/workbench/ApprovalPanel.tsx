@@ -197,7 +197,11 @@ export const ApprovalPanel = ({
       !blocked;
     const shadowPreview = shadowPreviews[a.id];
     return (
-      <article key={a.id} className={`approval-card approval-card--${risk}`}>
+      <article
+        key={a.id}
+        id={`approval-card-${a.id}`}
+        className={`approval-card approval-card--${risk}`}
+      >
         <header className="approval-card__header">
           <span className="approval-card__type">{a.actionType}</span>
           <span className={`status-badge status-badge--${riskKind(risk)}`}>

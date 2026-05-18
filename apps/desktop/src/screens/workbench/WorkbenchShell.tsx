@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentProfile,
   AgentProviderStatusMap,
@@ -8,6 +8,7 @@ import type {
   ProposedActionDetails,
   Thread,
   ThreadDetail,
+  TaskRun,
   TaskRunDetail,
 } from "@harness/core";
 import {
@@ -18,9 +19,12 @@ import {
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
 import type { ConversationMode } from "./ConversationInput";
-import { RightPanel } from "./RightPanel";
+import { RightPanel, type RightPanelTab } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import { SettingsPanel } from "./SettingsPanel";
+import { CommandPalette } from "./CommandPalette";
+import { NotificationTray } from "./NotificationTray";
+import type { CommandPaletteItem } from "./command-palette-model";
 import { SlimRail } from "./SlimRail";
 import { HeroEmpty } from "./HeroEmpty";
 import type { AgentProgressItem } from "./AgentProgressList";
@@ -44,8 +48,38 @@ type TaskRunDetailState =
   | { kind: "ready"; detail: TaskRunDetail }
   | { kind: "error"; taskRunId: string; message: string };
 
+interface RecentTaskRunCommand {
+  taskRun: TaskRun;
+  threadId: string;
+  threadTitle: string;
+}
+
+const COMMAND_TAB_ITEMS: ReadonlyArray<{
+  id: RightPanelTab;
+  title: string;
+  keywords: readonly string[];
+}> = [
+  { id: "plan", title: "Plan", keywords: ["approval", "approvals"] },
+  { id: "agent", title: "Agent", keywords: ["invocation", "cli"] },
+  { id: "graph", title: "Agent Graph", keywords: ["topology"] },
+  { id: "timeline", title: "Timeline", keywords: ["time"] },
+  { id: "artifacts", title: "Files", keywords: ["artifacts"] },
+  { id: "quality", title: "Quality", keywords: ["qa"] },
+  { id: "capabilities", title: "Capabilities", keywords: ["caps"] },
+  { id: "instinct", title: "Instinct", keywords: ["inst"] },
+  { id: "orchestration", title: "Orchestration", keywords: ["orch"] },
+  { id: "cost", title: "Cost", keywords: ["budget", "latency"] },
+  { id: "decisions", title: "Decisions", keywords: ["auto approve"] },
+];
+
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+
+const taskRunTitle = (taskRun: TaskRun): string => {
+  const trimmed = taskRun.userRequest.trim();
+  if (trimmed.length <= 72) return trimmed;
+  return `${trimmed.slice(0, 69)}...`;
+};
 
 export const WorkbenchShell = (): JSX.Element => {
   const [threadsState, setThreadsState] = useState<ThreadsState>({
@@ -62,6 +96,11 @@ export const WorkbenchShell = (): JSX.Element => {
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("plan");
+  const [recentTaskRuns, setRecentTaskRuns] = useState<RecentTaskRunCommand[]>(
+    [],
+  );
   const [autoApprove, setAutoApprove] = useState(false);
   const [autoExecuteWorkerFileActions, setAutoExecuteWorkerFileActions] =
     useState(false);
@@ -207,6 +246,11 @@ export const WorkbenchShell = (): JSX.Element => {
     const onKeyDown = (e: KeyboardEvent): void => {
       const mod = e.ctrlKey || e.metaKey;
       const editable = isEditableTarget(e.target);
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
       if (mod && !e.shiftKey && !e.altKey && !editable) {
         const key = e.key.toLowerCase();
         if (key === "b") {
@@ -232,7 +276,11 @@ export const WorkbenchShell = (): JSX.Element => {
         }
       }
       if (e.key === "Escape") {
-        // Priority: settings modal > rightmost drawer
+        // Priority: command palette > settings modal > rightmost drawer
+        if (commandPaletteOpen) {
+          setCommandPaletteOpen(false);
+          return;
+        }
         if (settingsOpen) {
           setSettingsOpen(false);
           return;
@@ -249,7 +297,7 @@ export const WorkbenchShell = (): JSX.Element => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [settingsOpen, contextDrawerOpen, threadDrawerOpen]);
+  }, [commandPaletteOpen, settingsOpen, contextDrawerOpen, threadDrawerOpen]);
 
   const dragRef = useRef<{
     type: "sidebar" | "right";
@@ -353,6 +401,37 @@ export const WorkbenchShell = (): JSX.Element => {
   useEffect(() => {
     void refreshThreads();
   }, [refreshThreads]);
+
+  useEffect(() => {
+    if (!commandPaletteOpen || threadsState.kind !== "ready") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const details = await Promise.all(
+          threadsState.threads.map((thread) =>
+            window.harness.state.getThread({ threadId: thread.id }),
+          ),
+        );
+        if (cancelled) return;
+        const next = details
+          .flatMap((detail) =>
+            detail.taskRuns.map((taskRun) => ({
+              taskRun,
+              threadId: detail.thread.id,
+              threadTitle: detail.thread.title,
+            })),
+          )
+          .sort((a, b) => b.taskRun.updatedAt.localeCompare(a.taskRun.updatedAt))
+          .slice(0, 10);
+        setRecentTaskRuns(next);
+      } catch {
+        if (!cancelled) setRecentTaskRuns([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [commandPaletteOpen, threadsState]);
 
   const refreshProviders = useCallback(async () => {
     try {
@@ -1080,6 +1159,68 @@ export const WorkbenchShell = (): JSX.Element => {
     if (!contextDrawerOpen) setContextDrawerOpen(true);
   }, [pendingApprovalCount, contextDrawerOpen, selectedTaskRunId, autoApprove]);
 
+  const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const items: CommandPaletteItem[] = COMMAND_TAB_ITEMS.map((tab) => ({
+      id: `tab:${tab.id}`,
+      group: "tab",
+      title: tab.title,
+      subtitle: "Open right panel tab",
+      keywords: tab.keywords,
+      run: () => {
+        setContextDrawerOpen(true);
+        setRightPanelTab(tab.id);
+      },
+    }));
+
+    items.push({
+      id: "settings:open",
+      group: "settings",
+      title: "Settings",
+      subtitle: "Open settings",
+      keywords: ["preferences", "configuration"],
+      run: () => setSettingsOpen(true),
+    });
+
+    if (threadsState.kind === "ready") {
+      for (const thread of threadsState.threads) {
+        items.push({
+          id: `thread:${thread.id}`,
+          group: "thread",
+          title: thread.title,
+          subtitle: thread.targetDir ?? "Thread",
+          keywords: [thread.id, thread.targetDir ?? ""],
+          run: () => {
+            setThreadDrawerOpen(true);
+            setSelectedThreadId(thread.id);
+            setSelectedTaskRunId(null);
+          },
+        });
+      }
+    }
+
+    for (const recent of recentTaskRuns) {
+      items.push({
+        id: `taskrun:${recent.taskRun.id}`,
+        group: "taskrun",
+        title: taskRunTitle(recent.taskRun),
+        subtitle: `${recent.threadTitle} · ${recent.taskRun.status}`,
+        keywords: [
+          recent.taskRun.id,
+          recent.taskRun.userRequest,
+          recent.threadTitle,
+        ],
+        run: () => {
+          setThreadDrawerOpen(true);
+          setContextDrawerOpen(true);
+          setSelectedThreadId(recent.threadId);
+          setSelectedTaskRunId(recent.taskRun.id);
+        },
+      });
+    }
+
+    return items;
+  }, [recentTaskRuns, threadsState]);
+
   return (
     <div
       className={`workbench${threadDrawerOpen ? " workbench--thread-open" : ""}${contextDrawerOpen ? " workbench--context-open" : ""}`}
@@ -1201,6 +1342,8 @@ export const WorkbenchShell = (): JSX.Element => {
               onAgentCancel={handleAgentCancel}
               onAgentUseFallback={handleAgentUseFallback}
               agentAvailable={agentAvailable}
+              activeTab={rightPanelTab}
+              onActiveTabChange={setRightPanelTab}
               pipelineAutoLaunched={
                 selectedTaskRunId !== null &&
                 pipelineAutoTaskRunIdsRef.current.has(selectedTaskRunId)
@@ -1209,6 +1352,13 @@ export const WorkbenchShell = (): JSX.Element => {
           </aside>
         </>
       <RuntimeStatusBar />
+      <NotificationTray />
+      {commandPaletteOpen && (
+        <CommandPalette
+          items={commandPaletteItems}
+          onClose={() => setCommandPaletteOpen(false)}
+        />
+      )}
       {settingsOpen && (
         <SettingsPanel
           initialTopologyTaskRunId={selectedTaskRunId}
