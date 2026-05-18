@@ -17,6 +17,28 @@ export interface EvalPerformanceSuiteSummary {
   readonly passRate: number;
 }
 
+export type EvalPerformanceNoteKind = "high_tokens" | "slow_attempt";
+
+export interface EvalPerformanceNote {
+  readonly kind: EvalPerformanceNoteKind;
+  readonly suite: EvalCaseKind;
+  readonly caseId: string;
+  readonly attemptIdx: number;
+  readonly observed: number;
+  readonly threshold: number;
+}
+
+export interface EvalPerformanceNoteThresholds {
+  readonly highTokenThreshold: number;
+  readonly slowAttemptThresholdMs: number;
+}
+
+export const DEFAULT_PERFORMANCE_NOTE_THRESHOLDS: EvalPerformanceNoteThresholds =
+  {
+    highTokenThreshold: 50_000,
+    slowAttemptThresholdMs: 30_000,
+  };
+
 export const computePerformanceSummary = (
   cases: ReadonlyArray<EvalCaseResult>,
 ): ReadonlyArray<EvalPerformanceSuiteSummary> => {
@@ -34,6 +56,41 @@ export const computePerformanceSummary = (
   return Array.from(bySuite.entries()).map(([suite, attempts]) =>
     summarizeSuite(suite, attempts),
   );
+};
+
+export const collectPerformanceNotes = (
+  cases: ReadonlyArray<EvalCaseResult>,
+  thresholds: EvalPerformanceNoteThresholds = DEFAULT_PERFORMANCE_NOTE_THRESHOLDS,
+): ReadonlyArray<EvalPerformanceNote> => {
+  const notes: EvalPerformanceNote[] = [];
+
+  for (const caseResult of cases) {
+    for (const attempt of caseResult.attempts) {
+      if (attempt.tokens >= thresholds.highTokenThreshold) {
+        notes.push({
+          kind: "high_tokens",
+          suite: caseResult.case.kind,
+          caseId: caseResult.case.id,
+          attemptIdx: attempt.attemptIdx,
+          observed: attempt.tokens,
+          threshold: thresholds.highTokenThreshold,
+        });
+      }
+
+      if (attempt.durationMs >= thresholds.slowAttemptThresholdMs) {
+        notes.push({
+          kind: "slow_attempt",
+          suite: caseResult.case.kind,
+          caseId: caseResult.case.id,
+          attemptIdx: attempt.attemptIdx,
+          observed: attempt.durationMs,
+          threshold: thresholds.slowAttemptThresholdMs,
+        });
+      }
+    }
+  }
+
+  return notes;
 };
 
 const summarizeSuite = (

@@ -107,7 +107,7 @@ npm run eval
 
 v1.5a는 `npm run eval:smoke` real CLI smoke 경로를 단일 capability case로 검증하는 범위까지 완료됐다.
 
-v1.5b는 기존 markdown eval report에 attempt-level Performance Summary를 추가하는 범위까지 완료됐다. 포함 지표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate다. 반복 실행용 fake 성능 요약은 다음 명령으로 확인한다:
+v1.5b는 기존 markdown eval report에 attempt-level Performance Summary와 current-run Performance Notes를 추가하는 범위까지 완료됐다. 포함 지표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate다. 3회 미만 smoke에서는 `Pass^3`를 `n/a`로 표시해 실패처럼 오해하지 않게 한다. Performance Notes는 현재 run에서 50,000 tokens 이상 또는 30초 이상 걸린 attempt를 표시한다. 반복 실행용 fake 성능 요약은 다음 명령으로 확인한다:
 
 ```bash
 npm run eval:perf

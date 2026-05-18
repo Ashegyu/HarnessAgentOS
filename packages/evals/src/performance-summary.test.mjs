@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { computePerformanceSummary } from "./performance-summary.ts";
+import {
+  collectPerformanceNotes,
+  computePerformanceSummary,
+} from "./performance-summary.ts";
 
 const mkAttempt = ({
   attemptIdx = 0,
@@ -156,4 +159,56 @@ test("computePerformanceSummary groups attempts by suite", () => {
 
 test("computePerformanceSummary returns no rows for empty input", () => {
   assert.deepEqual(computePerformanceSummary([]), []);
+});
+
+test("collectPerformanceNotes flags high token and slow attempts", () => {
+  const notes = collectPerformanceNotes([
+    mkCase("cap-a", "capability", [
+      mkAttempt({
+        attemptIdx: 0,
+        tokens: 67_728,
+        durationMs: 34_201,
+      }),
+    ]),
+  ]);
+
+  assert.deepEqual(
+    notes.map((note) => ({
+      kind: note.kind,
+      suite: note.suite,
+      caseId: note.caseId,
+      attemptIdx: note.attemptIdx,
+      observed: note.observed,
+      threshold: note.threshold,
+    })),
+    [
+      {
+        kind: "high_tokens",
+        suite: "capability",
+        caseId: "cap-a",
+        attemptIdx: 0,
+        observed: 67_728,
+        threshold: 50_000,
+      },
+      {
+        kind: "slow_attempt",
+        suite: "capability",
+        caseId: "cap-a",
+        attemptIdx: 0,
+        observed: 34_201,
+        threshold: 30_000,
+      },
+    ],
+  );
+});
+
+test("collectPerformanceNotes returns no rows below thresholds", () => {
+  assert.deepEqual(
+    collectPerformanceNotes([
+      mkCase("cap-a", "capability", [
+        mkAttempt({ attemptIdx: 0, tokens: 49_999, durationMs: 29_999 }),
+      ]),
+    ]),
+    [],
+  );
 });

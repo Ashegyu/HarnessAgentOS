@@ -214,7 +214,7 @@ Phase 0~5 v1은 구현 완료됐고 `npm run eval`은 fake adapter 기반 determ
 
 따라서 현재 Phase 6 완료 기준은 전체 v2 구현이 아니라, v1.5a 범위에서 `EVAL_REAL_CLI=1` / `npm run eval:smoke`가 단일 capability smoke 케이스를 실제 `DefaultModelCliAdapter`로 실행하고, v1 fake eval gate가 안정적으로 통과하는 상태다.
 
-v1.5b는 existing eval report의 `Summary by Suite` 아래에 attempt-level `Performance Summary` markdown table을 추가하는 범위까지 완료됐다. 이 표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate를 보여준다. `npm run eval:perf`는 fake adapter 기반 `--suite=all --attempts=10` 반복 실행용 단축 스크립트다.
+v1.5b는 existing eval report의 `Summary by Suite` 아래에 attempt-level `Performance Summary` markdown table과 current-run `Performance Notes`를 추가하는 범위까지 완료됐다. 이 표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate를 보여준다. 3회 미만 smoke에서는 `Pass^3`를 `n/a`로 표시하고, 50,000 tokens 이상 또는 30초 이상 걸린 attempt는 Performance Notes에 표시한다. `npm run eval:perf`는 fake adapter 기반 `--suite=all --attempts=10` 반복 실행용 단축 스크립트다.
 
 Provider 비교, LLM judge, viewer UI, cost trend 시각화는 여전히 v2 deferred이며, gate 충족 후 이 문서의 2.2부터 별도 TDD phase로 시작한다.
 

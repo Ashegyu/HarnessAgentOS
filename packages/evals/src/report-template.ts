@@ -1,15 +1,21 @@
 import type { EvalCaseKind, EvalCaseResult, EvalRunSummary } from "./types.ts";
-import { computePerformanceSummary } from "./performance-summary.ts";
+import {
+  collectPerformanceNotes,
+  computePerformanceSummary,
+  type EvalPerformanceNote,
+} from "./performance-summary.ts";
 
 interface SuiteSummary {
   readonly suite: EvalCaseKind;
   readonly total: number;
   readonly passed: number;
   readonly passAt3Avg: number;
-  readonly passToThe3Avg: number;
+  readonly passToThe3Avg: number | null;
   readonly totalTokens: number;
   readonly totalDurationMs: number;
 }
+
+const PASS_TO_THE_3_ATTEMPTS = 3;
 
 export const renderReport = (summary: EvalRunSummary): string => {
   const lines: string[] = [];
@@ -30,7 +36,7 @@ export const renderReport = (summary: EvalRunSummary): string => {
     lines.push(
       `| ${suite.suite} | ${suite.passed}/${suite.total} | ${pct(
         suite.passAt3Avg,
-      )} | ${pct(suite.passToThe3Avg)} | ${formatNumber(
+      )} | ${formatOptionalPct(suite.passToThe3Avg)} | ${formatNumber(
         suite.totalTokens,
       )} | ${formatDuration(suite.totalDurationMs)} |`,
     );
@@ -60,6 +66,25 @@ export const renderReport = (summary: EvalRunSummary): string => {
     );
   }
 
+  const performanceNotes = collectPerformanceNotes(summary.cases);
+  if (performanceNotes.length > 0) {
+    lines.push("");
+    lines.push("## Performance Notes");
+    lines.push("");
+    lines.push("| Suite | Case | Attempt | Signal | Observed | Threshold |");
+    lines.push("|-------|------|---------|--------|----------|-----------|");
+    for (const note of performanceNotes) {
+      lines.push(
+        `| ${note.suite} | ${note.caseId} | ${note.attemptIdx} | ${performanceNoteLabel(
+          note,
+        )} | ${formatPerformanceNoteValue(note, note.observed)} | ${formatPerformanceNoteValue(
+          note,
+          note.threshold,
+        )} |`,
+      );
+    }
+  }
+
   lines.push("");
 
   for (const caseResult of summary.cases) {
@@ -78,7 +103,7 @@ const renderCaseResult = (caseResult: EvalCaseResult): string[] => {
   lines.push(
     `Pass@1: ${pct(caseResult.passAt1)} | Pass@3: ${pct(
       caseResult.passAt3,
-    )} | Pass^3: ${pct(caseResult.passToThe3)} | Consistency: ${pct(
+    )} | Pass^3: ${formatPassToThe3(caseResult)} | Consistency: ${pct(
       caseResult.consistency,
     )}`,
   );
@@ -136,7 +161,8 @@ const groupBySuite = (
       (sum, caseResult) => sum + caseResult.passAt3,
       0,
     );
-    const passToThe3Total = suiteCases.reduce(
+    const passToThe3Cases = suiteCases.filter(hasPassToThe3Coverage);
+    const passToThe3Total = passToThe3Cases.reduce(
       (sum, caseResult) => sum + caseResult.passToThe3,
       0,
     );
@@ -146,7 +172,10 @@ const groupBySuite = (
       passed: suiteCases.filter((caseResult) => caseResult.outcome === "passed")
         .length,
       passAt3Avg: total === 0 ? 0 : passAt3Total / total,
-      passToThe3Avg: total === 0 ? 0 : passToThe3Total / total,
+      passToThe3Avg:
+        passToThe3Cases.length === 0
+          ? null
+          : passToThe3Total / passToThe3Cases.length,
       totalTokens,
       totalDurationMs,
     };
@@ -154,6 +183,15 @@ const groupBySuite = (
 };
 
 const pct = (value: number): string => `${Math.round(value * 100)}%`;
+
+const formatOptionalPct = (value: number | null): string =>
+  value === null ? "n/a" : pct(value);
+
+const hasPassToThe3Coverage = (caseResult: EvalCaseResult): boolean =>
+  caseResult.case.attempts >= PASS_TO_THE_3_ATTEMPTS;
+
+const formatPassToThe3 = (caseResult: EvalCaseResult): string =>
+  hasPassToThe3Coverage(caseResult) ? pct(caseResult.passToThe3) : "n/a";
 
 const formatDuration = (value: number): string => {
   if (!Number.isFinite(value) || value < 0) {
@@ -182,3 +220,24 @@ const formatNumber = (value: number): string => {
 
 const formatOptionalNumber = (value: number | null): string =>
   value === null ? "n/a" : formatNumber(value);
+
+const performanceNoteLabel = (note: EvalPerformanceNote): string => {
+  switch (note.kind) {
+    case "high_tokens":
+      return "High tokens";
+    case "slow_attempt":
+      return "Slow attempt";
+  }
+};
+
+const formatPerformanceNoteValue = (
+  note: EvalPerformanceNote,
+  value: number,
+): string => {
+  switch (note.kind) {
+    case "high_tokens":
+      return `${formatNumber(value)} tokens`;
+    case "slow_attempt":
+      return formatDuration(value);
+  }
+};

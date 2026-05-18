@@ -123,6 +123,76 @@ test("renderReport includes attempt-level performance summary", () => {
   assert.match(md, /\| capability \| 3 \| 2\.3s \| 2\.0s \| 4\.0s \| 2,000 \| 3,000 \| 3 \| 1 \| 67% \|/);
 });
 
+test("renderReport marks Pass^3 as n/a when fewer than three attempts ran", () => {
+  const md = renderReport({
+    ...makeSummary(),
+    suite: "capability",
+    cases: [
+      {
+        ...makeCaseResult("real-smoke-case", "capability", true),
+        case: {
+          ...makeCaseResult("real-smoke-case", "capability", true).case,
+          attempts: 1,
+        },
+        attempts: [
+          {
+            attemptIdx: 0,
+            passed: true,
+            tokens: 691,
+            durationMs: 21_600,
+            gateStatus: null,
+            approvalsCreated: 1,
+            approvalsManual: 1,
+            fsEscapeDetected: false,
+          },
+        ],
+        passAt1: 1,
+        passAt3: 1,
+        passToThe3: 0,
+        consistency: 1,
+        totalTokens: 691,
+        totalDurationMs: 21_600,
+        outcome: "passed",
+      },
+    ],
+  });
+
+  assert.match(md, /\| capability \| 1\/1 \| 100% \| n\/a \| 691 \| 21\.6s \|/);
+  assert.match(
+    md,
+    /Pass@1: 100% \| Pass@3: 100% \| Pass\^3: n\/a \| Consistency: 100%/,
+  );
+});
+
+test("renderReport includes performance notes for expensive real-smoke attempts", () => {
+  const md = renderReport({
+    ...makeSummary(),
+    cases: [
+      {
+        ...makeCaseResult("real-smoke-case", "capability", true),
+        attempts: [
+          {
+            attemptIdx: 0,
+            passed: true,
+            tokens: 67_728,
+            durationMs: 34_201,
+            gateStatus: null,
+            approvalsCreated: 1,
+            approvalsManual: 1,
+            fsEscapeDetected: false,
+          },
+        ],
+        totalTokens: 67_728,
+        totalDurationMs: 34_201,
+      },
+    ],
+  });
+
+  assert.match(md, /## Performance Notes/);
+  assert.match(md, /\| capability \| real-smoke-case \| 0 \| High tokens \| 67,728 tokens \| 50,000 tokens \|/);
+  assert.match(md, /\| capability \| real-smoke-case \| 0 \| Slow attempt \| 34\.2s \| 30\.0s \|/);
+});
+
 test("writeMarkdownReport creates report.md", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "hgos-report-"));
   try {
