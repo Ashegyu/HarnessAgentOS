@@ -11,7 +11,14 @@ import {
   type EvalSuite,
   type SuiteThresholdResult,
 } from "./thresholds.ts";
-import type { EvalCase, EvalCaseResult, EvalRunSummary } from "./types.ts";
+import type {
+  EvalCase,
+  EvalCaseResult,
+  EvalProvider,
+  EvalRunMode,
+  EvalRunSummary,
+} from "./types.ts";
+import { normalizeEvalProviders } from "./v2-contracts.ts";
 
 export interface EvalOrchestratorOptions {
   readonly suite: EvalSuite;
@@ -22,6 +29,7 @@ export interface EvalOrchestratorOptions {
   readonly inMemoryDbFactory: () => LocalStateService;
   readonly adapterFactory?: CaseRunnerDeps["adapterFactory"];
   readonly harnessSha?: string;
+  readonly providers?: ReadonlyArray<EvalProvider>;
   readonly attemptsOverride?: number;
   readonly timeoutMs?: number;
   readonly stallTimeoutMs?: number;
@@ -50,7 +58,9 @@ export class EvalOrchestrator {
     const outDir = resolveEvalRunOutDir(this.options.outDir, runRecord.id);
     await mkdir(outDir, { recursive: true });
 
-    const cases = await this.loadCases();
+    const loadedCases = await this.loadCases();
+    const cases = this.expandProviderCases(loadedCases);
+    const mode = this.inferRunMode(loadedCases);
     const caseRunner = new CaseRunner({
       workspaceRoot: outDir,
       runRoot: outDir,
@@ -73,7 +83,7 @@ export class EvalOrchestrator {
       await writeAttemptArtifacts(result, outDir);
     }
 
-    const thresholdResults = evaluateThresholds(
+    const thresholdResults = evaluateProviderAwareThresholds(
       this.options.suite,
       caseResults,
     );
@@ -86,6 +96,7 @@ export class EvalOrchestrator {
       finishedAt: this.finishedAt(),
       cases: caseResults,
       status: finalStatus,
+      ...(mode ? { mode } : {}),
       ...(this.options.harnessSha
         ? { harnessRevisionSha: this.options.harnessSha }
         : {}),
@@ -103,6 +114,39 @@ export class EvalOrchestrator {
       overallPassed,
       outDir,
     };
+  }
+
+  private expandProviderCases(
+    cases: ReadonlyArray<EvalCase>,
+  ): ReadonlyArray<EvalCase> {
+    const expanded: EvalCase[] = [];
+    for (const testCase of cases) {
+      const providers = this.providersFor(testCase);
+      if (providers.length === 0) {
+        expanded.push(testCase);
+        continue;
+      }
+      for (const provider of providers) {
+        expanded.push({ ...testCase, provider });
+      }
+    }
+    return expanded;
+  }
+
+  private providersFor(testCase: EvalCase): ReadonlyArray<EvalProvider> {
+    if (this.options.providers && this.options.providers.length > 0) {
+      return this.options.providers;
+    }
+    return normalizeEvalProviders(testCase);
+  }
+
+  private inferRunMode(cases: ReadonlyArray<EvalCase>): EvalRunMode | null {
+    if (this.options.providers && this.options.providers.length > 1) {
+      return "head_to_head";
+    }
+    return cases.some((testCase) => normalizeEvalProviders(testCase).length > 1)
+      ? "head_to_head"
+      : null;
   }
 
   private async loadCases(): Promise<ReadonlyArray<EvalCase>> {
@@ -139,3 +183,41 @@ export class EvalOrchestrator {
 
 export const resolveEvalRunOutDir = (outDir: string, runId: string): string =>
   outDir.includes("{runId}") ? outDir.replaceAll("{runId}", runId) : outDir;
+
+const evaluateProviderAwareThresholds = (
+  suite: EvalSuite,
+  caseResults: ReadonlyArray<EvalCaseResult>,
+): ReadonlyArray<SuiteThresholdResult> => {
+  const providerResults = caseResults.filter(
+    (caseResult): caseResult is EvalCaseResult & { provider: EvalProvider } =>
+      caseResult.provider !== undefined,
+  );
+  if (providerResults.length === 0) {
+    return evaluateThresholds(suite, caseResults);
+  }
+
+  const providers = Array.from(
+    new Set(providerResults.map((caseResult) => caseResult.provider)),
+  );
+  const thresholdResults: SuiteThresholdResult[] = [];
+  for (const provider of providers) {
+    for (const result of evaluateThresholds(
+      suite,
+      providerResults.filter((caseResult) => caseResult.provider === provider),
+    )) {
+      thresholdResults.push({
+        ...result,
+        provider,
+        reason: `${provider} ${result.reason}`,
+      });
+    }
+  }
+
+  const unscopedResults = caseResults.filter(
+    (caseResult) => caseResult.provider === undefined,
+  );
+  if (unscopedResults.length > 0) {
+    thresholdResults.push(...evaluateThresholds(suite, unscopedResults));
+  }
+  return thresholdResults;
+};

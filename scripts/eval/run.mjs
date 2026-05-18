@@ -20,9 +20,16 @@ const resolvePath = (value) =>
 
 const readHarnessSha = () => {
   try {
-    return execFileSync("git", ["rev-parse", "--short", "HEAD"], {
+    return execFileSync("git", [
+      "-c",
+      `safe.directory=${repoRoot.replace(/\\/g, "/")}`,
+      "rev-parse",
+      "--short",
+      "HEAD",
+    ], {
       cwd: repoRoot,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch {
     return null;
@@ -64,6 +71,7 @@ const main = async () => {
         fakeChunkDelayMs: 0,
       }),
       ...(harnessSha ? { harnessSha } : {}),
+      ...(args.providers ? { providers: args.providers } : {}),
       ...(args.attemptsOverride
         ? { attemptsOverride: args.attemptsOverride }
         : {}),

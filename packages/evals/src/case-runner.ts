@@ -109,6 +109,7 @@ export class CaseRunner {
     const targetDir = path.join(
       runRoot,
       testCase.id,
+      ...(testCase.provider ? [testCase.provider] : []),
       `attempt-${attemptIdx}`,
     );
     await fs.mkdir(targetDir, { recursive: true });
@@ -308,6 +309,8 @@ export class CaseRunner {
   ): EvalCaseResult {
     return {
       case: testCase,
+      ...(testCase.provider ? { provider: testCase.provider } : {}),
+      ...(testCase.provider ? { providerGroupId: testCase.id } : {}),
       attempts,
       passAt1: computePassAt1(attempts),
       passAt3: computePassAtK(attempts, 3),
@@ -426,7 +429,7 @@ export class CaseRunner {
     const repairLoop = new RepairLoopService({
       state: input.state,
       completion: new TaskRunCompletionService({ state: input.state }),
-      agentPlanning: input.agentPlanning,
+      agentPlanning: this.repairLoopAgentPlanning(input),
       maxAttempts: 2,
     });
     await repairLoop.createRepairPlan({
@@ -456,7 +459,7 @@ export class CaseRunner {
     const repairLoop = new RepairLoopService({
       state: input.state,
       completion: new TaskRunCompletionService({ state: input.state }),
-      agentPlanning: input.agentPlanning,
+      agentPlanning: this.repairLoopAgentPlanning(input),
     });
 
     for (let idx = 0; idx < 2; idx += 1) {
@@ -506,6 +509,7 @@ export class CaseRunner {
     const profile = await this.createEvalAgentProfile(input.state, {
       name: "Pipeline Worker",
       role: "coder",
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
     });
     const pipeline = await input.state.agentPipelines.create({
       name: "Phase 16 Verbatim Pipeline",
@@ -551,6 +555,7 @@ export class CaseRunner {
     await input.agentPlanning.generatePlan({
       taskRunId: input.taskRunId,
       instruction: "Use the approved Skillify capability context.",
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
     });
     manualApprovals += await this.processApprovals(input);
     return manualApprovals;
@@ -561,7 +566,9 @@ export class CaseRunner {
   ): Promise<number> {
     await input.agentPlanning.generatePlan({
       taskRunId: input.taskRunId,
-      model: "gpt-5.4",
+      ...(input.testCase.provider
+        ? { provider: input.testCase.provider }
+        : { model: "gpt-5.4" }),
     });
     let manualApprovals = await this.processApprovals(input);
 
@@ -569,6 +576,7 @@ export class CaseRunner {
     input.runtime.learnerModelEnabled = true;
     await input.agentPlanning.generatePlan({
       taskRunId: input.taskRunId,
+      ...(input.testCase.provider ? { provider: input.testCase.provider } : {}),
     });
     manualApprovals += await this.processApprovals(input);
     return manualApprovals;
@@ -629,14 +637,18 @@ export class CaseRunner {
 
   private async createEvalAgentProfile(
     state: LocalStateService,
-    overrides: { readonly name?: string; readonly role?: "coder" } = {},
+    overrides: {
+      readonly name?: string;
+      readonly role?: "coder";
+      readonly provider?: "claude" | "codex";
+    } = {},
   ) {
     return state.agentProfiles.create({
       name: overrides.name ?? "Eval Worker",
       description: "",
       category: "eval",
       tags: [overrides.role ?? "coder"],
-      provider: "claude",
+      provider: overrides.provider ?? "claude",
       role: overrides.role ?? "coder",
       persona: "Follow the eval fixture exactly.",
       tuning: {
@@ -667,6 +679,20 @@ export class CaseRunner {
   ): Promise<void> {
     // Eval fixtures start from an empty target directory unless a later
     // phase adds an explicit fixture setup hook.
+  }
+
+  private repairLoopAgentPlanning(input: CaseFlowInput) {
+    const provider = input.testCase.provider;
+    if (!provider) {
+      return input.agentPlanning;
+    }
+    return {
+      generatePlan: (planInput: { taskRunId: string; instruction?: string }) =>
+        input.agentPlanning.generatePlan({
+          ...planInput,
+          provider,
+        }),
+    };
   }
 
   private async sumTokens(

@@ -1,6 +1,6 @@
 # 메타 평가 시스템 (Meta Evaluation) — 구현 계획서
 
-> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · v1.5a real CLI smoke 완료 · v1.5b eval performance summary 완료 · Phase 6은 v2 gate 미충족으로 deferred
+> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · v1.5a real CLI smoke 완료 · v1.5b eval performance summary 완료 · Phase 7.1/7.2 v2 provider 비교 기반 완료
 > **작성**: 2026-05-17
 > **대상**: HarnessAgentOS의 회귀·품질·안전성을 측정하는 자체 평가 시스템 구축
 
@@ -53,8 +53,8 @@
 | 3 | [phase-3-safety.md](./phase-3-safety.md) | safety 4 케이스 + 3중 어설션 (이 프로젝트 차별점) | Medium-High | 완료 |
 | 4 | [phase-4-persistence.md](./phase-4-persistence.md) | migration v22 + `EvalRunRepository` + md reporter | Small-Medium | 완료 |
 | 5 | [phase-5-cli-ci.md](./phase-5-cli-ci.md) | `scripts/eval/run.mjs` CLI + 임계 exit code + `npm run eval` | Small | 완료 |
-| 6 | [phase-6-v2-deferred.md](./phase-6-v2-deferred.md) | real CLI · provider 비교 · LLM judge · viewer UI (deferred) | Medium | gate 대기 |
-| 7 | [phase-7-v2-expansion-plan.md](./phase-7-v2-expansion-plan.md) | provider 비교 · LLM judge · viewer · cost trend · production latency 구체 설계 | Large | 설계 |
+| 6 | [phase-6-v2-deferred.md](./phase-6-v2-deferred.md) | real CLI · provider 비교 · LLM judge · viewer UI (deferred 기록) | Medium | 일부 해소 |
+| 7 | [phase-7-v2-expansion-plan.md](./phase-7-v2-expansion-plan.md) | provider 비교 · LLM judge · viewer · cost trend · production latency 구체 설계/구현 | Large | 7.1/7.2 완료 |
 
 **v1 합계**: Medium-High · 11-17일 (1인 기준)
 
@@ -114,6 +114,10 @@ v1.5b는 기존 markdown eval report에 attempt-level Performance Summary와 cur
 npm run eval:perf
 ```
 
-Phase 6은 [v2 진행 조건](./phase-6-v2-deferred.md#3-v2-진행-조건-gate)이 충족될 때 별도 마일스톤으로 재개한다.
+Phase 7.1은 v2 계약(`providers`, provider-aware result, trend/latency DTO)을 추가했고, Phase 7.2는 provider head-to-head 기본 실행과 report 비교표를 추가했다. `npm run eval`과 `npm run eval:smoke`는 기존 경로를 유지한다. provider 비교는 다음 명령으로 명시적으로 실행한다:
 
-구체적인 v2 확장 설계는 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)을 따른다.
+```bash
+npm run eval:providers
+```
+
+LLM judge, viewer UI, 장기간 cost trend, 실제 production workload p95/p99 latency는 아직 구현하지 않았고 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)의 후속 단계로 남긴다.

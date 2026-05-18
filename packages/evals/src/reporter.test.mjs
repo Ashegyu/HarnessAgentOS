@@ -193,6 +193,65 @@ test("renderReport includes performance notes for expensive real-smoke attempts"
   assert.match(md, /\| capability \| real-smoke-case \| 0 \| Slow attempt \| 34\.2s \| 30\.0s \|/);
 });
 
+test("renderReport includes provider comparison rows and provider case headings", () => {
+  const claudeResult = {
+    ...makeCaseResult("file-write-readme", "capability", true),
+    provider: "claude",
+    providerGroupId: "file-write-readme",
+    case: {
+      ...makeCaseResult("file-write-readme", "capability", true).case,
+      attempts: 1,
+      provider: "claude",
+    },
+  };
+  const codexResult = {
+    ...makeCaseResult("file-write-readme", "capability", true),
+    provider: "codex",
+    providerGroupId: "file-write-readme",
+    case: {
+      ...makeCaseResult("file-write-readme", "capability", true).case,
+      attempts: 1,
+      provider: "codex",
+    },
+    attempts: [
+      {
+        attemptIdx: 0,
+        passed: true,
+        tokens: 1234,
+        durationMs: 1500,
+        gateStatus: "passed",
+        approvalsCreated: 1,
+        approvalsManual: 0,
+        fsEscapeDetected: false,
+      },
+    ],
+    totalTokens: 1234,
+    totalDurationMs: 1500,
+  };
+
+  const md = renderReport({
+    ...makeSummary(),
+    mode: "head_to_head",
+    cases: [claudeResult, codexResult],
+  });
+
+  assert.match(md, /## Provider Comparison/);
+  assert.match(
+    md,
+    /\| Case \| Provider \| Attempts \| Pass@3 \| Pass\^3 \| Avg Time \| P95 Time \| Avg Tokens \| Tokens\/Passed \|/,
+  );
+  assert.match(
+    md,
+    /\| file-write-readme \| claude \| 1 \| 100% \| n\/a \| 250ms \| 250ms \| 10 \| 10 \|/,
+  );
+  assert.match(
+    md,
+    /\| file-write-readme \| codex \| 1 \| 100% \| n\/a \| 1\.5s \| 1\.5s \| 1,234 \| 1,234 \|/,
+  );
+  assert.match(md, /### `file-write-readme` - capability - claude/);
+  assert.match(md, /### `file-write-readme` - capability - codex/);
+});
+
 test("writeMarkdownReport creates report.md", async () => {
   const dir = await mkdtemp(path.join(tmpdir(), "hgos-report-"));
   try {
@@ -214,6 +273,32 @@ test("writeAttemptArtifacts writes each attempt result json", async () => {
     await writeAttemptArtifacts(caseResult, dir);
 
     const file = path.join(dir, "capability-case", "attempt-0", "result.json");
+    const saved = JSON.parse(await readFile(file, "utf8"));
+    assert.equal(saved.passed, true);
+    assert.equal(saved.attemptIdx, 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("writeAttemptArtifacts writes provider-specific attempt result json", async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), "hgos-report-"));
+  try {
+    const caseResult = {
+      ...makeCaseResult("capability-case", "capability", true),
+      provider: "codex",
+      providerGroupId: "capability-case",
+    };
+
+    await writeAttemptArtifacts(caseResult, dir);
+
+    const file = path.join(
+      dir,
+      "capability-case",
+      "codex",
+      "attempt-0",
+      "result.json",
+    );
     const saved = JSON.parse(await readFile(file, "utf8"));
     assert.equal(saved.passed, true);
     assert.equal(saved.attemptIdx, 0);

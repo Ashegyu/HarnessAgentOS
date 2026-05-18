@@ -22,6 +22,7 @@ export const writeAttemptArtifacts = async (
     const attemptDir = path.join(
       outDir,
       caseResult.case.id,
+      ...(caseResult.provider ? [caseResult.provider] : []),
       `attempt-${attempt.attemptIdx}`,
     );
     await mkdir(attemptDir, { recursive: true });

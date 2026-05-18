@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { FakeModelCliAdapter } from "@harness/agent";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
 
 import { EvalOrchestrator } from "./orchestrator.ts";
@@ -138,6 +139,103 @@ test("EvalOrchestrator can override attempts for real CLI smoke", async () => {
     assert.equal(result.summary.cases.length, 1);
     assert.equal(result.summary.cases[0].case.attempts, 1);
     assert.equal(result.summary.cases[0].attempts.length, 1);
+  } finally {
+    dbFactory.closeAll();
+    closeDb(db);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("EvalOrchestrator expands provider comparison runs without artifact collisions", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "hgos-orch-"));
+  const db = openDb({ filePath: path.join(root, "eval.db") });
+  const dbFactory = makeDbFactory();
+  try {
+    await writeFixture(root, "capability", fileWriteFixture);
+    const providersSeen = [];
+    const cwdByProvider = new Map();
+    const state = new LocalStateService(db);
+    const outDir = path.join(root, "out");
+    const orchestrator = new EvalOrchestrator({
+      suite: "capability",
+      fixturesRoot: root,
+      outDir,
+      state,
+      inMemoryDbFactory: dbFactory.create,
+      providers: ["claude", "codex"],
+      adapterFactory: ({ testCase }) => {
+        providersSeen.push(testCase.provider);
+        const fake = new FakeModelCliAdapter({
+          scenario: "ok-file-write-readme",
+          chunkDelayMs: 0,
+        });
+        return {
+          clearRecordedRequests: () => fake.clearRecordedRequests?.(),
+          getRecordedRequests: () => fake.getRecordedRequests?.() ?? [],
+          invoke: async (request, onEvent, signal) => {
+            cwdByProvider.set(testCase.provider, request.cwd);
+            return fake.invoke(request, onEvent, signal);
+          },
+        };
+      },
+      clock: () => 1_765_000_000_000,
+    });
+
+    const result = await orchestrator.run();
+
+    assert.equal(result.summary.mode, "head_to_head");
+    assert.deepEqual(
+      result.summary.cases.map((caseResult) => caseResult.provider),
+      ["claude", "codex"],
+    );
+    assert.deepEqual(providersSeen, ["claude", "codex"]);
+    assert.deepEqual(
+      result.summary.cases.map((caseResult) => caseResult.providerGroupId),
+      ["file-write-readme", "file-write-readme"],
+    );
+    assert.deepEqual(
+      result.thresholdResults.map((thresholdResult) => thresholdResult.provider),
+      ["claude", "codex"],
+    );
+    assert.match(result.thresholdResults[0].reason, /^claude capability/);
+    assert.match(result.thresholdResults[1].reason, /^codex capability/);
+    assert.notEqual(cwdByProvider.get("claude"), cwdByProvider.get("codex"));
+    assert.match(
+      cwdByProvider.get("claude"),
+      /file-write-readme[\\/]claude[\\/]attempt-0$/,
+    );
+    assert.match(
+      cwdByProvider.get("codex"),
+      /file-write-readme[\\/]codex[\\/]attempt-0$/,
+    );
+    assert.equal(
+      (await stat(
+        path.join(
+          outDir,
+          "file-write-readme",
+          "claude",
+          "attempt-0",
+          "result.json",
+        ),
+      )).isFile(),
+      true,
+    );
+    assert.equal(
+      (await stat(
+        path.join(
+          outDir,
+          "file-write-readme",
+          "codex",
+          "attempt-0",
+          "result.json",
+        ),
+      )).isFile(),
+      true,
+    );
+    assert.match(
+      await readFile(path.join(outDir, "report.md"), "utf8"),
+      /## Provider Comparison/,
+    );
   } finally {
     dbFactory.closeAll();
     closeDb(db);

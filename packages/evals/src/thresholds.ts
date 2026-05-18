@@ -1,9 +1,15 @@
-import type { EvalCaseKind, EvalCaseResult, EvalRunSummary } from "./types.ts";
+import type {
+  EvalCaseKind,
+  EvalCaseResult,
+  EvalProvider,
+  EvalRunSummary,
+} from "./types.ts";
 
 export type EvalSuite = EvalRunSummary["suite"];
 
 export interface SuiteThresholdResult {
   readonly suite: EvalCaseKind;
+  readonly provider?: EvalProvider;
   readonly passed: boolean;
   readonly reason: string;
 }

@@ -15,6 +15,18 @@ interface SuiteSummary {
   readonly totalDurationMs: number;
 }
 
+interface ProviderComparisonRow {
+  readonly caseId: string;
+  readonly provider: string;
+  readonly attempts: number;
+  readonly passAt3: number;
+  readonly passToThe3: number | null;
+  readonly avgDurationMs: number;
+  readonly p95DurationMs: number;
+  readonly avgTokens: number;
+  readonly tokensPerPassedAttempt: number | null;
+}
+
 const PASS_TO_THE_3_ATTEMPTS = 3;
 
 export const renderReport = (summary: EvalRunSummary): string => {
@@ -66,6 +78,33 @@ export const renderReport = (summary: EvalRunSummary): string => {
     );
   }
 
+  const providerRows = providerComparisonRows(summary.cases);
+  if (providerRows.length > 0) {
+    lines.push("");
+    lines.push("## Provider Comparison");
+    lines.push("");
+    lines.push(
+      "| Case | Provider | Attempts | Pass@3 | Pass^3 | Avg Time | P95 Time | Avg Tokens | Tokens/Passed |",
+    );
+    lines.push(
+      "|------|----------|----------|--------|--------|----------|----------|------------|---------------|",
+    );
+
+    for (const row of providerRows) {
+      lines.push(
+        `| ${row.caseId} | ${row.provider} | ${formatNumber(
+          row.attempts,
+        )} | ${pct(row.passAt3)} | ${formatOptionalPct(
+          row.passToThe3,
+        )} | ${formatDuration(row.avgDurationMs)} | ${formatDuration(
+          row.p95DurationMs,
+        )} | ${formatNumber(row.avgTokens)} | ${formatOptionalNumber(
+          row.tokensPerPassedAttempt,
+        )} |`,
+      );
+    }
+  }
+
   const performanceNotes = collectPerformanceNotes(summary.cases);
   if (performanceNotes.length > 0) {
     lines.push("");
@@ -96,7 +135,11 @@ export const renderReport = (summary: EvalRunSummary): string => {
 
 const renderCaseResult = (caseResult: EvalCaseResult): string[] => {
   const lines: string[] = [];
-  lines.push(`### \`${caseResult.case.id}\` - ${caseResult.case.kind}`);
+  lines.push(
+    `### \`${caseResult.case.id}\` - ${caseResult.case.kind}${
+      caseResult.provider ? ` - ${caseResult.provider}` : ""
+    }`,
+  );
   lines.push("");
   lines.push(`> ${caseResult.case.title}`);
   lines.push("");
@@ -182,6 +225,42 @@ const groupBySuite = (
   });
 };
 
+const providerComparisonRows = (
+  cases: ReadonlyArray<EvalCaseResult>,
+): ReadonlyArray<ProviderComparisonRow> =>
+  cases
+    .filter(
+      (caseResult): caseResult is EvalCaseResult & { provider: string } =>
+        caseResult.provider !== undefined,
+    )
+    .map((caseResult) => {
+      const attemptCount = caseResult.attempts.length;
+      const passedAttempts = caseResult.attempts.filter(
+        (attempt) => attempt.passed,
+      ).length;
+      const durations = caseResult.attempts
+        .map((attempt) => attempt.durationMs)
+        .sort((left, right) => left - right);
+      return {
+        caseId: caseResult.providerGroupId ?? caseResult.case.id,
+        provider: caseResult.provider,
+        attempts: attemptCount,
+        passAt3: caseResult.passAt3,
+        passToThe3: hasPassToThe3Coverage(caseResult)
+          ? caseResult.passToThe3
+          : null,
+        avgDurationMs:
+          attemptCount === 0
+            ? 0
+            : caseResult.totalDurationMs / attemptCount,
+        p95DurationMs: percentileNearestRank(durations, 95),
+        avgTokens:
+          attemptCount === 0 ? 0 : caseResult.totalTokens / attemptCount,
+        tokensPerPassedAttempt:
+          passedAttempts === 0 ? null : caseResult.totalTokens / passedAttempts,
+      };
+    });
+
 const pct = (value: number): string => `${Math.round(value * 100)}%`;
 
 const formatOptionalPct = (value: number | null): string =>
@@ -220,6 +299,19 @@ const formatNumber = (value: number): string => {
 
 const formatOptionalNumber = (value: number | null): string =>
   value === null ? "n/a" : formatNumber(value);
+
+const percentileNearestRank = (
+  sortedValues: ReadonlyArray<number>,
+  percentile: number,
+): number => {
+  if (sortedValues.length === 0) {
+    return 0;
+  }
+
+  const rawIndex = Math.ceil((percentile / 100) * sortedValues.length) - 1;
+  const index = Math.max(0, Math.min(sortedValues.length - 1, rawIndex));
+  return sortedValues[index] ?? 0;
+};
 
 const performanceNoteLabel = (note: EvalPerformanceNote): string => {
   switch (note.kind) {
