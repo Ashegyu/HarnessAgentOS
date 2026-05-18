@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ProposedActionDetails, TaskRunDetail } from "@harness/core";
 import { AgentPanel } from "./AgentPanel";
 import { AgentTopologyPanel } from "./AgentTopologyPanel";
@@ -100,12 +100,27 @@ export const RightPanel = ({
   pipelineAutoLaunched,
 }: RightPanelProps): JSX.Element => {
   const [activeTab, setActiveTab] = useState<RightPanelTab>("plan");
+  const [topologyExpanded, setTopologyExpanded] = useState(false);
+
+  useEffect(() => {
+    if (state.kind !== "ready") setTopologyExpanded(false);
+  }, [state.kind]);
+
+  useEffect(() => {
+    if (!topologyExpanded) return;
+    const closeOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setTopologyExpanded(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [topologyExpanded]);
 
   return (
-    <aside
-      className="right-panel"
-      aria-label="Checkpoint, artifact, and quality panel"
-    >
+    <>
+      <aside
+        className="right-panel"
+        aria-label="Checkpoint, artifact, and quality panel"
+      >
       <section className="right-panel__pinned" aria-label="TaskRun state">
         <header className="panel-header">
           <span className="panel-header__title">
@@ -269,6 +284,18 @@ export const RightPanel = ({
                 invocations={state.detail.agentInvocations}
                 approvals={state.detail.approvals}
                 remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
+                headerActions={
+                  <button
+                    type="button"
+                    className="panel-header__action"
+                    onClick={() => setTopologyExpanded(true)}
+                  >
+                    <span className="panel-header__action-icon" aria-hidden>
+                      ⤢
+                    </span>
+                    <span className="panel-header__action-label">큰 창</span>
+                  </button>
+                }
               />
             </div>
 
@@ -384,6 +411,44 @@ export const RightPanel = ({
           </div>
         </div>
       )}
-    </aside>
+      </aside>
+
+      {state.kind === "ready" && topologyExpanded ? (
+        <div
+          className="agent-topology-window"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Agent Graph large window"
+        >
+          <div
+            className="agent-topology-window__backdrop"
+            aria-hidden
+            onClick={() => setTopologyExpanded(false)}
+          />
+          <div className="agent-topology-window__dialog">
+            <AgentTopologyPanel
+              taskRun={state.detail.taskRun}
+              steps={state.detail.steps}
+              invocations={state.detail.agentInvocations}
+              approvals={state.detail.approvals}
+              remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
+              variant="large"
+              headerActions={
+                <button
+                  type="button"
+                  className="panel-header__action"
+                  onClick={() => setTopologyExpanded(false)}
+                >
+                  <span className="panel-header__action-icon" aria-hidden>
+                    ×
+                  </span>
+                  <span className="panel-header__action-label">닫기</span>
+                </button>
+              }
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 };

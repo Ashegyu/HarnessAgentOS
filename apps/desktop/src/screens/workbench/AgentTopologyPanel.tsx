@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import type {
   A2ARemoteTaskRef,
   AgentInvocation,
@@ -18,6 +18,8 @@ interface AgentTopologyPanelProps {
   invocations: AgentInvocation[];
   approvals: Approval[];
   remoteTaskRefs: A2ARemoteTaskRef[];
+  variant?: "panel" | "large";
+  headerActions?: ReactNode;
 }
 
 const VIEWBOX_WIDTH = 1000;
@@ -29,6 +31,8 @@ export const AgentTopologyPanel = ({
   invocations,
   approvals,
   remoteTaskRefs,
+  variant = "panel",
+  headerActions,
 }: AgentTopologyPanelProps): JSX.Element => {
   const topology = useMemo(
     () =>
@@ -47,12 +51,20 @@ export const AgentTopologyPanel = ({
   );
 
   return (
-    <section className="agent-topology" aria-label="Agent connection graph">
+    <section
+      className={`agent-topology agent-topology--${variant}`}
+      aria-label="Agent connection graph"
+    >
       <header className="panel-header panel-header--inset">
-        <span>Agent Graph</span>
+        <span className="agent-topology__header-title">Agent Graph</span>
         <span className="agent-topology__header-meta">
           {topology.nodes.length} nodes · {topology.edges.length} links
         </span>
+        {headerActions !== undefined ? (
+          <span className="agent-topology__header-actions">
+            {headerActions}
+          </span>
+        ) : null}
       </header>
 
       <div className="agent-topology__summary" aria-label="Graph summary">
