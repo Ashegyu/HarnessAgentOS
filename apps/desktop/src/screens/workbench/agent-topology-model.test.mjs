@@ -47,6 +47,38 @@ const approval = (overrides = {}) => ({
   ...overrides,
 });
 
+const orchestrationPlanArtifact = (workerSteps) => ({
+  id: "art_plan",
+  taskRunId: "task_1",
+  kind: "orchestration_plan",
+  title: "Orchestration plan",
+  uri: "harness:orchestration/task_1/plan",
+  summary: [
+    "Plan describes worker topology.",
+    "",
+    "```json",
+    JSON.stringify({
+      id: "orch_plan_1",
+      mode: "planner_worker",
+      workerSteps,
+      sourcePipelineId: "pipe_1",
+    }),
+    "```",
+  ].join("\n"),
+  createdAt: "2026-05-15T00:00:30.000Z",
+});
+
+const workerOutputArtifact = ({ id, dbStepId, workerStepId }) => ({
+  id,
+  taskRunId: "task_1",
+  stepId: dbStepId,
+  kind: "log",
+  title: `Worker output: ${workerStepId}`,
+  uri: `harness:orchestration/orch_plan_1/${workerStepId}`,
+  summary: "worker output",
+  createdAt: "2026-05-15T00:03:00.000Z",
+});
+
 test("builds parallel local agent invocations as request fan-out edges", () => {
   const graph = buildAgentTopology({
     taskRun: taskRun(),
@@ -104,6 +136,124 @@ test("builds parallel local agent invocations as request fan-out edges", () => {
     remote: 0,
     completed: 1,
   });
+});
+
+test("uses worker step dependencies instead of request fan-out for planned parallel branches", () => {
+  const workerSteps = [
+    {
+      id: "plan",
+      title: "리뷰 범위 정의",
+      role: "planner",
+      inputSummary: "plan",
+      instruction: "plan",
+      expectedArtifactKinds: ["log"],
+      status: "succeeded",
+      dependsOn: [],
+      allowedActions: [],
+    },
+    {
+      id: "correctness",
+      title: "정확성 리뷰",
+      role: "reviewer",
+      inputSummary: "review",
+      instruction: "review",
+      expectedArtifactKinds: ["log"],
+      status: "running",
+      dependsOn: ["plan"],
+      allowedActions: [],
+    },
+    {
+      id: "performance",
+      title: "성능 리뷰",
+      role: "performance-reviewer",
+      inputSummary: "perf",
+      instruction: "perf",
+      expectedArtifactKinds: ["log"],
+      status: "running",
+      dependsOn: ["plan"],
+      allowedActions: [],
+    },
+  ];
+  const graph = buildAgentTopology({
+    taskRun: taskRun(),
+    steps: [
+      step({
+        id: "db_plan",
+        title: "Worker[Planner] 리뷰 범위 정의",
+      }),
+      step({
+        id: "db_correctness",
+        index: 1,
+        title: "Worker[Correctness Reviewer] 정확성 리뷰",
+        status: "running",
+      }),
+      step({
+        id: "db_performance",
+        index: 2,
+        title: "Worker[Performance Reviewer] 성능 리뷰",
+        status: "running",
+      }),
+    ],
+    invocations: [
+      invocation({
+        id: "inv_plan",
+        stepId: "db_plan",
+      }),
+      invocation({
+        id: "inv_correctness",
+        stepId: "db_correctness",
+        status: "running",
+        createdAt: "2026-05-15T00:02:00.000Z",
+      }),
+      invocation({
+        id: "inv_performance",
+        stepId: "db_performance",
+        status: "running",
+        createdAt: "2026-05-15T00:02:00.000Z",
+      }),
+    ],
+    approvals: [],
+    remoteTaskRefs: [],
+    artifacts: [
+      orchestrationPlanArtifact(workerSteps),
+      workerOutputArtifact({
+        id: "art_plan_out",
+        dbStepId: "db_plan",
+        workerStepId: "plan",
+      }),
+      workerOutputArtifact({
+        id: "art_correctness_out",
+        dbStepId: "db_correctness",
+        workerStepId: "correctness",
+      }),
+      workerOutputArtifact({
+        id: "art_performance_out",
+        dbStepId: "db_performance",
+        workerStepId: "performance",
+      }),
+    ],
+  });
+
+  assert.deepEqual(
+    graph.edges
+      .filter((edge) => edge.target.startsWith("agent:"))
+      .map((edge) => [edge.source, edge.target, edge.kind])
+      .sort((left, right) => left[1].localeCompare(right[1])),
+    [
+      ["agent:inv_plan", "agent:inv_correctness", "handoff"],
+      ["agent:inv_plan", "agent:inv_performance", "handoff"],
+      ["request:task_1", "agent:inv_plan", "starts"],
+    ],
+  );
+  assert.ok(
+    graph.nodes.find((node) => node.id === "agent:inv_correctness").x <
+      graph.nodes.find((node) => node.id === "agent:inv_performance").x,
+    "parallel children should be placed side-by-side in the same dependency layer",
+  );
+  assert.equal(
+    graph.nodes.find((node) => node.id === "agent:inv_correctness").y,
+    graph.nodes.find((node) => node.id === "agent:inv_performance").y,
+  );
 });
 
 test("uses concrete agent names as visible graph labels", () => {

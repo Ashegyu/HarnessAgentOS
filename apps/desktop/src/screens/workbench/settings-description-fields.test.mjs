@@ -35,3 +35,64 @@ test("settings description fields use multiline textarea controls", () => {
     );
   }
 });
+
+const readWorkbenchCss = () =>
+  readFileSync(join(__dirname, "workbench.css"), "utf8");
+
+const cssRule = (css, selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = css.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`));
+  assert.ok(match?.groups?.body, `${selector} rule must exist`);
+  return match.groups.body;
+};
+
+test("thread sidebar descriptions wrap instead of clipping", () => {
+  const css = readWorkbenchCss();
+
+  for (const selector of [
+    ".thread-list__title",
+    ".thread-list__target",
+    ".thread-list__pipeline",
+  ]) {
+    const rule = cssRule(css, selector);
+    assert.match(
+      rule,
+      /white-space:\s*normal;/,
+      `${selector} should allow multiple lines`,
+    );
+    assert.match(
+      rule,
+      /overflow-wrap:\s*anywhere;/,
+      `${selector} should break long uninterrupted text`,
+    );
+    assert.doesNotMatch(
+      rule,
+      /text-overflow:\s*ellipsis;/,
+      `${selector} should not hide text behind ellipsis`,
+    );
+    assert.doesNotMatch(
+      rule,
+      /-webkit-line-clamp:/,
+      `${selector} should not clamp thread text`,
+    );
+  }
+});
+
+test("settings prose descriptions wrap instead of clipping", () => {
+  const css = readWorkbenchCss();
+
+  for (const selector of [
+    ".agent-profiles-tab__role-help p",
+    ".agent-profiles-tab__role-help span",
+    ".agent-profiles-tab__migrate-body p",
+    ".pipeline-intent-filter__summary",
+    ".pipeline-recommendation__header p",
+  ]) {
+    const rule = cssRule(css, selector);
+    assert.match(
+      rule,
+      /overflow-wrap:\s*anywhere;/,
+      `${selector} should wrap long descriptions`,
+    );
+  }
+});

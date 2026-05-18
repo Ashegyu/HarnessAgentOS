@@ -3,6 +3,7 @@ import type {
   A2ARemoteTaskRef,
   AgentInvocation,
   Approval,
+  Artifact,
   Step,
   TaskRun,
 } from "@harness/core";
@@ -18,6 +19,7 @@ interface AgentTopologyPanelProps {
   invocations: AgentInvocation[];
   approvals: Approval[];
   remoteTaskRefs: A2ARemoteTaskRef[];
+  artifacts?: Artifact[];
   variant?: "panel" | "large";
   headerActions?: ReactNode;
 }
@@ -31,6 +33,7 @@ export const AgentTopologyPanel = ({
   invocations,
   approvals,
   remoteTaskRefs,
+  artifacts = [],
   variant = "panel",
   headerActions,
 }: AgentTopologyPanelProps): JSX.Element => {
@@ -42,8 +45,9 @@ export const AgentTopologyPanel = ({
         invocations,
         approvals,
         remoteTaskRefs,
+        artifacts,
       }),
-    [taskRun, steps, invocations, approvals, remoteTaskRefs],
+    [taskRun, steps, invocations, approvals, remoteTaskRefs, artifacts],
   );
   const nodeById = useMemo(
     () => new Map(topology.nodes.map((node) => [node.id, node])),

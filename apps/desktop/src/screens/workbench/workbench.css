@@ -673,12 +673,10 @@
 }
 
 .feature-help__popover {
-  position: absolute;
+  position: fixed;
   display: block;
-  top: calc(100% + 8px);
-  left: 0;
   z-index: 2400;
-  width: min(360px, calc(100vw - 40px));
+  box-sizing: border-box;
   padding: 12px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -687,6 +685,8 @@
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
   text-align: left;
   white-space: normal;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
 }
 
 .feature-help__header {
@@ -700,6 +700,8 @@
 .feature-help__header strong {
   color: var(--text-primary);
   font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .feature-help__close {
@@ -726,6 +728,7 @@
   color: var(--text-primary);
   font-size: 12px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .feature-help__details {
@@ -742,6 +745,8 @@
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);
   gap: 4px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .feature-help__detail::before {
@@ -755,6 +760,7 @@
   color: var(--text-muted);
   font-size: 11px;
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 /* Vertical-rail tabs sit on the left of the right panel; default below-anchor
@@ -931,9 +937,9 @@
 .thread-list__title {
   font-weight: 600;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .thread-list__meta {
@@ -945,21 +951,12 @@
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-muted);
-  display: -webkit-box;
+  display: block;
   max-width: 100%;
-  overflow: hidden;
+  overflow: visible;
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-}
-
-.thread-list__item:hover .thread-list__target,
-.thread-list__item:focus-visible .thread-list__target {
-  -webkit-line-clamp: unset;
-  line-clamp: unset;
 }
 
 /* Phase 1 — chip surfaced when the thread is pipeline-bound, so the
@@ -974,9 +971,9 @@
   border-radius: 10px;
   padding: 1px 8px;
   align-self: flex-start;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
   max-width: 100%;
 }
 
@@ -5439,10 +5436,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .agent-profiles-tab__role-help p {
   margin: 0;
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 
 .agent-profiles-tab__role-help span {
   color: var(--text-muted);
+  overflow-wrap: anywhere;
 }
 
 .agent-profiles-tab__actions {
@@ -5487,6 +5486,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   margin: 0;
   color: var(--text-secondary);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 /* ── Permissions matrix ────────────────────────────────────── */
@@ -6382,6 +6382,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .pipelines-tab__items {

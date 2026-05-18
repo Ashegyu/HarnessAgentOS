@@ -284,6 +284,7 @@ export const RightPanel = ({
                 invocations={state.detail.agentInvocations}
                 approvals={state.detail.approvals}
                 remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
+                artifacts={state.detail.artifacts}
                 headerActions={
                   <button
                     type="button"
@@ -432,6 +433,7 @@ export const RightPanel = ({
               invocations={state.detail.agentInvocations}
               approvals={state.detail.approvals}
               remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
+              artifacts={state.detail.artifacts}
               variant="large"
               headerActions={
                 <button
