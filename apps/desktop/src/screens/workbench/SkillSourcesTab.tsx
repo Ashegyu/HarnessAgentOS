@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ApprovalActionType,
+  Capability,
   CapabilityRiskLevel,
   SkillAuthorPreview,
   SkillSource,
@@ -9,6 +10,7 @@ import {
   SKILL_AUTHOR_ACTION_CHOICES,
   SKILL_AUTHOR_RISK_CHOICES,
   ORIGIN_LABELS,
+  capabilityCountForSource,
   describeStatus,
   emptyAddDraft,
   emptySkillAuthorDraft,
@@ -31,6 +33,7 @@ const errorMessage = (e: unknown): string =>
 
 export const SkillSourcesTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addDraft, setAddDraft] = useState<AddSourceDraft>(emptyAddDraft());
@@ -45,8 +48,12 @@ export const SkillSourcesTab = (): JSX.Element => {
 
   const refresh = useCallback(async () => {
     try {
-      const sources = await window.harness.skillSource.list();
+      const [sources, nextCapabilities] = await Promise.all([
+        window.harness.skillSource.list(),
+        window.harness.capability.list(),
+      ]);
       setList({ kind: "ready", sources });
+      setCapabilities(nextCapabilities);
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -162,7 +169,7 @@ export const SkillSourcesTab = (): JSX.Element => {
       });
       // Surface the count via a transient banner instead of a modal.
       setError(
-        `재스캔 완료 — scanned ${result.scannedCount}, updated ${result.updatedCount}, total ${result.skillCount}`,
+        `재스캔 완료 — scanned ${result.scannedCount}, 추천 후보 ${result.updatedCount}개 반영, total ${result.skillCount}`,
       );
       await refresh();
     } catch (e) {
@@ -248,7 +255,7 @@ export const SkillSourcesTab = (): JSX.Element => {
         draft: skillAuthorDraftToInput(authorDraft),
       });
       setError(
-        `file_write 승인 대기 생성 — ${result.preview.relativePath} (${result.approval.id})`,
+        `file_write 승인 대기 생성 — ${result.preview.relativePath} (${result.approval.id}). 승인 실행 후 재스캔되어 추천 후보에 반영됩니다.`,
       );
       setAuthorDraft(null);
       setAuthorPreview(null);
@@ -628,6 +635,7 @@ export const SkillSourcesTab = (): JSX.Element => {
           {list.sources.map((s) => {
             const status = describeStatus(s);
             const busy = busyId === s.id;
+            const capabilityCount = capabilityCountForSource(s, capabilities);
             return (
               <li key={s.id} className="skill-source-row">
                 <div className="skill-source-row__head">
@@ -651,6 +659,16 @@ export const SkillSourcesTab = (): JSX.Element => {
                         {status.reason}
                       </span>
                     )}
+                    <span
+                      className={`skill-source-row__status ${
+                        capabilityCount > 0
+                          ? "skill-source-row__status--ready"
+                          : "skill-source-row__status--blocked"
+                      }`}
+                      title="현재 Capability 추천 후보로 반영된 SKILL 수"
+                    >
+                      추천 {capabilityCount}
+                    </span>
                   </div>
                   <code className="skill-source-row__path" title={s.rootDir}>
                     {s.rootDir}

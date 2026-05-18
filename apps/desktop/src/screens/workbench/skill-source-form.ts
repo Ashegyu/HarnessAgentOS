@@ -1,5 +1,6 @@
 import type {
   ApprovalActionType,
+  Capability,
   CapabilityRiskLevel,
   SkillAuthorDraft,
   SkillSource,
@@ -201,4 +202,22 @@ export const describeStatus = (s: SkillSource): SourceStatus => {
     return { ready: false, reason: "path-policy 미등록", flags };
   }
   return { ready: true, flags };
+};
+
+export const skillSourceCapabilitySourceKey = (
+  source: Pick<SkillSource, "id" | "origin">,
+): string =>
+  source.origin === "project"
+    ? "skillify:project"
+    : source.origin === "user"
+      ? "skillify:user"
+      : `skillify:${source.id}`;
+
+export const capabilityCountForSource = (
+  source: Pick<SkillSource, "id" | "origin">,
+  capabilities: readonly Capability[],
+): number => {
+  const sourceKey = skillSourceCapabilitySourceKey(source);
+  return capabilities.filter((capability) => capability.source === sourceKey)
+    .length;
 };

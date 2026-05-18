@@ -163,7 +163,7 @@ export const buildSkillSourceHandlers = (ctx: SkillSourceIpcContext) => {
       }
       return wrap(async () => {
         const draft = buildGeneratedSkillDraft(request);
-        const preview = await buildSkillAuthorPreview(existing, draft);
+        const preview = await buildSkillAuthorPreview(state, existing, draft);
         return { draft, preview };
       });
     },
@@ -178,7 +178,7 @@ export const buildSkillSourceHandlers = (ctx: SkillSourceIpcContext) => {
           harnessError(SKILL_SOURCE_NOT_FOUND, `unknown source: ${draft.sourceId}`),
         );
       }
-      return wrap(() => buildSkillAuthorPreview(existing, draft));
+      return wrap(() => buildSkillAuthorPreview(state, existing, draft));
     },
 
     proposeSkillFile: async (input: {
@@ -192,7 +192,7 @@ export const buildSkillSourceHandlers = (ctx: SkillSourceIpcContext) => {
         );
       }
       return wrap(async () => {
-        const preview = await buildSkillAuthorPreview(existing, draft);
+        const preview = await buildSkillAuthorPreview(state, existing, draft);
         if (!preview.ok) {
           throw new Error("generated SKILL.md failed validation");
         }
@@ -312,6 +312,7 @@ const normalizeSkillGenerationRequest = (
 };
 
 const buildSkillAuthorPreview = async (
+  state: LocalStateService,
   source: SkillSource,
   draft: SkillAuthorDraft,
 ): Promise<SkillAuthorPreview> => {
@@ -353,6 +354,25 @@ const buildSkillAuthorPreview = async (
   }
 
   const content = renderSkillMarkdown({ ...draft, slug });
+  const wouldOverwrite = withinSourceRoot
+    ? await fileExists(absolutePath)
+    : false;
+  if (wouldOverwrite) {
+    warnings.push(
+      "target SKILL.md already exists; approval execution will overwrite that file",
+    );
+  }
+  if (slug.length > 0) {
+    const existingCapability = await state.getCapability(slug);
+    if (existingCapability) {
+      const sourceKey = capabilitySourceKey(source);
+      warnings.push(
+        existingCapability.source === sourceKey
+          ? `capability id "${slug}" is already registered for this source and will be updated on refresh`
+          : `capability id "${slug}" is already registered by ${existingCapability.source}; choose another id to avoid replacing suggestion ownership`,
+      );
+    }
+  }
   let parsed: SkillAuthorPreview["parsed"] | undefined;
   try {
     const parsedFrontmatter = parseSkillFrontmatter({
@@ -383,10 +403,17 @@ const buildSkillAuthorPreview = async (
     sourceId: source.id,
     relativePath,
     content,
-    wouldOverwrite: withinSourceRoot ? await fileExists(absolutePath) : false,
+    wouldOverwrite,
     ...(parsed ? { parsed } : {}),
   };
 };
+
+const capabilitySourceKey = (source: SkillSource): string =>
+  source.origin === "project"
+    ? "skillify:project"
+    : source.origin === "user"
+      ? "skillify:user"
+      : `skillify:${source.id}`;
 
 const renderSkillMarkdown = (draft: SkillAuthorDraft): string => {
   const body = draft.body.trim() || "Describe when and how to use this skill.";

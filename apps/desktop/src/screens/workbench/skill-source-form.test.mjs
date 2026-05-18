@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  capabilityCountForSource,
   describeStatus,
   emptyAddDraft,
   emptySkillAuthorDraft,
@@ -8,6 +9,7 @@ import {
   skillAuthorDraftToInput,
   skillAuthorInputToFormDraft,
   skillSlugFromName,
+  skillSourceCapabilitySourceKey,
   validateAddDraft,
   validateSkillAuthorDraft,
 } from "./skill-source-form.ts";
@@ -90,6 +92,47 @@ test("describeStatus prioritises 비활성 over trust missing", () => {
     SOURCE({ enabled: false, trusted: false, registeredInPathPolicy: false }),
   );
   assert.equal(s.reason, "비활성");
+});
+
+test("skillSourceCapabilitySourceKey mirrors registry source keys", () => {
+  assert.equal(
+    skillSourceCapabilitySourceKey(
+      SOURCE({ origin: "project", id: "ss_project" }),
+    ),
+    "skillify:project",
+  );
+  assert.equal(
+    skillSourceCapabilitySourceKey(SOURCE({ origin: "user", id: "ss_user" })),
+    "skillify:user",
+  );
+  assert.equal(
+    skillSourceCapabilitySourceKey(SOURCE({ id: "ss_custom" })),
+    "skillify:ss_custom",
+  );
+});
+
+test("capabilityCountForSource counts only matching registry rows", () => {
+  const count = capabilityCountForSource(SOURCE({ id: "ss_custom" }), [
+    {
+      id: "a",
+      source: "skillify:ss_custom",
+      name: "A",
+      description: "A",
+      triggerTerms: [],
+      riskLevel: "low",
+      requiresApproval: false,
+    },
+    {
+      id: "b",
+      source: "skillify:project",
+      name: "B",
+      description: "B",
+      triggerTerms: [],
+      riskLevel: "low",
+      requiresApproval: false,
+    },
+  ]);
+  assert.equal(count, 1);
 });
 
 test("emptyAddDraft returns empty strings", () => {

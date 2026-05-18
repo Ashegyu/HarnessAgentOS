@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb, closeDb, LocalStateService } from "@harness/storage";
@@ -244,6 +250,53 @@ test("skillSource.previewSkillDraft warns on approval bypass language", async ()
     assert.equal(r.value.ok, true);
     assert.ok(
       r.value.warnings.some((warning) => /approval|execution/.test(warning)),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("skillSource.previewSkillDraft warns on overwrite and capability id collision", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildSkillSourceHandlers(ctx);
+    const rootDir = t.file + "-skills";
+    const skillDir = join(rootDir, "review-helper");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "existing");
+    await ctx.state.upsertCapability({
+      id: "review-helper",
+      source: "skillify:other",
+      name: "Existing Review Helper",
+      description: "Existing capability.",
+      triggerTerms: ["review"],
+      riskLevel: "low",
+      requiresApproval: false,
+    });
+    const added = (await h.add({ name: "A", rootDir })).value;
+    const r = await h.previewSkillDraft({
+      draft: {
+        sourceId: added.id,
+        slug: "review-helper",
+        name: "Review Helper",
+        description: "Summarize risky diffs before approval.",
+        triggerTerms: ["review", "diff"],
+        riskLevel: "low",
+        allowedActions: [],
+        body: "Use this skill to review a proposed patch.",
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.ok, true);
+    assert.equal(r.value.wouldOverwrite, true);
+    assert.ok(
+      r.value.warnings.some((warning) => /overwrite/.test(warning)),
+    );
+    assert.ok(
+      r.value.warnings.some((warning) => /already registered/.test(warning)),
     );
   } finally {
     closeDb(db);
