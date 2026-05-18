@@ -1,0 +1,1146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MCP와 Skill 사용 및 자동 생성 구현 설계</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --fg: #1d232b;
+    --muted: #596474;
+    --panel: #ffffff;
+    --panel-2: #eef2f6;
+    --border: #d8dee7;
+    --accent: #1f6fb2;
+    --accent-2: #0f7b65;
+    --warn-bg: #fff7e8;
+    --warn-bd: #dfaa3c;
+    --risk-bg: #fff0f0;
+    --risk-bd: #d66a6a;
+    --ok-bg: #eaf7ef;
+    --ok-bd: #58a76d;
+    --code-bg: #f0f3f7;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.62;
+  }
+  main {
+    width: min(1080px, calc(100vw - 48px));
+    margin: 0 auto;
+    padding: 44px 0 96px;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 30px;
+    line-height: 1.2;
+    letter-spacing: 0;
+  }
+  h2 {
+    margin: 42px 0 14px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 22px;
+    line-height: 1.3;
+    letter-spacing: 0;
+  }
+  h3 {
+    margin: 28px 0 10px;
+    font-size: 17px;
+    letter-spacing: 0;
+  }
+  h4 {
+    margin: 18px 0 8px;
+    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 0;
+  }
+  p { margin: 8px 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono);
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 0.92em;
+  }
+  pre {
+    margin: 12px 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    background: var(--code-bg);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code { padding: 0; background: transparent; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 18px;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: var(--panel-2);
+    font-weight: 700;
+  }
+  ul, ol { margin: 8px 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .lede {
+    max-width: 920px;
+    margin: 0 0 24px;
+    color: var(--muted);
+    font-size: 16px;
+  }
+  .meta {
+    margin: 0 0 28px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .toc, .panel, .decision, .warning, .risk, .ok {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .toc ol { margin-bottom: 0; }
+  .decision {
+    border-left: 4px solid var(--accent);
+  }
+  .warning {
+    background: var(--warn-bg);
+    border-color: var(--warn-bd);
+  }
+  .risk {
+    background: var(--risk-bg);
+    border-color: var(--risk-bd);
+  }
+  .ok {
+    background: var(--ok-bg);
+    border-color: var(--ok-bd);
+  }
+  .pill {
+    display: inline-block;
+    margin: 0 6px 6px 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e7edf5;
+    color: #26394f;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .pill--green { background: #daf1e7; color: #0e5b48; }
+  .pill--blue { background: #dfeeff; color: #164f88; }
+  .pill--orange { background: #ffe8ca; color: #7a4700; }
+  .diagram {
+    margin: 12px 0;
+    padding: 14px 16px;
+    overflow-x: auto;
+    white-space: pre;
+    border-radius: 6px;
+    background: var(--code-bg);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+  }
+  .small { color: var(--muted); font-size: 13px; }
+  .nowrap { white-space: nowrap; }
+  @media (max-width: 820px) {
+    main { width: min(100vw - 28px, 1080px); padding-top: 28px; }
+    .two-col { grid-template-columns: 1fr; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>MCP와 Skill 사용 및 자동 생성 구현 설계</h1>
+  <p class="lede">
+    HarnessAgentOS에서 MCP 서버와 Agent Skill을 어떻게 구분해서 쓰고,
+    각 AgentProfile에 어떤 MCP와 Skill을 선언하며,
+    사용자가 승인한 범위 안에서 MCP/Skill을 자동 생성하도록 확장하는 설계다.
+    현재 문서는 구현 전 설계 산출물이며, 런타임 코드 변경은 포함하지 않는다.
+  </p>
+  <p class="meta">
+    Path: <code>docs/design/mcp-skill-usage-generation-plan.html</code> · 작성일: 2026-05-18 ·
+    기준: 현재 HarnessAgentOS 코드와 공식 MCP/Skill 문서 조사
+  </p>
+
+  <div class="toc">
+    <strong>목차</strong>
+    <ol>
+      <li><a href="#summary">결론</a></li>
+      <li><a href="#research">조사 요약</a></li>
+      <li><a href="#current">현재 구현 근거</a></li>
+      <li><a href="#usage">MCP와 Skill 사용 기준</a></li>
+      <li><a href="#declaration">Agent별 MCP/Skill 선언 모델</a></li>
+      <li><a href="#generation">자동 생성 설계</a></li>
+      <li><a href="#data-ipc">데이터 모델과 IPC 설계</a></li>
+      <li><a href="#ui">UI 설계</a></li>
+      <li><a href="#security">보안, 승인, 비용 정책</a></li>
+      <li><a href="#phases">구현 단계</a></li>
+      <li><a href="#verification">검증 계획</a></li>
+      <li><a href="#review">작성 전 자체 검토 결과</a></li>
+    </ol>
+  </div>
+
+  <h2 id="summary">1. 결론</h2>
+  <div class="decision">
+    <p>
+      <strong>핵심 결정:</strong> MCP와 Skill은 같은 "에이전트 능력"이 아니다.
+      MCP는 실행 가능한 외부 도구 서버이고, Skill은 절차와 지식을 점진적으로 로드하는 capability package다.
+      HarnessAgentOS에서는 둘 다 <code>AgentProfile</code>에 선언하되,
+      실제 실행은 기존 <code>Approval</code>, <code>Runner</code>, <code>Artifact</code>, <code>QualityGate</code> 경계를 통과해야 한다.
+    </p>
+  </div>
+
+  <table>
+    <tr>
+      <th>항목</th>
+      <th>결정</th>
+      <th>이유</th>
+    </tr>
+    <tr>
+      <td>MCP 사용</td>
+      <td><code>AgentProfile.mcpServerIds</code>와 <code>McpServerConfig.scope</code>로 선언</td>
+      <td>이미 저장소에 per-agent/global MCP 선택 구조와 per-invocation 임시 config 생성 경로가 있다.</td>
+    </tr>
+    <tr>
+      <td>Skill 사용</td>
+      <td><code>SkillSource</code> 스캔, <code>Capability</code> 추천, <code>capability_use</code> 승인 후 prompt context로 주입</td>
+      <td>Skill은 자동 실행자가 아니라 사용자가 볼 수 있는 추천/지식 계층이라는 기존 아키텍처와 맞다.</td>
+    </tr>
+    <tr>
+      <td>Agent별 선언</td>
+      <td>기존 <code>AgentProfile</code>을 선언 단위로 유지하고, 최소 확장으로 <code>required/optional</code> 의미만 보강</td>
+      <td>새 테이블부터 만들면 현재 Settings, storage, IPC와 중복된다. 먼저 기존 필드를 명시적으로 해석한다.</td>
+    </tr>
+    <tr>
+      <td>자동 생성</td>
+      <td>생성은 "파일 작성"이 아니라 <code>preview → approval proposal → materialize → refresh/bind</code> 흐름</td>
+      <td>저장소의 핵심 제약인 side effect 승인 모델을 보존한다.</td>
+    </tr>
+    <tr>
+      <td>Codex MCP</td>
+      <td>현재는 설계상 보류. Claude CLI만 실제 <code>--mcp-config</code> 적용 경로로 취급</td>
+      <td>코드가 Codex MCP 인자 형식을 아직 검증하지 않았고, <code>prepareMcpInvocation</code>이 Codex provider에서 null을 반환한다.</td>
+    </tr>
+  </table>
+
+  <h2 id="research">2. 조사 요약</h2>
+
+  <h3>2.1 MCP 공식 문서에서 확인한 기준</h3>
+  <table>
+    <tr>
+      <th>근거</th>
+      <th>설계 반영</th>
+    </tr>
+    <tr>
+      <td>
+        MCP는 host, client, server 구조이며 host가 서버별 client connection을 관리한다.
+        transport는 stdio와 Streamable HTTP가 핵심이다.
+        <a href="https://modelcontextprotocol.io/docs/learn/architecture">MCP Architecture</a>
+      </td>
+      <td>
+        HarnessAgentOS는 main process가 MCP config를 합성하고 CLI invocation에 넘기는 host-side control point를 유지한다.
+        renderer는 MCP process나 credential에 접근하지 않는다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        MCP server primitive는 Tools, Resources, Prompts다.
+        Tools는 모델이 호출할 수 있는 실행 함수이고, Resources는 context 데이터, Prompts는 사용자 제어형 템플릿이다.
+        <a href="https://modelcontextprotocol.io/docs/learn/server-concepts">MCP Server Concepts</a>
+      </td>
+      <td>
+        자동 생성은 "모든 것을 tool로 감싸기"가 아니라 tool/resource/prompt 분류를 먼저 수행한다.
+        실행 side effect가 있는 기능만 tool 후보로 둔다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        MCP tools는 schema-defined interface이며, user consent와 activity log를 통한 oversight가 권장된다.
+        <a href="https://modelcontextprotocol.io/docs/learn/server-concepts">MCP Tools</a>
+      </td>
+      <td>
+        MCP tool 사용은 AgentProfile의 allow/deny policy와 Harness approval ledger에 맞춰 표시되어야 한다.
+        생성된 MCP tool schema는 짧고 명확해야 하며 tool call 결과는 artifact로 남긴다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        MCP roots는 filesystem scope를 알려주는 coordination mechanism이며, 보안 경계 자체는 아니다.
+        <a href="https://modelcontextprotocol.io/docs/learn/client-concepts">MCP Client Concepts</a>
+      </td>
+      <td>
+        자동 생성 MCP가 roots를 사용하더라도 실제 쓰기/실행 제한은 Harness path policy와 approval/runner에서 강제한다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        stdio MCP server는 stdout에 일반 로그를 쓰면 JSON-RPC stream이 깨진다.
+        공식 가이드는 stderr logging을 권장한다.
+        <a href="https://modelcontextprotocol.io/docs/develop/build-server">Build an MCP Server</a>
+      </td>
+      <td>
+        MCP scaffold generator는 stdout logging 금지 lint와 smoke probe를 포함해야 한다.
+      </td>
+    </tr>
+  </table>
+
+  <h3>2.2 Agent Skill 문서에서 확인한 기준</h3>
+  <table>
+    <tr>
+      <th>근거</th>
+      <th>설계 반영</th>
+    </tr>
+    <tr>
+      <td>
+        Anthropic Agent Skills는 <code>SKILL.md</code>, scripts, references, templates 등을 가진 filesystem package이며,
+        Skill metadata는 startup에, instructions는 trigger 시점에, resources는 필요할 때 로드한다.
+        <a href="https://platform.claude.com/docs/en/agents-and-tools/agent-skills/overview">Claude Agent Skills</a>
+      </td>
+      <td>
+        HarnessAgentOS의 <code>SkillLoader</code>와 <code>CapabilityService</code>는 metadata-first, instruction-on-demand 방식을 유지한다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        Agent Skills open format은 필수 <code>SKILL.md</code>와 optional <code>scripts/</code>, <code>references/</code>, <code>assets/</code> 구조를 정의하고,
+        progressive loading을 요구한다.
+        <a href="https://agentskills.my/specification/">Agent Skills Specification</a>
+      </td>
+      <td>
+        자동 생성 Skill은 최소 <code>name</code>, <code>description</code>, body를 만들고, 추가 자료는 필요할 때만 references/templates/examples로 분리한다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        MCP 공식 사이트도 MCP server build를 Agent Skill로 보조하는 방식을 소개한다.
+        <a href="https://modelcontextprotocol.io/docs/develop/build-with-agent-skills">Build with Agent Skills</a>
+      </td>
+      <td>
+        MCP 자동 생성 자체도 하나의 Harness Skill 또는 built-in capability로 표현할 수 있다.
+        즉, generator는 hidden hook이 아니라 사용자에게 보이는 capability다.
+      </td>
+    </tr>
+    <tr>
+      <td>
+        OpenAI Codex repository의 sample Skill은 Skill 안에서 필요한 MCP server를 우선 사용하도록 안내하는 패턴을 보여준다.
+        <a href="https://github.com/openai/codex/blob/main/codex-rs/skills/src/assets/samples/openai-docs/SKILL.md">Codex sample SKILL.md</a>
+      </td>
+      <td>
+        Skill과 MCP는 경쟁 관계가 아니라 조합 관계다. Skill은 "언제, 왜, 어떤 MCP tool을 쓰는지"를 설명할 수 있다.
+      </td>
+    </tr>
+  </table>
+
+  <h3>2.3 조사에서 얻은 운영 원칙</h3>
+  <div class="panel">
+    <ul>
+      <li><strong>MCP는 실행 표면이다.</strong> 외부 시스템 호출, 파일/DB/API 작업, live context retrieval처럼 protocol boundary가 필요한 일에 쓴다.</li>
+      <li><strong>Skill은 판단 표면이다.</strong> 절차, 팀 규칙, 반복 workflow, MCP tool 사용법, 검증 checklist를 담는다.</li>
+      <li><strong>Skill이 MCP를 지정할 수 있다.</strong> 예를 들어 <code>openai-docs</code> Skill은 OpenAI docs MCP를 우선 쓰라고 지시할 수 있다.</li>
+      <li><strong>MCP roots는 보안 경계가 아니다.</strong> Harness 쪽 path policy, approval, runner sandbox가 실제 경계다.</li>
+      <li><strong>자동 생성은 반드시 review-first여야 한다.</strong> 생성된 Skill/MCP는 미리보기와 검증을 거친 뒤 사용자가 승인해야 저장된다.</li>
+    </ul>
+  </div>
+
+  <h2 id="current">3. 현재 구현 근거</h2>
+  <table>
+    <tr>
+      <th>영역</th>
+      <th>관련 파일</th>
+      <th>확인된 사실</th>
+    </tr>
+    <tr>
+      <td>AgentProfile</td>
+      <td><code>packages/core/src/types/agent-profile.ts</code></td>
+      <td>
+        <code>mcpServerIds</code>, <code>skillSourceIds</code>,
+        <code>permissions.allowedSkillIds</code>, <code>toolAllowlist</code>, <code>toolDenylist</code>,
+        <code>budget</code>가 이미 있다.
+      </td>
+    </tr>
+    <tr>
+      <td>MCP registry</td>
+      <td><code>packages/core/src/types/mcp.ts</code>, <code>packages/storage/src/repositories/mcp-server-repository.ts</code></td>
+      <td>
+        MCP server는 <code>stdio</code>, <code>http</code>, <code>sse</code> transport와
+        <code>global</code>/<code>per-agent</code> scope를 가진 row로 저장된다.
+      </td>
+    </tr>
+    <tr>
+      <td>MCP invocation</td>
+      <td><code>apps/desktop/electron/main.ts</code>, <code>packages/agent/src/mcp-config-builder.ts</code></td>
+      <td>
+        main process가 enabled global MCP와 profile-bound per-agent MCP를 합쳐 임시 <code>.json</code> config를 만들고,
+        invocation 뒤 삭제한다. SecretVault key는 spawn 직전에만 복호화된다.
+      </td>
+    </tr>
+    <tr>
+      <td>MCP provider 제한</td>
+      <td><code>apps/desktop/electron/main.ts</code>, <code>packages/agent/src/model-cli-types.ts</code></td>
+      <td>
+        현재 코드상 Codex provider는 MCP config file을 만들지 않는다. 주석상 Codex <code>--mcp-config</code> 검증이 보류되어 있다.
+      </td>
+    </tr>
+    <tr>
+      <td>Skill loading</td>
+      <td><code>packages/skillify-adapter/src/skill-loader.ts</code></td>
+      <td>
+        <code>&lt;root&gt;/&lt;skill&gt;/SKILL.md</code>를 읽고 frontmatter를 metadata로 파싱한다.
+        instruction과 resources는 별도 함수로 on-demand load된다.
+      </td>
+    </tr>
+    <tr>
+      <td>Skill approval</td>
+      <td><code>packages/skillify-adapter/src/capability-service.ts</code></td>
+      <td>
+        추천 Skill은 <code>capability_use</code> approval candidate로 제안되고,
+        승인된 capability만 prompt context에 들어간다.
+        <code>skill_script</code> 실행도 직접 실행이 아니라 approval row를 만든다.
+      </td>
+    </tr>
+    <tr>
+      <td>Skill authoring</td>
+      <td><code>apps/desktop/electron/ipc/skill-source-ipc.ts</code>, <code>packages/core/src/types/skill-source.ts</code></td>
+      <td>
+        <code>previewSkillDraft</code>와 <code>proposeSkillFile</code>이 이미 있다.
+        자동 생성 Skill은 이 흐름을 재사용하는 것이 가장 작다.
+      </td>
+    </tr>
+  </table>
+
+  <div class="ok">
+    <strong>설계상 유리한 점:</strong>
+    저장소는 이미 MCP registry, per-agent profile binding, Skill source authoring, capability approval, prompt injection 지점을 갖고 있다.
+    따라서 이번 기능은 새 agent runtime이 아니라 기존 선언/승인 모델을 완성하는 일에 가깝다.
+  </div>
+
+  <h2 id="usage">4. MCP와 Skill 사용 기준</h2>
+
+  <div class="two-col">
+    <div class="panel">
+      <h3>4.1 MCP를 써야 하는 경우</h3>
+      <ul>
+        <li>외부 API, DB, GitHub, Jira, 문서 저장소, 로컬 indexing server처럼 runtime I/O가 필요하다.</li>
+        <li>모델이 typed input schema에 맞춰 반복 호출해야 한다.</li>
+        <li>결과가 최신 상태, 외부 시스템 상태, filesystem 상태에 의존한다.</li>
+        <li>도구 호출 결과를 activity log, artifact, health check로 관리해야 한다.</li>
+        <li>credential, OAuth, token, endpoint 설정이 필요하다.</li>
+      </ul>
+    </div>
+
+    <div class="panel">
+      <h3>4.2 Skill을 써야 하는 경우</h3>
+      <ul>
+        <li>팀 규칙, 리뷰 절차, 설계 방식, 검증 checklist처럼 절차 지식이 핵심이다.</li>
+        <li>반복되는 프롬프트/작업 흐름을 짧은 metadata로 발견하고 필요할 때만 instruction을 읽으면 된다.</li>
+        <li>script가 있더라도 실행보다 사용법과 판단 기준이 더 중요하다.</li>
+        <li>특정 MCP tool을 언제 쓰는지 지시하고 싶다.</li>
+        <li>새 코드 없이 문서와 예시만으로 agent 품질을 높일 수 있다.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>4.3 결정 매트릭스</h3>
+  <table>
+    <tr>
+      <th>요구</th>
+      <th>권장 표면</th>
+      <th>예시</th>
+    </tr>
+    <tr>
+      <td>현재 repo의 테스트 명령과 convention 안내</td>
+      <td>Skill</td>
+      <td><code>test-runner/SKILL.md</code>, <code>harness-workflows/SKILL.md</code></td>
+    </tr>
+    <tr>
+      <td>로컬 문서 index 검색과 chunk 읽기</td>
+      <td>MCP</td>
+      <td><code>manual_search</code>, <code>manual_read_chunk</code> 같은 typed tool</td>
+    </tr>
+    <tr>
+      <td>OpenAI API 최신 문서 확인</td>
+      <td>Skill + MCP</td>
+      <td>Skill이 "OpenAI docs MCP를 우선 사용"하도록 지시</td>
+    </tr>
+    <tr>
+      <td>보안 리뷰 절차와 체크리스트</td>
+      <td>Skill</td>
+      <td>reviewer profile에 security skill source와 allowed skill id 선언</td>
+    </tr>
+    <tr>
+      <td>GitHub issue/PR 조회, label 변경</td>
+      <td>MCP</td>
+      <td>credential과 action audit가 필요한 외부 tool</td>
+    </tr>
+    <tr>
+      <td>프로젝트별 MCP 서버 scaffold 생성</td>
+      <td>Skill로 절차화하고, 생성 결과는 approval된 file_write</td>
+      <td><code>build-mcp-server</code> style skill + Harness file proposal</td>
+    </tr>
+  </table>
+
+  <h2 id="declaration">5. Agent별 MCP/Skill 선언 모델</h2>
+
+  <h3>5.1 목표</h3>
+  <p>
+    사용자는 "planner는 설계 Skill만, performance reviewer는 성능 Skill과 성능 MCP만, coder는 repo-aware MCP와 patch Skill만"처럼
+    에이전트별 도구/지식 표면을 선언할 수 있어야 한다.
+    이 선언은 실제 실행 권한과 분리되어야 하며, 선언되어도 자동 실행이 보장되면 안 된다.
+  </p>
+
+  <h3>5.2 기존 필드를 선언 계약으로 재정의</h3>
+  <table>
+    <tr>
+      <th>필드</th>
+      <th>선언 의미</th>
+      <th>런타임 의미</th>
+    </tr>
+    <tr>
+      <td><code>AgentProfile.mcpServerIds</code></td>
+      <td>이 profile에서 사용할 수 있는 per-agent MCP server id 목록</td>
+      <td>Claude invocation 때 global MCP + 이 목록의 enabled MCP만 임시 config에 포함</td>
+    </tr>
+    <tr>
+      <td><code>AgentProfile.skillSourceIds</code></td>
+      <td>이 profile에 노출할 Skill source 목록. 비어 있으면 trusted global source만</td>
+      <td>Capability suggestion 후보 scope를 제한하는 데 사용</td>
+    </tr>
+    <tr>
+      <td><code>permissions.allowedSkillIds</code></td>
+      <td>특정 Skill만 허용하는 whitelist. 비어 있으면 enabled skill 전체 후보</td>
+      <td>추천과 <code>capability_use</code> approval 후보 생성 전에 filter</td>
+    </tr>
+    <tr>
+      <td><code>permissions.toolAllowlist</code></td>
+      <td>MCP tool name allow pattern</td>
+      <td>MCP client/tool-call event 수집이 가능해지는 시점에 tool 사용 정책 검증</td>
+    </tr>
+    <tr>
+      <td><code>permissions.toolDenylist</code></td>
+      <td>MCP tool name deny pattern</td>
+      <td>allowlist보다 우선. UI에서도 "이 profile에서 차단" 표시</td>
+    </tr>
+  </table>
+
+  <h3>5.3 선언 예시</h3>
+  <pre><code>{
+  "id": "ap_performance_reviewer",
+  "name": "Performance Reviewer",
+  "role": "performance-reviewer",
+  "mcpServerIds": ["mcp_repo_index", "mcp_benchmark_results"],
+  "skillSourceIds": ["skillify_project", "skillify_user"],
+  "permissions": {
+    "autoApproveActions": [],
+    "blockedActions": ["file_write", "dependency_install", "git_commit"],
+    "allowedSkillIds": ["csharp-performance-review", "benchmark-plan"],
+    "toolAllowlist": ["repo_*", "benchmark_*"],
+    "toolDenylist": ["*_write", "*_delete"]
+  }
+}</code></pre>
+
+  <h3>5.4 필요한 최소 보강</h3>
+  <div class="panel">
+    <p>
+      현재 <code>AgentProfile</code>은 source id와 server id를 저장하지만,
+      "필수로 포함되어야 하는 Skill", "추천만 할 Skill", "자동 생성 후보" 같은 의도는 표현하지 못한다.
+      첫 구현은 public type churn을 줄이기 위해 <code>AgentProfile</code>에 바로 새 필드를 추가하지 않고,
+      <code>AgentCapabilityPolicy</code>를 settings UI와 proposal artifact에서만 사용한다.
+    </p>
+    <pre><code>export interface AgentCapabilityPolicyDraft {
+  profileId: string;
+  requiredMcpServerIds: readonly string[];
+  optionalMcpServerIds: readonly string[];
+  requiredSkillIds: readonly string[];
+  optionalSkillIds: readonly string[];
+  deniedToolPatterns: readonly string[];
+  notes: string;
+}</code></pre>
+    <p>
+      승인 후 실제 저장은 기존 <code>AgentProfile.mcpServerIds</code>,
+      <code>skillSourceIds</code>, <code>permissions.allowedSkillIds</code>,
+      <code>toolAllowlist</code>, <code>toolDenylist</code>에 반영한다.
+      나중에 required/optional semantics가 런타임에 필요하다고 검증되면 별도 migration을 추가한다.
+    </p>
+  </div>
+
+  <h2 id="generation">6. 자동 생성 설계</h2>
+
+  <h3>6.1 자동 생성의 범위</h3>
+  <table>
+    <tr>
+      <th>생성 대상</th>
+      <th>1차 범위</th>
+      <th>비범위</th>
+    </tr>
+    <tr>
+      <td>Skill</td>
+      <td><code>SKILL.md</code> 초안, frontmatter, body, references/templates/examples 목록</td>
+      <td>승인 없는 파일 쓰기, untrusted source 자동 trust 승격, script 자동 실행</td>
+    </tr>
+    <tr>
+      <td>MCP server config</td>
+      <td>기존 외부 MCP 등록 초안, command/url/envSecretRefs, healthCheck 계획</td>
+      <td>사용자 secret 값 자동 추출, global config 직접 수정, Codex 미검증 플래그 적용</td>
+    </tr>
+    <tr>
+      <td>MCP server scaffold</td>
+      <td>작은 local stdio TypeScript server scaffold proposal, tool schema, smoke test script</td>
+      <td>대형 API wrapper 전체 생성, OAuth 완성, remote deploy 자동화</td>
+    </tr>
+    <tr>
+      <td>Agent binding</td>
+      <td>AgentProfile에 연결할 MCP/Skill 후보와 allow/deny pattern 제안</td>
+      <td>사용자 확인 없는 profile update, hidden routing change</td>
+    </tr>
+  </table>
+
+  <h3>6.2 자동 생성 입력</h3>
+  <pre><code>export interface CapabilityGenerationRequest {
+  taskRunId: string;
+  targetDir: string;
+  userIntent: string;
+  targetKind: "skill" | "mcp_config" | "mcp_scaffold" | "agent_binding";
+  profileIds: readonly string[];
+  sourceId?: string;
+  evidenceArtifactIds: readonly string[];
+}</code></pre>
+
+  <h3>6.3 생성 파이프라인</h3>
+  <div class="diagram">User request
+  -> classify generation target
+  -> inspect current AgentProfile / MCP / SkillSource / Capability registry
+  -> draft structured proposal
+  -> static validation
+  -> preview artifact
+  -> approval proposal
+  -> user approves
+  -> materialize file or update row
+  -> refresh registry or health-check MCP
+  -> bind to AgentProfile when explicitly approved
+  -> record artifact and LearningTrace</div>
+
+  <h3>6.4 Skill 자동 생성 흐름</h3>
+  <p>
+    Skill 생성은 이미 있는 <code>skillSource.previewSkillDraft</code>와
+    <code>skillSource.proposeSkillFile</code>을 재사용한다.
+    generator는 <code>SkillAuthorDraft</code>를 만들 뿐 파일을 직접 쓰지 않는다.
+  </p>
+  <pre><code>export interface GeneratedSkillDraft {
+  sourceId: string;
+  slug: string;
+  name: string;
+  description: string;
+  triggerTerms: string[];
+  riskLevel: "low" | "medium" | "high";
+  allowedActions: ApprovalActionType[];
+  body: string;
+  recommendedProfileIds: string[];
+  rationale: string;
+}</code></pre>
+  <ol>
+    <li>generator가 task intent와 repo evidence를 바탕으로 <code>GeneratedSkillDraft</code>를 만든다.</li>
+    <li>IPC handler가 이를 <code>SkillAuthorDraft</code>로 변환해 <code>previewSkillDraft</code> validation을 통과시킨다.</li>
+    <li>preview 결과를 artifact로 저장하고 사용자에게 보여준다.</li>
+    <li>사용자가 승인하면 <code>proposeSkillFile</code>로 <code>file_write</code> approval을 만든다.</li>
+    <li>승인된 runner 실행 뒤 <code>skillSource.refresh</code>로 capability registry를 갱신한다.</li>
+    <li>profile binding은 별도 approval로 처리한다. Skill 파일 생성과 profile 변경을 한 approval에 섞지 않는다.</li>
+  </ol>
+
+  <h3>6.5 MCP config 자동 생성 흐름</h3>
+  <p>
+    MCP config 생성은 "새 MCP 서버를 구현"하는 것과 "이미 존재하는 MCP 서버를 등록"하는 것을 분리한다.
+    1차 구현은 등록 초안 생성에 집중한다.
+  </p>
+  <pre><code>export interface GeneratedMcpConfigDraft {
+  name: string;
+  description: string;
+  transport: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  url?: string;
+  env: Record&lt;string, string&gt;;
+  envSecretRefs: Record&lt;string, string&gt;;
+  scope: "global" | "per-agent";
+  enabled: boolean;
+  recommendedProfileIds: string[];
+  healthCheckPlan: string;
+  rationale: string;
+}</code></pre>
+  <ol>
+    <li>generator는 plain secret 값을 만들지 않는다. 필요한 secret은 <code>envSecretRefs</code> key 이름만 제안한다.</li>
+    <li>사용자는 UI에서 secret vault에 값을 저장하거나 기존 key를 선택한다.</li>
+    <li><code>mcp.upsert</code> 전 validation과 duplicate name check를 실행한다.</li>
+    <li><code>mcp.healthCheck</code>가 성공하면 profile binding 후보를 보여준다.</li>
+    <li>실패하면 row는 disabled 상태로 저장하거나 저장 자체를 보류한다.</li>
+  </ol>
+
+  <h3>6.6 MCP scaffold 자동 생성 흐름</h3>
+  <div class="warning">
+    <strong>1차 구현에서는 제한적으로만 허용:</strong>
+    local stdio TypeScript scaffold만 생성한다. remote HTTP/SSE, OAuth, 대형 API wrapper는 설계 문서와 TODO만 만든다.
+  </div>
+  <p>
+    scaffold generator는 MCP 공식 문서 기준을 반영해 stdout logging 금지,
+    <code>@modelcontextprotocol/sdk</code> 사용, typed schema, smoke probe를 포함해야 한다.
+  </p>
+  <pre><code>mcp-server-name/
+  package.json
+  tsconfig.json
+  src/index.ts
+  README.md
+  tests/smoke.test.mjs</code></pre>
+
+  <p>생성된 scaffold는 targetDir 아래에 바로 쓰지 않고 approval 대상 file proposal 묶음으로 만든다.</p>
+  <pre><code>export interface GeneratedFileProposal {
+  path: string;
+  content: string;
+  rationale: string;
+  riskLevel: "low" | "medium" | "high";
+}</code></pre>
+
+  <h3>6.7 Agent binding 자동 생성 흐름</h3>
+  <p>
+    binding generator는 생성된 Skill/MCP를 어떤 AgentProfile에 연결할지 추천한다.
+    예를 들어 performance 관련 Skill은 <code>performance-reviewer</code>,
+    build 복구 MCP는 <code>build-error-resolver</code>에 추천한다.
+  </p>
+  <pre><code>export interface CapabilityBindingProposal {
+  profileId: string;
+  addMcpServerIds: string[];
+  addSkillSourceIds: string[];
+  allowSkillIds: string[];
+  addToolAllowPatterns: string[];
+  addToolDenyPatterns: string[];
+  rationale: string;
+  risk: "low" | "medium" | "high";
+}</code></pre>
+  <p>
+    적용은 <code>agents.update</code>를 호출하는 설정 변경 approval로 분리한다.
+    이 분리는 "Skill 파일 생성 성공"과 "Agent profile 정책 변경"을 독립적으로 rollback하거나 reject할 수 있게 한다.
+  </p>
+
+  <h2 id="data-ipc">7. 데이터 모델과 IPC 설계</h2>
+
+  <h3>7.1 우선 재사용할 기존 IPC</h3>
+  <table>
+    <tr>
+      <th>namespace</th>
+      <th>기존 메서드</th>
+      <th>자동 생성에서의 역할</th>
+    </tr>
+    <tr>
+      <td><code>skillSource</code></td>
+      <td><code>list</code>, <code>refresh</code>, <code>previewSkillDraft</code>, <code>proposeSkillFile</code></td>
+      <td>Skill draft validation과 승인된 파일 생성 proposal</td>
+    </tr>
+    <tr>
+      <td><code>mcp</code></td>
+      <td><code>list</code>, <code>upsert</code>, <code>toggle</code>, <code>healthCheck</code></td>
+      <td>MCP config row 생성/수정과 health 검증</td>
+    </tr>
+    <tr>
+      <td><code>agents</code></td>
+      <td><code>list</code>, <code>get</code>, <code>update</code></td>
+      <td>AgentProfile binding preview와 승인 후 반영</td>
+    </tr>
+    <tr>
+      <td><code>conversation</code></td>
+      <td><code>approve</code>, <code>rejectApproval</code></td>
+      <td>자동 생성 산출물 materialize gate</td>
+    </tr>
+    <tr>
+      <td><code>runner</code></td>
+      <td><code>executeApproved</code>, <code>readArtifact</code></td>
+      <td>승인된 file_write/shell만 실행하고 증거를 보존</td>
+    </tr>
+  </table>
+
+  <h3>7.2 신규 IPC 후보</h3>
+  <p>
+    새 namespace는 한 번에 많은 side effect를 수행하지 않고 draft와 proposal만 만든다.
+    이름은 <code>capabilityAuthoring</code>으로 둔다.
+  </p>
+  <pre><code>window.harness.capabilityAuthoring.classify(input: {
+  taskRunId: string;
+  userIntent: string;
+}): Promise&lt;CapabilityGenerationTarget&gt;;
+
+window.harness.capabilityAuthoring.generateDraft(input: CapabilityGenerationRequest):
+  Promise&lt;CapabilityGenerationDraft&gt;;
+
+window.harness.capabilityAuthoring.preview(input: {
+  draft: CapabilityGenerationDraft;
+}): Promise&lt;CapabilityGenerationPreview&gt;;
+
+window.harness.capabilityAuthoring.propose(input: {
+  taskRunId: string;
+  draft: CapabilityGenerationDraft;
+}): Promise&lt;CapabilityGenerationProposalResult&gt;;</code></pre>
+
+  <h3>7.3 저장소 설계</h3>
+  <p>
+    MVP는 새 테이블 없이 <code>Artifact</code>와 <code>Approval.proposedAction</code>을 사용해도 된다.
+    다만 재시도/감사/비교가 중요해지면 아래 테이블을 추가한다.
+  </p>
+  <pre><code>CREATE TABLE IF NOT EXISTS capability_generation_runs (
+  id TEXT PRIMARY KEY,
+  task_run_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  draft_json TEXT,
+  preview_json TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY(task_run_id) REFERENCES task_runs(id)
+);</code></pre>
+  <p class="small">
+    JSON column은 repository 규칙에 맞춰 <code>_json</code> suffix를 사용한다.
+    canonical workflow state는 SQLite row이며, 파일 JSON은 source of truth가 아니다.
+  </p>
+
+  <h3>7.4 Provider별 MCP 적용 경계</h3>
+  <table>
+    <tr>
+      <th>Provider</th>
+      <th>현재 상태</th>
+      <th>설계 처리</th>
+    </tr>
+    <tr>
+      <td>Claude</td>
+      <td><code>--mcp-config</code> 전달 경로 있음</td>
+      <td>MCP binding 기능의 1차 적용 대상</td>
+    </tr>
+    <tr>
+      <td>Codex</td>
+      <td>코드상 MCP config 전달 보류</td>
+      <td>CLI help와 실제 invocation 검증 전까지 UI에 "MCP 적용 미검증" 표시</td>
+    </tr>
+    <tr>
+      <td>auto</td>
+      <td>provider resolution 결과에 따라 Claude 또는 Codex 선택</td>
+      <td>MCP가 필수인 profile은 provider를 Claude로 고정하거나 경고 표시</td>
+    </tr>
+  </table>
+
+  <h2 id="ui">8. UI 설계</h2>
+
+  <h3>8.1 Settings - Agents 탭</h3>
+  <ul>
+    <li>AgentProfile 카드 안에 <code>MCP</code>, <code>Skill sources</code>, <code>Allowed skills</code>, <code>Tool allow/deny</code> 섹션을 한 화면에서 보이게 한다.</li>
+    <li>MCP가 필수인데 provider가 <code>codex</code> 또는 <code>auto</code>인 경우 경고 배지를 표시한다.</li>
+    <li>Skill source만 선택되어 있고 <code>allowedSkillIds</code>가 비어 있으면 "전체 enabled skill 후보"로 명확히 표시한다.</li>
+    <li>각 MCP 서버에는 최근 health 상태, scope, secret 필요 여부를 표시한다.</li>
+  </ul>
+
+  <h3>8.2 Capability Authoring Wizard</h3>
+  <div class="diagram">Step 1. 무엇을 만들까?
+  [Skill] [MCP 등록] [MCP scaffold] [Agent binding]
+
+Step 2. 근거 선택
+  - 현재 TaskRun 요청
+  - repo context artifact
+  - 기존 Skill/MCP 목록
+  - 대상 AgentProfile
+
+Step 3. Draft preview
+  - 생성 이유
+  - 파일/row 변경 미리보기
+  - risk와 required approval
+
+Step 4. 검증
+  - Skill frontmatter parse
+  - MCP config validation
+  - command/path/secret placeholder 확인
+  - healthCheck 또는 smoke plan
+
+Step 5. Approval
+  - file_write 또는 settings update proposal
+  - 실행 후 refresh / healthCheck / profile binding</div>
+
+  <h3>8.3 Workbench 표시</h3>
+  <table>
+    <tr>
+      <th>상황</th>
+      <th>표시</th>
+    </tr>
+    <tr>
+      <td>Skill 후보 생성됨</td>
+      <td><code>Skill draft preview</code>, trigger terms, risk, 생성 근거, 예상 profile binding</td>
+    </tr>
+    <tr>
+      <td>MCP 등록 후보 생성됨</td>
+      <td>transport, command/url, envSecretRefs, scope, healthCheck plan</td>
+    </tr>
+    <tr>
+      <td>MCP health 실패</td>
+      <td>stderr tail 또는 fetch error 요약, disabled 저장/수정/취소 선택지</td>
+    </tr>
+    <tr>
+      <td>Profile binding 후보</td>
+      <td>변경 전/후 <code>mcpServerIds</code>, <code>allowedSkillIds</code>, tool patterns diff</td>
+    </tr>
+  </table>
+
+  <h2 id="security">9. 보안, 승인, 비용 정책</h2>
+
+  <h3>9.1 승인 정책</h3>
+  <table>
+    <tr>
+      <th>작업</th>
+      <th>승인 요구</th>
+      <th>비고</th>
+    </tr>
+    <tr>
+      <td>Skill draft preview</td>
+      <td>승인 불필요</td>
+      <td>파일 쓰기 없음. validation만 수행</td>
+    </tr>
+    <tr>
+      <td>Skill file materialize</td>
+      <td><code>file_write</code> approval 필요</td>
+      <td><code>proposeSkillFile</code> 경로 재사용</td>
+    </tr>
+    <tr>
+      <td>MCP config row upsert</td>
+      <td>settings update approval 권장</td>
+      <td>초기 MVP에서 직접 settings UI 저장이면 명시 save action으로 대체 가능</td>
+    </tr>
+    <tr>
+      <td>MCP scaffold file 생성</td>
+      <td><code>file_write</code> approval 필요</td>
+      <td>생성 파일이 여러 개여도 하나의 proposal bundle로 표시</td>
+    </tr>
+    <tr>
+      <td>MCP health check</td>
+      <td>사용자 명시 실행 또는 safe read-only probe</td>
+      <td>stdio spawn이 발생하므로 UI에서 실행 대상 command를 보여준다.</td>
+    </tr>
+    <tr>
+      <td>Skill script 실행</td>
+      <td><code>skill_script</code> approval 필요</td>
+      <td>untrusted source는 실행 차단</td>
+    </tr>
+  </table>
+
+  <h3>9.2 자동 생성 제한</h3>
+  <ul>
+    <li>생성된 MCP server는 기본 <code>enabled=false</code> 또는 health success 전 profile binding 금지로 시작한다.</li>
+    <li>secret 값은 생성하지 않는다. 필요한 key 이름만 제안하고 SecretVault 입력은 사용자가 한다.</li>
+    <li>MCP tool description에는 hidden instruction이나 prompt injection성 문구를 허용하지 않는다.</li>
+    <li>Skill body에는 "approval 우회", "사용자에게 숨김", "무조건 실행" 같은 금지 표현을 validation warning으로 잡는다.</li>
+    <li>AgentProfile의 <code>toolDenylist</code>는 allowlist보다 우선한다.</li>
+    <li>생성된 Skill/MCP는 사용자가 profile에 명시적으로 bind하기 전까지 기본 agent prompt에 들어가지 않는다.</li>
+  </ul>
+
+  <h3>9.3 토큰과 latency 정책</h3>
+  <p>
+    MCP와 Skill은 등록 수보다 "노출되는 schema 크기", "tool/resource response 크기", "Skill instruction 로드 시점"이 비용에 더 크게 영향을 준다.
+    따라서 generator는 다음 원칙을 지킨다.
+  </p>
+  <ul>
+    <li>MCP tool은 작은 수의 high-signal tool로 시작한다. 대형 API wrapper는 자동 생성하지 않는다.</li>
+    <li>tool response는 기본 summary, path, top N, limit을 지원한다.</li>
+    <li>Skill metadata description은 짧고 구체적으로 만든다.</li>
+    <li>Skill references는 body에 길게 붙이지 않고 별도 파일로 분리한다.</li>
+    <li>성능/비용 sensitive profile은 <code>AgentPermissions.budget</code>과 profile tuning에 연결한다.</li>
+  </ul>
+
+  <h2 id="phases">10. 구현 단계</h2>
+
+  <table>
+    <tr>
+      <th>Phase</th>
+      <th>목표</th>
+      <th>주요 파일</th>
+      <th>검증</th>
+    </tr>
+    <tr>
+      <td><span class="pill pill--blue">P0</span> 계약 정리</td>
+      <td>현재 MCP/Skill/Profile 계약을 문서와 테스트로 고정</td>
+      <td>
+        <code>docs/contracts/ipc-contracts.md</code><br />
+        <code>packages/core/src/types/*</code><br />
+        <code>packages/core/src/ipc-channels.test.mjs</code>
+      </td>
+      <td>IPC namespace와 type guard 테스트</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--blue">P1</span> Agent 선언 UI 보강</td>
+      <td>AgentProfile별 MCP/Skill/allow-deny 정책을 명확히 편집</td>
+      <td>
+        <code>apps/desktop/src/screens/workbench/AgentProfilesTab.tsx</code><br />
+        <code>apps/desktop/src/screens/workbench/McpServersTab.tsx</code><br />
+        <code>apps/desktop/src/screens/workbench/SkillSourcesTab.tsx</code>
+      </td>
+      <td>profile update 후 다음 invocation에서 MCP config 선택 확인</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--green">P2</span> Skill 자동 생성</td>
+      <td>Skill draft 생성, preview, approval proposal, refresh 연결</td>
+      <td>
+        <code>packages/skillify-adapter/src/*</code><br />
+        <code>apps/desktop/electron/ipc/skill-source-ipc.ts</code><br />
+        신규 <code>capability-authoring-ipc.ts</code>
+      </td>
+      <td>승인 전 파일 미생성, 승인 후 refresh로 capability 표시</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--green">P3</span> MCP config 생성</td>
+      <td>사용자 intent에서 MCP 등록 초안 생성, health check, profile binding 제안</td>
+      <td>
+        <code>apps/desktop/electron/ipc/mcp-ipc.ts</code><br />
+        <code>apps/desktop/electron/mcp-probe.ts</code><br />
+        신규 generator service
+      </td>
+      <td>secret 없이 저장 불가/disabled 처리, health 실패 표시</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--orange">P4</span> MCP scaffold 생성</td>
+      <td>local stdio TypeScript MCP scaffold proposal 생성</td>
+      <td>
+        <code>packages/agent</code> 또는 신규 <code>packages/capability-authoring</code><br />
+        <code>scripts/templates/mcp-stdio-ts/</code>
+      </td>
+      <td>stdout logging lint, probe smoke, build test</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--orange">P5</span> 정책 enforcement 강화</td>
+      <td>tool allow/deny와 Skill whitelist를 suggestion/invocation 경로에 일관 적용</td>
+      <td>
+        <code>packages/agent/src/agent-planning-service.ts</code><br />
+        <code>packages/skillify-adapter/src/capability-service.ts</code>
+      </td>
+      <td>차단된 Skill/MCP tool이 prompt/config 후보에 들어가지 않는 테스트</td>
+    </tr>
+  </table>
+
+  <h2 id="verification">11. 검증 계획</h2>
+
+  <h3>11.1 단위 테스트</h3>
+  <ul>
+    <li><code>GeneratedSkillDraft → SkillAuthorDraft</code> 변환과 frontmatter validation</li>
+    <li>Skill body 금지 표현 warning</li>
+    <li>MCP config draft transport별 validation</li>
+    <li>secret placeholder가 없을 때 healthCheck 또는 enable 차단</li>
+    <li>AgentProfile binding proposal이 기존 ids를 중복 추가하지 않음</li>
+    <li>tool deny pattern이 allow pattern보다 우선함</li>
+  </ul>
+
+  <h3>11.2 통합 테스트</h3>
+  <ul>
+    <li>Skill 자동 생성 preview는 파일을 쓰지 않는다.</li>
+    <li>Skill 생성 approval 승인 전에는 <code>CapabilityRegistry.refresh</code> 결과가 바뀌지 않는다.</li>
+    <li>승인 후 생성된 Skill이 capability list에 표시된다.</li>
+    <li>MCP global + per-agent selection이 <code>buildClaudeMcpConfig</code> 입력에 올바르게 반영된다.</li>
+    <li>Codex provider invocation은 MCP config path를 받지 않는다.</li>
+    <li>MCP temp config file은 invocation 종료 후 삭제된다.</li>
+  </ul>
+
+  <h3>11.3 수동 검증</h3>
+  <ol>
+    <li>Settings에서 새 Skill source를 추가하되 trusted=false로 둔다.</li>
+    <li>Capability Authoring Wizard로 code-review Skill draft를 만든다.</li>
+    <li>preview에서 trigger terms, risk, allowed actions를 확인한다.</li>
+    <li>approval 전 실제 파일이 없는지 확인한다.</li>
+    <li>approval 실행 후 <code>skillSource.refresh</code> 결과에 새 Skill이 포함되는지 확인한다.</li>
+    <li>특정 reviewer AgentProfile에 새 Skill을 bind한다.</li>
+    <li>새 TaskRun에서 capability 후보가 표시되지만 자동 실행되지 않는지 확인한다.</li>
+    <li>테스트용 stdio MCP를 등록하고 healthCheck 성공 후 Claude profile에 bind한다.</li>
+    <li>Claude invocation에서 "MCP 설정 준비 완료" progress가 보이고, Codex profile에서는 경고 또는 "활성 MCP 설정 없음"이 보이는지 확인한다.</li>
+  </ol>
+
+  <h3>11.4 실행 명령</h3>
+  <pre><code>npm run check
+node --import tsx --test --test-force-exit packages/skillify-adapter/**/*.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/electron/**/*skill-source*.test.mjs apps/desktop/electron/**/*mcp*.test.mjs
+node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs</code></pre>
+
+  <h2 id="review">12. 작성 전 자체 검토 결과</h2>
+
+  <table>
+    <tr>
+      <th>검토 항목</th>
+      <th>결과</th>
+      <th>반영</th>
+    </tr>
+    <tr>
+      <td>현재 구현과 충돌 여부</td>
+      <td>부분 충돌 가능: Codex MCP 지원을 문서가 과장할 위험</td>
+      <td>Codex MCP는 미검증/보류로 명시하고 Claude 1차 적용으로 제한</td>
+    </tr>
+    <tr>
+      <td>승인 모델 보존</td>
+      <td>자동 생성이 파일 쓰기/설정 변경을 우회할 위험</td>
+      <td>preview/proposal/approval/materialize 단계로 분리</td>
+    </tr>
+    <tr>
+      <td>새 추상화 과잉</td>
+      <td>AgentCapabilityPolicy 테이블을 바로 만들면 기존 AgentProfile과 중복</td>
+      <td>1차 구현은 artifact/proposal draft로 제한하고 저장은 기존 필드 재사용</td>
+    </tr>
+    <tr>
+      <td>Skill과 MCP 경계</td>
+      <td>Skill을 실행 도구처럼 다루면 기존 "추천 계층" 원칙 위반</td>
+      <td>Skill은 capability/context, script는 별도 approval로 기술</td>
+    </tr>
+    <tr>
+      <td>보안 경계</td>
+      <td>MCP roots를 security boundary로 오해할 위험</td>
+      <td>roots는 coordination이고 실제 제한은 Harness path policy/approval로 강제한다고 명시</td>
+    </tr>
+    <tr>
+      <td>문서의 구현 가능성</td>
+      <td>한 번에 MCP scaffold, Skill authoring, profile binding을 모두 구현하면 범위가 큼</td>
+      <td>P0-P5 단계로 분리하고 P2 Skill 생성부터 시작하도록 설계</td>
+    </tr>
+  </table>
+
+  <h3>12.1 남은 불확실성</h3>
+  <ul>
+    <li>Codex CLI의 현재 MCP config 인자 지원 여부는 별도 실측이 필요하다.</li>
+    <li>MCP tool allow/deny를 실제 tool call 직전에서 강제하려면 CLI가 tool-call event를 충분히 노출하는지 확인해야 한다.</li>
+    <li>remote HTTP/SSE MCP의 auth 방식은 provider별 차이가 크므로 MVP에서는 config 등록과 healthCheck까지만 다룬다.</li>
+    <li>Skill open format은 빠르게 확장 중이므로 Harness 내부 frontmatter는 portable 최소 필드와 Harness-specific 확장 필드를 분리해야 한다.</li>
+  </ul>
+
+  <h3>12.2 최종 설계 판정</h3>
+  <div class="ok">
+    <p>
+      현재 저장소 구조에서는 <strong>P2 Skill 자동 생성</strong>을 먼저 구현하는 것이 가장 작고 안전하다.
+      이미 preview/propose 경로가 있고, MCP처럼 외부 process spawn이나 credential 문제가 없다.
+      그 다음 <strong>P1 Agent 선언 UI</strong>를 정리하고, <strong>P3 MCP config 생성</strong>으로 확장하는 순서가 적합하다.
+    </p>
+  </div>
+</main>
+</body>
+</html>
