@@ -4,7 +4,7 @@
 > **트리거**: v1이 최소 2주 안정 운영 후 / 또는 실제 CLI 비교 needs가 명확해진 시점
 > **복잡도**: Medium · **추정**: 별도 마일스톤
 
-> **2026-05-18 업데이트**: Phase 7.1/7.2에서 provider 비교의 기본 계약, CLI 옵션, provider별 artifact 분리, markdown report 비교표는 구현됐다. 이 문서는 v2 deferred 배경 기록으로 유지한다. LLM judge, viewer UI, 장기간 cost trend, 실제 production workload p95/p99 latency는 계속 deferred다.
+> **2026-05-18 업데이트**: Phase 7.1/7.2에서 provider 비교의 기본 계약, CLI 옵션, provider별 artifact 분리, markdown report 비교표는 구현됐다. Phase 7.3에서 `llm_judge` grader의 opt-in 실행 기반과 fake calibration 테스트도 추가됐다. 이 문서는 v2 deferred 배경 기록으로 유지한다. viewer UI, 장기간 cost trend, 실제 production workload p95/p99 latency는 계속 deferred다.
 
 ## 0. 왜 deferred인가
 
@@ -16,7 +16,7 @@ v1은 **fake adapter 결정적 실행**만으로 세 축(agent-eval, eval-harnes
 |------|------|-------|
 | Real CLI 어댑터 | `EVAL_REAL_CLI=1` 분기에서 `DefaultModelCliAdapter` 주입 | 실제 비용·시간 발생, 비결정성 |
 | Provider head-to-head | claude vs codex 같은 케이스 동시 실행 + 비교 표 | Phase 7.2에서 기본 CLI/report 경로 구현 완료 |
-| LLM judge | 자유 응답 평가 (코드 품질 등) | LLM judge 비용 + 결과 비결정성 |
+| LLM judge | 자유 응답 평가 (코드 품질 등) | Phase 7.3에서 opt-in grader 기반 구현, 기본 CI 경로에서는 비활성 |
 | Renderer viewer | RightPanel에 새 Eval 탭, 트렌드 차트 | 9-layer IPC 신설 비용 |
 | Cost trend | run.tokens / run.cost를 시계열로 시각화 | DB row는 이미 있음, 시각화만 v2 |
 

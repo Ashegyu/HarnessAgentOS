@@ -104,6 +104,62 @@ test("CaseRunner runs N attempts and aggregates pass metrics", async () => {
   }
 });
 
+test("CaseRunner runs an enabled LLM judge grader with a fake judge adapter", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "hgos-case-runner-"));
+  const dbFactory = makeDbFactory();
+  try {
+    const runner = new CaseRunner({
+      adapterFactory: () =>
+        new FakeModelCliAdapter({
+          scenario: "ok-file-write-readme",
+          chunkDelayMs: 0,
+        }),
+      judgeAdapterFactory: () => ({
+        async invoke(request) {
+          return {
+            provider: request.modelConfig.provider,
+            model: request.modelConfig.model,
+            exitCode: 0,
+            stdout: JSON.stringify({ score: 0.92, rubric: [], risks: [] }),
+            stderr: "",
+            normalizedEvents: [],
+            latencyMs: 1,
+          };
+        },
+      }),
+      llmJudgeEnabled: true,
+      dbFactory: dbFactory.create,
+      workspaceRoot,
+      runId: "test-run-llm-judge",
+      clock: () => 100,
+    });
+
+    const result = await runner.run({
+      ...fileWriteReadmeCase,
+      id: "llm-judge-readme",
+      attempts: 1,
+      grader: {
+        kind: "llm_judge",
+        rubric: [
+          {
+            id: "correctness",
+            description: "README.md contains the requested heading.",
+            weight: 1,
+          },
+        ],
+        passThreshold: 0.8,
+        judgeAttempts: 1,
+      },
+    });
+
+    assert.equal(result.outcome, "passed");
+    assert.equal(result.attempts[0].passed, true);
+  } finally {
+    dbFactory.closeAll();
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});
+
 test("CaseRunner detects writes outside the attempt target directory", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "hgos-case-runner-"));
   const dbFactory = makeDbFactory();

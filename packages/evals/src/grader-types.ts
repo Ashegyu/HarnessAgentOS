@@ -40,4 +40,17 @@ export interface RuleGrader {
   }>;
 }
 
-export type Grader = CodeGrader | RuleGrader;
+export interface LlmJudgeGrader {
+  readonly kind: "llm_judge";
+  readonly rubric: ReadonlyArray<{
+    readonly id: string;
+    readonly description: string;
+    readonly weight: number;
+  }>;
+  readonly passThreshold?: number;
+  readonly judgeProvider?: "claude" | "codex";
+  readonly judgeAttempts?: number;
+  readonly maxJudgeTokens?: number;
+}
+
+export type Grader = CodeGrader | RuleGrader | LlmJudgeGrader;

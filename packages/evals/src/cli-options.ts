@@ -9,6 +9,7 @@ export interface EvalCliOptions {
   readonly fixturesRoot?: string;
   readonly dbPath?: string;
   readonly realCli: boolean;
+  readonly llmJudge: boolean;
   readonly providers?: ReadonlyArray<EvalProvider>;
   readonly attemptsOverride?: number;
   readonly timeoutMs?: number;
@@ -33,6 +34,7 @@ export const parseEvalCliArgs = (
     fixturesRoot?: string;
     dbPath?: string;
     realCli: boolean;
+    llmJudge: boolean;
     providers?: ReadonlyArray<EvalProvider>;
     attemptsOverride?: number;
     timeoutMs?: number;
@@ -40,12 +42,17 @@ export const parseEvalCliArgs = (
   } = {
     suite: "all",
     realCli: env["EVAL_REAL_CLI"] === "1",
+    llmJudge: env["EVAL_LLM_JUDGE"] === "1",
   };
 
   for (let idx = 0; idx < argv.length; idx += 1) {
     const arg = argv[idx] ?? "";
     if (arg === "--real-cli") {
       draft.realCli = true;
+      continue;
+    }
+    if (arg === "--llm-judge") {
+      draft.llmJudge = true;
       continue;
     }
     if (arg === "--suite" || arg.startsWith("--suite=")) {
@@ -124,6 +131,7 @@ export const parseEvalCliArgs = (
     ...(draft.fixturesRoot ? { fixturesRoot: draft.fixturesRoot } : {}),
     ...(draft.dbPath ? { dbPath: draft.dbPath } : {}),
     realCli: draft.realCli,
+    llmJudge: draft.llmJudge,
     ...(draft.providers ? { providers: draft.providers } : {}),
     ...(draft.attemptsOverride !== undefined
       ? { attemptsOverride: draft.attemptsOverride }

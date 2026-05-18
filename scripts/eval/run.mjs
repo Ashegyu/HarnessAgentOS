@@ -72,6 +72,7 @@ const main = async () => {
       }),
       ...(harnessSha ? { harnessSha } : {}),
       ...(args.providers ? { providers: args.providers } : {}),
+      ...(args.llmJudge ? { llmJudgeEnabled: args.llmJudge } : {}),
       ...(args.attemptsOverride
         ? { attemptsOverride: args.attemptsOverride }
         : {}),

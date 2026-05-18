@@ -38,6 +38,29 @@ test("evalCaseSchema accepts provider head-to-head providers", () => {
   assert.deepEqual(parsed.providers, ["claude", "codex"]);
 });
 
+test("evalCaseSchema accepts llm judge graders", () => {
+  const parsed = evalCaseSchema.parse({
+    ...validFixture,
+    grader: {
+      kind: "llm_judge",
+      rubric: [
+        {
+          id: "correctness",
+          description: "Judge whether the answer satisfies the task.",
+          weight: 1,
+        },
+      ],
+      passThreshold: 0.8,
+      judgeAttempts: 3,
+      judgeProvider: "claude",
+      maxJudgeTokens: 2000,
+    },
+  });
+
+  assert.equal(parsed.grader.kind, "llm_judge");
+  assert.equal(parsed.grader.passThreshold, 0.8);
+});
+
 test("evalCaseSchema rejects duplicate providers", () => {
   assert.throws(() => {
     evalCaseSchema.parse({

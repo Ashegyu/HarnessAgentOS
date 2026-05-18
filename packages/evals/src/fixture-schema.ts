@@ -53,9 +53,27 @@ export const ruleGraderSchema = z.object({
   ),
 });
 
+export const llmJudgeGraderSchema = z.object({
+  kind: z.literal("llm_judge"),
+  rubric: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        description: z.string().min(1),
+        weight: z.number().positive(),
+      }),
+    )
+    .min(1),
+  passThreshold: z.number().min(0).max(1).default(0.8).optional(),
+  judgeProvider: providerSchema.optional(),
+  judgeAttempts: z.number().int().min(1).max(5).default(3).optional(),
+  maxJudgeTokens: z.number().int().positive().optional(),
+});
+
 export const graderSchema = z.discriminatedUnion("kind", [
   codeGraderSchema,
   ruleGraderSchema,
+  llmJudgeGraderSchema,
 ]);
 
 export const evalCaseSchema = z.object({

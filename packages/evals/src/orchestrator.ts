@@ -28,8 +28,10 @@ export interface EvalOrchestratorOptions {
   readonly state: LocalStateService;
   readonly inMemoryDbFactory: () => LocalStateService;
   readonly adapterFactory?: CaseRunnerDeps["adapterFactory"];
+  readonly judgeAdapterFactory?: CaseRunnerDeps["judgeAdapterFactory"];
   readonly harnessSha?: string;
   readonly providers?: ReadonlyArray<EvalProvider>;
+  readonly llmJudgeEnabled?: boolean;
   readonly attemptsOverride?: number;
   readonly timeoutMs?: number;
   readonly stallTimeoutMs?: number;
@@ -68,6 +70,12 @@ export class EvalOrchestrator {
       dbFactory: this.options.inMemoryDbFactory,
       ...(this.options.adapterFactory
         ? { adapterFactory: this.options.adapterFactory }
+        : {}),
+      ...(this.options.judgeAdapterFactory
+        ? { judgeAdapterFactory: this.options.judgeAdapterFactory }
+        : {}),
+      ...(this.options.llmJudgeEnabled
+        ? { llmJudgeEnabled: this.options.llmJudgeEnabled }
         : {}),
       ...(this.options.timeoutMs ? { timeoutMs: this.options.timeoutMs } : {}),
       ...(this.options.stallTimeoutMs

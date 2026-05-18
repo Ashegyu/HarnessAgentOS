@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   AgentPlanningService,
+  DefaultModelCliAdapter,
   FakeModelCliAdapter,
   type FakeScenario,
   type ModelCliAdapter,
@@ -34,6 +35,7 @@ import {
 } from "./fs-snapshot.ts";
 import type { GraderResult } from "./graders/code-grader.ts";
 import { runCodeGrader } from "./graders/code-grader.ts";
+import { runLlmJudgeGrader } from "./graders/llm-judge-grader.ts";
 import { runRuleGrader } from "./graders/rule-grader.ts";
 import { runSafetyGrader } from "./graders/safety-grader.ts";
 import {
@@ -55,10 +57,15 @@ export interface CaseRunnerDeps {
     readonly testCase: EvalCase;
     readonly attemptIdx: number;
   }) => EvalModelCliAdapter;
+  readonly judgeAdapterFactory?: (input: {
+    readonly testCase: EvalCase;
+    readonly attemptIdx: number;
+  }) => EvalModelCliAdapter;
   readonly dbFactory?: () => LocalStateService;
   readonly workspaceRoot: string;
   readonly runId: string;
   readonly runRoot?: string;
+  readonly llmJudgeEnabled?: boolean;
   readonly timeoutMs?: number;
   readonly stallTimeoutMs?: number;
   readonly clock?: () => number;
@@ -187,6 +194,7 @@ export class CaseRunner {
       );
       const graderResult = await this.runGrader(testCase, {
         adapter,
+        attemptIdx,
         fsDiffSinceStart,
         state,
         targetDir,
@@ -271,6 +279,7 @@ export class CaseRunner {
     testCase: EvalCase,
     context: {
       readonly adapter: EvalModelCliAdapter;
+      readonly attemptIdx: number;
       readonly fsDiffSinceStart: FsDiff;
       readonly state: LocalStateService;
       readonly targetDir: string;
@@ -293,6 +302,20 @@ export class CaseRunner {
     }
     if (testCase.grader.kind === "rule") {
       return runRuleGrader(testCase.grader, { adapter });
+    }
+    if (testCase.grader.kind === "llm_judge") {
+      return runLlmJudgeGrader(testCase.grader, {
+        enabled: this.deps.llmJudgeEnabled ?? false,
+        targetDir: context.targetDir,
+        taskRunId: context.taskRunId,
+        judgeAdapter: this.deps.llmJudgeEnabled
+          ? this.createJudgeAdapter(testCase, context.attemptIdx)
+          : undefined,
+        ...(this.deps.timeoutMs ? { timeoutMs: this.deps.timeoutMs } : {}),
+        ...(this.deps.stallTimeoutMs
+          ? { stallTimeoutMs: this.deps.stallTimeoutMs }
+          : {}),
+      });
     }
     return runCodeGrader(testCase.grader, {
       targetDir: context.targetDir,
@@ -356,6 +379,16 @@ export class CaseRunner {
         scenario: testCase.scenario as FakeScenario,
         chunkDelayMs: 0,
       })
+    );
+  }
+
+  private createJudgeAdapter(
+    testCase: EvalCase,
+    attemptIdx: number,
+  ): EvalModelCliAdapter {
+    return (
+      this.deps.judgeAdapterFactory?.({ testCase, attemptIdx }) ??
+      new DefaultModelCliAdapter()
     );
   }
 

@@ -20,6 +20,7 @@ test("parseEvalCliArgs parses the real CLI smoke shape", () => {
     suite: "capability",
     caseId: "file-write-readme",
     realCli: true,
+    llmJudge: false,
     attemptsOverride: 1,
     timeoutMs: 300000,
     stallTimeoutMs: 60000,
@@ -33,6 +34,12 @@ test("parseEvalCliArgs honors EVAL_REAL_CLI", () => {
 
   assert.equal(options.realCli, true);
   assert.equal(options.suite, "safety");
+});
+
+test("parseEvalCliArgs honors LLM judge gate", () => {
+  assert.equal(parseEvalCliArgs(["--llm-judge"], {}).llmJudge, true);
+  assert.equal(parseEvalCliArgs([], { EVAL_LLM_JUDGE: "1" }).llmJudge, true);
+  assert.equal(parseEvalCliArgs([], {}).llmJudge, false);
 });
 
 test("parseEvalCliArgs parses provider comparison option", () => {
