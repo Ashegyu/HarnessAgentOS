@@ -14,6 +14,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const HARNESS_WORKSPACE_PACKAGES = [
   "@harness/agent",
   "@harness/core",
+  "@harness/evals",
   "@harness/storage",
   "@harness/runners",
   "@harness/quality",

@@ -24,6 +24,7 @@
     "verify:release": "npm run verify && npm run verify:smoke"
   },
   "devDependencies": {
+    "electron": "41.6.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   },

@@ -55,6 +55,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let mainDb: HarnessDb | null = null;
 
+const traceStartup = (step: string): void => {
+  if (process.env.HARNESS_STARTUP_TRACE === "1") {
+    console.log(`[harness:start] ${step}`);
+  }
+};
+
 const initServices = (): {
   state: LocalStateService;
   conversation: ConversationService;
@@ -382,11 +388,15 @@ const createMainWindow = (): BrowserWindow => {
 };
 
 app.whenReady().then(async () => {
+  traceStartup("initServices:start");
   const services = initServices();
+  traceStartup("initServices:done");
   // Seed orchestration flag from persisted settings before IPC goes live.
   try {
+    traceStartup("settings:start");
     const s = await services.state.getSettings();
     services.onSettingsUpdate(s);
+    traceStartup("settings:done");
   } catch {
     // non-fatal; mutable ref stays false
   }
@@ -394,6 +404,7 @@ app.whenReady().then(async () => {
   // Settings → Skills tab shows them on first launch. Idempotent: pre-
   // existing rows (including user-renamed sentinels) are left untouched.
   try {
+    traceStartup("skillSources:start");
     const project = services.skillSources.find(
       (s) => s.source === "skillify:project",
     );
@@ -406,34 +417,47 @@ app.whenReady().then(async () => {
         userRootDir: user.rootDir,
       });
     }
+    traceStartup("skillSources:done");
   } catch {
     // non-fatal — UI just won't pre-populate the sentinels.
   }
   // Seed canonical and framework-derived agent profiles on first launch.
   try {
+    traceStartup("agentProfiles:start");
     await services.state.agentProfiles.ensureSeed();
+    traceStartup("agentProfiles:done");
   } catch {
     // non-fatal — UI still works with an empty profile list.
   }
   // Seed reusable role-aware pipeline templates after profiles exist.
   try {
+    traceStartup("agentPipelines:start");
     await services.state.agentPipelines.ensureSeed();
+    traceStartup("agentPipelines:done");
   } catch {
     // non-fatal — users can still create pipelines manually.
   }
   // Best-effort initial capability scan; missing skill directories are
   // non-fatal so first-run still succeeds.
   try {
+    traceStartup("capabilities:start");
     await services.capabilityRegistry.refresh(services.skillSources);
+    traceStartup("capabilities:done");
   } catch {
     // capability.refresh IPC will surface a clearer error to the UI.
   }
+  traceStartup("ipc:start");
   registerAllIpc(services);
+  traceStartup("window:start");
   createMainWindow();
+  traceStartup("window:done");
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+}).catch((error) => {
+  console.error("[harness:start] failed", error);
+  app.quit();
 });
 
 app.on("window-all-closed", () => {
