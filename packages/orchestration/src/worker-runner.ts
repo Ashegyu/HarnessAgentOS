@@ -2,6 +2,7 @@ import type { LocalStateService } from "@harness/storage";
 import {
   validateProposedActionDetails,
   type A2AEndpoint,
+  type A2ARegistryEntry,
   type AgentProfile,
   type AgentProposedAction,
   type Approval,
@@ -26,6 +27,7 @@ import {
   createInternalAgentMessage,
   type InternalAgentMessage,
 } from "./internal-agent-bus.ts";
+import { planWorkerWaves } from "./worker-wave-planner.ts";
 
 /**
  * Minimal CLI invocation contract that the worker-runner depends on.
@@ -84,6 +86,28 @@ export interface WorkerRunInput {
   plan: OrchestrationPlan;
 }
 
+interface PreparedWorkerStep {
+  planStep: WorkerStep;
+  executionIndex: number;
+  profile: AgentProfile | null;
+  remoteEndpoint: A2AEndpoint | null;
+}
+
+interface WorkerStepExecutionResult {
+  planStep: WorkerStep;
+  dbStepId: string;
+  artifactId: string;
+  status: WorkerStep["status"];
+  acceptedActions: Array<{
+    action: AgentProposedAction;
+    details: ProposedActionDetails;
+    workerTitle: string;
+  }>;
+  policyReport: string[];
+  handoff: InternalAgentMessage | null;
+  lifecycleInterruption: WorkerLifecycleInterruption | null;
+}
+
 export class WorkerRunner {
   private readonly deps: WorkerRunnerDeps;
 
@@ -125,155 +149,67 @@ export class WorkerRunner {
     const planStepsById = new Map(
       input.plan.workerSteps.map((step) => [step.id, step] as const),
     );
-    const executionSteps = orderWorkerStepsByDependencies(
-      input.plan.workerSteps,
+    orderWorkerStepsByDependencies(input.plan.workerSteps);
+    const stepsById = new Map(
+      input.plan.workerSteps.map((step) => [step.id, step] as const),
     );
+    const remoteEntries = await this.loadRemoteRegistryEntries();
+    const executionWaves = planWorkerWaves(
+      input.plan.workerSteps,
+      remoteEntries,
+    ).waves.map((wave) => ({
+      parallelizable: wave.parallelizable,
+      steps: wave.stepIds.map((stepId) => stepsById.get(stepId)!),
+    }));
+    const executionIndexByStepId = new Map<string, number>();
+    let executionIndex = 0;
+    for (const wave of executionWaves) {
+      for (const step of wave.steps) {
+        executionIndexByStepId.set(step.id, executionIndex);
+        executionIndex += 1;
+      }
+    }
     const baseStepIndex = (
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
     let lastDbStepId: string | null = null;
 
-    for (let i = 0; i < executionSteps.length; i += 1) {
-      const planStep = executionSteps[i]!;
-      // When the step references a specific AgentProfile (pipeline-driven
-      // plans), fail-fast if that profile has been deleted since draft.
-      // Falling back to a default profile would silently change the
-      // persona/permissions the user approved, so we refuse to run.
-      let profile = null;
-      if (planStep.agentProfileId) {
-        profile = await this.deps.state.agentProfiles.get(
-          planStep.agentProfileId,
-        );
-        if (!profile) {
-          throw new OrchestrationError(
-            "PIPELINE_REFERENCED_PROFILE_MISSING",
-            `Worker step "${planStep.title}" references missing profile ${planStep.agentProfileId}`,
-          );
-        }
-      }
-      let remoteEndpoint: A2AEndpoint | null = null;
-      if (planStep.remoteEndpointId) {
-        remoteEndpoint = await this.deps.state.a2aRemoteAgents.getEndpoint(
-          planStep.remoteEndpointId,
-        );
-        if (!remoteEndpoint) {
-          throw new OrchestrationError(
-            "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
-            `Worker step "${planStep.title}" references missing remote endpoint ${planStep.remoteEndpointId}`,
-          );
-        }
-        if (!remoteEndpoint.enabled || !remoteEndpoint.trusted) {
-          throw new OrchestrationError(
-            "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
-            `Worker step "${planStep.title}" references unavailable remote endpoint ${planStep.remoteEndpointId}`,
-          );
-        }
-      }
-      const dbStep = await this.deps.state.createStep({
-        taskRunId: input.plan.taskRunId,
-        index: baseStepIndex + i,
-        kind: "summarize",
-        title:
-          profile && remoteEndpoint
-            ? `Worker[${profile.name} -> ${remoteEndpoint.name}] ${planStep.title}`
-            : profile
-              ? `Worker[${profile.name}] ${planStep.title}`
-              : `Worker[${planStep.role}] ${planStep.title}`,
-        status: "running",
-        inputSummary: planStep.inputSummary,
-      });
-      await this.deps.state.setTaskRunCurrentStep(
-        input.plan.taskRunId,
-        dbStep.id,
-      );
-      lastDbStepId = dbStep.id;
-      await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
-      let body: string;
-      let status: WorkerStep["status"] = "succeeded";
-      let proposedActions: AgentProposedAction[] = [];
-      try {
-        const outcome = await this.runWorkerStepBody(
-          planStep,
-          profile,
-          input.plan.taskRunId,
-          dbStep.id,
-          remoteEndpoint,
-          resolveHandoffsForStep(
+    for (const wave of executionWaves) {
+      const preparedWave = await Promise.all(
+        wave.steps.map((planStep) =>
+          this.prepareWorkerStep(
             planStep,
-            planStepsById,
-            handoffsByStepId,
-            handoffMessages,
+            executionIndexByStepId.get(planStep.id)!,
           ),
-        );
-        body = outcome.body;
-        proposedActions = outcome.proposedActions;
-        if (outcome.lifecycle) {
-          lifecycleInterruption = outcome.lifecycle;
-          body = lifecycleBody(outcome.lifecycle, body);
-          status = "failed";
-          proposedActions = [];
-        }
-      } catch (e) {
-        body = e instanceof Error ? e.message : String(e);
-        status = "failed";
-      }
-      const artifact = await this.deps.state.createArtifact({
-        taskRunId: input.plan.taskRunId,
-        stepId: dbStep.id,
-        kind: "log",
-        title: `Worker output: ${planStep.title}`,
-        uri: `harness:orchestration/${input.plan.id}/${planStep.id}`,
-        summary: formatWorkerStepArtifact({
-          step: { ...planStep, status },
-          output: body,
-          ...(profile ? { profileName: profile.name } : {}),
-          ...(remoteEndpoint ? { remoteEndpointName: remoteEndpoint.name } : {}),
-        }),
-      });
-      stepArtifactIds.push(artifact.id);
-      await this.deps.state.setStepStatus(dbStep.id, status, {
-        outputSummary: `worker artifact ${artifact.id}`,
-      });
-      updatedSteps.push({ ...planStep, status });
-      if (status === "succeeded") {
-        const handoff = createInternalAgentMessage({
-          taskRunId: input.plan.taskRunId,
-          planId: input.plan.id,
-          fromStepId: planStep.id,
-          fromRole: planStep.role,
-          fromTitle: planStep.title,
-          content: body,
-          artifactId: artifact.id,
+        ),
+      );
+      const runOne = (prepared: PreparedWorkerStep) =>
+        this.runPreparedWorkerStep({
+          prepared,
+          plan: input.plan,
+          baseStepIndex,
+          planStepsById,
+          handoffsByStepId,
+          handoffMessages,
         });
-        handoffMessages.push(handoff);
-        handoffsByStepId.set(planStep.id, handoff);
-      }
-      if (status === "succeeded" && proposedActions.length > 0) {
-        for (const [proposalIndex, raw] of proposedActions.entries()) {
-          const details = toProposedActionDetails(raw);
-          if (!isActionAllowedForWorkerStep(planStep, details.type)) {
-            policyReport.push(
-              `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: not allowed for this worker step`,
-            );
-            continue;
-          }
-          const validation = validateProposedActionDetails(details, raw.type);
-          if (!validation.ok || !validation.details) {
-            policyReport.push(
-              `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: ${
-                validation.reason ?? "invalid"
-              }`,
-            );
-            continue;
-          }
-          acceptedActions.push({
-            action: raw,
-            details: validation.details,
-            workerTitle: planStep.title,
-          });
+      const results = wave.parallelizable
+        ? await Promise.all(preparedWave.map(runOne))
+        : await runSerial(preparedWave, runOne);
+      for (const result of results) {
+        stepArtifactIds.push(result.artifactId);
+        updatedSteps.push({ ...result.planStep, status: result.status });
+        lastDbStepId = result.dbStepId;
+        if (result.lifecycleInterruption) {
+          lifecycleInterruption = result.lifecycleInterruption;
         }
+        if (result.handoff) {
+          handoffMessages.push(result.handoff);
+          handoffsByStepId.set(result.planStep.id, result.handoff);
+        }
+        policyReport.push(...result.policyReport);
+        acceptedActions.push(...result.acceptedActions);
       }
-      if (status === "failed") break;
+      if (results.some((result) => result.status === "failed")) break;
     }
     if (policyReport.length > 0 && lastDbStepId !== null) {
       const policyArtifact = await this.deps.state.createArtifact({
@@ -420,7 +356,209 @@ export class WorkerRunner {
       proposedActions: [],
     };
   }
+
+  private async prepareWorkerStep(
+    planStep: WorkerStep,
+    executionIndex: number,
+  ): Promise<PreparedWorkerStep> {
+    // When the step references a specific AgentProfile (pipeline-driven
+    // plans), fail-fast if that profile has been deleted since draft.
+    // Falling back to a default profile would silently change the
+    // persona/permissions the user approved, so we refuse to run.
+    let profile = null;
+    if (planStep.agentProfileId) {
+      profile = await this.deps.state.agentProfiles.get(planStep.agentProfileId);
+      if (!profile) {
+        throw new OrchestrationError(
+          "PIPELINE_REFERENCED_PROFILE_MISSING",
+          `Worker step "${planStep.title}" references missing profile ${planStep.agentProfileId}`,
+        );
+      }
+    }
+    let remoteEndpoint: A2AEndpoint | null = null;
+    if (planStep.remoteEndpointId) {
+      remoteEndpoint = await this.deps.state.a2aRemoteAgents.getEndpoint(
+        planStep.remoteEndpointId,
+      );
+      if (!remoteEndpoint) {
+        throw new OrchestrationError(
+          "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
+          `Worker step "${planStep.title}" references missing remote endpoint ${planStep.remoteEndpointId}`,
+        );
+      }
+      if (!remoteEndpoint.enabled || !remoteEndpoint.trusted) {
+        throw new OrchestrationError(
+          "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
+          `Worker step "${planStep.title}" references unavailable remote endpoint ${planStep.remoteEndpointId}`,
+        );
+      }
+    }
+    return {
+      planStep,
+      executionIndex,
+      profile,
+      remoteEndpoint,
+    };
+  }
+
+  private async runPreparedWorkerStep(input: {
+    prepared: PreparedWorkerStep;
+    plan: OrchestrationPlan;
+    baseStepIndex: number;
+    planStepsById: ReadonlyMap<string, WorkerStep>;
+    handoffsByStepId: ReadonlyMap<string, InternalAgentMessage>;
+    handoffMessages: readonly InternalAgentMessage[];
+  }): Promise<WorkerStepExecutionResult> {
+    const { planStep, executionIndex, profile, remoteEndpoint } =
+      input.prepared;
+    const dbStep = await this.deps.state.createStep({
+      taskRunId: input.plan.taskRunId,
+      index: input.baseStepIndex + executionIndex,
+      kind: "summarize",
+      title:
+        profile && remoteEndpoint
+          ? `Worker[${profile.name} -> ${remoteEndpoint.name}] ${planStep.title}`
+          : profile
+            ? `Worker[${profile.name}] ${planStep.title}`
+            : `Worker[${planStep.role}] ${planStep.title}`,
+      status: "running",
+      inputSummary: planStep.inputSummary,
+    });
+    await this.deps.state.setTaskRunCurrentStep(input.plan.taskRunId, dbStep.id);
+    await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
+
+    let body: string;
+    let status: WorkerStep["status"] = "succeeded";
+    let proposedActions: AgentProposedAction[] = [];
+    let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
+    try {
+      const outcome = await this.runWorkerStepBody(
+        planStep,
+        profile,
+        input.plan.taskRunId,
+        dbStep.id,
+        remoteEndpoint,
+        resolveHandoffsForStep(
+          planStep,
+          input.planStepsById,
+          input.handoffsByStepId,
+          input.handoffMessages,
+        ),
+      );
+      body = outcome.body;
+      proposedActions = outcome.proposedActions;
+      if (outcome.lifecycle) {
+        lifecycleInterruption = outcome.lifecycle;
+        body = lifecycleBody(outcome.lifecycle, body);
+        status = "failed";
+        proposedActions = [];
+      }
+    } catch (e) {
+      body = e instanceof Error ? e.message : String(e);
+      status = "failed";
+    }
+
+    const artifact = await this.deps.state.createArtifact({
+      taskRunId: input.plan.taskRunId,
+      stepId: dbStep.id,
+      kind: "log",
+      title: `Worker output: ${planStep.title}`,
+      uri: `harness:orchestration/${input.plan.id}/${planStep.id}`,
+      summary: formatWorkerStepArtifact({
+        step: { ...planStep, status },
+        output: body,
+        ...(profile ? { profileName: profile.name } : {}),
+        ...(remoteEndpoint ? { remoteEndpointName: remoteEndpoint.name } : {}),
+      }),
+    });
+    await this.deps.state.setStepStatus(dbStep.id, status, {
+      outputSummary: `worker artifact ${artifact.id}`,
+    });
+
+    const handoff =
+      status === "succeeded"
+        ? createInternalAgentMessage({
+            taskRunId: input.plan.taskRunId,
+            planId: input.plan.id,
+            fromStepId: planStep.id,
+            fromRole: planStep.role,
+            fromTitle: planStep.title,
+            content: body,
+            artifactId: artifact.id,
+          })
+        : null;
+    const acceptedActions: WorkerStepExecutionResult["acceptedActions"] = [];
+    const policyReport: string[] = [];
+    if (status === "succeeded" && proposedActions.length > 0) {
+      for (const [proposalIndex, raw] of proposedActions.entries()) {
+        const details = toProposedActionDetails(raw);
+        if (!isActionAllowedForWorkerStep(planStep, details.type)) {
+          policyReport.push(
+            `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: not allowed for this worker step`,
+          );
+          continue;
+        }
+        const validation = validateProposedActionDetails(details, raw.type);
+        if (!validation.ok || !validation.details) {
+          policyReport.push(
+            `- ${planStep.title} [${proposalIndex}] ${raw.type} rejected: ${
+              validation.reason ?? "invalid"
+            }`,
+          );
+          continue;
+        }
+        acceptedActions.push({
+          action: raw,
+          details: validation.details,
+          workerTitle: planStep.title,
+        });
+      }
+    }
+
+    return {
+      planStep,
+      dbStepId: dbStep.id,
+      artifactId: artifact.id,
+      status,
+      acceptedActions,
+      policyReport,
+      handoff,
+      lifecycleInterruption,
+    };
+  }
+
+  private async loadRemoteRegistryEntries(): Promise<A2ARegistryEntry[]> {
+    const endpoints = await this.deps.state.a2aRemoteAgents.listEndpoints();
+    return Promise.all(
+      endpoints.map(async (endpoint) => {
+        const card = await this.deps.state.a2aRemoteAgents.getCardSnapshot(
+          endpoint.id,
+        );
+        return card ? { endpoint, card } : { endpoint };
+      }),
+    );
+  }
 }
+
+const runSerial = async <T, R>(
+  items: readonly T[],
+  runOne: (item: T) => Promise<R>,
+): Promise<R[]> => {
+  const results: R[] = [];
+  for (const item of items) {
+    const result = await runOne(item);
+    results.push(result);
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      "status" in result &&
+      result.status === "failed"
+    ) {
+      break;
+    }
+  }
+  return results;
+};
 
 const roleBody = (role: WorkerRole): string => {
   switch (role) {

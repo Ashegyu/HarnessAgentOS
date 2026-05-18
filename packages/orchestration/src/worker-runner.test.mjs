@@ -72,6 +72,24 @@ const validEndpointInput = (overrides = {}) => ({
 const approvePlanApproval = async (state, approval) =>
   state.decideApproval(approval.id, "approved", "ok");
 
+const deferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
+const waitFor = async (predicate, message) => {
+  for (let i = 0; i < 50; i += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(message);
+};
+
 test("runApproved still works for legacy mode-based plans (regression)", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -446,6 +464,195 @@ test("runApproved limits handoff messages to declared dependencies", async () =>
       calls[2].handoffMessages.map((m) => m.fromTitle),
       ["Plan"],
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved executes read-only dependency waves in parallel", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const perfProfile = await state.agentProfiles.create(
+      validProfileInput({
+        name: "Performance",
+        role: "performance-reviewer",
+      }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Parallel review",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: [],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+          allowedActions: [],
+        },
+        {
+          id: "performance",
+          agentProfileId: perfProfile.id,
+          title: "Performance",
+          instruction: "Review performance from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+          allowedActions: [],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const reviewGate = deferred();
+    const performanceGate = deferred();
+    const starts = [];
+    const finishes = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        if (input.profile.name === "Planner") {
+          finishes.push(input.profile.name);
+          return { outputText: "Planner output" };
+        }
+        if (input.profile.name === "Reviewer") {
+          await reviewGate.promise;
+        }
+        if (input.profile.name === "Performance") {
+          await performanceGate.promise;
+        }
+        finishes.push(input.profile.name);
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () => starts.includes("Reviewer") && starts.includes("Performance"),
+      "read-only sibling steps should both start before either gate resolves",
+    );
+    assert.deepEqual(finishes, ["Planner"]);
+
+    reviewGate.resolve();
+    performanceGate.resolve();
+    const result = await run;
+
+    assert.deepEqual(
+      result.workerSteps.map((step) => step.title),
+      ["Plan", "Review", "Performance"],
+    );
+    assert.deepEqual(
+      result.workerSteps.map((step) => step.status),
+      ["succeeded", "succeeded", "succeeded"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved keeps non-read-only waves serial even when dependencies are empty", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const firstProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "ReviewerOne", role: "reviewer" }),
+    );
+    const secondProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "ReviewerTwo", role: "reviewer" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Default action scope",
+      description: "",
+      steps: [
+        {
+          id: "first",
+          agentProfileId: firstProfile.id,
+          title: "First",
+          instruction: "Inspect first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "second",
+          agentProfileId: secondProfile.id,
+          title: "Second",
+          instruction: "Inspect second.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const firstGate = deferred();
+    const starts = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        if (input.profile.name === "ReviewerOne") {
+          await firstGate.promise;
+        }
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () => starts.includes("ReviewerOne"),
+      "first serial step should start",
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(starts, ["ReviewerOne"]);
+
+    firstGate.resolve();
+    await waitFor(
+      () => starts.includes("ReviewerTwo"),
+      "second serial step should start after the first finishes",
+    );
+    const result = await run;
+
+    assert.deepEqual(
+      result.workerSteps.map((step) => step.title),
+      ["First", "Second"],
+    );
+    assert.deepEqual(starts, ["ReviewerOne", "ReviewerTwo"]);
   } finally {
     closeDb(db);
     t.cleanup();
