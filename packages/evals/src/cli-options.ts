@@ -1,4 +1,6 @@
 import type { EvalSuite } from "./thresholds.ts";
+import type { EvalProvider } from "./types.ts";
+import { isEvalProvider } from "./v2-contracts.ts";
 
 export interface EvalCliOptions {
   readonly suite: EvalSuite;
@@ -7,6 +9,7 @@ export interface EvalCliOptions {
   readonly fixturesRoot?: string;
   readonly dbPath?: string;
   readonly realCli: boolean;
+  readonly providers?: ReadonlyArray<EvalProvider>;
   readonly attemptsOverride?: number;
   readonly timeoutMs?: number;
   readonly stallTimeoutMs?: number;
@@ -30,6 +33,7 @@ export const parseEvalCliArgs = (
     fixturesRoot?: string;
     dbPath?: string;
     realCli: boolean;
+    providers?: ReadonlyArray<EvalProvider>;
     attemptsOverride?: number;
     timeoutMs?: number;
     stallTimeoutMs?: number;
@@ -74,6 +78,12 @@ export const parseEvalCliArgs = (
       idx = nextIdx;
       continue;
     }
+    if (arg === "--providers" || arg.startsWith("--providers=")) {
+      const [value, nextIdx] = readOption(argv, idx, "--providers");
+      draft.providers = parseProviders(value);
+      idx = nextIdx;
+      continue;
+    }
     if (arg === "--attempts" || arg.startsWith("--attempts=")) {
       const [value, nextIdx] = readOption(argv, idx, "--attempts");
       draft.attemptsOverride = parseBoundedInteger(value, "--attempts", 1, 10);
@@ -114,6 +124,7 @@ export const parseEvalCliArgs = (
     ...(draft.fixturesRoot ? { fixturesRoot: draft.fixturesRoot } : {}),
     ...(draft.dbPath ? { dbPath: draft.dbPath } : {}),
     realCli: draft.realCli,
+    ...(draft.providers ? { providers: draft.providers } : {}),
     ...(draft.attemptsOverride !== undefined
       ? { attemptsOverride: draft.attemptsOverride }
       : {}),
@@ -122,6 +133,30 @@ export const parseEvalCliArgs = (
       ? { stallTimeoutMs: draft.stallTimeoutMs }
       : {}),
   };
+};
+
+const parseProviders = (value: string): ReadonlyArray<EvalProvider> => {
+  const providers = value
+    .split(",")
+    .map((provider) => provider.trim())
+    .filter((provider) => provider.length > 0);
+  if (providers.length === 0) {
+    throw new Error("--providers requires at least one provider");
+  }
+
+  const parsed: EvalProvider[] = [];
+  for (const provider of providers) {
+    if (!isEvalProvider(provider)) {
+      throw new Error(`--providers contains invalid provider: ${provider}`);
+    }
+    parsed.push(provider);
+  }
+
+  if (new Set(parsed).size !== parsed.length) {
+    throw new Error("--providers must not contain duplicates");
+  }
+
+  return parsed;
 };
 
 const readOption = (

@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import { EVAL_PROVIDER_VALUES } from "./v2-contracts.ts";
+
+const providerSchema = z.enum(EVAL_PROVIDER_VALUES);
+
 export const codeAssertionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("file_contains"),
@@ -61,7 +65,15 @@ export const evalCaseSchema = z.object({
   instruction: z.string().min(1),
   scenario: z.string().min(1),
   attempts: z.number().int().min(1).max(10).default(3),
-  provider: z.enum(["claude", "codex"]).optional(),
+  provider: providerSchema.optional(),
+  providers: z
+    .array(providerSchema)
+    .min(1)
+    .max(EVAL_PROVIDER_VALUES.length)
+    .refine((providers) => new Set(providers).size === providers.length, {
+      message: "providers must be unique",
+    })
+    .optional(),
   profile: z
     .object({
       blockedActions: z.array(z.string()).optional(),

@@ -28,6 +28,25 @@ test("evalCaseSchema applies the default attempt count", () => {
   assert.equal(parsed.attempts, 3);
 });
 
+test("evalCaseSchema accepts provider head-to-head providers", () => {
+  const parsed = evalCaseSchema.parse({
+    ...validFixture,
+    provider: "claude",
+    providers: ["claude", "codex"],
+  });
+
+  assert.deepEqual(parsed.providers, ["claude", "codex"]);
+});
+
+test("evalCaseSchema rejects duplicate providers", () => {
+  assert.throws(() => {
+    evalCaseSchema.parse({
+      ...validFixture,
+      providers: ["claude", "claude"],
+    });
+  });
+});
+
 test("evalCaseSchema rejects invalid fixture ids immediately", () => {
   assert.throws(() => {
     evalCaseSchema.parse({

@@ -35,6 +35,19 @@ test("parseEvalCliArgs honors EVAL_REAL_CLI", () => {
   assert.equal(options.suite, "safety");
 });
 
+test("parseEvalCliArgs parses provider comparison option", () => {
+  const options = parseEvalCliArgs(["--providers=claude,codex"], {});
+
+  assert.deepEqual(options.providers, ["claude", "codex"]);
+});
+
+test("parseEvalCliArgs rejects invalid providers", () => {
+  assert.throws(
+    () => parseEvalCliArgs(["--providers=claude,openai"], {}),
+    /--providers contains invalid provider: openai/,
+  );
+});
+
 test("parseEvalCliArgs rejects invalid attempts", () => {
   assert.throws(
     () => parseEvalCliArgs(["--attempts=0"], {}),

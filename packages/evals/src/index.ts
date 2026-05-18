@@ -15,3 +15,4 @@ export * from "./report-template.ts";
 export * from "./reporter.ts";
 export * from "./thresholds.ts";
 export * from "./types.ts";
+export * from "./v2-contracts.ts";
