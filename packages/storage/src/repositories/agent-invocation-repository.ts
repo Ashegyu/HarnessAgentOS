@@ -15,6 +15,7 @@ export interface AgentInvocationRepository {
     patch: UpdateAgentInvocationPatch,
   ): Promise<AgentInvocation>;
   listByTaskRun(taskRunId: string): Promise<AgentInvocation[]>;
+  listRecentWithLatency(limit?: number): Promise<AgentInvocation[]>;
   getLatestForTaskRun(taskRunId: string): Promise<AgentInvocation | null>;
 }
 
@@ -199,6 +200,20 @@ export class SqliteAgentInvocationRepository
          ORDER BY datetime(created_at) DESC, rowid DESC`,
       )
       .all(taskRunId) as AgentInvocationRow[];
+    return rows.map(rowToInvocation);
+  }
+
+  async listRecentWithLatency(limit = 500): Promise<AgentInvocation[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 1000));
+    const rows = this.db
+      .prepare(
+        `SELECT *
+         FROM agent_invocations
+         WHERE latency_ms IS NOT NULL
+         ORDER BY datetime(COALESCE(finished_at, updated_at)) DESC, rowid DESC
+         LIMIT ?`,
+      )
+      .all(safeLimit) as AgentInvocationRow[];
     return rows.map(rowToInvocation);
   }
 

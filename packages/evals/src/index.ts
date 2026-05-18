@@ -8,6 +8,7 @@ export * from "./graders/rule-grader.ts";
 export * from "./graders/safety-grader.ts";
 export * from "./metrics.ts";
 export * from "./performance-summary.ts";
+export * from "./production-latency.ts";
 export * from "./adapter-factory.ts";
 export * from "./cli-options.ts";
 export * from "./cost-tracker.ts";

@@ -1,6 +1,6 @@
 # Phase 7 — v2 Expansion Design Plan
 
-> **상태**: 설계 완료 · Phase 7.1~7.5 구현 완료 · Phase 7.4b/7.6+ 대기
+> **상태**: 설계 완료 · Phase 7.1~7.6a 구현 완료 · Phase 7.4b/7.6b+ 대기
 > **선행 조건**: v1 fake eval 안정화, v1.5a real CLI smoke, v1.5b performance summary
 > **목표**: provider 비교, LLM judge, viewer, cost trend, production latency 측정을 별도 gate로 안전하게 확장한다.
 
@@ -25,7 +25,8 @@
 | Phase 7.4a | 완료 | read-only eval viewer IPC, Settings `Evals` 탭의 최근 run/detail 조회 |
 | Phase 7.4b | 대기 | attempt artifact drill-down, provider 비교/detail 확장 |
 | Phase 7.5 | 완료 | summary_json 기반 token/duration/pass rate trend, baseline warning, viewer token trend |
-| Phase 7.6 | 대기 | production workload p95/p99 latency |
+| Phase 7.6a | 완료 | 기존 `agent_invocations.latency_ms` 기반 agent final latency p50/p95/p99 summary |
+| Phase 7.6b | 대기 | task/approval/quality boundary latency event capture |
 
 ## 1. 설계 목표
 
@@ -529,13 +530,14 @@ Viewer:
 
 ### Phase 7.6 — Production latency
 
-목표: feature-flagged production latency event capture와 p95/p99 summary.
+목표: production latency p95/p99 summary. Phase 7.6a는 기존 agent invocation row를 먼저 사용하고, 별도 latency event table과 task/approval/quality boundary capture는 7.6b로 분리한다.
 
 검증:
 
-- feature flag off/on tests
 - percentile tests
-- privacy redaction tests
+- repository latency row tests
+- IPC summary tests
+- sample gate tests
 
 ## 9. Non-goals
 

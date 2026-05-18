@@ -132,7 +132,10 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   });
   registerPipelineIpc({ pipelines: ctx.state.agentPipelines });
   registerRemoteAgentsIpc({ remoteAgents: ctx.state.a2aRemoteAgents });
-  registerEvalsIpc({ evalRuns: ctx.state.evalRuns });
+  registerEvalsIpc({
+    evalRuns: ctx.state.evalRuns,
+    agentInvocations: ctx.state.agentInvocations,
+  });
   registerMcpIpc({
     mcp: ctx.state.mcpServers,
     probe: ctx.mcpProbe,

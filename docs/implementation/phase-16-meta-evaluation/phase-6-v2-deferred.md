@@ -4,7 +4,7 @@
 > **트리거**: v1이 최소 2주 안정 운영 후 / 또는 실제 CLI 비교 needs가 명확해진 시점
 > **복잡도**: Medium · **추정**: 별도 마일스톤
 
-> **2026-05-18 업데이트**: Phase 7.1/7.2에서 provider 비교의 기본 계약, CLI 옵션, provider별 artifact 분리, markdown report 비교표는 구현됐다. Phase 7.3에서 `llm_judge` grader의 opt-in 실행 기반과 fake calibration 테스트도 추가됐다. Phase 7.4a에서 read-only eval viewer IPC와 Settings `Evals` 탭의 최근 run/detail 조회가 구현됐다. Phase 7.5에서 summary_json 기반 token/duration/pass rate trend와 viewer token trend 표시가 구현됐다. 이 문서는 v2 deferred 배경 기록으로 유지한다. viewer의 attempt drill-down/비교 모드, USD pricing 기반 cost chart, 실제 production workload p95/p99 latency는 계속 deferred다.
+> **2026-05-18 업데이트**: Phase 7.1/7.2에서 provider 비교의 기본 계약, CLI 옵션, provider별 artifact 분리, markdown report 비교표는 구현됐다. Phase 7.3에서 `llm_judge` grader의 opt-in 실행 기반과 fake calibration 테스트도 추가됐다. Phase 7.4a에서 read-only eval viewer IPC와 Settings `Evals` 탭의 최근 run/detail 조회가 구현됐다. Phase 7.5에서 summary_json 기반 token/duration/pass rate trend와 viewer token trend 표시가 구현됐다. Phase 7.6a에서 기존 agent invocation latency row 기반 p50/p95/p99 summary가 구현됐다. 이 문서는 v2 deferred 배경 기록으로 유지한다. viewer의 attempt drill-down/비교 모드, USD pricing 기반 cost chart, task/approval/quality boundary latency capture는 계속 deferred다.
 
 ## 0. 왜 deferred인가
 
@@ -218,7 +218,7 @@ Phase 0~5 v1은 구현 완료됐고 `npm run eval`은 fake adapter 기반 determ
 
 v1.5b는 existing eval report의 `Summary by Suite` 아래에 attempt-level `Performance Summary` markdown table과 current-run `Performance Notes`를 추가하는 범위까지 완료됐다. 이 표는 suite별 attempt 수, 평균/ p50 / p95 duration, 평균 tokens, passed attempt당 tokens, approval 합계, manual approval 합계, attempt pass rate를 보여준다. 3회 미만 smoke에서는 `Pass^3`를 `n/a`로 표시하고, 50,000 tokens 이상 또는 30초 이상 걸린 attempt는 Performance Notes에 표시한다. `npm run eval:perf`는 fake adapter 기반 `--suite=all --attempts=10` 반복 실행용 단축 스크립트다.
 
-Provider 비교와 LLM judge opt-in 기반, read-only viewer list/detail, token trend 표시는 구현됐다. viewer attempt drill-down/비교 모드, USD pricing 기반 cost chart, production latency는 여전히 v2 deferred이며, gate 충족 후 별도 TDD phase로 진행한다.
+Provider 비교와 LLM judge opt-in 기반, read-only viewer list/detail, token trend 표시, agent invocation final latency summary는 구현됐다. viewer attempt drill-down/비교 모드, USD pricing 기반 cost chart, task/approval/quality boundary latency capture는 여전히 v2 deferred이며, gate 충족 후 별도 TDD phase로 진행한다.
 
 구현 재개 시 세부 설계는 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)을 기준으로 한다.
 

@@ -5,6 +5,7 @@ import type {
   EvalRunCaseView,
   EvalRunDetailView,
   EvalRunListItem,
+  RuntimeLatencySummary,
 } from "@harness/core";
 
 type RunsState =
@@ -34,6 +35,9 @@ const formatTokens = (tokens: number): string =>
 
 const formatPercent = (ratio: number): string =>
   `${percentFormat.format(finite(ratio) * 100)}%`;
+
+const formatOptionalDuration = (durationMs: number | null): string =>
+  durationMs === null ? "n/a" : formatDuration(durationMs);
 
 const formatTimestamp = (iso: string): string => {
   const date = new Date(iso);
@@ -73,21 +77,26 @@ export const EvalsTab = (): JSX.Element => {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [detail, setDetail] = useState<EvalRunDetailView | null>(null);
   const [trend, setTrend] = useState<EvalCostTrendView | null>(null);
+  const [latencySummaries, setLatencySummaries] = useState<
+    RuntimeLatencySummary[]
+  >([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const loadRuns = useCallback(async () => {
     setRunsState({ kind: "loading" });
     try {
-      const [runs, trendView] = await Promise.all([
+      const [runs, trendView, latency] = await Promise.all([
         window.harness.evals.listRuns({ limit: 50 }),
         window.harness.evals.getCostTrend({
           limit: 50,
           baselineWindow: 5,
         }),
+        window.harness.evals.getRuntimeLatencySummary({ limit: 500 }),
       ]);
       setRunsState({ kind: "ready", runs });
       setTrend(trendView);
+      setLatencySummaries(latency);
       setSelectedRunId((current) =>
         current && runs.some((run) => run.id === current)
           ? current
@@ -96,6 +105,7 @@ export const EvalsTab = (): JSX.Element => {
     } catch (error) {
       setRunsState({ kind: "error", message: errorMessage(error) });
       setTrend(null);
+      setLatencySummaries([]);
       setSelectedRunId(null);
     }
   }, []);
@@ -255,6 +265,42 @@ export const EvalsTab = (): JSX.Element => {
                     ))}
                   </ul>
                 )}
+              </section>
+            )}
+
+            {latencySummaries.length > 0 && (
+              <section
+                className="evals-tab__latency"
+                aria-label="Production latency"
+              >
+                <header className="evals-tab__latency-header">
+                  <h4>Agent latency</h4>
+                  <span>production rows</span>
+                </header>
+                <table className="evals-tab__latency-table">
+                  <thead>
+                    <tr>
+                      <th>Kind</th>
+                      <th>Count</th>
+                      <th>P50</th>
+                      <th>P95</th>
+                      <th>P99</th>
+                      <th>Max</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {latencySummaries.map((summary) => (
+                      <tr key={summary.kind}>
+                        <td>{summary.kind}</td>
+                        <td>{numberFormat.format(summary.count)}</td>
+                        <td>{formatDuration(summary.p50Ms)}</td>
+                        <td>{formatOptionalDuration(summary.p95Ms)}</td>
+                        <td>{formatOptionalDuration(summary.p99Ms)}</td>
+                        <td>{formatDuration(summary.maxMs)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </section>
             )}
 

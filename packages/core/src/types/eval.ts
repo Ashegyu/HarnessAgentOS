@@ -85,3 +85,23 @@ export interface EvalCostTrendView {
   readonly warnings: ReadonlyArray<EvalCostTrendWarning>;
   readonly baselineRunCount: number;
 }
+
+export type RuntimeLatencyKind =
+  | "task_run_to_ready"
+  | "approval_to_runner_finished"
+  | "agent_invocation_to_first_token"
+  | "agent_invocation_to_final_result"
+  | "quality_evaluation_to_gate";
+
+export interface RuntimeLatencyFilters {
+  readonly limit?: number;
+}
+
+export interface RuntimeLatencySummary {
+  readonly kind: RuntimeLatencyKind;
+  readonly count: number;
+  readonly p50Ms: number;
+  readonly p95Ms: number | null;
+  readonly p99Ms: number | null;
+  readonly maxMs: number;
+}

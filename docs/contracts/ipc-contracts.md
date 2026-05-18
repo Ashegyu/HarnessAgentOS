@@ -928,9 +928,30 @@ interface EvalCostTrendView {
   baselineRunCount: number;
 }
 
+type RuntimeLatencyKind =
+  | "task_run_to_ready"
+  | "approval_to_runner_finished"
+  | "agent_invocation_to_first_token"
+  | "agent_invocation_to_final_result"
+  | "quality_evaluation_to_gate";
+
+interface RuntimeLatencyFilters {
+  limit?: number;
+}
+
+interface RuntimeLatencySummary {
+  kind: RuntimeLatencyKind;
+  count: number;
+  p50Ms: number;
+  p95Ms: number | null;
+  p99Ms: number | null;
+  maxMs: number;
+}
+
 evals.listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
 evals.getRun(input: { runId: string }): Promise<EvalRunDetailView>;
 evals.getCostTrend(input?: EvalCostTrendFilters): Promise<EvalCostTrendView>;
+evals.getRuntimeLatencySummary(input?: RuntimeLatencyFilters): Promise<RuntimeLatencySummary[]>;
 ```
 
 동작:
@@ -938,6 +959,7 @@ evals.getCostTrend(input?: EvalCostTrendFilters): Promise<EvalCostTrendView>;
 - `listRuns`는 최근 eval run을 SQLite canonical state에서 조회한다. `limit`은 main process에서 1..100으로 제한한다.
 - `getRun`은 summary_json을 renderer-safe detail DTO로 변환한다. raw filesystem path, raw artifact content, process handle은 반환하지 않는다.
 - `getCostTrend`는 최근 run의 tokens, duration, pass rate를 summary_json에서 계산한다. USD 비용은 provider pricing을 확정하지 않은 경우 반환하지 않는다.
+- `getRuntimeLatencySummary`는 기존 `agent_invocations.latency_ms` row에서 agent final latency summary를 계산한다. p95는 20개 이상, p99는 100개 이상 표본이 있을 때만 반환한다.
 - 이 namespace는 read-only다. eval 실행은 기존 `scripts/eval/run.mjs` CLI와 npm script가 담당한다.
 
 오류:

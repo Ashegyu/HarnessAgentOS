@@ -51,6 +51,8 @@ import type {
   EvalCostTrendView,
   EvalRunListFilters,
   EvalRunListItem,
+  RuntimeLatencyFilters,
+  RuntimeLatencySummary,
 } from "./types/index.ts";
 import type {
   ApproveInput,
@@ -307,6 +309,9 @@ export interface HarnessDesktopApi {
     listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
     getRun(input: { runId: string }): Promise<EvalRunDetailView>;
     getCostTrend(input?: EvalCostTrendFilters): Promise<EvalCostTrendView>;
+    getRuntimeLatencySummary(
+      input?: RuntimeLatencyFilters,
+    ): Promise<RuntimeLatencySummary[]>;
   };
   /**
    * AgentProfile CRUD. The renderer never touches plaintext secrets here —

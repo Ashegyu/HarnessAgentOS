@@ -4918,6 +4918,61 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   font-size: 12px;
 }
 
+.evals-tab__latency {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.evals-tab__latency-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel-elev);
+}
+
+.evals-tab__latency-header h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.evals-tab__latency-header span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.evals-tab__latency-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.evals-tab__latency-table th,
+.evals-tab__latency-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.evals-tab__latency-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.evals-tab__latency-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .evals-tab__metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

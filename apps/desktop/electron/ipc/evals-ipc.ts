@@ -10,16 +10,23 @@ import {
   type EvalRunListFilters,
   type EvalRunListItem,
   type HarnessResult,
+  type RuntimeLatencyFilters,
+  type RuntimeLatencySummary,
 } from "@harness/core";
-import type { EvalRunRepository } from "@harness/storage";
+import type {
+  AgentInvocationRepository,
+  EvalRunRepository,
+} from "@harness/storage";
 import {
   computeEvalCostTrend,
+  computeRuntimeLatencySummaries,
   evalRunRecordToDetail,
   evalRunRecordToListItem,
 } from "@harness/evals";
 
 export interface EvalsIpcContext {
   evalRuns: Pick<EvalRunRepository, "list" | "get">;
+  agentInvocations: Pick<AgentInvocationRepository, "listRecentWithLatency">;
 }
 
 const VALID_SUITES = new Set(["capability", "regression", "safety", "all"]);
@@ -76,6 +83,33 @@ export const buildEvalsHandlers = (ctx: EvalsIpcContext) => ({
         computeEvalCostTrend(runs, {
           baselineWindow: filters.value.baselineWindow,
         }),
+      );
+    } catch (error) {
+      return err(harnessError(STATE_INVALID_INPUT, message(error)));
+    }
+  },
+
+  getRuntimeLatencySummary: async (
+    input: RuntimeLatencyFilters = {},
+  ): Promise<HarnessResult<RuntimeLatencySummary[]>> => {
+    const filters = validateLatencyFilters(input);
+    if (!filters.ok) {
+      return err(harnessError(STATE_INVALID_INPUT, filters.reason));
+    }
+    try {
+      const invocations = await ctx.agentInvocations.listRecentWithLatency(
+        filters.value.limit,
+      );
+      return ok(
+        computeRuntimeLatencySummaries(
+          invocations
+            .filter((invocation) => typeof invocation.latencyMs === "number")
+            .map((invocation) => ({
+              kind: "agent_invocation_to_final_result",
+              durationMs: invocation.latencyMs ?? 0,
+              success: invocation.status === "succeeded",
+            })),
+        ),
       );
     } catch (error) {
       return err(harnessError(STATE_INVALID_INPUT, message(error)));
@@ -152,6 +186,18 @@ const validateTrendFilters = (
     value.baselineWindow = input.baselineWindow;
   }
   return { ok: true, value };
+};
+
+const validateLatencyFilters = (
+  input: RuntimeLatencyFilters,
+):
+  | { ok: true; value: Required<RuntimeLatencyFilters> }
+  | { ok: false; reason: string } => {
+  const limit = input.limit ?? 500;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+    return { ok: false, reason: "limit must be an integer between 1 and 1000" };
+  }
+  return { ok: true, value: { limit } };
 };
 
 const message = (error: unknown): string =>

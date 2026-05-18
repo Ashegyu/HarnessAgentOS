@@ -124,3 +124,40 @@ test("buildEvalsHandlers returns cost trend from eval run summaries", async () =
     ["tokens_increase"],
   );
 });
+
+test("buildEvalsHandlers returns runtime latency summary from agent invocations", async () => {
+  const handlers = buildEvalsHandlers({
+    evalRuns: {
+      list: async () => [],
+      get: async () => null,
+    },
+    agentInvocations: {
+      listRecentWithLatency: async (limit) =>
+        Array.from({ length: limit }, (_, index) => ({
+          id: `inv_${index}`,
+          taskRunId: "task_1",
+          provider: "codex",
+          model: "gpt-5",
+          status: "succeeded",
+          promptArtifactId: "artifact_1",
+          latencyMs: 100 + index,
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z",
+        })),
+    },
+  });
+
+  const result = await handlers.getRuntimeLatencySummary({ limit: 20 });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value, [
+    {
+      kind: "agent_invocation_to_final_result",
+      count: 20,
+      p50Ms: 109.5,
+      p95Ms: 118,
+      p99Ms: null,
+      maxMs: 119,
+    },
+  ]);
+});

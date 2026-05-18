@@ -36,6 +36,8 @@ import {
   type RepairPlanDraft,
   type RunnerResultPayload,
   type RuntimeInfo,
+  type RuntimeLatencyFilters,
+  type RuntimeLatencySummary,
   type ShadowPreview,
   type TaskRun,
   type TaskRunDetail,
@@ -343,6 +345,11 @@ const harnessApi: HarnessDesktopApi = {
     getCostTrend: (input) =>
       invokeUnwrapped<EvalCostTrendView>(
         IPC_CHANNELS.evals.getCostTrend,
+        input ?? {},
+      ),
+    getRuntimeLatencySummary: (input) =>
+      invokeUnwrapped<RuntimeLatencySummary[]>(
+        IPC_CHANNELS.evals.getRuntimeLatencySummary,
         input ?? {},
       ),
   },

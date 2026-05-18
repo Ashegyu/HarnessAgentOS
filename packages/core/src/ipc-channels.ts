@@ -154,6 +154,7 @@ export const IPC_CHANNELS = {
     listRuns: "evals:listRuns",
     getRun: "evals:getRun",
     getCostTrend: "evals:getCostTrend",
+    getRuntimeLatencySummary: "evals:getRuntimeLatencySummary",
   },
   events: {
     /**
