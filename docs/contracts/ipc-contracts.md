@@ -896,14 +896,48 @@ interface EvalRunDetailView {
   cases: EvalRunCaseView[];
 }
 
+interface EvalCostTrendFilters {
+  suite?: EvalRunSuite;
+  limit?: number;
+  baselineWindow?: number;
+}
+
+interface EvalCostTrendPoint {
+  runId: string;
+  startedAt: string;
+  suite: EvalRunSuite;
+  mode: "fake" | "real" | "head_to_head" | "judge" | "production_latency" | "unknown";
+  totalTokens: number;
+  totalDurationMs: number;
+  passRate: number;
+  estimatedCostUsd?: number;
+}
+
+interface EvalCostTrendWarning {
+  kind: "tokens_increase" | "duration_increase" | "pass_rate_drop";
+  runId: string;
+  observed: number;
+  baseline: number;
+  threshold: number;
+  message: string;
+}
+
+interface EvalCostTrendView {
+  points: EvalCostTrendPoint[];
+  warnings: EvalCostTrendWarning[];
+  baselineRunCount: number;
+}
+
 evals.listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
 evals.getRun(input: { runId: string }): Promise<EvalRunDetailView>;
+evals.getCostTrend(input?: EvalCostTrendFilters): Promise<EvalCostTrendView>;
 ```
 
 동작:
 
 - `listRuns`는 최근 eval run을 SQLite canonical state에서 조회한다. `limit`은 main process에서 1..100으로 제한한다.
 - `getRun`은 summary_json을 renderer-safe detail DTO로 변환한다. raw filesystem path, raw artifact content, process handle은 반환하지 않는다.
+- `getCostTrend`는 최근 run의 tokens, duration, pass rate를 summary_json에서 계산한다. USD 비용은 provider pricing을 확정하지 않은 경우 반환하지 않는다.
 - 이 namespace는 read-only다. eval 실행은 기존 `scripts/eval/run.mjs` CLI와 npm script가 담당한다.
 
 오류:

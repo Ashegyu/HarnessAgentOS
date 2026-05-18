@@ -4,6 +4,8 @@ import {
   err,
   harnessError,
   ok,
+  type EvalCostTrendFilters,
+  type EvalCostTrendView,
   type EvalRunDetailView,
   type EvalRunListFilters,
   type EvalRunListItem,
@@ -11,6 +13,7 @@ import {
 } from "@harness/core";
 import type { EvalRunRepository } from "@harness/storage";
 import {
+  computeEvalCostTrend,
   evalRunRecordToDetail,
   evalRunRecordToListItem,
 } from "@harness/evals";
@@ -56,6 +59,28 @@ export const buildEvalsHandlers = (ctx: EvalsIpcContext) => ({
       return err(harnessError(STATE_INVALID_INPUT, message(error)));
     }
   },
+
+  getCostTrend: async (
+    input: EvalCostTrendFilters = {},
+  ): Promise<HarnessResult<EvalCostTrendView>> => {
+    const filters = validateTrendFilters(input);
+    if (!filters.ok) {
+      return err(harnessError(STATE_INVALID_INPUT, filters.reason));
+    }
+    try {
+      const runs = await ctx.evalRuns.list({
+        ...(filters.value.suite ? { suite: filters.value.suite } : {}),
+        limit: filters.value.limit,
+      });
+      return ok(
+        computeEvalCostTrend(runs, {
+          baselineWindow: filters.value.baselineWindow,
+        }),
+      );
+    } catch (error) {
+      return err(harnessError(STATE_INVALID_INPUT, message(error)));
+    }
+  },
 });
 
 const validateListFilters = (
@@ -85,6 +110,46 @@ const validateListFilters = (
       return { ok: false, reason: "limit must be an integer between 1 and 100" };
     }
     value.limit = input.limit;
+  }
+  return { ok: true, value };
+};
+
+const validateTrendFilters = (
+  input: EvalCostTrendFilters,
+):
+  | { ok: true; value: EvalCostTrendFilters }
+  | { ok: false; reason: string } => {
+  const value: {
+    suite?: EvalCostTrendFilters["suite"];
+    limit?: number;
+    baselineWindow?: number;
+  } = {};
+  if (input.suite !== undefined) {
+    if (!VALID_SUITES.has(input.suite)) {
+      return { ok: false, reason: "suite is invalid" };
+    }
+    value.suite = input.suite;
+  }
+  if (input.limit !== undefined) {
+    if (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100) {
+      return { ok: false, reason: "limit must be an integer between 1 and 100" };
+    }
+    value.limit = input.limit;
+  } else {
+    value.limit = 50;
+  }
+  if (input.baselineWindow !== undefined) {
+    if (
+      !Number.isInteger(input.baselineWindow) ||
+      input.baselineWindow < 1 ||
+      input.baselineWindow > 20
+    ) {
+      return {
+        ok: false,
+        reason: "baselineWindow must be an integer between 1 and 20",
+      };
+    }
+    value.baselineWindow = input.baselineWindow;
   }
   return { ok: true, value };
 };

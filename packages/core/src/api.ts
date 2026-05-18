@@ -47,6 +47,8 @@ import type {
   TopologyRecommendation,
   Checkpoint,
   EvalRunDetailView,
+  EvalCostTrendFilters,
+  EvalCostTrendView,
   EvalRunListFilters,
   EvalRunListItem,
 } from "./types/index.ts";
@@ -304,6 +306,7 @@ export interface HarnessDesktopApi {
   evals: {
     listRuns(input?: EvalRunListFilters): Promise<EvalRunListItem[]>;
     getRun(input: { runId: string }): Promise<EvalRunDetailView>;
+    getCostTrend(input?: EvalCostTrendFilters): Promise<EvalCostTrendView>;
   };
   /**
    * AgentProfile CRUD. The renderer never touches plaintext secrets here —

@@ -10,4 +10,7 @@ export const registerEvalsIpc = (ctx: EvalsIpcContext): void => {
   ipcMain.handle(IPC_CHANNELS.evals.getRun, async (_event, input) =>
     handlers.getRun(input),
   );
+  ipcMain.handle(IPC_CHANNELS.evals.getCostTrend, async (_event, input) =>
+    handlers.getCostTrend(input ?? {}),
+  );
 };

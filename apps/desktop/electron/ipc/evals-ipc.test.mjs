@@ -67,3 +67,60 @@ test("buildEvalsHandlers returns not found for unknown eval runs", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.error.code, "EVAL_RUN_NOT_FOUND");
 });
+
+test("buildEvalsHandlers returns cost trend from eval run summaries", async () => {
+  const handlers = buildEvalsHandlers({
+    evalRuns: {
+      list: async (filters) => [
+        {
+          ...makeRecord("evrun_2"),
+          startedAt: "2026-05-18T01:01:00.000Z",
+          summary: {
+            ...makeRecord("evrun_2").summary,
+            mode: "fake",
+            cases: [
+              {
+                attempts: [
+                  { passed: true, tokens: 1500, durationMs: 1900 },
+                ],
+              },
+            ],
+          },
+          filters,
+        },
+        {
+          ...makeRecord("evrun_1"),
+          startedAt: "2026-05-18T01:00:00.000Z",
+          summary: {
+            ...makeRecord("evrun_1").summary,
+            mode: "fake",
+            cases: [
+              {
+                attempts: [
+                  { passed: true, tokens: 1000, durationMs: 1500 },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      get: async () => null,
+    },
+  });
+
+  const result = await handlers.getCostTrend({
+    suite: "capability",
+    limit: 20,
+    baselineWindow: 1,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(
+    result.value.points.map((point) => point.runId),
+    ["evrun_1", "evrun_2"],
+  );
+  assert.deepEqual(
+    result.value.warnings.map((warning) => warning.kind),
+    ["tokens_increase"],
+  );
+});

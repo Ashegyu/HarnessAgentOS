@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
+  EvalCostTrendView,
+  EvalCostTrendWarning,
   EvalRunCaseView,
   EvalRunDetailView,
   EvalRunListItem,
@@ -50,18 +52,42 @@ const runLabel = (run: EvalRunListItem): string =>
 const providerLabel = (caseView: EvalRunCaseView): string =>
   caseView.provider ?? "-";
 
+const warningLabel = (warning: EvalCostTrendWarning): string => {
+  if (warning.kind === "tokens_increase") {
+    return `Tokens ${formatTokens(warning.observed)} / baseline ${formatTokens(
+      warning.baseline,
+    )}`;
+  }
+  if (warning.kind === "duration_increase") {
+    return `Duration ${formatDuration(
+      warning.observed,
+    )} / baseline ${formatDuration(warning.baseline)}`;
+  }
+  return `Pass rate ${formatPercent(warning.observed)} / baseline ${formatPercent(
+    warning.baseline,
+  )}`;
+};
+
 export const EvalsTab = (): JSX.Element => {
   const [runsState, setRunsState] = useState<RunsState>({ kind: "loading" });
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [detail, setDetail] = useState<EvalRunDetailView | null>(null);
+  const [trend, setTrend] = useState<EvalCostTrendView | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const loadRuns = useCallback(async () => {
     setRunsState({ kind: "loading" });
     try {
-      const runs = await window.harness.evals.listRuns({ limit: 50 });
+      const [runs, trendView] = await Promise.all([
+        window.harness.evals.listRuns({ limit: 50 }),
+        window.harness.evals.getCostTrend({
+          limit: 50,
+          baselineWindow: 5,
+        }),
+      ]);
       setRunsState({ kind: "ready", runs });
+      setTrend(trendView);
       setSelectedRunId((current) =>
         current && runs.some((run) => run.id === current)
           ? current
@@ -69,6 +95,7 @@ export const EvalsTab = (): JSX.Element => {
       );
     } catch (error) {
       setRunsState({ kind: "error", message: errorMessage(error) });
+      setTrend(null);
       setSelectedRunId(null);
     }
   }, []);
@@ -106,6 +133,10 @@ export const EvalsTab = (): JSX.Element => {
       cancelled = true;
     };
   }, [selectedRunId]);
+
+  const trendMaxTokens = trend
+    ? Math.max(1, ...trend.points.map((point) => point.totalTokens))
+    : 1;
 
   return (
     <div className="evals-tab">
@@ -187,6 +218,45 @@ export const EvalsTab = (): JSX.Element => {
                 {detail.run.status}
               </span>
             </header>
+
+            {trend && trend.points.length > 0 && (
+              <section className="evals-tab__trend" aria-label="Token trend">
+                <header className="evals-tab__trend-header">
+                  <div>
+                    <h4>Token trend</h4>
+                    <span>{trend.points.length} runs · cost proxy</span>
+                  </div>
+                  <span>{trend.warnings.length} warnings</span>
+                </header>
+                <div className="evals-tab__trend-bars" aria-hidden="true">
+                  {trend.points.slice(-12).map((point) => {
+                    const height = Math.max(
+                      8,
+                      Math.round((point.totalTokens / trendMaxTokens) * 52),
+                    );
+                    return (
+                      <span
+                        key={point.runId}
+                        className="evals-tab__trend-bar"
+                        style={{ height }}
+                        title={`${formatTimestamp(point.startedAt)} · ${formatTokens(
+                          point.totalTokens,
+                        )} tokens`}
+                      />
+                    );
+                  })}
+                </div>
+                {trend.warnings.length > 0 && (
+                  <ul className="evals-tab__trend-warnings">
+                    {trend.warnings.map((warning) => (
+                      <li key={`${warning.kind}:${warning.runId}`}>
+                        {warningLabel(warning)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
 
             <dl className="evals-tab__metrics">
               <div>

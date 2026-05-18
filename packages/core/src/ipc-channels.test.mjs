@@ -41,11 +41,13 @@ test("declared namespaces match the phases shipped so far", () => {
 
 test("evals namespace exposes read-only viewer verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.evals).sort(), [
+    "getCostTrend",
     "getRun",
     "listRuns",
   ]);
   assert.equal(isAllowedChannel("evals:listRuns"), true);
   assert.equal(isAllowedChannel("evals:getRun"), true);
+  assert.equal(isAllowedChannel("evals:getCostTrend"), true);
   assert.equal(isAllowedChannel("evals:deleteRun"), false);
 });
 

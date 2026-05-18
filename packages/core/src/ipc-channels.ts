@@ -153,6 +153,7 @@ export const IPC_CHANNELS = {
   evals: {
     listRuns: "evals:listRuns",
     getRun: "evals:getRun",
+    getCostTrend: "evals:getCostTrend",
   },
   events: {
     /**

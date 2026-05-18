@@ -1,5 +1,12 @@
 export type EvalRunSuite = "capability" | "regression" | "safety" | "all";
 export type EvalRunStatus = "running" | "passed" | "failed" | "partial";
+export type EvalRunMode =
+  | "fake"
+  | "real"
+  | "head_to_head"
+  | "judge"
+  | "production_latency"
+  | "unknown";
 
 export interface EvalRunListFilters {
   readonly suite?: EvalRunSuite;
@@ -40,4 +47,41 @@ export interface EvalRunCaseView {
 export interface EvalRunDetailView {
   readonly run: EvalRunListItem;
   readonly cases: ReadonlyArray<EvalRunCaseView>;
+}
+
+export interface EvalCostTrendFilters {
+  readonly suite?: EvalRunSuite;
+  readonly limit?: number;
+  readonly baselineWindow?: number;
+}
+
+export interface EvalCostTrendPoint {
+  readonly runId: string;
+  readonly startedAt: string;
+  readonly suite: EvalRunSuite;
+  readonly mode: EvalRunMode;
+  readonly totalTokens: number;
+  readonly totalDurationMs: number;
+  readonly passRate: number;
+  readonly estimatedCostUsd?: number;
+}
+
+export type EvalCostTrendWarningKind =
+  | "tokens_increase"
+  | "duration_increase"
+  | "pass_rate_drop";
+
+export interface EvalCostTrendWarning {
+  readonly kind: EvalCostTrendWarningKind;
+  readonly runId: string;
+  readonly observed: number;
+  readonly baseline: number;
+  readonly threshold: number;
+  readonly message: string;
+}
+
+export interface EvalCostTrendView {
+  readonly points: ReadonlyArray<EvalCostTrendPoint>;
+  readonly warnings: ReadonlyArray<EvalCostTrendWarning>;
+  readonly baselineRunCount: number;
 }

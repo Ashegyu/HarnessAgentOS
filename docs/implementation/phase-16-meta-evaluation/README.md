@@ -1,6 +1,6 @@
 # 메타 평가 시스템 (Meta Evaluation) — 구현 계획서
 
-> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · v1.5a real CLI smoke 완료 · v1.5b eval performance summary 완료 · Phase 7.1~7.4a v2 provider/LLM judge/viewer 기반 완료
+> **상태**: v1 완료 (Phase 0~5 구현/커밋 완료) · v1.5a real CLI smoke 완료 · v1.5b eval performance summary 완료 · Phase 7.1~7.5 v2 provider/LLM judge/viewer/trend 기반 완료
 > **작성**: 2026-05-17
 > **대상**: HarnessAgentOS의 회귀·품질·안전성을 측정하는 자체 평가 시스템 구축
 
@@ -114,10 +114,10 @@ v1.5b는 기존 markdown eval report에 attempt-level Performance Summary와 cur
 npm run eval:perf
 ```
 
-Phase 7.1은 v2 계약(`providers`, provider-aware result, trend/latency DTO)을 추가했고, Phase 7.2는 provider head-to-head 기본 실행과 report 비교표를 추가했다. Phase 7.3은 `llm_judge` grader schema, JSON judge output parser, fake calibration 테스트, CaseRunner opt-in 실행 경로를 추가했다. Phase 7.4a는 renderer가 DB/file/process에 직접 접근하지 않는 read-only eval viewer IPC와 Settings `Evals` 탭의 최근 run/detail 조회를 추가했다. `npm run eval`과 `npm run eval:smoke`는 기존 경로를 유지한다. provider 비교는 다음 명령으로 명시적으로 실행한다:
+Phase 7.1은 v2 계약(`providers`, provider-aware result, trend/latency DTO)을 추가했고, Phase 7.2는 provider head-to-head 기본 실행과 report 비교표를 추가했다. Phase 7.3은 `llm_judge` grader schema, JSON judge output parser, fake calibration 테스트, CaseRunner opt-in 실행 경로를 추가했다. Phase 7.4a는 renderer가 DB/file/process에 직접 접근하지 않는 read-only eval viewer IPC와 Settings `Evals` 탭의 최근 run/detail 조회를 추가했다. Phase 7.5는 최근 run의 token/duration/pass rate trend와 baseline warning을 summary_json 기반으로 계산하고 viewer에 token trend를 표시한다. `npm run eval`과 `npm run eval:smoke`는 기존 경로를 유지한다. provider 비교는 다음 명령으로 명시적으로 실행한다:
 
 ```bash
 npm run eval:providers
 ```
 
-LLM judge는 `--llm-judge` 또는 `EVAL_LLM_JUDGE=1`이 있을 때만 활성화된다. viewer의 attempt artifact drill-down, run-to-run 비교, 장기간 cost trend, 실제 production workload p95/p99 latency는 아직 구현하지 않았고 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)의 후속 단계로 남긴다.
+LLM judge는 `--llm-judge` 또는 `EVAL_LLM_JUDGE=1`이 있을 때만 활성화된다. viewer의 attempt artifact drill-down, run-to-run 비교, USD pricing 기반 cost chart, 실제 production workload p95/p99 latency는 아직 구현하지 않았고 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)의 후속 단계로 남긴다.

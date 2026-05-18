@@ -11,6 +11,7 @@ export * from "./performance-summary.ts";
 export * from "./adapter-factory.ts";
 export * from "./cli-options.ts";
 export * from "./cost-tracker.ts";
+export * from "./cost-trend.ts";
 export * from "./orchestrator.ts";
 export * from "./report-template.ts";
 export * from "./reporter.ts";
