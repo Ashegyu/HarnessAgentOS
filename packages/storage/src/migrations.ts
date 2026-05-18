@@ -30,6 +30,12 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE approvals ADD COLUMN policy_evaluation_json TEXT`);
     }
 
+    // v23 — nullable per-profile budget caps. Stored separately from
+    // permissions_json so old profile rows remain valid and empty caps stay NULL.
+    if (!hasColumn(db, "agent_profiles", "budget_json")) {
+      db.exec(`ALTER TABLE agent_profiles ADD COLUMN budget_json TEXT`);
+    }
+
     // v5 — agent_session_id on threads. Stores the Claude CLI session
     // UUID so subsequent TaskRuns in the same thread can `--resume` the
     // conversation instead of starting cold.
@@ -144,6 +150,7 @@ const rebuildAgentProfiles = (db: DatabaseType): void => {
     tuning_json TEXT NOT NULL,
     cli_json TEXT NOT NULL,
     permissions_json TEXT NOT NULL,
+    budget_json TEXT,
     mcp_server_ids_json TEXT NOT NULL DEFAULT '[]',
     skill_source_ids_json TEXT NOT NULL DEFAULT '[]',
     is_default INTEGER NOT NULL DEFAULT 0,
@@ -152,12 +159,12 @@ const rebuildAgentProfiles = (db: DatabaseType): void => {
   )`);
   db.exec(`INSERT INTO agent_profiles (
       id,name,description,category,tags_json,provider,role,persona,
-      tuning_json,cli_json,permissions_json,mcp_server_ids_json,
+      tuning_json,cli_json,permissions_json,budget_json,mcp_server_ids_json,
       skill_source_ids_json,is_default,created_at,updated_at
     )
     SELECT
       id,name,description,category,tags_json,provider,role,persona,
-      tuning_json,cli_json,permissions_json,mcp_server_ids_json,
+      tuning_json,cli_json,permissions_json,budget_json,mcp_server_ids_json,
       skill_source_ids_json,is_default,created_at,updated_at
     FROM agent_profiles_migration_old`);
   db.exec(`DROP TABLE agent_profiles_migration_old`);

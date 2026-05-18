@@ -29,6 +29,7 @@ export type EffortHint = "low" | "medium" | "high";
 export interface LearnerRecommendation {
   id: string;
   recommendedModel?: string;
+  estimatedCostUsd?: number;
   recommendedCapabilities: CapabilitySuggestion[];
   rationale: string;
   costHint?: EffortHint;

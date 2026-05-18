@@ -12,6 +12,13 @@ export interface ModelStat {
   sampleCount: number;
 }
 
+export interface ModelRecommendation {
+  model?: string;
+  rationale: string;
+  confidence: number;
+  estimatedCostUsd?: number;
+}
+
 export const summarizeModelPerformance = (
   traces: LearningTrace[],
 ): ModelStat[] => {
@@ -37,7 +44,7 @@ export const summarizeModelPerformance = (
 
 export const recommendModel = (
   traces: LearningTrace[],
-): { model?: string; rationale: string; confidence: number } => {
+): ModelRecommendation => {
   const stats = summarizeModelPerformance(traces);
   if (stats.length === 0) {
     return {
@@ -47,9 +54,23 @@ export const recommendModel = (
   }
   const best = stats[0]!;
   const confidence = Math.min(1, 0.3 + best.sampleCount * 0.1);
+  const estimatedCostUsd = estimateAverageCostUsd(traces, best.model);
   return {
     model: best.model,
     rationale: `Highest avg reward ${best.averageReward.toFixed(2)} over ${best.sampleCount} run(s).`,
     confidence,
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
   };
+};
+
+const estimateAverageCostUsd = (
+  traces: LearningTrace[],
+  model: string,
+): number | undefined => {
+  const costs = traces
+    .filter((t) => t.selectedModel === model)
+    .map((t) => t.costEstimate)
+    .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  if (costs.length === 0) return undefined;
+  return costs.reduce((a, b) => a + b, 0) / costs.length;
 };

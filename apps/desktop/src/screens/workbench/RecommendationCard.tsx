@@ -100,6 +100,11 @@ export const RecommendationCard = ({
       {recommendation.recommendedModel ? (
         <p className="recommendation-card__row">
           추천 모델: <strong>{recommendation.recommendedModel}</strong>{" "}
+          {typeof recommendation.estimatedCostUsd === "number" ? (
+            <span className="muted">
+              예상 비용 ${recommendation.estimatedCostUsd.toFixed(2)}
+            </span>
+          ) : null}{" "}
           <span className={`status-badge ${statusClass(modelStatus)}`}>
             {statusLabel(modelStatus)}
           </span>

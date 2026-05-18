@@ -12,6 +12,7 @@ import type {
   A2ARemoteTaskRef,
   A2ARegistryEntry,
   Artifact,
+  BudgetUsageSnapshot,
   Capability,
   CapabilityCandidateApprovalResult,
   CapabilitySuggestion,
@@ -77,6 +78,8 @@ export interface TaskRunDetail {
   agentInvocations: AgentInvocation[];
   /** Remote A2A task refs keyed by AgentInvocation.id, newest detail pull. */
   a2aRemoteTaskRefs: A2ARemoteTaskRef[];
+  /** Current persisted spend totals used by the renderer auto-approve gate. */
+  budgetUsage?: BudgetUsageSnapshot;
 }
 
 export interface RunnerResultPayload {

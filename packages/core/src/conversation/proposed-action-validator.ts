@@ -211,6 +211,7 @@ const validateModelUse = (
   const reason = modelUse.reason;
   const recommendationId = modelUse.recommendationId;
   const confidence = modelUse.confidence;
+  const estimatedCostUsd = modelUse.estimatedCostUsd;
   if (typeof model !== "string" || model.trim().length === 0) {
     return { ok: false, reason: "modelUse.model must be a non-empty string" };
   }
@@ -229,16 +230,29 @@ const validateModelUse = (
   if (typeof confidence !== "number") {
     return { ok: false, reason: "modelUse.confidence must be a number" };
   }
+  if (
+    estimatedCostUsd !== undefined &&
+    (typeof estimatedCostUsd !== "number" ||
+      !Number.isFinite(estimatedCostUsd) ||
+      estimatedCostUsd < 0)
+  ) {
+    return {
+      ok: false,
+      reason: "modelUse.estimatedCostUsd must be a non-negative number",
+    };
+  }
+  const normalized = {
+    model: model.trim(),
+    reason: reason.trim(),
+    recommendationId: recommendationId.trim(),
+    confidence,
+    ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+  };
   return {
     ok: true,
     details: {
       type: "model_use",
-      modelUse: {
-        model: model.trim(),
-        reason: reason.trim(),
-        recommendationId: recommendationId.trim(),
-        confidence,
-      },
+      modelUse: normalized,
     },
   };
 };

@@ -644,6 +644,58 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               </table>
             </fieldset>
 
+            <fieldset className="settings-fieldset">
+              <legend>비용 한도</legend>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  단일 호출 한도 (USD)
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="settings-field__input"
+                  value={draft.perInvocationUsdText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("perInvocationUsdText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  TaskRun 누적 한도 (USD)
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="settings-field__input"
+                  value={draft.perTaskRunUsdText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("perTaskRunUsdText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  일일 누적 한도 (USD)
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="settings-field__input"
+                  value={draft.perDayUsdText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("perDayUsdText", e.target.value)
+                  }
+                />
+              </label>
+            </fieldset>
+
             {validationErrors.length > 0 && (
               <div
                 className="agent-profiles-tab__errors"

@@ -308,13 +308,30 @@ export const registerConversationIpc = (
             ),
           );
         }
-        const [steps, approvals, artifacts, checkpoints, agentInvocations] =
+        const usageIsoDate = new Date().toISOString().slice(0, 10);
+        const settings = await state.getSettings();
+        const [
+          steps,
+          approvals,
+          artifacts,
+          checkpoints,
+          agentInvocations,
+          accumulatedTaskRunCostUsd,
+          accumulatedDailyCostUsd,
+        ] =
           await Promise.all([
             state.listStepsByTaskRun(cast.taskRunId),
             state.listApprovalsByTaskRun(cast.taskRunId),
             state.listArtifactsByTaskRun(cast.taskRunId),
             state.listCheckpointsByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
+            state.sumLearningTraceCostByTaskRun(cast.taskRunId),
+            state.sumLearningTraceCostByDay({
+              ...(settings.activeAgentProfileId
+                ? { profileId: settings.activeAgentProfileId }
+                : {}),
+              isoDate: usageIsoDate,
+            }),
           ]);
         const a2aRemoteTaskRefs = (
           await Promise.all(
@@ -331,6 +348,11 @@ export const registerConversationIpc = (
           checkpoints,
           agentInvocations,
           a2aRemoteTaskRefs,
+          budgetUsage: {
+            accumulatedTaskRunCostUsd,
+            accumulatedDailyCostUsd,
+            isoDate: usageIsoDate,
+          },
         });
       } catch (e) {
         return mapServiceError<TaskRunDetail>(e);

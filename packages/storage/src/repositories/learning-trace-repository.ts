@@ -11,6 +11,11 @@ export interface LearningTraceRepository {
   getByTaskRun(taskRunId: string): Promise<LearningTrace | null>;
   /** Most recent first (by createdAt desc). */
   list(): Promise<LearningTrace[]>;
+  sumCostByTaskRun(taskRunId: string): Promise<number>;
+  sumCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number>;
 }
 
 interface LearningTraceRow {
@@ -152,5 +157,32 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
       )
       .all() as LearningTraceRow[];
     return rows.map(rowToTrace);
+  }
+
+  async sumCostByTaskRun(taskRunId: string): Promise<number> {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(cost_estimate), 0) AS total
+         FROM learning_traces
+         WHERE task_run_id = ? AND cost_estimate IS NOT NULL`,
+      )
+      .get(taskRunId) as { total: number } | undefined;
+    return row?.total ?? 0;
+  }
+
+  async sumCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number> {
+    void input.profileId;
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(cost_estimate), 0) AS total
+         FROM learning_traces
+         WHERE substr(created_at, 1, 10) = ?
+           AND cost_estimate IS NOT NULL`,
+      )
+      .get(input.isoDate) as { total: number } | undefined;
+    return row?.total ?? 0;
   }
 }

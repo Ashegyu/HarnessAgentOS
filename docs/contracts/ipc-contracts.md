@@ -62,6 +62,15 @@ export interface PolicyEvaluation {
   riskLevel: "low" | "medium" | "high" | "blocked";
   allowAutoApprove: boolean;
   reason: string;
+  costEstimateUsd?: number;
+  budgetDecision?: {
+    kind: "allow" | "blocked";
+    reason?: string;
+    scope?: "per_invocation" | "per_task_run" | "per_day";
+    costEstimateUsd?: number;
+    accumulatedCostUsd?: number;
+    limitUsd?: number;
+  };
 }
 
 export interface TaskRun {
@@ -348,6 +357,15 @@ interface TaskRunDetail {
    * fresh-detail pull so the renderer does not poll remote state separately.
    */
   a2aRemoteTaskRefs: A2ARemoteTaskRef[];
+  /**
+   * Persisted spend totals used by renderer-side auto-approve budget gates.
+   * Empty or missing means callers should treat both totals as zero.
+   */
+  budgetUsage?: {
+    accumulatedTaskRunCostUsd: number;
+    accumulatedDailyCostUsd: number;
+    isoDate: string;
+  };
 }
 ```
 
@@ -515,6 +533,7 @@ capability.proposeScriptRun(input: { capabilityId: string; taskRunId: string; sc
 interface LearnerRecommendation {
   id: string;
   recommendedModel?: string;
+  estimatedCostUsd?: number;
   recommendedCapabilities: CapabilitySuggestion[];
   rationale: string;
   costHint?: "low" | "medium" | "high";
@@ -989,6 +1008,7 @@ agents.setActive(input: { profileId: string | null }): Promise<HarnessSettings>;
 - `setDefault`는 exactly-one default profile 규칙을 유지한다.
 - `setActive(null)`은 active profile override를 해제하고 default profile fallback으로 돌아간다.
 - profile permissions는 approval UI 자동화보다 우선하는 block/allow context로 사용된다.
+- profile permissions의 optional `budget`은 per-invocation / per-TaskRun / per-day USD 자동 승인 상한으로 사용된다. `agent_profiles.budget_json`이 NULL이면 무제한이다.
 
 ## `window.harness.mcp`
 

@@ -37,6 +37,11 @@ const SAMPLE_PROFILE = {
     allowedSkillIds: [],
     toolAllowlist: [],
     toolDenylist: [],
+    budget: {
+      perInvocationUsd: 0.05,
+      perTaskRunUsd: 0.25,
+      perDayUsd: 1,
+    },
   },
   mcpServerIds: [],
   skillSourceIds: [],
@@ -98,6 +103,9 @@ test("draftFromProfile populates permissionMap from auto/block lists", () => {
   assert.equal(d.systemPromptPrefix, "PREFIX");
   assert.equal(d.category, "security");
   assert.equal(d.tagsText, "review, security, review");
+  assert.equal(d.perInvocationUsdText, "0.05");
+  assert.equal(d.perTaskRunUsdText, "0.25");
+  assert.equal(d.perDayUsdText, "1");
 });
 
 test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
@@ -114,6 +122,11 @@ test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
   assert.equal(out.tuning.systemPromptPrefix, "PREFIX");
   assert.deepEqual(out.permissions.autoApproveActions, ["file_write"]);
   assert.deepEqual(out.permissions.blockedActions, ["git_commit"]);
+  assert.deepEqual(out.permissions.budget, {
+    perInvocationUsd: 0.05,
+    perTaskRunUsd: 0.25,
+    perDayUsd: 1,
+  });
   assert.equal(out.cli.cliPathOverride, "/usr/local/bin/claude");
   assert.equal(out.isDefault, true);
 });
@@ -125,6 +138,22 @@ test("serializeDraft omits temperature/maxTokens when their text is empty", () =
   const out = serializeDraft(d);
   assert.equal(out.tuning.temperature, undefined);
   assert.equal(out.tuning.maxTokens, undefined);
+});
+
+test("validateDraft rejects malformed optional budget fields", () => {
+  const d = emptyDraft();
+  d.name = "X";
+  d.perInvocationUsdText = "abc";
+  const errors = validateDraft(d);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "perInvocationUsdText");
+});
+
+test("serializeDraft omits budget when all budget fields are empty", () => {
+  const d = emptyDraft();
+  d.name = "No budget";
+  const out = serializeDraft(d);
+  assert.equal(out.permissions.budget, undefined);
 });
 
 test("serializeDraft handles a brand-new draft (id stays placeholder)", () => {

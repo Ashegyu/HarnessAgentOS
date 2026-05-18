@@ -1,6 +1,7 @@
 import type { AgentPermissions } from "../types/agent-profile.ts";
 import type { Approval } from "../types/approval.ts";
 import type { Checkpoint } from "../types/checkpoint.ts";
+import { evaluateBudget } from "./budget-policy.ts";
 
 /**
  * Stable surface for the renderer-side auto-approver. Only the fields the
@@ -10,7 +11,7 @@ import type { Checkpoint } from "../types/checkpoint.ts";
 export interface AutoApproveActiveProfile {
   permissions: Pick<
     AgentPermissions,
-    "autoApproveActions" | "blockedActions"
+    "autoApproveActions" | "blockedActions" | "budget"
   >;
 }
 
@@ -18,6 +19,8 @@ export interface ShouldAutoApproveInput {
   approval: Pick<Approval, "actionType" | "policyEvaluation">;
   globalAutoApprove: boolean;
   activeProfile: AutoApproveActiveProfile | null;
+  accumulatedTaskRunCostUsd?: number;
+  accumulatedDailyCostUsd?: number;
   workerFileActionAutoApprove?: boolean;
   isWorkerFileAction?: boolean;
 }
@@ -47,10 +50,11 @@ export const isWorkerFileActionApproval = (input: {
  *
  *   1. If the active profile blocks the action type → false (block wins).
  *   2. If service-layer policy blocked the operation → false.
- *   3. If the active profile explicitly auto-approves the action → true.
- *   4. If service-layer policy disallows auto-approve → false.
- *   5. If narrow worker-file automation applies → true.
- *   6. Otherwise fall back to the global `approval.autoApprove` toggle.
+ *   3. If profile budget caps would be exceeded → false.
+ *   4. If the active profile explicitly auto-approves the action → true.
+ *   5. If service-layer policy disallows auto-approve → false.
+ *   6. If narrow worker-file automation applies → true.
+ *   7. Otherwise fall back to the global `approval.autoApprove` toggle.
  *
  * The block list takes priority over both per-profile auto-approve and
  * the global toggle so a "trust everything" boot can't bypass an
@@ -62,6 +66,13 @@ export const shouldAutoApprove = (input: ShouldAutoApproveInput): boolean => {
   const perms = activeProfile?.permissions;
   if (perms?.blockedActions.includes(approval.actionType)) return false;
   if (approval.policyEvaluation?.decision === "blocked") return false;
+  const budgetDecision = evaluateBudget({
+    approval,
+    profile: activeProfile,
+    accumulatedTaskRunCostUsd: input.accumulatedTaskRunCostUsd,
+    accumulatedDailyCostUsd: input.accumulatedDailyCostUsd,
+  });
+  if (budgetDecision.kind === "blocked") return false;
   if (perms?.autoApproveActions.includes(approval.actionType)) return true;
   if (approval.policyEvaluation?.allowAutoApprove === false) return false;
   if (

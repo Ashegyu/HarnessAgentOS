@@ -52,6 +52,7 @@ test("v7 migration creates agent_profiles with the expected columns", () => {
       "tuning_json",
       "cli_json",
       "permissions_json",
+      "budget_json",
       "mcp_server_ids_json",
       "skill_source_ids_json",
       "is_default",
@@ -69,6 +70,32 @@ test("v7 migration creates agent_profiles with the expected columns", () => {
       true,
       "partial unique index on is_default must exist",
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v23 migration adds nullable budget_json to agent_profiles", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "agent_profiles", "budget_json"),
+      true,
+      "agent_profiles.budget_json must exist",
+    );
+    db.prepare(
+      `INSERT INTO agent_profiles
+        (id,name,description,provider,role,persona,tuning_json,cli_json,
+         permissions_json,mcp_server_ids_json,skill_source_ids_json,
+         is_default,created_at,updated_at)
+       VALUES (?,?,'','claude','coder','','{}','{}','{}','[]','[]',0,?,?)`,
+    ).run("ap_budget_null", "Budget Null", "2026-05-18T00:00:00.000Z", "2026-05-18T00:00:00.000Z");
+    const row = db
+      .prepare(`SELECT budget_json FROM agent_profiles WHERE id = ?`)
+      .get("ap_budget_null");
+    assert.equal(row.budget_json, null);
   } finally {
     closeDb(db);
     t.cleanup();

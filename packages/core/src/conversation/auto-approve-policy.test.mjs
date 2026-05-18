@@ -125,6 +125,36 @@ test("shouldAutoApprove honors profile.permissions.autoApproveActions even when 
   assert.equal(r, true);
 });
 
+test("shouldAutoApprove blocks budget overruns before profile auto approval", () => {
+  const r = shouldAutoApprove({
+    approval: {
+      ...makeApproval("model_use"),
+      policyEvaluation: {
+        operation: { kind: "approval_action", actionType: "model_use" },
+        decision: "confirm",
+        riskLevel: "medium",
+        allowAutoApprove: true,
+        reason: "model selection",
+        costEstimateUsd: 0.2,
+      },
+    },
+    globalAutoApprove: false,
+    accumulatedTaskRunCostUsd: 0,
+    accumulatedDailyCostUsd: 0,
+    activeProfile: {
+      permissions: {
+        autoApproveActions: ["model_use"],
+        blockedActions: [],
+        allowedSkillIds: [],
+        toolAllowlist: [],
+        toolDenylist: [],
+        budget: { perInvocationUsd: 0.1 },
+      },
+    },
+  });
+  assert.equal(r, false);
+});
+
 test("shouldAutoApprove still rejects action types that aren't on the profile whitelist", () => {
   const r = shouldAutoApprove({
     approval: makeApproval("shell"),

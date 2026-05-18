@@ -58,6 +58,7 @@ export interface ProposedModelUse {
   reason: string;
   recommendationId: string;
   confidence: number;
+  estimatedCostUsd?: number;
 }
 
 /**

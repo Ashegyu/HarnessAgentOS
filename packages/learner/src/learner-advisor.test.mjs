@@ -109,6 +109,7 @@ test("recommend ranks capabilities by trigger overlap and trace history", async 
     assert.ok(rec.recommendedCapabilities.length >= 1);
     assert.equal(rec.recommendedCapabilities[0].capability.id, "cap_refactor");
     assert.equal(rec.recommendedModel, "claude-sonnet-4-6");
+    assert.equal(rec.estimatedCostUsd, 0.02);
     assert.equal(rec.costHint, "low");
     assert.equal(rec.latencyHint, "low");
     assert.ok(rec.confidence > 0.2);
@@ -178,6 +179,7 @@ test("proposeRecommendationApprovals creates model_use and capability_use approv
         evidenceArtifactIds: [],
         createdAt: "2024-01-01T00:00:00Z",
       },
+      costEstimate: 0.07,
       success: true,
     });
 
@@ -197,6 +199,16 @@ test("proposeRecommendationApprovals creates model_use and capability_use approv
       first.approvals.find((a) => a.actionType === "model_use")
         .proposedAction.modelUse.model,
       "gpt-5.5",
+    );
+    assert.equal(
+      first.approvals.find((a) => a.actionType === "model_use")
+        .proposedAction.modelUse.estimatedCostUsd,
+      0.07,
+    );
+    assert.equal(
+      first.approvals.find((a) => a.actionType === "model_use")
+        .policyEvaluation.costEstimateUsd,
+      0.07,
     );
     assert.match(
       first.approvals.find((a) => a.actionType === "capability_use")

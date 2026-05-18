@@ -9,7 +9,11 @@ import type {
   ThreadDetail,
   TaskRunDetail,
 } from "@harness/core";
-import { isWorkerFileActionApproval, shouldAutoApprove } from "@harness/core";
+import {
+  evaluateBudget,
+  isWorkerFileActionApproval,
+  shouldAutoApprove,
+} from "@harness/core";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
 import type { ConversationMode } from "./ConversationInput";
@@ -479,11 +483,21 @@ export const WorkbenchShell = (): JSX.Element => {
     );
     const blockedActions =
       activeAgentProfile?.permissions.blockedActions ?? [];
+    const budgetUsage = taskRunDetail.detail.budgetUsage;
     const isWorkerFileAction = (approval: Approval): boolean =>
       isWorkerFileActionApproval({
         approval,
         checkpoints: taskRunDetail.detail.checkpoints,
       });
+    const isBudgetBlocked = (approval: Approval): boolean =>
+      evaluateBudget({
+        approval,
+        profile: activeAgentProfile,
+        accumulatedTaskRunCostUsd:
+          budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
+        accumulatedDailyCostUsd:
+          budgetUsage?.accumulatedDailyCostUsd ?? 0,
+      }).kind === "blocked";
     const autoApproveMessage = (approval: Approval): string => {
       if (isPipelineAutoTask) return "auto-approved (pipeline task)";
       if (
@@ -500,11 +514,16 @@ export const WorkbenchShell = (): JSX.Element => {
         if (inFlight.has(a.id)) return false;
         // Block list trumps every auto-approve trigger.
         if (blockedActions.includes(a.actionType)) return false;
+        if (isBudgetBlocked(a)) return false;
         if (isPipelineAutoTask) return true;
         return shouldAutoApprove({
           approval: a,
           globalAutoApprove: autoApprove,
           activeProfile: activeAgentProfile,
+          accumulatedTaskRunCostUsd:
+            budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
+          accumulatedDailyCostUsd:
+            budgetUsage?.accumulatedDailyCostUsd ?? 0,
           workerFileActionAutoApprove: autoExecuteWorkerFileActions,
           isWorkerFileAction: isWorkerFileAction(a),
         });

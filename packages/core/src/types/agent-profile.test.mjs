@@ -74,6 +74,40 @@ test("isAgentPermissions rejects unknown action type", () => {
   );
 });
 
+test("isAgentPermissions accepts optional budget caps", () => {
+  assert.equal(
+    isAgentPermissions({
+      autoApproveActions: ["model_use"],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+      budget: {
+        perInvocationUsd: 0.05,
+        perTaskRunUsd: 0.25,
+        perDayUsd: 1,
+      },
+    }),
+    true,
+  );
+});
+
+test("isAgentPermissions rejects malformed budget caps", () => {
+  assert.equal(
+    isAgentPermissions({
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+      budget: {
+        perInvocationUsd: "0.05",
+      },
+    }),
+    false,
+  );
+});
+
 test("isAgentCliEnv accepts empty env maps", () => {
   assert.equal(
     isAgentCliEnv({ cliPathOverride: "", env: {}, envSecretRefs: {} }),

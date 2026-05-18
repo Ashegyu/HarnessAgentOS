@@ -40,6 +40,9 @@ export interface ProfileDraft {
   systemPromptSuffix: string;
   /** Per action type: "default" (follow global), "auto", "block". */
   permissionMap: Record<ApprovalActionType, PermissionMode>;
+  perInvocationUsdText: string;
+  perTaskRunUsdText: string;
+  perDayUsdText: string;
   cliPathOverride: string;
   isDefault: boolean;
 }
@@ -98,6 +101,9 @@ export const emptyDraft = (): ProfileDraft => ({
   systemPromptPrefix: "",
   systemPromptSuffix: "",
   permissionMap: blankPermissionMap(),
+  perInvocationUsdText: "",
+  perTaskRunUsdText: "",
+  perDayUsdText: "",
   cliPathOverride: "",
   isDefault: false,
 });
@@ -120,6 +126,9 @@ export const draftFromProfile = (p: AgentProfile): ProfileDraft => ({
   systemPromptPrefix: p.tuning.systemPromptPrefix,
   systemPromptSuffix: p.tuning.systemPromptSuffix,
   permissionMap: permissionMapFromProfile(p.permissions),
+  perInvocationUsdText: numToText(p.permissions.budget?.perInvocationUsd),
+  perTaskRunUsdText: numToText(p.permissions.budget?.perTaskRunUsd),
+  perDayUsdText: numToText(p.permissions.budget?.perDayUsd),
   cliPathOverride: p.cli.cliPathOverride,
   isDefault: p.isDefault,
 });
@@ -178,6 +187,21 @@ export const validateDraft = (
       });
     }
   }
+  for (const [field, label] of [
+    ["perInvocationUsdText", "Per-invocation budget"],
+    ["perTaskRunUsdText", "Per-TaskRun budget"],
+    ["perDayUsdText", "Daily budget"],
+  ] as const) {
+    const raw = draft[field].trim();
+    if (raw.length === 0) continue;
+    const v = textToNumOrUndefined(raw);
+    if (v === undefined || v < 0) {
+      errors.push({
+        field,
+        message: `${label}은 0 이상의 숫자여야 합니다`,
+      });
+    }
+  }
   return errors;
 };
 
@@ -211,6 +235,15 @@ export const serializeDraft = (
     if (draft.permissionMap[t] === "auto") auto.push(t);
     else if (draft.permissionMap[t] === "block") block.push(t);
   }
+  const budget = budgetFromDraft(draft);
+  const permissions: AgentPermissions = {
+    autoApproveActions: auto,
+    blockedActions: block,
+    allowedSkillIds: [...DEFAULT_AGENT_PERMISSIONS.allowedSkillIds],
+    toolAllowlist: [...DEFAULT_AGENT_PERMISSIONS.toolAllowlist],
+    toolDenylist: [...DEFAULT_AGENT_PERMISSIONS.toolDenylist],
+    ...(budget ? { budget } : {}),
+  };
   return {
     // For new drafts the IPC layer ignores `id` and assigns one; for
     // existing drafts the id must carry through so update() finds the row.
@@ -228,17 +261,30 @@ export const serializeDraft = (
       env: {},
       envSecretRefs: {},
     },
-    permissions: {
-      autoApproveActions: auto,
-      blockedActions: block,
-      allowedSkillIds: [...DEFAULT_AGENT_PERMISSIONS.allowedSkillIds],
-      toolAllowlist: [...DEFAULT_AGENT_PERMISSIONS.toolAllowlist],
-      toolDenylist: [...DEFAULT_AGENT_PERMISSIONS.toolDenylist],
-    },
+    permissions,
     mcpServerIds: [],
     skillSourceIds: [],
     isDefault: draft.isDefault,
   };
+};
+
+const budgetFromDraft = (
+  draft: ProfileDraft,
+): AgentPermissions["budget"] | undefined => {
+  const budget: NonNullable<AgentPermissions["budget"]> = {};
+  const perInvocation = textToNumOrUndefined(draft.perInvocationUsdText);
+  const perTaskRun = textToNumOrUndefined(draft.perTaskRunUsdText);
+  const perDay = textToNumOrUndefined(draft.perDayUsdText);
+  if (draft.perInvocationUsdText.trim().length > 0 && perInvocation !== undefined) {
+    budget.perInvocationUsd = perInvocation;
+  }
+  if (draft.perTaskRunUsdText.trim().length > 0 && perTaskRun !== undefined) {
+    budget.perTaskRunUsd = perTaskRun;
+  }
+  if (draft.perDayUsdText.trim().length > 0 && perDay !== undefined) {
+    budget.perDayUsd = perDay;
+  }
+  return Object.keys(budget).length > 0 ? budget : undefined;
 };
 
 export const parseTags = (value: string): string[] => {

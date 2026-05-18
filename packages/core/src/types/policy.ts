@@ -2,6 +2,26 @@ import type { ApprovalActionType } from "./approval.ts";
 
 export type PolicyDecision = "allowed" | "confirm" | "blocked";
 
+export type BudgetDecisionScope =
+  | "per_invocation"
+  | "per_task_run"
+  | "per_day";
+
+export interface PolicyBudgetDecision {
+  kind: "allow" | "blocked";
+  reason?: string;
+  scope?: BudgetDecisionScope;
+  costEstimateUsd?: number;
+  accumulatedCostUsd?: number;
+  limitUsd?: number;
+}
+
+export interface BudgetUsageSnapshot {
+  accumulatedTaskRunCostUsd: number;
+  accumulatedDailyCostUsd: number;
+  isoDate: string;
+}
+
 export type PolicyOperation =
   | { kind: "approval_action"; actionType: ApprovalActionType }
   | { kind: "read_operation"; name: "read" | "list" | "inspect" }
@@ -14,6 +34,8 @@ export interface PolicyEvaluation {
   riskLevel: "low" | "medium" | "high" | "blocked";
   allowAutoApprove: boolean;
   reason: string;
+  costEstimateUsd?: number;
+  budgetDecision?: PolicyBudgetDecision;
 }
 
 export interface PolicyRule {

@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -225,6 +225,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     tuning_json TEXT NOT NULL,
     cli_json TEXT NOT NULL,
     permissions_json TEXT NOT NULL,
+    budget_json TEXT,
     mcp_server_ids_json TEXT NOT NULL DEFAULT '[]',
     skill_source_ids_json TEXT NOT NULL DEFAULT '[]',
     is_default INTEGER NOT NULL DEFAULT 0,

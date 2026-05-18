@@ -459,6 +459,17 @@ export class LocalStateService implements ConversationStateGateway {
     return this.learningTraces.list();
   }
 
+  async sumLearningTraceCostByTaskRun(taskRunId: string): Promise<number> {
+    return this.learningTraces.sumCostByTaskRun(taskRunId);
+  }
+
+  async sumLearningTraceCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number> {
+    return this.learningTraces.sumCostByDay(input);
+  }
+
   // -- Observation / Instinct (Agent Framework adoption Phase 2) ---------
 
   async createObservation(

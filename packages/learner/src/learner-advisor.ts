@@ -8,6 +8,7 @@ import {
   type LearnerRecommendation,
   type LearnerRecommendationApprovalResult,
   type LearningTrace,
+  evaluateApprovalActionPolicy,
 } from "@harness/core";
 
 export class LearnerAdvisorError extends Error {
@@ -97,6 +98,9 @@ export class LearnerAdvisor {
       confidence,
     };
     if (modelChoice.model) recommendation.recommendedModel = modelChoice.model;
+    if (modelChoice.estimatedCostUsd !== undefined) {
+      recommendation.estimatedCostUsd = modelChoice.estimatedCostUsd;
+    }
     if (costHint) recommendation.costHint = costHint;
     if (latencyHint) recommendation.latencyHint = latencyHint;
     return recommendation;
@@ -195,6 +199,7 @@ export class LearnerAdvisor {
           actionType: "model_use",
           actionSummary: `Learner 모델 추천 사용: ${model} — ${shorten(recommendation.rationale, 160)}`,
           status: "pending",
+          policyEvaluation: modelPolicyEvaluation(recommendation.estimatedCostUsd),
           proposedAction: {
             type: "model_use",
             modelUse: {
@@ -202,6 +207,9 @@ export class LearnerAdvisor {
               reason: recommendation.rationale,
               recommendationId: recommendation.id,
               confidence: recommendation.confidence,
+              ...(recommendation.estimatedCostUsd !== undefined
+                ? { estimatedCostUsd: recommendation.estimatedCostUsd }
+                : {}),
             },
           },
         });
@@ -376,3 +384,11 @@ const clamp = (n: number, min: number, max: number): number =>
 
 const shorten = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+
+const modelPolicyEvaluation = (estimatedCostUsd: number | undefined) => {
+  const policy = evaluateApprovalActionPolicy("model_use");
+  if (estimatedCostUsd !== undefined) {
+    policy.costEstimateUsd = estimatedCostUsd;
+  }
+  return policy;
+};

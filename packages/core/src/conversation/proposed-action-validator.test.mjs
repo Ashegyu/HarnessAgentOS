@@ -134,6 +134,7 @@ test("model_use accepts normalized learner model recommendation details", () => 
         reason: " Highest reward ",
         recommendationId: " rec_1 ",
         confidence: 0.74,
+        estimatedCostUsd: 0.03,
       },
       command: "ignored",
     },
@@ -146,6 +147,7 @@ test("model_use accepts normalized learner model recommendation details", () => 
     reason: "Highest reward",
     recommendationId: "rec_1",
     confidence: 0.74,
+    estimatedCostUsd: 0.03,
   });
   assert.equal(r.details.command, undefined);
 });

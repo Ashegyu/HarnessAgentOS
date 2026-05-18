@@ -1,5 +1,6 @@
 import type {
   AgentProfile,
+  AgentBudget,
   AgentPermissions,
   AgentCliEnv,
   AgentModelTuning,
@@ -48,6 +49,7 @@ interface ProfileRow {
   tuning_json: string;
   cli_json: string;
   permissions_json: string;
+  budget_json: string | null;
   mcp_server_ids_json: string;
   skill_source_ids_json: string;
   is_default: number;
@@ -55,27 +57,31 @@ interface ProfileRow {
   updated_at: string;
 }
 
-const rowToProfile = (row: ProfileRow): AgentProfile => ({
-  id: row.id,
-  name: row.name,
-  description: row.description,
-  category: row.category,
-  tags: JSON.parse(row.tags_json) as string[],
-  provider: row.provider as AgentProfile["provider"],
-  role: row.role as AgentProfile["role"],
-  persona: row.persona,
-  tuning: normalizeTuning(
-    JSON.parse(row.tuning_json) as AgentModelTuning,
-    row.provider as AgentProfile["provider"],
-  ),
-  cli: JSON.parse(row.cli_json) as AgentCliEnv,
-  permissions: JSON.parse(row.permissions_json) as AgentPermissions,
-  mcpServerIds: JSON.parse(row.mcp_server_ids_json) as string[],
-  skillSourceIds: JSON.parse(row.skill_source_ids_json) as string[],
-  isDefault: row.is_default === 1,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const rowToProfile = (row: ProfileRow): AgentProfile => {
+  const provider = row.provider as AgentProfile["provider"];
+  const permissions = normalizePermissions(
+    JSON.parse(row.permissions_json) as AgentPermissions,
+    parseBudget(row.budget_json),
+  );
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    tags: JSON.parse(row.tags_json) as string[],
+    provider,
+    role: row.role as AgentProfile["role"],
+    persona: row.persona,
+    tuning: normalizeTuning(JSON.parse(row.tuning_json) as AgentModelTuning, provider),
+    cli: JSON.parse(row.cli_json) as AgentCliEnv,
+    permissions,
+    mcpServerIds: JSON.parse(row.mcp_server_ids_json) as string[],
+    skillSourceIds: JSON.parse(row.skill_source_ids_json) as string[],
+    isDefault: row.is_default === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
 
 /**
  * Existing installations can carry historical profile-level timeouts
@@ -114,15 +120,58 @@ const normalizeTags = (tags: readonly string[]): string[] => {
   return normalized;
 };
 
+const normalizeBudget = (budget: AgentBudget | undefined): AgentBudget | undefined => {
+  if (!budget) return undefined;
+  const next: AgentBudget = {};
+  if (typeof budget.perInvocationUsd === "number" && Number.isFinite(budget.perInvocationUsd) && budget.perInvocationUsd >= 0) {
+    next.perInvocationUsd = budget.perInvocationUsd;
+  }
+  if (typeof budget.perTaskRunUsd === "number" && Number.isFinite(budget.perTaskRunUsd) && budget.perTaskRunUsd >= 0) {
+    next.perTaskRunUsd = budget.perTaskRunUsd;
+  }
+  if (typeof budget.perDayUsd === "number" && Number.isFinite(budget.perDayUsd) && budget.perDayUsd >= 0) {
+    next.perDayUsd = budget.perDayUsd;
+  }
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+const parseBudget = (json: string | null): AgentBudget | undefined => {
+  if (!json) return undefined;
+  try {
+    return normalizeBudget(JSON.parse(json) as AgentBudget);
+  } catch {
+    return undefined;
+  }
+};
+
+const stripBudget = (permissions: AgentPermissions): Omit<AgentPermissions, "budget"> => ({
+  autoApproveActions: permissions.autoApproveActions,
+  blockedActions: permissions.blockedActions,
+  allowedSkillIds: permissions.allowedSkillIds,
+  toolAllowlist: permissions.toolAllowlist,
+  toolDenylist: permissions.toolDenylist,
+});
+
+const normalizePermissions = (
+  permissions: AgentPermissions,
+  budgetOverride?: AgentBudget,
+): AgentPermissions => {
+  const budget = normalizeBudget(budgetOverride ?? permissions.budget);
+  return budget
+    ? { ...stripBudget(permissions), budget }
+    : stripBudget(permissions);
+};
+
 const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
   ...profile,
   category: profile.category.trim().toLowerCase() || "core",
   tags: normalizeTags(profile.tags),
   tuning: normalizeTuning(profile.tuning, profile.provider),
+  permissions: normalizePermissions(profile.permissions),
 });
 
 const SELECT = `SELECT id, name, description, category, tags_json, provider, role, persona,
-       tuning_json, cli_json, permissions_json,
+       tuning_json, cli_json, permissions_json, budget_json,
        mcp_server_ids_json, skill_source_ids_json,
        is_default, created_at, updated_at
   FROM agent_profiles`;
@@ -172,7 +221,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       .prepare(
         `UPDATE agent_profiles SET
            name = ?, description = ?, category = ?, tags_json = ?, provider = ?, role = ?, persona = ?,
-           tuning_json = ?, cli_json = ?, permissions_json = ?,
+           tuning_json = ?, cli_json = ?, permissions_json = ?, budget_json = ?,
            mcp_server_ids_json = ?, skill_source_ids_json = ?,
            is_default = ?, updated_at = ?
          WHERE id = ?`,
@@ -187,7 +236,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         updated.persona,
         JSON.stringify(updated.tuning),
         JSON.stringify(updated.cli),
-        JSON.stringify(updated.permissions),
+        JSON.stringify(stripBudget(updated.permissions)),
+        updated.permissions.budget ? JSON.stringify(updated.permissions.budget) : null,
         JSON.stringify(updated.mcpServerIds),
         JSON.stringify(updated.skillSourceIds),
         updated.isDefault ? 1 : 0,
@@ -554,10 +604,10 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       .prepare(
         `INSERT INTO agent_profiles
           (id, name, description, category, tags_json, provider, role, persona,
-           tuning_json, cli_json, permissions_json,
+           tuning_json, cli_json, permissions_json, budget_json,
            mcp_server_ids_json, skill_source_ids_json,
            is_default, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .run(
         p.id,
@@ -570,7 +620,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         p.persona,
         JSON.stringify(p.tuning),
         JSON.stringify(p.cli),
-        JSON.stringify(p.permissions),
+        JSON.stringify(stripBudget(p.permissions)),
+        p.permissions.budget ? JSON.stringify(p.permissions.budget) : null,
         JSON.stringify(p.mcpServerIds),
         JSON.stringify(p.skillSourceIds),
         p.isDefault ? 1 : 0,

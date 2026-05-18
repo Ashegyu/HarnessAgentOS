@@ -18,6 +18,15 @@ import { WORKER_ROLES, type WorkerRole } from "./orchestration.ts";
 export const AGENT_PROFILE_ACTION_TYPES: readonly ApprovalActionType[] =
   APPROVAL_ACTION_TYPES;
 
+export interface AgentBudget {
+  /** Maximum estimated USD cost for a single approval/invocation. */
+  perInvocationUsd?: number;
+  /** Maximum projected USD cost accumulated within one TaskRun. */
+  perTaskRunUsd?: number;
+  /** Maximum projected USD cost accumulated for the current ISO day. */
+  perDayUsd?: number;
+}
+
 export interface AgentPermissions {
   /** Action types this profile auto-approves (overrides global autoApprove). */
   autoApproveActions: readonly ApprovalActionType[];
@@ -29,6 +38,8 @@ export interface AgentPermissions {
   toolAllowlist: readonly string[];
   /** MCP tool name glob patterns rejected. Takes priority over allowlist. */
   toolDenylist: readonly string[];
+  /** Optional pre-execution budget caps for estimated model/tool spend. */
+  budget?: AgentBudget;
 }
 
 export interface AgentCliEnv {
@@ -105,6 +116,22 @@ const isStringRecord = (v: unknown): v is Record<string, string> => {
 const isActionArray = (v: unknown): boolean =>
   Array.isArray(v) && v.every((item) => typeof item === "string" && ACTION_SET.has(item));
 
+const isNonNegativeFiniteNumber = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+const isAgentBudget = (v: unknown): v is AgentBudget => {
+  if (v === undefined) return true;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
+  const b = v as Record<string, unknown>;
+  return (
+    (b.perInvocationUsd === undefined ||
+      isNonNegativeFiniteNumber(b.perInvocationUsd)) &&
+    (b.perTaskRunUsd === undefined ||
+      isNonNegativeFiniteNumber(b.perTaskRunUsd)) &&
+    (b.perDayUsd === undefined || isNonNegativeFiniteNumber(b.perDayUsd))
+  );
+};
+
 export const isAgentPermissions = (v: unknown): v is AgentPermissions => {
   if (typeof v !== "object" || v === null) return false;
   const p = v as Record<string, unknown>;
@@ -113,7 +140,8 @@ export const isAgentPermissions = (v: unknown): v is AgentPermissions => {
     isActionArray(p.blockedActions) &&
     isStringArray(p.allowedSkillIds) &&
     isStringArray(p.toolAllowlist) &&
-    isStringArray(p.toolDenylist)
+    isStringArray(p.toolDenylist) &&
+    isAgentBudget(p.budget)
   );
 };
 

@@ -363,6 +363,47 @@ test("AgentProfileRepository.create round-trips arrays and nested objects", asyn
   }
 });
 
+test("AgentProfileRepository round-trips budget caps through budget_json", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const created = await repo.create(
+      makeProfileInput({
+        permissions: {
+          autoApproveActions: ["model_use"],
+          blockedActions: [],
+          allowedSkillIds: [],
+          toolAllowlist: [],
+          toolDenylist: [],
+          budget: {
+            perInvocationUsd: 0.05,
+            perTaskRunUsd: 0.25,
+            perDayUsd: 1,
+          },
+        },
+      }),
+    );
+    assert.deepEqual(created.permissions.budget, {
+      perInvocationUsd: 0.05,
+      perTaskRunUsd: 0.25,
+      perDayUsd: 1,
+    });
+    const fetched = await repo.get(created.id);
+    assert.deepEqual(fetched.permissions.budget, created.permissions.budget);
+    const row = db
+      .prepare(
+        `SELECT permissions_json, budget_json FROM agent_profiles WHERE id = ?`,
+      )
+      .get(created.id);
+    assert.equal(JSON.parse(row.permissions_json).budget, undefined);
+    assert.deepEqual(JSON.parse(row.budget_json), created.permissions.budget);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentProfileRepository.list upgrades legacy profile timeout values below defaults", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
