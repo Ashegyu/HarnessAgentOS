@@ -233,6 +233,23 @@ test("approve marks approval as approved or same run action class", async () => 
 
     const r1 = await conversation.approve({ approvalId: a0.id });
     assert.equal(r1.status, "approved");
+    assert.equal(r1.autoApproveDecision, null);
+
+    const draftAuto = await conversation.createTask({
+      userRequest: "auto",
+      targetDir: "/tmp",
+    });
+    const autoDecision = {
+      approved: true,
+      decidedAt: "global_toggle",
+      reason: "Global auto-approve is enabled.",
+    };
+    const rAuto = await conversation.approve({
+      approvalId: draftAuto.approvals[0].id,
+      message: "auto",
+      autoApproveDecision: autoDecision,
+    });
+    assert.deepEqual(rAuto.autoApproveDecision, autoDecision);
 
     const draft2 = await conversation.createTask({
       userRequest: "y",

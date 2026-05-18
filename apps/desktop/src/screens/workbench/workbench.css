@@ -1335,6 +1335,84 @@
   border-radius: var(--radius-sm);
 }
 
+.approval-decision-trace {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+}
+
+.approval-decision-trace__summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.approval-decision-trace__summary::-webkit-details-marker {
+  display: none;
+}
+
+.approval-decision-trace__summary-step {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.approval-decision-trace__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-2);
+  list-style: none;
+}
+
+.approval-decision-trace__step {
+  padding: var(--space-1) var(--space-2);
+  border-left: 2px solid var(--border-subtle);
+}
+
+.approval-decision-trace__step--pass {
+  border-left-color: var(--status-passed);
+}
+
+.approval-decision-trace__step--stop {
+  border-left-color: var(--status-pending);
+  background: var(--bg-panel-elev);
+}
+
+.approval-decision-trace__step--skip {
+  opacity: 0.55;
+}
+
+.approval-decision-trace__step-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.approval-decision-trace__step-head span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.approval-decision-trace__step p,
+.approval-decision-trace__reason {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.approval-decision-trace__reason {
+  padding: 0 var(--space-2) var(--space-2);
+}
+
 /* Replaces the action button row for pending approvals inside a
    pipeline-auto TaskRun. The auto-approve effect in WorkbenchShell
    will mark the approval approved+executed in the next tick — this

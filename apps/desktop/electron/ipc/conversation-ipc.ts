@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import {
+  AUTO_APPROVE_STEPS,
   APPROVAL_MESSAGE_REQUIRED,
   APPROVAL_NOT_FOUND,
   CONVERSATION_EMPTY_REQUEST,
@@ -14,6 +15,7 @@ import {
   ok,
   validateProposedActionDetails,
   type Approval,
+  type AutoApproveDecision,
   type ApproveInput,
   type ConversationService,
   type ConversationTaskDraft,
@@ -33,6 +35,43 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
+
+const isAutoApproveStep = (
+  v: unknown,
+): v is AutoApproveDecision["decidedAt"] =>
+  typeof v === "string" &&
+  (AUTO_APPROVE_STEPS as readonly string[]).includes(v);
+
+const parseAutoApproveDecision = (
+  value: unknown,
+):
+  | { ok: true; present: false }
+  | { ok: true; present: true; value: AutoApproveDecision | null }
+  | { ok: false; reason: string } => {
+  if (value === undefined) return { ok: true, present: false };
+  if (value === null) return { ok: true, present: true, value: null };
+  if (!isObject(value)) {
+    return { ok: false, reason: "autoApproveDecision must be an object or null" };
+  }
+  if (typeof value.approved !== "boolean") {
+    return { ok: false, reason: "autoApproveDecision.approved must be boolean" };
+  }
+  if (!isAutoApproveStep(value.decidedAt)) {
+    return { ok: false, reason: "autoApproveDecision.decidedAt is invalid" };
+  }
+  if (!isNonEmptyString(value.reason)) {
+    return { ok: false, reason: "autoApproveDecision.reason must be non-empty" };
+  }
+  return {
+    ok: true,
+    present: true,
+    value: {
+      approved: value.approved,
+      decidedAt: value.decidedAt,
+      reason: value.reason,
+    },
+  };
+};
 
 const mapServiceError = <T>(e: unknown): HarnessResult<T> => {
   if (e instanceof ConversationServiceError) {
@@ -176,6 +215,7 @@ export const registerConversationIpc = (
         approvalId?: unknown;
         message?: unknown;
         scope?: unknown;
+        autoApproveDecision?: unknown;
       };
       if (!isNonEmptyString(cast.approvalId)) {
         return err(
@@ -186,6 +226,13 @@ export const registerConversationIpc = (
       if (typeof cast.message === "string") payload.message = cast.message;
       if (cast.scope === "once" || cast.scope === "run_action_class") {
         payload.scope = cast.scope;
+      }
+      const parsedDecision = parseAutoApproveDecision(cast.autoApproveDecision);
+      if (!parsedDecision.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsedDecision.reason));
+      }
+      if (parsedDecision.present) {
+        payload.autoApproveDecision = parsedDecision.value;
       }
       try {
         const approval = await conversation.approve(payload);

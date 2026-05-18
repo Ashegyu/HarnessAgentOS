@@ -1,5 +1,6 @@
 import type {
   Approval,
+  ApprovalDecisionOptions,
   ApprovalStatus,
   CreateApprovalInput,
   ProposedActionDetails,
@@ -16,6 +17,7 @@ export interface ApprovalRepository {
     id: string,
     decision: ApprovalStatus,
     message?: string,
+    options?: ApprovalDecisionOptions,
   ): Promise<Approval>;
   setProposedAction(
     id: string,
@@ -23,7 +25,7 @@ export interface ApprovalRepository {
   ): Promise<Approval>;
 }
 
-const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json`;
+const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json, auto_approve_decision_json`;
 
 export class SqliteApprovalRepository implements ApprovalRepository {
   private readonly db: HarnessDb;
@@ -42,6 +44,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
       actionType: input.actionType,
       actionSummary: input.actionSummary,
       status: input.status ?? "pending",
+      autoApproveDecision: null,
     };
     if (input.proposedAction !== undefined) {
       approval.proposedAction = input.proposedAction;
@@ -100,17 +103,27 @@ export class SqliteApprovalRepository implements ApprovalRepository {
     id: string,
     decision: ApprovalStatus,
     message?: string,
+    options?: ApprovalDecisionOptions,
   ): Promise<Approval> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`Approval ${id} not found`);
     const next: Approval = { ...existing, status: decision };
     if (message !== undefined) next.decisionMessage = message;
     next.decidedAt = nowIso();
+    const hasAutoApproveDecisionPatch =
+      options !== undefined &&
+      Object.prototype.hasOwnProperty.call(options, "autoApproveDecision");
+    next.autoApproveDecision = hasAutoApproveDecisionPatch
+      ? (options.autoApproveDecision ?? null)
+      : (existing.autoApproveDecision ?? null);
 
     this.db
       .prepare(
         `UPDATE approvals
-         SET status=@status, decision_message=@decisionMessage, decided_at=@decidedAt
+         SET status=@status,
+             decision_message=@decisionMessage,
+             decided_at=@decidedAt,
+             auto_approve_decision_json=@autoApproveDecisionJson
          WHERE id=@id`,
       )
       .run({
@@ -118,6 +131,11 @@ export class SqliteApprovalRepository implements ApprovalRepository {
         status: next.status,
         decisionMessage: next.decisionMessage ?? null,
         decidedAt: next.decidedAt ?? null,
+        autoApproveDecisionJson:
+          next.autoApproveDecision !== null &&
+          next.autoApproveDecision !== undefined
+            ? JSON.stringify(next.autoApproveDecision)
+            : null,
       });
     return next;
   }

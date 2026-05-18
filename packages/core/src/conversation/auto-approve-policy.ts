@@ -1,5 +1,5 @@
 import type { AgentPermissions } from "../types/agent-profile.ts";
-import type { Approval } from "../types/approval.ts";
+import type { Approval, AutoApproveDecision } from "../types/approval.ts";
 import type { Checkpoint } from "../types/checkpoint.ts";
 import { evaluateBudget } from "./budget-policy.ts";
 
@@ -61,26 +61,74 @@ export const isWorkerFileActionApproval = (input: {
  * explicit per-profile prohibition (e.g. for a production agent that
  * must never auto-execute `git_commit`).
  */
-export const shouldAutoApprove = (input: ShouldAutoApproveInput): boolean => {
+const decision = (
+  approved: boolean,
+  decidedAt: AutoApproveDecision["decidedAt"],
+  reason: string,
+): AutoApproveDecision => ({ approved, decidedAt, reason });
+
+export const shouldAutoApprove = (
+  input: ShouldAutoApproveInput,
+): AutoApproveDecision => {
   const { approval, globalAutoApprove, activeProfile } = input;
   const perms = activeProfile?.permissions;
-  if (perms?.blockedActions.includes(approval.actionType)) return false;
-  if (approval.policyEvaluation?.decision === "blocked") return false;
+  if (perms?.blockedActions.includes(approval.actionType)) {
+    return decision(
+      false,
+      "blocked_action",
+      `Active profile blocks ${approval.actionType}.`,
+    );
+  }
+  if (approval.policyEvaluation?.decision === "blocked") {
+    return decision(
+      false,
+      "policy_blocked",
+      `Policy blocked auto-approve: ${approval.policyEvaluation.reason}`,
+    );
+  }
   const budgetDecision = evaluateBudget({
     approval,
     profile: activeProfile,
     accumulatedTaskRunCostUsd: input.accumulatedTaskRunCostUsd,
     accumulatedDailyCostUsd: input.accumulatedDailyCostUsd,
   });
-  if (budgetDecision.kind === "blocked") return false;
-  if (perms?.autoApproveActions.includes(approval.actionType)) return true;
-  if (approval.policyEvaluation?.allowAutoApprove === false) return false;
+  if (budgetDecision.kind === "blocked") {
+    return decision(
+      false,
+      "budget_blocked",
+      budgetDecision.reason ?? "Profile budget blocks auto-approve.",
+    );
+  }
+  if (perms?.autoApproveActions.includes(approval.actionType)) {
+    return decision(
+      true,
+      "profile_auto_approve",
+      `Active profile auto-approves ${approval.actionType}.`,
+    );
+  }
+  if (approval.policyEvaluation?.allowAutoApprove === false) {
+    return decision(
+      false,
+      "policy_disallow_auto",
+      `Policy requires manual approval: ${approval.policyEvaluation.reason}`,
+    );
+  }
   if (
     input.workerFileActionAutoApprove === true &&
     input.isWorkerFileAction === true &&
     approval.actionType === "file_write"
   ) {
-    return true;
+    return decision(
+      true,
+      "worker_file_action",
+      "Worker file action auto-execution is enabled for this TaskRun.",
+    );
   }
-  return globalAutoApprove;
+  return decision(
+    globalAutoApprove,
+    "global_toggle",
+    globalAutoApprove
+      ? "Global auto-approve is enabled."
+      : "Global auto-approve is disabled.",
+  );
 };

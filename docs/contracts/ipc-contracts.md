@@ -48,6 +48,14 @@ export type ApprovalActionType =
   | "network"
   | "skill_script"
   | "orchestration_plan";
+export type AutoApproveStep =
+  | "blocked_action"
+  | "policy_blocked"
+  | "budget_blocked"
+  | "profile_auto_approve"
+  | "policy_disallow_auto"
+  | "worker_file_action"
+  | "global_toggle";
 export type ArtifactKind = "plan" | "diff" | "log" | "test_result" | "quality_report" | "orchestration_plan" | "file" | "snapshot";
 export type PolicyDecision = "allowed" | "confirm" | "blocked";
 export type PolicyOperation =
@@ -71,6 +79,12 @@ export interface PolicyEvaluation {
     accumulatedCostUsd?: number;
     limitUsd?: number;
   };
+}
+
+export interface AutoApproveDecision {
+  approved: boolean;
+  decidedAt: AutoApproveStep;
+  reason: string;
 }
 
 export interface TaskRun {
@@ -115,6 +129,7 @@ export interface Approval {
   actionSummary: string;
   status: ApprovalStatus;
   policyEvaluation?: PolicyEvaluation;
+  autoApproveDecision?: AutoApproveDecision | null;
   decisionMessage?: string;
   decidedAt?: string;
 }
@@ -301,7 +316,7 @@ interface ThreadDetail {
 ```ts
 conversation.createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;
 conversation.redirectTask(input: { taskRunId: string; instruction: string }): Promise<ConversationTaskDraft>;
-conversation.approve(input: { approvalId: string; message?: string; scope?: ApprovalScope }): Promise<Approval>;
+conversation.approve(input: { approvalId: string; message?: string; scope?: ApprovalScope; autoApproveDecision?: AutoApproveDecision | null }): Promise<Approval>;
 conversation.rejectApproval(input: { approvalId: string; message: string }): Promise<Approval>;
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;

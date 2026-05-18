@@ -2,6 +2,7 @@ import type {
   Approval,
   ApprovalActionType,
   ApprovalScope,
+  AutoApproveDecision,
   Artifact,
   Checkpoint,
   TaskRun,
@@ -56,6 +57,7 @@ export interface ApproveInput {
   approvalId: string;
   message?: string;
   scope?: ApprovalScope;
+  autoApproveDecision?: AutoApproveDecision | null;
 }
 
 export interface RejectApprovalInput {

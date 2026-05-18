@@ -15,13 +15,20 @@ const makeApproval = (actionType) => ({
   status: "pending",
 });
 
+const assertDecision = (decision, approved, decidedAt) => {
+  assert.equal(decision.approved, approved);
+  assert.equal(decision.decidedAt, decidedAt);
+  assert.equal(typeof decision.reason, "string");
+  assert.ok(decision.reason.length > 0);
+};
+
 test("shouldAutoApprove returns true when global autoApprove is on and no profile override", () => {
   const r = shouldAutoApprove({
     approval: makeApproval("file_write"),
     globalAutoApprove: true,
     activeProfile: null,
   });
-  assert.equal(r, true);
+  assertDecision(r, true, "global_toggle");
 });
 
 test("shouldAutoApprove returns false when global autoApprove is off and no profile override", () => {
@@ -30,7 +37,7 @@ test("shouldAutoApprove returns false when global autoApprove is off and no prof
     globalAutoApprove: false,
     activeProfile: null,
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "global_toggle");
 });
 
 test("shouldAutoApprove can auto-run only worker-proposed file writes", () => {
@@ -41,7 +48,7 @@ test("shouldAutoApprove can auto-run only worker-proposed file writes", () => {
     workerFileActionAutoApprove: true,
     isWorkerFileAction: true,
   });
-  assert.equal(r, true);
+  assertDecision(r, true, "worker_file_action");
 });
 
 test("shouldAutoApprove does not treat non-worker file writes as worker auto actions", () => {
@@ -52,7 +59,7 @@ test("shouldAutoApprove does not treat non-worker file writes as worker auto act
     workerFileActionAutoApprove: true,
     isWorkerFileAction: false,
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "global_toggle");
 });
 
 test("shouldAutoApprove worker file auto-run stays under profile block list", () => {
@@ -71,7 +78,7 @@ test("shouldAutoApprove worker file auto-run stays under profile block list", ()
     workerFileActionAutoApprove: true,
     isWorkerFileAction: true,
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "blocked_action");
 });
 
 test("isWorkerFileActionApproval recognizes worker checkpoint file writes", () => {
@@ -122,7 +129,7 @@ test("shouldAutoApprove honors profile.permissions.autoApproveActions even when 
       },
     },
   });
-  assert.equal(r, true);
+  assertDecision(r, true, "profile_auto_approve");
 });
 
 test("shouldAutoApprove blocks budget overruns before profile auto approval", () => {
@@ -152,7 +159,7 @@ test("shouldAutoApprove blocks budget overruns before profile auto approval", ()
       },
     },
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "budget_blocked");
 });
 
 test("shouldAutoApprove still rejects action types that aren't on the profile whitelist", () => {
@@ -169,7 +176,7 @@ test("shouldAutoApprove still rejects action types that aren't on the profile wh
       },
     },
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "global_toggle");
 });
 
 test("shouldAutoApprove rejects when actionType is in profile.blockedActions, even if global is on", () => {
@@ -188,7 +195,7 @@ test("shouldAutoApprove rejects when actionType is in profile.blockedActions, ev
       },
     },
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "blocked_action");
 });
 
 test("shouldAutoApprove honors blocked policy evaluation before global autoApprove", () => {
@@ -206,7 +213,7 @@ test("shouldAutoApprove honors blocked policy evaluation before global autoAppro
     globalAutoApprove: true,
     activeProfile: null,
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "policy_blocked");
 });
 
 test("shouldAutoApprove honors allowAutoApprove=false before global autoApprove", () => {
@@ -227,7 +234,7 @@ test("shouldAutoApprove honors allowAutoApprove=false before global autoApprove"
     globalAutoApprove: true,
     activeProfile: null,
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "policy_disallow_auto");
 });
 
 test("shouldAutoApprove lets explicit profile auto-approval override manual-only policy", () => {
@@ -256,7 +263,7 @@ test("shouldAutoApprove lets explicit profile auto-approval override manual-only
       },
     },
   });
-  assert.equal(r, true);
+  assertDecision(r, true, "profile_auto_approve");
 });
 
 test("shouldAutoApprove blockedActions also win over autoApproveActions on the same profile", () => {
@@ -273,5 +280,5 @@ test("shouldAutoApprove blockedActions also win over autoApproveActions on the s
       },
     },
   });
-  assert.equal(r, false);
+  assertDecision(r, false, "blocked_action");
 });

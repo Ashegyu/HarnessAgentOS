@@ -3,6 +3,7 @@ import {
   validateAbsoluteTargetDir,
   type AgentInvocation,
   type Approval,
+  type ApprovalDecisionOptions,
   type ApprovalStatus,
   type Artifact,
   type Capability,
@@ -359,8 +360,9 @@ export class LocalStateService implements ConversationStateGateway {
     id: string,
     decision: ApprovalStatus,
     message?: string,
+    options?: ApprovalDecisionOptions,
   ): Promise<Approval> {
-    return this.approvals.decide(id, decision, message);
+    return this.approvals.decide(id, decision, message, options);
   }
 
   async setApprovalProposedAction(

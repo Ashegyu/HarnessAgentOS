@@ -133,6 +133,7 @@ interface ApprovalRow {
   decided_at: string | null;
   proposed_action_json: string | null;
   policy_evaluation_json: string | null;
+  auto_approve_decision_json: string | null;
 }
 
 export const rowToApproval = (r: ApprovalRow): Approval => {
@@ -159,6 +160,15 @@ export const rowToApproval = (r: ApprovalRow): Approval => {
     } catch {
       // Drop corrupt JSON silently; auto-approve will fall back to defaults.
     }
+  }
+  if (r.auto_approve_decision_json) {
+    try {
+      a.autoApproveDecision = JSON.parse(r.auto_approve_decision_json);
+    } catch {
+      a.autoApproveDecision = null;
+    }
+  } else {
+    a.autoApproveDecision = null;
   }
   return a;
 };

@@ -306,11 +306,16 @@ export class ConversationService {
     }
     const decision =
       input.scope === "run_action_class" ? "always_approved_for_run" : "approved";
+    const decisionOptions =
+      input.autoApproveDecision !== undefined
+        ? { autoApproveDecision: input.autoApproveDecision }
+        : undefined;
     if (input.scope !== "run_action_class") {
       return this.deps.state.decideApproval(
         input.approvalId,
         decision,
         input.message,
+        decisionOptions,
       );
     }
 
@@ -330,6 +335,7 @@ export class ConversationService {
         a.id,
         decision,
         input.message,
+        decisionOptions,
       );
       if (a.id === approval.id) updatedSelected = updated;
     }
@@ -338,6 +344,7 @@ export class ConversationService {
       input.approvalId,
       decision,
       input.message,
+      decisionOptions,
     );
   }
 

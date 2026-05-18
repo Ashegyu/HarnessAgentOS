@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   AgentProviderStatusMap,
   Approval,
+  AutoApproveDecision,
   OrchestrationMode,
   ProposedActionDetails,
   Thread,
@@ -498,6 +499,7 @@ export const WorkbenchShell = (): JSX.Element => {
         accumulatedDailyCostUsd:
           budgetUsage?.accumulatedDailyCostUsd ?? 0,
       }).kind === "blocked";
+    const autoApproveDecisions = new Map<string, AutoApproveDecision>();
     const autoApproveMessage = (approval: Approval): string => {
       if (isPipelineAutoTask) return "auto-approved (pipeline task)";
       if (
@@ -515,8 +517,15 @@ export const WorkbenchShell = (): JSX.Element => {
         // Block list trumps every auto-approve trigger.
         if (blockedActions.includes(a.actionType)) return false;
         if (isBudgetBlocked(a)) return false;
-        if (isPipelineAutoTask) return true;
-        return shouldAutoApprove({
+        if (isPipelineAutoTask) {
+          autoApproveDecisions.set(a.id, {
+            approved: true,
+            decidedAt: "global_toggle",
+            reason: "Pipeline task was pre-approved by explicit pipeline selection.",
+          });
+          return true;
+        }
+        const decision = shouldAutoApprove({
           approval: a,
           globalAutoApprove: autoApprove,
           activeProfile: activeAgentProfile,
@@ -527,6 +536,8 @@ export const WorkbenchShell = (): JSX.Element => {
           workerFileActionAutoApprove: autoExecuteWorkerFileActions,
           isWorkerFileAction: isWorkerFileAction(a),
         });
+        if (decision.approved) autoApproveDecisions.set(a.id, decision);
+        return decision.approved;
       },
     );
     if (pending.length === 0) return;
@@ -537,6 +548,8 @@ export const WorkbenchShell = (): JSX.Element => {
           await window.harness.conversation.approve({
             approvalId: approval.id,
             message: autoApproveMessage(approval),
+            autoApproveDecision:
+              autoApproveDecisions.get(approval.id) ?? null,
           });
           if (approval.actionType === "orchestration_plan") {
             await window.harness.orchestration.runApproved({
@@ -758,6 +771,12 @@ export const WorkbenchShell = (): JSX.Element => {
               await window.harness.conversation.approve({
                 approvalId: drafted.approval.id,
                 message: "auto-approved (per-message pipeline pick)",
+                autoApproveDecision: {
+                  approved: true,
+                  decidedAt: "global_toggle",
+                  reason:
+                    "Pipeline plan was pre-approved by explicit per-message pipeline selection.",
+                },
               });
               await window.harness.orchestration.runApproved({
                 approvalId: drafted.approval.id,

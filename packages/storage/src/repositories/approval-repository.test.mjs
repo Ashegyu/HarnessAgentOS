@@ -61,3 +61,58 @@ test("ApprovalRepository round-trips policyEvaluation", async () => {
     t.cleanup();
   }
 });
+
+test("ApprovalRepository persists auto-approve decision trace on automatic approvals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    seedCheckpoint(db);
+    const repo = new SqliteApprovalRepository(db);
+    const created = await repo.create({
+      taskRunId: "tsk_1",
+      checkpointId: "ckp_1",
+      actionType: "file_write",
+      actionSummary: "Write file",
+    });
+    const decision = {
+      approved: true,
+      decidedAt: "global_toggle",
+      reason: "Global auto-approve is enabled.",
+    };
+
+    const approved = await repo.decide(created.id, "approved", "auto", {
+      autoApproveDecision: decision,
+    });
+    assert.deepEqual(approved.autoApproveDecision, decision);
+
+    const fetched = await repo.get(created.id);
+    assert.deepEqual(fetched?.autoApproveDecision, decision);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("ApprovalRepository leaves manual approvals with null auto-approve decision", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    seedCheckpoint(db);
+    const repo = new SqliteApprovalRepository(db);
+    const created = await repo.create({
+      taskRunId: "tsk_1",
+      checkpointId: "ckp_1",
+      actionType: "file_write",
+      actionSummary: "Write file",
+    });
+
+    const approved = await repo.decide(created.id, "approved", "manual");
+    assert.equal(approved.autoApproveDecision, null);
+
+    const fetched = await repo.get(created.id);
+    assert.equal(fetched?.autoApproveDecision, null);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});

@@ -30,6 +30,11 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE approvals ADD COLUMN policy_evaluation_json TEXT`);
     }
 
+    // v24 — nullable decision trace for renderer auto-approve decisions.
+    if (!hasColumn(db, "approvals", "auto_approve_decision_json")) {
+      db.exec(`ALTER TABLE approvals ADD COLUMN auto_approve_decision_json TEXT`);
+    }
+
     // v23 — nullable per-profile budget caps. Stored separately from
     // permissions_json so old profile rows remain valid and empty caps stay NULL.
     if (!hasColumn(db, "agent_profiles", "budget_json")) {
@@ -202,10 +207,11 @@ const rebuildApprovals = (db: DatabaseType): void => {
     decided_at TEXT,
     proposed_action_json TEXT,
     policy_evaluation_json TEXT,
+    auto_approve_decision_json TEXT,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
     FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
   )`);
-  db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json,policy_evaluation_json FROM approvals_migration_old`);
+  db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json,policy_evaluation_json,auto_approve_decision_json FROM approvals_migration_old`);
   db.exec(`DROP TABLE approvals_migration_old`);
 };
 

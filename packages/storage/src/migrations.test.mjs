@@ -102,6 +102,45 @@ test("v23 migration adds nullable budget_json to agent_profiles", () => {
   }
 });
 
+test("v24 migration adds nullable auto_approve_decision_json to approvals", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "approvals", "auto_approve_decision_json"),
+      true,
+      "approvals.auto_approve_decision_json must exist",
+    );
+    db.prepare(
+      `INSERT INTO threads(id, title, target_dir, created_at, updated_at)
+       VALUES('thr_auto_decision', 'Thread', '/tmp/project', ?, ?)`,
+    ).run("2026-05-18T00:00:00.000Z", "2026-05-18T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO task_runs(id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at)
+       VALUES('tsk_auto_decision', 'thr_auto_decision', 'Do it', '/tmp/project', 'drafting', NULL, ?, ?)`,
+    ).run("2026-05-18T00:00:00.000Z", "2026-05-18T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO steps(id, task_run_id, step_index, kind, title, status)
+       VALUES('stp_auto_decision', 'tsk_auto_decision', 0, 'approval', 'Approval', 'pending')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO checkpoints(id, task_run_id, step_id, reason, state_ref, summary, created_at)
+       VALUES('ckp_auto_decision', 'tsk_auto_decision', 'stp_auto_decision', 'before_edit', '{}', 'checkpoint', ?)`,
+    ).run("2026-05-18T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+       VALUES('apv_auto_decision', 'tsk_auto_decision', 'ckp_auto_decision', 'file_write', 'Write file', 'pending')`,
+    ).run();
+    const row = db
+      .prepare(`SELECT auto_approve_decision_json FROM approvals WHERE id = ?`)
+      .get("apv_auto_decision");
+    assert.equal(row.auto_approve_decision_json, null);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

@@ -1,5 +1,6 @@
 import type {
   Approval,
+  ApprovalDecisionOptions,
   ApprovalStatus,
   Artifact,
   Checkpoint,
@@ -50,6 +51,7 @@ export interface ConversationStateGateway {
     id: string,
     decision: ApprovalStatus,
     message?: string,
+    options?: ApprovalDecisionOptions,
   ): Promise<Approval>;
   setApprovalProposedAction(
     id: string,

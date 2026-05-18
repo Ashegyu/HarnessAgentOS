@@ -40,6 +40,28 @@ export const APPROVAL_ACTION_TYPES: readonly ApprovalActionType[] = [
   "orchestration_plan",
 ];
 
+export const AUTO_APPROVE_STEPS = [
+  "blocked_action",
+  "policy_blocked",
+  "budget_blocked",
+  "profile_auto_approve",
+  "policy_disallow_auto",
+  "worker_file_action",
+  "global_toggle",
+] as const;
+
+export type AutoApproveStep = (typeof AUTO_APPROVE_STEPS)[number];
+
+export interface AutoApproveDecision {
+  approved: boolean;
+  decidedAt: AutoApproveStep;
+  reason: string;
+}
+
+export interface ApprovalDecisionOptions {
+  autoApproveDecision?: AutoApproveDecision | null;
+}
+
 export interface ProposedFilePatch {
   path: string;
   before?: string;
@@ -86,6 +108,7 @@ export interface Approval {
   status: ApprovalStatus;
   proposedAction?: ProposedActionDetails;
   policyEvaluation?: PolicyEvaluation;
+  autoApproveDecision?: AutoApproveDecision | null;
   decisionMessage?: string;
   decidedAt?: string;
 }

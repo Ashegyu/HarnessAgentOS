@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Approval, ProposedActionDetails, ShadowPreview } from "@harness/core";
 import { ConfigureActionDialog } from "./ConfigureActionDialog";
+import { ApprovalDecisionTrace } from "./ApprovalDecisionTrace";
 
 interface ApprovalPanelProps {
   approvals: Approval[];
@@ -215,6 +216,7 @@ export const ApprovalPanel = ({
             {JSON.stringify(a.proposedAction, null, 2)}
           </pre>
         )}
+        <ApprovalDecisionTrace approval={a} />
         {shadowPreview && (
           <p className="approval-card__auto-hint">
             Shadow preview 생성됨: <code>{shadowPreview.relativePath}</code> ·
