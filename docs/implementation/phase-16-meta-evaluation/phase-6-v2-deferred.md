@@ -218,6 +218,8 @@ v1.5b는 existing eval report의 `Summary by Suite` 아래에 attempt-level `Per
 
 Provider 비교, LLM judge, viewer UI, cost trend 시각화는 여전히 v2 deferred이며, gate 충족 후 이 문서의 2.2부터 별도 TDD phase로 시작한다.
 
+구현 재개 시 세부 설계는 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)을 기준으로 한다.
+
 ## 4. 일정 추정 (Optimistic)
 
 | 작업 | 추정 |

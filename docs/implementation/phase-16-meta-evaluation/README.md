@@ -54,6 +54,7 @@
 | 4 | [phase-4-persistence.md](./phase-4-persistence.md) | migration v22 + `EvalRunRepository` + md reporter | Small-Medium | 완료 |
 | 5 | [phase-5-cli-ci.md](./phase-5-cli-ci.md) | `scripts/eval/run.mjs` CLI + 임계 exit code + `npm run eval` | Small | 완료 |
 | 6 | [phase-6-v2-deferred.md](./phase-6-v2-deferred.md) | real CLI · provider 비교 · LLM judge · viewer UI (deferred) | Medium | gate 대기 |
+| 7 | [phase-7-v2-expansion-plan.md](./phase-7-v2-expansion-plan.md) | provider 비교 · LLM judge · viewer · cost trend · production latency 구체 설계 | Large | 설계 |
 
 **v1 합계**: Medium-High · 11-17일 (1인 기준)
 
@@ -114,3 +115,5 @@ npm run eval:perf
 ```
 
 Phase 6은 [v2 진행 조건](./phase-6-v2-deferred.md#3-v2-진행-조건-gate)이 충족될 때 별도 마일스톤으로 재개한다.
+
+구체적인 v2 확장 설계는 [Phase 7 v2 Expansion Design Plan](./phase-7-v2-expansion-plan.md)을 따른다.
