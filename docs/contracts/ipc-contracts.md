@@ -1238,6 +1238,7 @@ skillSource.add(input: { name: string; rootDir: string }): Promise<SkillSource>;
 skillSource.update(input: { source: SkillSource }): Promise<SkillSource>;
 skillSource.remove(input: { sourceId: string }): Promise<void>;
 skillSource.refresh(input: { sourceId: string }): Promise<SkillSourceRefreshResult>;
+skillSource.generateSkillDraft(input: { request: SkillGenerationRequest }): Promise<SkillGenerationPreviewResult>;
 skillSource.previewSkillDraft(input: { draft: SkillAuthorDraft }): Promise<SkillAuthorPreview>;
 skillSource.proposeSkillFile(input: { draft: SkillAuthorDraft }): Promise<SkillFileProposalResult>;
 ```
@@ -1247,8 +1248,11 @@ skillSource.proposeSkillFile(input: { draft: SkillAuthorDraft }): Promise<SkillF
 - custom source는 기본 `trusted=false`이며, script 실행은 별도 `skill_script` approval을 요구한다.
 - `refresh`는 directory scan 결과를 capability registry에 반영하지만 script를 실행하지 않으며,
   `scannedCount`, `updatedCount`, `skillCount`를 반환한다.
+- `generateSkillDraft`는 user intent를 `SkillAuthorDraft`로 구조화하고 같은 preview validation을 통과시킨다.
+  파일 쓰기, profile binding, source trust 승격은 수행하지 않는다.
 - `previewSkillDraft`는 생성될 `SKILL.md`를 loader 기준으로 검증하고 preview만 반환한다.
 - `proposeSkillFile`은 파일을 직접 쓰지 않고 `file_write` approval을 생성한다.
+- `proposeSkillFile`로 생성된 approval이 runner에서 실행되면 main process가 해당 source를 refresh해 capability registry를 갱신한다.
 
 ## `window.harness.secret`
 

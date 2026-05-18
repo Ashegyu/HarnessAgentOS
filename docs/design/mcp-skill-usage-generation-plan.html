@@ -640,7 +640,7 @@
   -> inspect current AgentProfile / MCP / SkillSource / Capability registry
   -> draft structured proposal
   -> static validation
-  -> preview artifact
+  -> preview response (artifact storage optional)
   -> approval proposal
   -> user approves
   -> materialize file or update row
@@ -669,7 +669,7 @@
   <ol>
     <li>generator가 task intent와 repo evidence를 바탕으로 <code>GeneratedSkillDraft</code>를 만든다.</li>
     <li>IPC handler가 이를 <code>SkillAuthorDraft</code>로 변환해 <code>previewSkillDraft</code> validation을 통과시킨다.</li>
-    <li>preview 결과를 artifact로 저장하고 사용자에게 보여준다.</li>
+    <li>현재 MVP는 preview 결과를 IPC 응답으로 반환해 사용자에게 보여준다. 별도 preview artifact 저장은 후속 확장으로 둔다.</li>
     <li>사용자가 승인하면 <code>proposeSkillFile</code>로 <code>file_write</code> approval을 만든다.</li>
     <li>승인된 runner 실행 뒤 <code>skillSource.refresh</code>로 capability registry를 갱신한다.</li>
     <li>profile binding은 별도 approval로 처리한다. Skill 파일 생성과 profile 변경을 한 approval에 섞지 않는다.</li>
@@ -1006,11 +1006,11 @@ Step 5. Approval
     </tr>
     <tr>
       <td><span class="pill pill--green">P2</span> Skill 자동 생성</td>
-      <td>Skill draft 생성, preview, approval proposal, refresh 연결</td>
+      <td>Skill draft 자동 생성, preview, approval proposal, 승인된 runner 실행 뒤 refresh 연결</td>
       <td>
-        <code>packages/skillify-adapter/src/*</code><br />
+        <code>packages/skillify-adapter/src/skill-authoring-generator.ts</code><br />
         <code>apps/desktop/electron/ipc/skill-source-ipc.ts</code><br />
-        신규 <code>capability-authoring-ipc.ts</code>
+        기존 <code>skillSource.previewSkillDraft</code>/<code>proposeSkillFile</code> IPC 재사용
       </td>
       <td>승인 전 파일 미생성, 승인 후 refresh로 capability 표시</td>
     </tr>

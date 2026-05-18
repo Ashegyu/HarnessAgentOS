@@ -122,6 +122,7 @@ export const IPC_CHANNELS = {
     update: "skillSource:update",
     remove: "skillSource:remove",
     refresh: "skillSource:refresh",
+    generateSkillDraft: "skillSource:generateSkillDraft",
     previewSkillDraft: "skillSource:previewSkillDraft",
     proposeSkillFile: "skillSource:proposeSkillFile",
   },

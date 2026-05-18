@@ -27,6 +27,8 @@ import type {
   McpServerHealth,
   SkillResources,
   SkillAuthorDraft,
+  SkillGenerationRequest,
+  SkillGenerationPreviewResult,
   SkillAuthorPreview,
   SkillFileProposalResult,
   SkillSource,
@@ -374,6 +376,9 @@ export interface HarnessDesktopApi {
     remove(input: { sourceId: string }): Promise<void>;
     /** Re-scan the directory and refresh CapabilityRegistry. */
     refresh(input: { sourceId: string }): Promise<SkillSourceRefreshResult>;
+    generateSkillDraft(input: {
+      request: SkillGenerationRequest;
+    }): Promise<SkillGenerationPreviewResult>;
     previewSkillDraft(input: {
       draft: SkillAuthorDraft;
     }): Promise<SkillAuthorPreview>;

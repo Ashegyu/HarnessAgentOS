@@ -4,7 +4,6 @@ import type {
   HarnessSettings,
   McpServerConfig,
   McpServerHealth,
-  SkillSource,
   TaskRunCompletionService,
 } from "@harness/core";
 import type {
@@ -14,11 +13,10 @@ import type {
 import type { RunnerService } from "@harness/runners";
 import type { ShadowWorkspaceService } from "@harness/runners";
 import type { QualityEvaluator, RepairLoopService } from "@harness/quality";
-import {
-  loadSkills,
-  type CapabilityRegistry,
-  type CapabilityService,
-  type SkillSourceConfig,
+import type {
+  CapabilityRegistry,
+  CapabilityService,
+  SkillSourceConfig,
 } from "@harness/skillify-adapter";
 import type {
   InstinctService,
@@ -50,6 +48,10 @@ import { registerPipelineIpc } from "./pipeline-ipc-register";
 import { registerRemoteAgentsIpc } from "./remote-agents-ipc-register";
 import { registerEvalsIpc } from "./evals-ipc-register";
 import type { SkillRootPolicy } from "./skill-source-ipc";
+import {
+  refreshGeneratedSkillSourceAfterRunner,
+  refreshSkillSourceCapabilities,
+} from "./skill-source-refresh";
 import { eventBus } from "../event-bus";
 import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
 
@@ -94,7 +96,10 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     eventBus,
     ctx.instinctService,
   );
-  registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus);
+  registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus, {
+    afterExecuteApproved: ({ approvalId }) =>
+      refreshGeneratedSkillSourceAfterRunner(ctx, approvalId),
+  });
   registerShadowIpc({ shadow: ctx.shadowWorkspace }, eventBus);
   registerQualityIpc(
     ctx.state,
@@ -147,45 +152,8 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     skillSources: ctx.state.skillSources,
     pathPolicy: ctx.skillRootPolicy,
     capabilityRegistry: {
-      refresh: async (source) => {
-        // Rebuild from persisted rows so custom sources added in Settings
-        // participate in the manual refresh without requiring a restart.
-        const rows = await ctx.state.skillSources.list();
-        const enabled = rows.filter((row) => row.enabled);
-        const configs = enabled.map(skillSourceConfigFromRow);
-        const scanned = source.enabled
-          ? await loadSkills({
-              rootDir: source.rootDir,
-              trusted: source.trusted,
-            })
-          : [];
-        const caps = await ctx.capabilityRegistry.refresh(configs);
-        for (const disabled of rows.filter((row) => !row.enabled)) {
-          await ctx.state.pruneCapabilities(
-            skillSourceConfigFromRow(disabled).source,
-            [],
-          );
-        }
-        const sourceKey = skillSourceConfigFromRow(source).source;
-        return {
-          sourceId: source.id,
-          scannedCount: scanned.length,
-          updatedCount: caps.filter((cap) => cap.source === sourceKey).length,
-          skillCount: caps.length,
-        };
-      },
+      refresh: async (source) => refreshSkillSourceCapabilities(ctx, source),
     },
   });
   registerSecretIpc({ vault: ctx.secretVault });
 };
-
-const skillSourceConfigFromRow = (source: SkillSource): SkillSourceConfig => ({
-  source:
-    source.origin === "project"
-      ? "skillify:project"
-      : source.origin === "user"
-        ? "skillify:user"
-        : `skillify:${source.id}`,
-  rootDir: source.rootDir,
-  trusted: source.trusted,
-});

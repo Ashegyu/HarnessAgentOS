@@ -4,3 +4,4 @@ export * from "./skill-loader.ts";
 export * from "./capability-registry.ts";
 export * from "./capability-suggester.ts";
 export * from "./capability-service.ts";
+export * from "./skill-authoring-generator.ts";

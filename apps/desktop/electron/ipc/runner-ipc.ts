@@ -23,6 +23,13 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
+export interface RunnerIpcHooks {
+  afterExecuteApproved?: (input: {
+    approvalId: string;
+    result: RunnerResultPayload;
+  }) => Promise<void>;
+}
+
 const wrapRunnerErr = <T>(e: unknown): HarnessResult<T> => {
   if (e instanceof RunnerError) {
     return err(harnessError(e.code, e.message));
@@ -36,6 +43,7 @@ export const registerRunnerIpc = (
   state: LocalStateService,
   artifactStore: ArtifactStore,
   events: HarnessEventBus,
+  hooks: RunnerIpcHooks = {},
 ): void => {
   const emitApprovalTaskRunChanged = async (approvalId: string): Promise<void> => {
     try {
@@ -60,6 +68,7 @@ export const registerRunnerIpc = (
       }
       try {
         const result = await runner.executeApproved(cast.approvalId);
+        await runAfterExecuteHook(hooks, cast.approvalId, result as RunnerResultPayload);
         events.taskRunChanged(result.taskRunId);
         return ok(result as RunnerResultPayload);
       } catch (e) {
@@ -108,6 +117,7 @@ export const registerRunnerIpc = (
       }
       try {
         const result = await runner.retryApproval(cast.approvalId);
+        await runAfterExecuteHook(hooks, cast.approvalId, result as RunnerResultPayload);
         events.taskRunChanged(result.taskRunId);
         return ok(result as RunnerResultPayload);
       } catch (e) {
@@ -184,4 +194,17 @@ export const registerRunnerIpc = (
       }
     },
   );
+};
+
+const runAfterExecuteHook = async (
+  hooks: RunnerIpcHooks,
+  approvalId: string,
+  result: RunnerResultPayload,
+): Promise<void> => {
+  try {
+    await hooks.afterExecuteApproved?.({ approvalId, result });
+  } catch {
+    // Runner execution already succeeded. Follow-up refresh hooks are
+    // best-effort and must not turn a valid approval execution into failure.
+  }
 };

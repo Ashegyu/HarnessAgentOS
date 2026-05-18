@@ -426,6 +426,8 @@ const harnessApi: HarnessDesktopApi = {
     },
     refresh: (input) =>
       invokeUnwrapped(IPC_CHANNELS.skillSource.refresh, input),
+    generateSkillDraft: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.skillSource.generateSkillDraft, input),
     previewSkillDraft: (input) =>
       invokeUnwrapped(IPC_CHANNELS.skillSource.previewSkillDraft, input),
     proposeSkillFile: (input) =>

@@ -349,6 +349,7 @@ Capability Registry가 SKILL.md를 스캔할 디렉터리를 등록합니다.
 | **Enable / Disable** | invocation에 노출 여부 |
 | **Trust** | 확인 모달 (`이 디렉터리는 임의 코드를 실행할 수 있습니다`) 후 신뢰 ON |
 | **Refresh** | SKILL.md 파일들을 다시 스캔하여 Capability Registry 갱신 |
+| **SKILL 작성** | 수동 입력 또는 자동 초안 생성 → preview 검증 → `file_write` approval 생성. 파일은 approval 실행 전까지 쓰지 않음 |
 | **Remove** | 커스텀 소스만 가능. project/user sentinel은 차단 |
 
 ### 5.4 SKILL.md 구조 예시

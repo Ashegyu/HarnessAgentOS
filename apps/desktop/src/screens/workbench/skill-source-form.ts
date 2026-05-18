@@ -124,6 +124,19 @@ export const skillAuthorDraftToInput = (
   body: draft.body,
 });
 
+export const skillAuthorInputToFormDraft = (
+  draft: SkillAuthorDraft,
+): SkillAuthorFormDraft => ({
+  sourceId: draft.sourceId,
+  slug: draft.slug,
+  name: draft.name,
+  description: draft.description,
+  triggerTermsText: draft.triggerTerms.join(", "),
+  riskLevel: draft.riskLevel,
+  allowedActions: [...draft.allowedActions],
+  body: draft.body,
+});
+
 export const validateSkillAuthorDraft = (
   draft: SkillAuthorFormDraft,
 ): SkillAuthorDraftError[] => {

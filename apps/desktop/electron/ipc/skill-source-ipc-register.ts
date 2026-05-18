@@ -21,6 +21,10 @@ export const registerSkillSourceIpc = (ctx: SkillSourceIpcContext): void => {
     h.refresh(input),
   );
   ipcMain.handle(
+    IPC_CHANNELS.skillSource.generateSkillDraft,
+    async (_e, input) => h.generateSkillDraft(input),
+  );
+  ipcMain.handle(
     IPC_CHANNELS.skillSource.previewSkillDraft,
     async (_e, input) => h.previewSkillDraft(input),
   );

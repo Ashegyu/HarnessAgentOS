@@ -12,6 +12,7 @@ import {
   describeStatus,
   emptyAddDraft,
   emptySkillAuthorDraft,
+  skillAuthorInputToFormDraft,
   skillAuthorDraftToInput,
   skillSlugFromName,
   validateAddDraft,
@@ -37,6 +38,8 @@ export const SkillSourcesTab = (): JSX.Element => {
     useState<SkillAuthorFormDraft | null>(null);
   const [authorPreview, setAuthorPreview] =
     useState<SkillAuthorPreview | null>(null);
+  const [authorIntent, setAuthorIntent] = useState("");
+  const [authorRationale, setAuthorRationale] = useState<string | null>(null);
   const [authorBusy, setAuthorBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,12 +175,15 @@ export const SkillSourcesTab = (): JSX.Element => {
   const openAuthor = (s: SkillSource): void => {
     setAuthorDraft(emptySkillAuthorDraft(s.id));
     setAuthorPreview(null);
+    setAuthorIntent("");
+    setAuthorRationale(null);
     setError(null);
   };
 
   const updateAuthor = (patch: Partial<SkillAuthorFormDraft>): void => {
     setAuthorDraft((draft) => (draft ? { ...draft, ...patch } : draft));
     setAuthorPreview(null);
+    setAuthorRationale(null);
   };
 
   const toggleAuthorAction = (
@@ -210,6 +216,29 @@ export const SkillSourcesTab = (): JSX.Element => {
     }
   };
 
+  const handleGenerateSkillDraft = async (): Promise<void> => {
+    if (!authorDraft || authorIntent.trim().length === 0) return;
+    setAuthorBusy(true);
+    setError(null);
+    try {
+      const result = await window.harness.skillSource.generateSkillDraft({
+        request: {
+          sourceId: authorDraft.sourceId,
+          userIntent: authorIntent.trim(),
+          profileIds: [],
+          evidenceArtifactIds: [],
+        },
+      });
+      setAuthorDraft(skillAuthorInputToFormDraft(result.draft));
+      setAuthorPreview(result.preview);
+      setAuthorRationale(result.draft.rationale);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setAuthorBusy(false);
+    }
+  };
+
   const handleProposeSkillFile = async (): Promise<void> => {
     if (!authorDraft || !authorPreview?.ok || authorErrors.length > 0) return;
     setAuthorBusy(true);
@@ -223,6 +252,8 @@ export const SkillSourcesTab = (): JSX.Element => {
       );
       setAuthorDraft(null);
       setAuthorPreview(null);
+      setAuthorIntent("");
+      setAuthorRationale(null);
       await refresh();
     } catch (e) {
       setError(errorMessage(e));
@@ -382,11 +413,37 @@ export const SkillSourcesTab = (): JSX.Element => {
               onClick={() => {
                 setAuthorDraft(null);
                 setAuthorPreview(null);
+                setAuthorIntent("");
+                setAuthorRationale(null);
               }}
             >
               닫기
             </button>
           </header>
+          <label className="settings-field">
+            <span className="settings-field__label">자동 초안 요청</span>
+            <textarea
+              className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+              rows={3}
+              value={authorIntent}
+              disabled={authorBusy}
+              placeholder="예: 리뷰 전에 위험한 diff와 승인 필요 액션을 정리하는 skill"
+              onChange={(e) => setAuthorIntent(e.target.value)}
+            />
+          </label>
+          <div className="skill-sources-tab__add-actions">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              disabled={authorBusy || authorIntent.trim().length === 0}
+              onClick={() => void handleGenerateSkillDraft()}
+            >
+              {authorBusy ? "생성 중…" : "자동 초안 생성"}
+            </button>
+            {authorRationale && (
+              <span className="settings-field__hint">{authorRationale}</span>
+            )}
+          </div>
           <div className="skill-sources-tab__author-grid">
             <label className="settings-field">
               <span className="settings-field__label">Skill ID</span>

@@ -25,8 +25,8 @@ HarnessAgentOS의 글로벌 단일 `AgentSettings`와 평면 `WorkerProfile[]`�
 
 | ID | 검증 대상 | 검증 방법 | 영향 phase |
 |----|-----------|----------|------------|
-| V1 | Claude Code CLI의 MCP config 인자 형식 | `claude --help`, `claude mcp --help`, `~/.claude.json` 검사 | Phase 3, 4 |
-| V2 | Codex CLI의 MCP config 인자 형식 | `codex --help`, `codex exec --help` | Phase 3, 4 |
+| V1 | Claude Code CLI의 MCP config 인자 형식 | 현재 구현은 `claude --mcp-config <path> --strict-mcp-config` 경로로 제한 | Phase 3, 4 |
+| V2 | Codex CLI의 MCP config 인자 형식 | 미검증/보류. `codex exec`에는 MCP config path를 전달하지 않음 | Phase 3, 4 |
 | V3 | Claude CLI의 system prompt 전달 매커니즘이 `--system-prompt`로 충분한지 | 코드 grep 및 CLI 실측 | Phase 4 |
 | V4 | `safeStorage.isEncryptionAvailable()`가 Windows에서 DPAPI 기반으로 동작 | 실측, fallback 경로 필요 | Phase 2 |
 | V5 | persona/시스템프롬프트 추가 시 토큰 한도 | CLI 실측 | Phase 4 |
@@ -369,7 +369,7 @@ secret: {
 |---|------|------|
 | 4.1 | `McpConfigBuilder` — profile.mcpServerIds → temp JSON 파일 생성, env decrypt | `packages/agent/src/mcp-config-builder.ts` (NEW) |
 | 4.2 | `ModelCliRequest` 시그니처 확장: `mcpConfigPath?`, `profileId?` | `packages/agent/src/model-cli-types.ts` |
-| 4.3 | `DefaultModelCliAdapter` — provider별 인자 합성 (V1/V2 후 확정) | `packages/agent/src/model-cli-adapter.ts` |
+| 4.3 | `DefaultModelCliAdapter` — Claude는 `--mcp-config`/`--strict-mcp-config`, Codex는 MCP 인자 생략 | `packages/agent/src/model-cli-adapter.ts` |
 | 4.4 | `AgentPromptBuilder` — persona prefix/suffix 주입 | `packages/agent/src/agent-prompt-builder.ts` |
 | 4.5 | `AgentPlanningService` — profile 해상 로직 (active → role → legacy) | `packages/agent/src/agent-planning-service.ts` |
 | 4.6 | `CapabilityRegistry.refresh` — 등록된 SkillSource[] 기반 동적 refresh | `packages/skillify-adapter/src/capability-service.ts`, `skill-loader.ts` |
@@ -378,23 +378,24 @@ secret: {
 | 4.9 | MCP temp config 파일 cleanup (`finally`에서 unlink) | mcp-config-builder |
 | 4.10 | 통합 테스트: FakeModelCliAdapter로 spawn args assertion | `__tests__/*.test.mjs` |
 
-**MCP 통합 전략 (예상안 — V1/V2 검증 후 확정)**
+**MCP 통합 전략 (현재 구현 기준)**
 
 1. `AgentPlanningService.invoke()`에서 활성 profile 결정.
-2. `McpConfigBuilder.build({ profileId })`이 다음을 수행:
-   - profile.mcpServerIds 에 해당하는 `McpServerConfig[]` 조회
+2. main process의 `prepareMcpInvocation({ profileId, provider })`가 provider를 먼저 확인한다.
+   - `provider !== "claude"`이면 `mcpConfigPath: null`을 반환한다. Codex MCP config 전달은 V2 검증 전까지 보류다.
+3. Claude provider일 때만 `McpConfigBuilder.build({ profileId })`에 해당하는 합성을 수행한다:
+   - enabled global MCP와 profile.mcpServerIds 에 해당하는 enabled per-agent `McpServerConfig[]` 조회
    - 각 server의 `envSecretRefs`를 SecretVault로 복호화하여 `env` 머지
-   - Claude CLI 예상 포맷 (Anthropic의 `~/.claude.json` 패턴 추정):
-     ```json
-     { "mcpServers": {
-         "<name>": { "command": "...", "args": [...], "env": {...} } } }
-     ```
-   - Codex CLI는 자체 포맷이 다를 수 있음 — V2에서 확정
-3. `os.tmpdir()/harness-mcp-<invocationId>.json`에 600 permission으로 write.
-4. `ModelCliRequest`에 `mcpConfigPath` 첨부 → `DefaultModelCliAdapter`가 provider별 인자에 합성.
-5. invocation 종료 시(`finally`) temp 파일 unlink. SecretVault는 디스크에 평문을 절대 남기지 않음.
+   - Claude CLI 포맷:
+      ```json
+      { "mcpServers": {
+          "<name>": { "command": "...", "args": [...], "env": {...} } } }
+      ```
+4. `userData/mcp-tmp/mcp-<uuid>.json`에 600 permission으로 write.
+5. `ModelCliRequest`에 `mcpConfigPath` 첨부 → Claude 인자에 `--mcp-config <path> --strict-mcp-config`를 합성.
+6. invocation 종료 시(`finally`) temp 파일 unlink. SecretVault는 디스크에 평문을 절대 남기지 않음.
 
-**대안**: Claude CLI가 `~/.claude.json`을 강제하면, profile 활성화 시 user-level config를 atomic write+restore. 동시 invocation·crash 시 손상 위험으로 V1 확정 후 검토.
+**비채택 대안**: user-level config(`~/.claude.json` 등)를 atomic write+restore하는 방식은 동시 invocation·crash 시 사용자 글로벌 설정 손상 위험이 있어 현재 구현 경계에 넣지 않는다.
 
 **Risk**: High. **Est**: 2.5d.
 
@@ -535,7 +536,7 @@ AgentsPanel (workbench 메인 — 운영뷰)
 | (c) Credential 누출 | H | secret이 로그/IPC에 섞일 위험 | safeStorage 강제, IPC write-only, redactor 확장 |
 | (d) IPC 채널 폭증 | M | 9-layer 비용 증가 | 4 namespace에 5~7개씩, `upsert` 통합 |
 | (e) 마이그레이션 호환성 | M | legacy 데이터 손실 | 자동 변환 X, 명시 버튼 + read-only 유지 |
-| (f) Claude/Codex CLI 인자 미지원 | H | MCP config 전달 불가 | V1/V2 검증, 미지원 시 user-level atomic write+restore fallback, 그래도 안 되면 MCP feature flag off |
+| (f) Claude/Codex CLI 인자 미지원 | H | MCP config 전달 불가 | Claude 경로만 사용, Codex는 V2 검증 전 feature off. user-level config 직접 수정 fallback은 비채택 |
 | (g) safeStorage 미가용 환경 | M | secret 저장 불가 | UI 기능 disable + 경고, 평문 fallback 금지 |
 | (h) MCP temp config 파일 누수 | L | 종료 직후 cleanup 누락 | try/finally + 시작 시 `harness-mcp-*` 청소 |
 | (i) Path policy registry race | M | 추가 직후 invocation 미반영 | event-bus broadcast로 캐시 invalidation |
@@ -556,7 +557,7 @@ AgentsPanel (workbench 메인 — 운영뷰)
 ### Integration
 - `migrations.test.mjs` — v6 → v10 chain
 - `agents-ipc.test.mjs` / `mcp-ipc.test.mjs` (FakeWindow)
-- `cli-adapter-mcp.test.mjs` — spawn args에 `--mcp-config <path>` 포함 검증
+- `cli-adapter-mcp.test.mjs` — Claude spawn args에 `--mcp-config <path>` 포함, Codex args에는 미포함 검증
 - `path-policy.test.mjs` — 사용자 등록 root 화이트리스트 진입
 
 ### E2E (Playwright)

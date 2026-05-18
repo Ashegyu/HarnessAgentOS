@@ -1,8 +1,10 @@
 import type { McpServerConfig } from "@harness/core";
 
 /**
- * Phase 4b — Compose the `.mcp.json` payload that Claude/Codex CLIs accept
- * via `--mcp-config`. Output mirrors the official format:
+ * Phase 4b — Compose the `.mcp.json` payload that Claude CLI receives
+ * via `--mcp-config`. Codex per-invocation MCP config is still unverified,
+ * so the main process does not call this builder for Codex invocations.
+ * Output mirrors the Claude-compatible format:
  *
  *   stdio  → { command, args?, env? }
  *   http   → { type: "http",  url, headers? }

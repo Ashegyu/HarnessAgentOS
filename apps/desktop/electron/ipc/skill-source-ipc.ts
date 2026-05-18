@@ -9,6 +9,8 @@ import {
   ok,
   type ApprovalActionType,
   type CapabilityRiskLevel,
+  type SkillGenerationPreviewResult,
+  type SkillGenerationRequest,
   type HarnessResult,
   type SkillAuthorDraft,
   type SkillAuthorPreview,
@@ -17,7 +19,10 @@ import {
   type SkillSourceRefreshResult,
 } from "@harness/core";
 import type { LocalStateService, SkillSourceRepository } from "@harness/storage";
-import { parseSkillFrontmatter } from "@harness/skillify-adapter";
+import {
+  buildGeneratedSkillDraft,
+  parseSkillFrontmatter,
+} from "@harness/skillify-adapter";
 import { access } from "node:fs/promises";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 
@@ -143,6 +148,26 @@ export const buildSkillSourceHandlers = (ctx: SkillSourceIpcContext) => {
       return wrap(() => capabilityRegistry.refresh(existing));
     },
 
+    generateSkillDraft: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<SkillGenerationPreviewResult>> => {
+      const request = normalizeSkillGenerationRequest(input?.request);
+      if (request.userIntent.trim().length === 0) {
+        return err(harnessError(STATE_INVALID_INPUT, "userIntent is required"));
+      }
+      const existing = await skillSources.get(request.sourceId);
+      if (!existing) {
+        return err(
+          harnessError(SKILL_SOURCE_NOT_FOUND, `unknown source: ${request.sourceId}`),
+        );
+      }
+      return wrap(async () => {
+        const draft = buildGeneratedSkillDraft(request);
+        const preview = await buildSkillAuthorPreview(existing, draft);
+        return { draft, preview };
+      });
+    },
+
     previewSkillDraft: async (input: {
       draft: unknown;
     }): Promise<HarnessResult<SkillAuthorPreview>> => {
@@ -262,6 +287,30 @@ const normalizeSkillAuthorDraft = (value: unknown): SkillAuthorDraft => {
   };
 };
 
+const normalizeSkillGenerationRequest = (
+  value: unknown,
+): SkillGenerationRequest => {
+  const input =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
+  const profileIds = Array.isArray(input.profileIds)
+    ? input.profileIds.filter((item): item is string => typeof item === "string")
+    : [];
+  const evidenceArtifactIds = Array.isArray(input.evidenceArtifactIds)
+    ? input.evidenceArtifactIds.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  return {
+    sourceId: typeof input.sourceId === "string" ? input.sourceId : "",
+    userIntent:
+      typeof input.userIntent === "string" ? input.userIntent.trim() : "",
+    profileIds,
+    evidenceArtifactIds,
+  };
+};
+
 const buildSkillAuthorPreview = async (
   source: SkillSource,
   draft: SkillAuthorDraft,
@@ -293,6 +342,7 @@ const buildSkillAuthorPreview = async (
   if (!source.trusted) {
     warnings.push("source is untrusted; skill scripts remain blocked");
   }
+  warnings.push(...contentWarnings(draft));
 
   const relativePath = `${slug || "skill"}/SKILL.md`;
   const absolutePath = resolve(normalize(join(source.rootDir, relativePath)));
@@ -358,6 +408,33 @@ const renderSkillMarkdown = (draft: SkillAuthorDraft): string => {
     body,
     "",
   ].join("\n");
+};
+
+const FORBIDDEN_CONTENT_PATTERNS: readonly {
+  pattern: RegExp;
+  message: string;
+}[] = [
+  {
+    pattern: /approval\s*(bypass|skip|우회)|승인\s*우회/i,
+    message: "content appears to suggest bypassing approval",
+  },
+  {
+    pattern: /hide\s+.*from\s+.*user|사용자에게\s*숨김|몰래/i,
+    message: "content appears to hide actions from the user",
+  },
+  {
+    pattern: /always\s+execute|무조건\s*실행|자동으로\s*실행/i,
+    message: "content appears to require unconditional execution",
+  },
+];
+
+const contentWarnings = (draft: SkillAuthorDraft): string[] => {
+  const text = [draft.name, draft.description, draft.body].join("\n");
+  const warnings: string[] = [];
+  for (const rule of FORBIDDEN_CONTENT_PATTERNS) {
+    if (rule.pattern.test(text)) warnings.push(rule.message);
+  }
+  return warnings;
 };
 
 const yamlScalar = (value: string): string =>

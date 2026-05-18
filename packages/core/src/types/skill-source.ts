@@ -44,6 +44,23 @@ export interface SkillAuthorDraft {
   body: string;
 }
 
+export interface SkillGenerationRequest {
+  sourceId: string;
+  userIntent: string;
+  profileIds?: readonly string[];
+  evidenceArtifactIds?: readonly string[];
+}
+
+export interface GeneratedSkillDraft extends SkillAuthorDraft {
+  recommendedProfileIds: string[];
+  rationale: string;
+}
+
+export interface SkillGenerationPreviewResult {
+  draft: GeneratedSkillDraft;
+  preview: SkillAuthorPreview;
+}
+
 export interface SkillAuthorValidationIssue {
   field: keyof SkillAuthorDraft | "content";
   message: string;

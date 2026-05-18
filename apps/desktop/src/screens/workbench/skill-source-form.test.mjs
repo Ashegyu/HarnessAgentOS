@@ -6,6 +6,7 @@ import {
   emptySkillAuthorDraft,
   normalizePath,
   skillAuthorDraftToInput,
+  skillAuthorInputToFormDraft,
   skillSlugFromName,
   validateAddDraft,
   validateSkillAuthorDraft,
@@ -118,6 +119,23 @@ test("skillAuthorDraftToInput trims fields and splits trigger terms", () => {
   assert.equal(input.name, "Review Helper");
   assert.deepEqual(input.triggerTerms, ["review", "diff", "approval"]);
   assert.deepEqual(input.allowedActions, ["file_write"]);
+});
+
+test("skillAuthorInputToFormDraft maps generated drafts back into the form", () => {
+  const form = skillAuthorInputToFormDraft({
+    sourceId: "ss_1",
+    slug: "review-helper",
+    name: "Review Helper",
+    description: "Reviews diffs",
+    triggerTerms: ["review", "diff"],
+    riskLevel: "medium",
+    allowedActions: ["file_write"],
+    body: "Body",
+  });
+
+  assert.equal(form.sourceId, "ss_1");
+  assert.equal(form.triggerTermsText, "review, diff");
+  assert.deepEqual(form.allowedActions, ["file_write"]);
 });
 
 test("validateSkillAuthorDraft requires source, slug, name, and description", () => {
