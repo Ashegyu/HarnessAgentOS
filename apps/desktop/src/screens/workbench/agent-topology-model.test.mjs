@@ -47,7 +47,7 @@ const approval = (overrides = {}) => ({
   ...overrides,
 });
 
-test("builds a chronological local agent chain with animated running edge", () => {
+test("builds parallel local agent invocations as request fan-out edges", () => {
   const graph = buildAgentTopology({
     taskRun: taskRun(),
     steps: [
@@ -94,7 +94,7 @@ test("builds a chronological local agent chain with animated running edge", () =
     ]),
     [
       ["request:task_1", "agent:inv_coder", "starts", "succeeded", false],
-      ["agent:inv_coder", "agent:inv_reviewer", "handoff", "running", true],
+      ["request:task_1", "agent:inv_reviewer", "starts", "running", true],
     ],
   );
   assert.deepEqual(graph.summary, {
@@ -123,6 +123,88 @@ test("uses concrete agent names as visible graph labels", () => {
   assert.equal(
     graph.nodes.find((node) => node.id === "agent:inv_coder")?.displayLabel,
     "Coder",
+  );
+});
+
+test("does not imply agent-to-agent handoff for multi-worker parallel runs", () => {
+  const graph = buildAgentTopology({
+    taskRun: taskRun(),
+    steps: [
+      step({ id: "step_planner", title: "Worker[Planner] 계획" }),
+      step({
+        id: "step_reviewer",
+        index: 1,
+        title: "Worker[Reviewer] 검토",
+        status: "running",
+      }),
+      step({
+        id: "step_perf",
+        index: 2,
+        title: "Worker[Performance Reviewer] 성능 검토",
+        status: "running",
+      }),
+      step({
+        id: "step_security",
+        index: 3,
+        title: "Worker[Security Reviewer] 보안 검토",
+        status: "running",
+      }),
+    ],
+    invocations: [
+      invocation({ id: "inv_planner", stepId: "step_planner" }),
+      invocation({
+        id: "inv_reviewer",
+        stepId: "step_reviewer",
+        status: "running",
+        createdAt: "2026-05-15T00:02:00.000Z",
+      }),
+      invocation({
+        id: "inv_perf",
+        stepId: "step_perf",
+        status: "running",
+        createdAt: "2026-05-15T00:02:00.000Z",
+      }),
+      invocation({
+        id: "inv_security",
+        stepId: "step_security",
+        status: "running",
+        createdAt: "2026-05-15T00:02:00.000Z",
+      }),
+    ],
+    approvals: [approval()],
+    remoteTaskRefs: [],
+  });
+
+  assert.equal(
+    graph.edges.some(
+      (edge) =>
+        edge.source.startsWith("agent:") && edge.target.startsWith("agent:"),
+    ),
+    false,
+  );
+  assert.deepEqual(
+    graph.edges
+      .filter((edge) => edge.target.startsWith("agent:"))
+      .map((edge) => [edge.source, edge.target, edge.kind])
+      .sort((left, right) => left[1].localeCompare(right[1])),
+    [
+      ["request:task_1", "agent:inv_perf", "starts"],
+      ["request:task_1", "agent:inv_planner", "starts"],
+      ["request:task_1", "agent:inv_reviewer", "starts"],
+      ["request:task_1", "agent:inv_security", "starts"],
+    ],
+  );
+  assert.deepEqual(
+    graph.edges.find((edge) => edge.target === "approval:appr_1"),
+    {
+      id: "approval:request:task_1->approval:appr_1",
+      source: "request:task_1",
+      target: "approval:appr_1",
+      kind: "approval",
+      label: "approval",
+      status: "waiting",
+      animated: true,
+    },
   );
 });
 

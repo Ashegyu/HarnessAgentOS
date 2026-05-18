@@ -84,9 +84,10 @@ export const buildAgentTopology = ({
   approvals,
   remoteTaskRefs,
 }: BuildAgentTopologyInput): AgentTopology => {
+  const requestNodeId = `request:${taskRun.id}`;
   const nodes: AgentTopologyNode[] = [
     {
-      id: `request:${taskRun.id}`,
+      id: requestNodeId,
       kind: "request",
       label: "User Request",
       displayLabel: "User Request",
@@ -110,8 +111,8 @@ export const buildAgentTopology = ({
       displayLabel: display.agentName,
       sublabel: display.detail,
       status: invocationStatusToTopologyStatus(invocation.status),
-      x: flowX(index),
-      y: flowY(index, orderedInvocations.length),
+      x: agentFlowX(index, orderedInvocations.length),
+      y: agentFlowY(index, orderedInvocations.length),
       title: `${display.agentName} · ${display.detail} · ${display.providerLabel}`,
     };
     nodes.push(node);
@@ -137,22 +138,38 @@ export const buildAgentTopology = ({
     });
   }
 
-  const chain = [`request:${taskRun.id}`, ...flowNodeIds];
-  for (let i = 0; i < chain.length - 1; i += 1) {
-    const source = chain[i]!;
-    const target = chain[i + 1]!;
-    const targetNode = nodes.find((node) => node.id === target);
-    const kind: AgentTopologyEdgeKind = i === 0 ? "starts" : "handoff";
-    const status = targetNode?.status ?? "idle";
-    edges.push({
-      id: `${kind}:${source}->${target}`,
-      source,
-      target,
-      kind,
-      label: kind === "starts" ? "starts" : "handoff",
-      status,
-      animated: isAnimatedStatus(status),
+  if (orderedInvocations.length > 0) {
+    flowNodeIds.forEach((target) => {
+      const targetNode = nodes.find((node) => node.id === target);
+      const status = targetNode?.status ?? "idle";
+      edges.push({
+        id: `starts:${requestNodeId}->${target}`,
+        source: requestNodeId,
+        target,
+        kind: "starts",
+        label: flowNodeIds.length > 1 ? "parallel" : "starts",
+        status,
+        animated: isAnimatedStatus(status),
+      });
     });
+  } else {
+    const chain = [requestNodeId, ...flowNodeIds];
+    for (let i = 0; i < chain.length - 1; i += 1) {
+      const source = chain[i]!;
+      const target = chain[i + 1]!;
+      const targetNode = nodes.find((node) => node.id === target);
+      const kind: AgentTopologyEdgeKind = i === 0 ? "starts" : "handoff";
+      const status = targetNode?.status ?? "idle";
+      edges.push({
+        id: `${kind}:${source}->${target}`,
+        source,
+        target,
+        kind,
+        label: kind === "starts" ? "starts" : "handoff",
+        status,
+        animated: isAnimatedStatus(status),
+      });
+    }
   }
 
   remoteTaskRefs.forEach((ref) => {
@@ -203,7 +220,8 @@ export const buildAgentTopology = ({
       title: `${approval.actionType} · ${approval.actionSummary}`,
     };
     nodes.push(approvalNode);
-    const source = flowNodeIds[flowNodeIds.length - 1] ?? `request:${taskRun.id}`;
+    const source =
+      flowNodeIds.length === 1 ? flowNodeIds[0]! : requestNodeId;
     edges.push({
       id: `approval:${source}->${approvalNode.id}`,
       source,
@@ -226,6 +244,21 @@ const agentNodeId = (id: string): string => `agent:${id}`;
 const stepNodeId = (id: string): string => `step:${id}`;
 const remoteNodeId = (invocationId: string): string => `remote:${invocationId}`;
 const approvalNodeId = (id: string): string => `approval:${id}`;
+
+const agentFlowX = (index: number, total: number): number => {
+  if (total <= 1) return 50;
+  return index % 2 === 0 ? 32 : 68;
+};
+
+const agentFlowY = (index: number, total: number): number => {
+  if (total <= 1) return 40;
+  const row = Math.floor(index / 2);
+  const rows = Math.ceil(total / 2);
+  if (rows <= 1) return 42;
+  const start = 34;
+  const end = Math.min(74, start + (rows - 1) * 18);
+  return start + ((end - start) * row) / Math.max(rows - 1, 1);
+};
 
 const flowX = (index: number): number => (index % 2 === 0 ? 36 : 64);
 
