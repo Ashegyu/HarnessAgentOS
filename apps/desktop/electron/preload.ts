@@ -34,6 +34,7 @@ import {
   type OrchestrationRunResult,
   type QualityGateResult,
   type RepairPlanDraft,
+  type RunnerCancelExecutionResult,
   type RunnerResultPayload,
   type RuntimeInfo,
   type RuntimeLatencyFilters,
@@ -144,6 +145,11 @@ const harnessApi: HarnessDesktopApi = {
     executeApproved: (input) =>
       invokeUnwrapped<RunnerResultPayload>(
         IPC_CHANNELS.runner.executeApproved,
+        input,
+      ),
+    cancelExecution: (input) =>
+      invokeUnwrapped<RunnerCancelExecutionResult>(
+        IPC_CHANNELS.runner.cancelExecution,
         input,
       ),
     listArtifacts: (input) =>

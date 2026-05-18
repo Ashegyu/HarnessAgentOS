@@ -57,6 +57,266 @@ const setup = async (t) => {
   return { db, state, artifactStore, conversation, runner };
 };
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const waitUntil = async (predicate, message) => {
+  for (let i = 0; i < 50; i += 1) {
+    if (predicate()) return;
+    await wait(5);
+  }
+  assert.fail(message);
+};
+
+const withTimeout = async (promise, ms, message) =>
+  Promise.race([
+    promise,
+    wait(ms).then(() => {
+      throw new Error(message);
+    }),
+  ]);
+
+const fakeRunnerHarness = (input = {}) => {
+  const now = "2026-05-18T00:00:00.000Z";
+  const taskRun = {
+    id: input.taskRunId ?? "task_1",
+    threadId: "thread_1",
+    userRequest: "run",
+    targetDir: process.cwd(),
+    status: "waiting_for_approval",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const approval = {
+    id: input.approvalId ?? "approval_1",
+    taskRunId: taskRun.id,
+    checkpointId: "checkpoint_1",
+    actionType: "shell",
+    actionSummary: input.command ?? "node -v",
+    status: "approved",
+    proposedAction: {
+      type: "shell",
+      command: input.command ?? "node -v",
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+  const checkpointStep = {
+    id: "checkpoint_step_1",
+    taskRunId: taskRun.id,
+    index: 0,
+    kind: "approval",
+    title: "approval",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const checkpoint = {
+    id: approval.checkpointId,
+    taskRunId: taskRun.id,
+    stepId: checkpointStep.id,
+    reason: "before_edit",
+    stateRef: "{}",
+    summary: "test",
+    createdAt: now,
+  };
+  const steps = [checkpointStep];
+  const artifacts = [];
+  const statuses = [];
+  const state = {
+    getApproval: async (id) => (id === approval.id ? approval : null),
+    getTaskRun: async (id) => (id === taskRun.id ? taskRun : null),
+    listStepsByTaskRun: async () => steps,
+    createStep: async (stepInput) => {
+      const step = {
+        id: `step_${steps.length + 1}`,
+        createdAt: now,
+        updatedAt: now,
+        status: stepInput.status ?? "pending",
+        ...stepInput,
+      };
+      steps.push(step);
+      return step;
+    },
+    setTaskRunCurrentStep: async (_id, stepId) => {
+      taskRun.currentStepId = stepId;
+      return taskRun;
+    },
+    setTaskRunStatus: async (_id, status) => {
+      statuses.push(status);
+      taskRun.status = status;
+      taskRun.updatedAt = now;
+      return taskRun;
+    },
+    setStepStatus: async (id, status, patch = {}) => {
+      const step = steps.find((s) => s.id === id);
+      if (step) {
+        step.status = status;
+        Object.assign(step, patch);
+      }
+      return step;
+    },
+    decideApproval: async (_id, status, message) => {
+      approval.status = status;
+      approval.decisionMessage = message;
+      return approval;
+    },
+    listApprovalsByTaskRun: async () => [approval],
+    listCheckpointsByTaskRun: async () => [checkpoint],
+    createArtifact: async (artifactInput) => {
+      const artifact = {
+        createdAt: now,
+        updatedAt: now,
+        ...artifactInput,
+      };
+      artifacts.push(artifact);
+      return artifact;
+    },
+  };
+  const artifactStore = {
+    write: async ({ taskRunId, artifactId, kind }) => ({
+      uri: `artifact://${taskRunId}/${kind}/${artifactId}`,
+    }),
+  };
+  return { approval, artifactStore, artifacts, state, statuses, taskRun };
+};
+
+test("cancelExecution returns false for a taskRun without inflight execution", async () => {
+  const harness = fakeRunnerHarness();
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+  });
+
+  assert.deepEqual(await runner.cancelExecution({ taskRunId: "missing" }), {
+    cancelled: false,
+  });
+});
+
+test("cancelExecution aborts inflight shell execution and marks TaskRun cancelled", async () => {
+  const harness = fakeRunnerHarness({ command: "node long-running.js" });
+  let seenSignal;
+  let shellStarted = false;
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+    shellRunner: {
+      run: async (input) =>
+        new Promise((_resolve, reject) => {
+          seenSignal = input.signal;
+          shellStarted = true;
+          input.signal?.addEventListener(
+            "abort",
+            () => {
+              const err = new Error("cancelled");
+              err.code = "RUNNER_CANCELLED";
+              reject(err);
+            },
+            { once: true },
+          );
+        }),
+    },
+  });
+
+  const run = runner.executeApproved(harness.approval.id);
+  await waitUntil(() => shellStarted, "shell runner was not started");
+
+  assert.deepEqual(
+    await runner.cancelExecution({ taskRunId: harness.taskRun.id }),
+    { cancelled: true },
+  );
+  assert.equal(seenSignal instanceof AbortSignal, true);
+  assert.equal(seenSignal.aborted, true);
+  await assert.rejects(
+    () => withTimeout(run, 100, "executeApproved did not settle after cancel"),
+    (e) => e instanceof RunnerError && e.code === "RUNNER_CANCELLED",
+  );
+  assert.equal(harness.taskRun.status, "cancelled");
+  assert.deepEqual(harness.statuses.slice(-2), ["running", "cancelled"]);
+});
+
+test("executeApproved can run again after a cancelled shell execution", async () => {
+  const harness = fakeRunnerHarness({ command: "node maybe-long-running.js" });
+  let callCount = 0;
+  let firstShellStarted = false;
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+    shellRunner: {
+      run: async (input) => {
+        callCount += 1;
+        if (callCount === 1) {
+          firstShellStarted = true;
+          return new Promise((_resolve, reject) => {
+            input.signal?.addEventListener(
+              "abort",
+              () => {
+                const err = new Error("cancelled");
+                err.code = "RUNNER_CANCELLED";
+                reject(err);
+              },
+              { once: true },
+            );
+          });
+        }
+        return {
+          stdout: "ok\n",
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1,
+          command: input.command,
+          cwd: input.cwd,
+        };
+      },
+    },
+  });
+
+  const firstRun = runner.executeApproved(harness.approval.id);
+  await waitUntil(() => firstShellStarted, "first shell runner was not started");
+  await runner.cancelExecution({ taskRunId: harness.taskRun.id });
+  await assert.rejects(
+    () =>
+      withTimeout(firstRun, 100, "first executeApproved did not settle"),
+    (e) => e instanceof RunnerError && e.code === "RUNNER_CANCELLED",
+  );
+  assert.deepEqual(
+    await runner.cancelExecution({ taskRunId: harness.taskRun.id }),
+    { cancelled: false },
+  );
+
+  const secondRun = await runner.executeApproved(harness.approval.id);
+  assert.equal(secondRun.exitCode, 0);
+  assert.equal(callCount, 2);
+  assert.equal(harness.taskRun.status, "ready_for_review");
+});
+
+test("test command execution receives the TaskRun abort signal", async () => {
+  const harness = fakeRunnerHarness({ command: "npm test -- --runInBand" });
+  let seenSignal;
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+    testRunner: {
+      run: async (input) => {
+        seenSignal = input.signal;
+        return {
+          stdout: "ok\n",
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1,
+          command: input.command,
+          cwd: input.cwd,
+          passed: true,
+        };
+      },
+    },
+  });
+
+  await runner.executeApproved(harness.approval.id);
+
+  assert.equal(seenSignal instanceof AbortSignal, true);
+  assert.equal(seenSignal.aborted, false);
+});
+
 test("executeApproved refuses when approval is still pending", async () => {
   const t = tmp();
   try {

@@ -10,6 +10,7 @@ import {
   type Artifact,
   type ArtifactStore,
   type HarnessResult,
+  type RunnerCancelExecutionResult,
   type RunnerResultPayload,
 } from "@harness/core";
 import { RunnerError, type RunnerService } from "@harness/runners";
@@ -36,6 +37,15 @@ export const registerRunnerIpc = (
   artifactStore: ArtifactStore,
   events: HarnessEventBus,
 ): void => {
+  const emitApprovalTaskRunChanged = async (approvalId: string): Promise<void> => {
+    try {
+      const approval = await state.getApproval(approvalId);
+      if (approval) events.taskRunChanged(approval.taskRunId);
+    } catch {
+      // Preserve the original runner error result; event emission is best-effort.
+    }
+  };
+
   ipcMain.handle(
     IPC_CHANNELS.runner.executeApproved,
     async (_e, input: unknown): Promise<HarnessResult<RunnerResultPayload>> => {
@@ -53,7 +63,33 @@ export const registerRunnerIpc = (
         events.taskRunChanged(result.taskRunId);
         return ok(result as RunnerResultPayload);
       } catch (e) {
+        await emitApprovalTaskRunChanged(cast.approvalId);
         return wrapRunnerErr<RunnerResultPayload>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.runner.cancelExecution,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<RunnerCancelExecutionResult>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { taskRunId?: unknown };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      try {
+        const result = await runner.cancelExecution({ taskRunId: cast.taskRunId });
+        if (result.cancelled) events.taskRunChanged(cast.taskRunId);
+        return ok(result);
+      } catch (e) {
+        return wrapRunnerErr<RunnerCancelExecutionResult>(e);
       }
     },
   );
@@ -75,6 +111,7 @@ export const registerRunnerIpc = (
         events.taskRunChanged(result.taskRunId);
         return ok(result as RunnerResultPayload);
       } catch (e) {
+        await emitApprovalTaskRunChanged(cast.approvalId);
         return wrapRunnerErr<RunnerResultPayload>(e);
       }
     },

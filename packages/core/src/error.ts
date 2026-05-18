@@ -54,6 +54,7 @@ export const RUNNER_TARGET_OUTSIDE_WORKSPACE =
 export const RUNNER_BLOCKED_HIGH_RISK = "RUNNER_BLOCKED_HIGH_RISK" as const;
 export const RUNNER_EXECUTION_FAILED = "RUNNER_EXECUTION_FAILED" as const;
 export const RUNNER_RETRY_NOT_BLOCKED = "RUNNER_RETRY_NOT_BLOCKED" as const;
+export const RUNNER_CANCELLED = "RUNNER_CANCELLED" as const;
 export const ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND" as const;
 
 // Phase 4 - quality namespace

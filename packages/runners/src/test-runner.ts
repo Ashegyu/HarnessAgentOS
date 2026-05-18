@@ -20,6 +20,7 @@ export class TestRunner {
     cwd: string;
     timeoutMs?: number;
     idleTimeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<TestRunResult> {
     const r = await this.shell.run(input);
     return { ...r, passed: r.exitCode === 0 };

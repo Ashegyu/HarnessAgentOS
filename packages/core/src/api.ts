@@ -96,6 +96,10 @@ export interface RunnerResultPayload {
   finishedAt: string;
 }
 
+export interface RunnerCancelExecutionResult {
+  cancelled: boolean;
+}
+
 /**
  * Public IPC surface exposed to the renderer via contextBridge.
  * Single source of truth for method names is docs/contracts/ipc-contracts.md.
@@ -146,6 +150,9 @@ export interface HarnessDesktopApi {
   };
   runner: {
     executeApproved(input: { approvalId: string }): Promise<RunnerResultPayload>;
+    cancelExecution(input: {
+      taskRunId: string;
+    }): Promise<RunnerCancelExecutionResult>;
     listArtifacts(input: { taskRunId: string }): Promise<Artifact[]>;
     readArtifact(input: {
       artifactId: string;

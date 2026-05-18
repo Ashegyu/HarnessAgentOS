@@ -12,6 +12,7 @@ import {
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
   DEFAULT_RUNNER_TEST_TIMEOUT_MS,
+  RUNNER_CANCELLED,
   evaluateApprovalActionPolicy,
   formatSimpleDiff,
 } from "@harness/core";
@@ -62,6 +63,7 @@ export class RunnerService {
   private readonly git: GitRunner;
   private readonly test: TestRunner;
   private readonly deps: RunnerServiceDeps;
+  private readonly inflight = new Map<string, AbortController>();
 
   constructor(deps: RunnerServiceDeps) {
     this.deps = deps;
@@ -106,6 +108,15 @@ export class RunnerService {
 
   async executeApproved(approvalId: string): Promise<RunnerResult> {
     return this.executeApprovedInternal(approvalId, { allowExecuted: false });
+  }
+
+  async cancelExecution(input: {
+    taskRunId: string;
+  }): Promise<{ cancelled: boolean }> {
+    const controller = this.inflight.get(input.taskRunId);
+    if (!controller) return { cancelled: false };
+    controller.abort();
+    return { cancelled: true };
   }
 
   private async executeApprovedInternal(
@@ -205,6 +216,8 @@ export class RunnerService {
       startedAt,
       finishedAt: startedAt,
     };
+    const controller = new AbortController();
+    this.inflight.set(taskRun.id, controller);
 
     try {
       switch (approval.actionType) {
@@ -212,7 +225,14 @@ export class RunnerService {
           await this.runFileWrite({ approval, taskRun, step, details, result });
           break;
         case "shell":
-          await this.runShell({ approval, taskRun, step, details, result });
+          await this.runShell({
+            approval,
+            taskRun,
+            step,
+            details,
+            result,
+            signal: controller.signal,
+          });
           break;
         default:
           throw new RunnerError(
@@ -237,6 +257,7 @@ export class RunnerService {
       result.finishedAt = nowIso();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      const cancelled = isRunnerCancelled(e);
       const errorArtifact = await this.persistArtifact({
         taskRunId: taskRun.id,
         stepId: step.id,
@@ -251,11 +272,19 @@ export class RunnerService {
       await this.deps.state.setStepStatus(step.id, "failed", {
         outputSummary: message.slice(0, 200),
       });
-      await this.deps.state.setTaskRunStatus(taskRun.id, "blocked");
+      await this.deps.state.setTaskRunStatus(
+        taskRun.id,
+        cancelled ? "cancelled" : "blocked",
+      );
       // Re-throw so IPC layer maps to HarnessError, but with state already
       // recorded so the UI shows the failure even if the call rejects.
+      if (cancelled) throw new RunnerError(RUNNER_CANCELLED, message);
       if (e instanceof RunnerError) throw e;
       throw new RunnerError("RUNNER_EXECUTION_FAILED", message);
+    } finally {
+      if (this.inflight.get(taskRun.id) === controller) {
+        this.inflight.delete(taskRun.id);
+      }
     }
 
     return result;
@@ -355,8 +384,9 @@ export class RunnerService {
     step: Step;
     details: ProposedActionDetails;
     result: RunnerResult;
+    signal?: AbortSignal;
   }): Promise<void> {
-    const { taskRun, step, details, result } = args;
+    const { taskRun, step, details, result, signal } = args;
     if (!details.command || details.command.trim().length === 0) {
       throw new RunnerError(
         "RUNNER_EXECUTION_FAILED",
@@ -380,12 +410,14 @@ export class RunnerService {
           cwd: taskRun.targetDir,
           timeoutMs: DEFAULT_RUNNER_TEST_TIMEOUT_MS,
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
+          signal,
         })
       : await this.shell.run({
           command: details.command,
           cwd: taskRun.targetDir,
           timeoutMs: DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
+          signal,
         });
     result.exitCode = runOutcome.exitCode;
     result.stdout = maskSecrets(runOutcome.stdout);
@@ -503,6 +535,17 @@ const isUnresolvedApproval = (approval: Pick<Approval, "status">): boolean =>
   approval.status === "pending" ||
   approval.status === "approved" ||
   approval.status === "always_approved_for_run";
+
+const errorCodeOf = (e: unknown): string | undefined =>
+  typeof e === "object" &&
+  e !== null &&
+  "code" in e &&
+  typeof (e as { code?: unknown }).code === "string"
+    ? (e as { code: string }).code
+    : undefined;
+
+const isRunnerCancelled = (e: unknown): boolean =>
+  errorCodeOf(e) === RUNNER_CANCELLED;
 
 const summarizeResolvedApprovals = (
   approvals: readonly Pick<Approval, "status">[],

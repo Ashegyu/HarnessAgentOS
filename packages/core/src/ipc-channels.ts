@@ -32,6 +32,7 @@ export const IPC_CHANNELS = {
   },
   runner: {
     executeApproved: "runner:executeApproved",
+    cancelExecution: "runner:cancelExecution",
     listArtifacts: "runner:listArtifacts",
     readArtifact: "runner:readArtifact",
     retryApproval: "runner:retryApproval",

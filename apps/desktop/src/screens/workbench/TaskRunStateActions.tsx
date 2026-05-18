@@ -41,6 +41,7 @@ export const TaskRunStateActions = ({
   const canPause =
     taskRun.status === "running" ||
     taskRun.status === "waiting_for_approval";
+  const canStop = taskRun.status === "running";
   const canResume = taskRun.status === "paused";
   const canRetry =
     (taskRun.status === "blocked" || taskRun.status === "quality_failed") &&
@@ -69,6 +70,26 @@ export const TaskRunStateActions = ({
         <span className="muted">TaskRun status: {taskRun.status}</span>
       </div>
       <div className="task-state-actions__buttons">
+        {canStop ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={() =>
+              void wrap(async () => {
+                const result = await window.harness.runner.cancelExecution({
+                  taskRunId: taskRun.id,
+                });
+                if (!result.cancelled) {
+                  throw new Error("실행 중인 runner 작업이 없습니다.");
+                }
+              })
+            }
+            disabled={busy}
+            title="현재 실행 중인 shell/test runner를 중단합니다."
+          >
+            Stop
+          </button>
+        ) : null}
         {canPause ? (
           <button
             type="button"

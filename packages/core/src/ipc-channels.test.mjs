@@ -203,6 +203,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
 
 test("runner namespace exposes Phase 3 + retry verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.runner).sort(), [
+    "cancelExecution",
     "executeApproved",
     "listArtifacts",
     "readArtifact",
@@ -286,6 +287,7 @@ test("isAllowedChannel accepts declared channels", () => {
   assert.equal(isAllowedChannel("app:getVersion"), true);
   assert.equal(isAllowedChannel("conversation:createTask"), true);
   assert.equal(isAllowedChannel("runner:executeApproved"), true);
+  assert.equal(isAllowedChannel("runner:cancelExecution"), true);
 });
 
 test("isAllowedChannel rejects undeclared channels", () => {

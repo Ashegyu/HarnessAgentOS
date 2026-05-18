@@ -399,12 +399,14 @@ interface TaskRunDetail {
 
 ```ts
 runner.executeApproved(input: { approvalId: string }): Promise<RunnerResult>;
+runner.cancelExecution(input: { taskRunId: string }): Promise<{ cancelled: boolean }>;
 runner.listArtifacts(input: { taskRunId: string }): Promise<Artifact[]>;
 runner.readArtifact(input: { artifactId: string }): Promise<{ artifact: Artifact; content: string }>;
 runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 ```
 
 > `retryApproval`은 부모 TaskRun이 `blocked`/`quality_failed`일 때만 허용 (그 외는 `RUNNER_RETRY_NOT_BLOCKED`). 가장 최근 approved approval로 `executeApproved`와 같은 멱등 경로를 재실행한다.
+> `cancelExecution`은 현재 실행 중인 RunnerService 작업이 있을 때만 `{ cancelled: true }`를 반환하고 해당 TaskRun의 AbortSignal을 중단한다. 존재하지 않거나 실행 중이 아닌 `taskRunId`는 throw하지 않고 `{ cancelled: false }`를 반환한다.
 
 ```ts
 interface RunnerResult {
@@ -430,6 +432,7 @@ interface RunnerResult {
 - `RUNNER_BLOCKED_HIGH_RISK`
 - `RUNNER_EXECUTION_FAILED`
 - `RUNNER_RETRY_NOT_BLOCKED`
+- `RUNNER_CANCELLED`
 - `ARTIFACT_NOT_FOUND`
 
 ## `window.harness.shadow`
@@ -1152,7 +1155,7 @@ events.onAgentStreamEvent(
 
 발생 조건:
 
-- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다.
+- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval/cancelExecution`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다. `runner.executeApproved/retryApproval`은 runner가 실패/취소 상태를 DB에 기록한 뒤 에러를 반환하는 경우에도 발행한다.
 - `events:agentStreamEvent`: `agent.generatePlan` invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
 - 페이로드는 위 표에 명시된 shape만 — 채널 자체로 임의의 도메인 객체를 전달하지 않는다.
 - read-only IPC (예: `quality.getLatest`, `state.listThreads`)는 발행하지 않는다.
