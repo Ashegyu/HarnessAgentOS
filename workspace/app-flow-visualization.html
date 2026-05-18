@@ -651,10 +651,388 @@
       </div>
     </section>
 
-    <!-- ====================== 02. 두 갈래 흐름 비교 ====================== -->
+    <!-- ====================== 02. 데이터 모델 & 상태 머신 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">02 — TWO FORKS</div>
+        <div class="num">02 — DATA MODEL · STATE MACHINE</div>
+        <h2>도메인을 받치는 9개의 테이블과 한 장의 상태 다이어그램</h2>
+        <p>
+          모든 흐름은 결국 SQLite WAL의 row 변경으로 끝난다. 도메인 객체의 모양과
+          <code>TaskRun.status</code>가 거치는 9가지 상태를 머리에 박아두면, 어떤 화면을 보고 있든
+          "지금 DB에 무엇이 기록됐고 다음 어떤 row가 추가될지"를 예측할 수 있다.
+        </p>
+      </div>
+
+      <h3 style="margin:0 0 0.8rem; font-size:1.05rem; letter-spacing:-0.01em; color:var(--text-soft);">2-1 · Entity 관계도</h3>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1180 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="HarnessAgentOS 핵심 엔티티 관계도">
+          <defs>
+            <marker id="arrowhead5" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.55)" />
+            </marker>
+          </defs>
+
+          <rect class="node-rect node-store" x="40" y="40" width="220" height="110" rx="10"/>
+          <text class="node-text" x="150" y="64" text-anchor="middle">threads</text>
+          <text class="node-text small" x="150" y="84" text-anchor="middle">id · title · target_dir</text>
+          <text class="node-text mono" x="150" y="104" text-anchor="middle">created_at · updated_at</text>
+          <text class="node-text mono" x="150" y="122" text-anchor="middle">archived_at?</text>
+          <text class="node-text small" x="150" y="142" text-anchor="middle">프로젝트 단위 묶음</text>
+
+          <rect class="node-rect node-svc" x="320" y="20" width="260" height="150" rx="10"/>
+          <text class="node-text" x="450" y="44" text-anchor="middle">task_runs</text>
+          <text class="node-text small" x="450" y="64" text-anchor="middle">id · thread_id · user_request</text>
+          <text class="node-text small" x="450" y="80" text-anchor="middle">target_dir · current_step_id?</text>
+          <text class="node-text mono" x="450" y="100" text-anchor="middle">status: 9-state enum</text>
+          <text class="node-text mono" x="450" y="118" text-anchor="middle">created_at · updated_at</text>
+          <text class="node-text small" x="450" y="142" text-anchor="middle">메시지 1건 = TaskRun 1건</text>
+
+          <rect class="node-rect node-svc" x="640" y="20" width="230" height="80" rx="10"/>
+          <text class="node-text" x="755" y="44" text-anchor="middle">steps</text>
+          <text class="node-text small" x="755" y="62" text-anchor="middle">id · task_run_id · step_index</text>
+          <text class="node-text mono" x="755" y="82" text-anchor="middle">status: pending/running/…</text>
+
+          <rect class="node-rect node-svc" x="640" y="120" width="230" height="80" rx="10"/>
+          <text class="node-text" x="755" y="144" text-anchor="middle">checkpoints</text>
+          <text class="node-text small" x="755" y="162" text-anchor="middle">id · task_run_id · step_id</text>
+          <text class="node-text mono" x="755" y="182" text-anchor="middle">reason · state_ref · summary</text>
+
+          <rect class="node-rect node-decide" x="320" y="220" width="260" height="110" rx="10"/>
+          <text class="node-text" x="450" y="244" text-anchor="middle">approvals</text>
+          <text class="node-text small" x="450" y="262" text-anchor="middle">action_type ∈ 9-action enum</text>
+          <text class="node-text small" x="450" y="278" text-anchor="middle">status ∈ pending/approved/…</text>
+          <text class="node-text mono" x="450" y="296" text-anchor="middle">proposed_action_json</text>
+          <text class="node-text mono" x="450" y="314" text-anchor="middle">policy_evaluation_json</text>
+
+          <rect class="node-rect node-success" x="640" y="220" width="230" height="130" rx="10"/>
+          <text class="node-text" x="755" y="244" text-anchor="middle">artifacts</text>
+          <text class="node-text small" x="755" y="262" text-anchor="middle">id · task_run_id · step_id?</text>
+          <text class="node-text small" x="755" y="280" text-anchor="middle">kind ∈ 8-kind enum</text>
+          <text class="node-text mono" x="755" y="300" text-anchor="middle">plan · diff · log · file</text>
+          <text class="node-text mono" x="755" y="316" text-anchor="middle">test_result · quality_report</text>
+          <text class="node-text mono" x="755" y="332" text-anchor="middle">orchestration_plan · snapshot</text>
+
+          <rect class="node-rect node-success" x="320" y="360" width="260" height="125" rx="10"/>
+          <text class="node-text" x="450" y="384" text-anchor="middle">quality_gate_results</text>
+          <text class="node-text small" x="450" y="402" text-anchor="middle">status ∈ passed/failed/warning</text>
+          <text class="node-text mono" x="450" y="420" text-anchor="middle">build · tests · smoke · changed</text>
+          <text class="node-text mono" x="450" y="437" text-anchor="middle">known_risks · evidence refs</text>
+          <text class="node-text small" x="450" y="458" text-anchor="middle">markDone의 게이트</text>
+          <text class="node-text small" x="450" y="474" text-anchor="middle">(passed/warning 통과 시)</text>
+
+          <rect class="node-rect node-cli" x="640" y="360" width="230" height="100" rx="10"/>
+          <text class="node-text" x="755" y="384" text-anchor="middle">agent_invocations</text>
+          <text class="node-text small" x="755" y="402" text-anchor="middle">provider · model · status</text>
+          <text class="node-text mono" x="755" y="420" text-anchor="middle">prompt_artifact_id</text>
+          <text class="node-text mono" x="755" y="438" text-anchor="middle">raw_output_… · parsed_plan_…</text>
+          <text class="node-text small" x="755" y="454" text-anchor="middle">CLI 호출 1회당 1 row</text>
+
+          <rect class="node-rect node-store" x="920" y="40" width="220" height="80" rx="10"/>
+          <text class="node-text" x="1030" y="64" text-anchor="middle">agent_profiles</text>
+          <text class="node-text small" x="1030" y="82" text-anchor="middle">persona · tuning · cli</text>
+          <text class="node-text mono" x="1030" y="100" text-anchor="middle">permissions (auto · block)</text>
+
+          <rect class="node-rect node-store" x="920" y="140" width="220" height="60" rx="10"/>
+          <text class="node-text" x="1030" y="164" text-anchor="middle">agent_pipelines</text>
+          <text class="node-text small" x="1030" y="182" text-anchor="middle">steps[] → profile_id 참조</text>
+
+          <rect class="node-rect node-store" x="920" y="220" width="220" height="60" rx="10"/>
+          <text class="node-text" x="1030" y="244" text-anchor="middle">learning_traces</text>
+          <text class="node-text mono" x="1030" y="262" text-anchor="middle">reward · latency · success</text>
+
+          <rect class="node-rect node-store" x="920" y="300" width="220" height="60" rx="10"/>
+          <text class="node-text" x="1030" y="324" text-anchor="middle">capabilities</text>
+          <text class="node-text mono" x="1030" y="342" text-anchor="middle">trigger_terms · risk_level</text>
+
+          <rect class="node-rect node-store" x="920" y="380" width="220" height="60" rx="10"/>
+          <text class="node-text" x="1030" y="404" text-anchor="middle">observations</text>
+          <text class="node-text mono" x="1030" y="422" text-anchor="middle">source ∈ approval/quality/…</text>
+
+          <path d="M260 90 L320 90" class="arrow" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="275" y="82">1:N</text>
+
+          <path d="M580 60 L640 60" class="arrow" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="595" y="52">1:N</text>
+
+          <path d="M580 120 L640 160" class="arrow" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="595" y="138">1:N</text>
+
+          <path d="M450 170 L450 220" class="arrow" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="460" y="200">1:N</text>
+
+          <path d="M580 270 L640 270" class="arrow dim" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="590" y="262">artifact refs</text>
+
+          <path d="M450 330 L450 360" class="arrow" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="460" y="350">latest gate</text>
+
+          <path d="M580 410 L640 410" class="arrow dim" marker-end="url(#arrowhead5)"/>
+          <text class="edge-label" x="590" y="402">evidence</text>
+
+          <!-- right column references (수직 라벨로 정리, cross-cutting 화살표 제거) -->
+          <text class="lane-label" x="1030" y="500" text-anchor="middle">↑ 위 4개는 task_runs · steps · approvals를 참조</text>
+        </svg>
+      </div>
+
+      <div class="grid-3" style="margin-top:1.2rem;">
+        <div class="card">
+          <span class="sub">컬럼 명명 규약</span>
+          <h3>JSON은 <code>_json</code> 접미사</h3>
+          <p style="color:var(--text-soft); margin:0.4rem 0 0; font-size:0.92rem;">
+            <code>known_risks_json</code>, <code>trigger_terms_json</code>, <code>proposed_action_json</code>,
+            <code>policy_evaluation_json</code>, <code>evidence_artifact_ids_json</code> …
+            저장은 string이지만 의미는 구조화 JSON. 직접 SQL로 만지지 말고 Repository 경유로만 접근.
+          </p>
+        </div>
+        <div class="card">
+          <span class="sub">Timestamp 규약</span>
+          <h3>모든 시간은 ISO string</h3>
+          <p style="color:var(--text-soft); margin:0.4rem 0 0; font-size:0.92rem;">
+            <code>created_at</code>, <code>updated_at</code>, <code>started_at</code>, <code>finished_at</code>,
+            <code>decided_at</code>, <code>archived_at</code> 전부 ISO-8601. Unix epoch나 number 금지.
+          </p>
+        </div>
+        <div class="card">
+          <span class="sub">SQLite 설정</span>
+          <h3>WAL · FK 강제 · busy 5s</h3>
+          <p style="color:var(--text-soft); margin:0.4rem 0 0; font-size:0.92rem;">
+            <code>PRAGMA journal_mode=WAL</code>, <code>foreign_keys=ON</code>, <code>busy_timeout=5000</code>.
+            migration은 <code>SCHEMA_VERSION</code>으로 추적, <code>IF NOT EXISTS</code>로 idempotent.
+          </p>
+        </div>
+      </div>
+
+      <h3 style="margin:2.4rem 0 0.8rem; font-size:1.05rem; letter-spacing:-0.01em; color:var(--text-soft);">2-2 · TaskRun 상태 머신 (9개 상태 · 실제 전이만)</h3>
+
+      <div class="diagram-wrap">
+        <svg viewBox="0 -30 1180 610" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="TaskRun 상태 머신">
+          <defs>
+            <marker id="arrowhead6" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="rgba(255,255,255,0.55)" />
+            </marker>
+            <marker id="arrowok2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#34d399" />
+            </marker>
+            <marker id="arrowbad2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#fb7185" />
+            </marker>
+            <marker id="arrowamb" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+              <path d="M0,0 L0,10 L10,5 z" fill="#fbbf24" />
+            </marker>
+          </defs>
+
+          <rect class="lane-bg" x="20" y="20" width="1140" height="200" rx="10"/>
+          <text class="lane-label" x="40" y="46">ACTIVE · 진행 중</text>
+
+          <rect class="node-rect node-ui" x="60" y="80" width="200" height="80" rx="12"/>
+          <text class="node-text" x="160" y="112" text-anchor="middle">drafting</text>
+          <text class="node-text small" x="160" y="132" text-anchor="middle">createTask 직후</text>
+          <text class="node-text mono" x="160" y="148" text-anchor="middle">초기 상태</text>
+
+          <rect class="node-rect node-decide" x="320" y="80" width="220" height="80" rx="12"/>
+          <text class="node-text" x="430" y="112" text-anchor="middle">waiting_for_approval</text>
+          <text class="node-text small" x="430" y="132" text-anchor="middle">approval 생성 직후</text>
+          <text class="node-text mono" x="430" y="148" text-anchor="middle">agent.generatePlan 정상</text>
+
+          <rect class="node-rect node-cli" x="600" y="80" width="200" height="80" rx="12"/>
+          <text class="node-text" x="700" y="112" text-anchor="middle">running</text>
+          <text class="node-text small" x="700" y="132" text-anchor="middle">runner / worker 실행 중</text>
+          <text class="node-text mono" x="700" y="148" text-anchor="middle">runApproved · execute…</text>
+
+          <rect class="node-rect node-svc" x="860" y="80" width="200" height="80" rx="12"/>
+          <text class="node-text" x="960" y="112" text-anchor="middle">paused</text>
+          <text class="node-text small" x="960" y="132" text-anchor="middle">사용자 pause · 거절</text>
+          <text class="node-text mono" x="960" y="148" text-anchor="middle">pauseTask · rejectApproval</text>
+
+          <rect class="lane-bg" x="20" y="240" width="1140" height="170" rx="10"/>
+          <text class="lane-label" x="40" y="266">PROBLEM · 사용자 결정 필요</text>
+
+          <rect class="node-rect node-danger" x="60" y="300" width="280" height="85" rx="12"/>
+          <text class="node-text" x="200" y="332" text-anchor="middle">blocked</text>
+          <text class="node-text small" x="200" y="352" text-anchor="middle">시스템이 멈춤: CLI 실패 · runner 실패</text>
+          <text class="node-text mono" x="200" y="370" text-anchor="middle">setTaskRunStatus("blocked")</text>
+
+          <rect class="node-rect node-danger" x="400" y="300" width="280" height="85" rx="12"/>
+          <text class="node-text" x="540" y="332" text-anchor="middle">quality_failed</text>
+          <text class="node-text small" x="540" y="352" text-anchor="middle">실행 끝, 게이트가 막음</text>
+          <text class="node-text mono" x="540" y="370" text-anchor="middle">repair plan · approveKnownRisks</text>
+
+          <rect class="node-rect node-svc" x="740" y="300" width="280" height="85" rx="12"/>
+          <text class="node-text" x="880" y="332" text-anchor="middle">ready_for_review</text>
+          <text class="node-text small" x="880" y="352" text-anchor="middle">side-effect 없는 응답 · gate 통과</text>
+          <text class="node-text mono" x="880" y="370" text-anchor="middle">markDone 대기</text>
+
+          <rect class="lane-bg" x="20" y="430" width="1140" height="130" rx="10"/>
+          <text class="lane-label" x="40" y="456">TERMINAL · 종착</text>
+
+          <rect class="node-rect node-success" x="320" y="475" width="220" height="65" rx="12"/>
+          <text class="node-text" x="430" y="503" text-anchor="middle">done</text>
+          <text class="node-text mono" x="430" y="523" text-anchor="middle">markDone 통과</text>
+
+          <rect class="node-rect node-danger" x="640" y="475" width="220" height="65" rx="12"/>
+          <text class="node-text" x="750" y="503" text-anchor="middle">cancelled</text>
+          <text class="node-text mono" x="750" y="523" text-anchor="middle">cancelTask</text>
+
+          <!-- Transitions — 모든 박스를 피하도록 L자/곡선 라우팅 -->
+
+          <!-- drafting → waiting_for_approval (직선, 박스 가장자리 연결) -->
+          <path d="M260 110 L320 110" class="arrow" marker-end="url(#arrowhead6)"/>
+          <text class="edge-label" x="270" y="104">agent plan</text>
+
+          <!-- drafting → running (파이프라인 자동승인, 박스 위로 곡선 우회) -->
+          <path d="M160 80 C 160 28, 700 28, 700 80" class="arrow success" marker-end="url(#arrowok2)" fill="none"/>
+          <text class="edge-label" x="430" y="22" text-anchor="middle" fill="#34d399">파이프라인 픽 → 자동 승인 → 즉시 running</text>
+
+          <!-- waiting_for_approval → running (직선) -->
+          <path d="M540 110 L600 110" class="arrow success" marker-end="url(#arrowok2)"/>
+          <text class="edge-label" x="555" y="104" fill="#34d399">approve</text>
+
+          <!-- waiting_for_approval → paused (reject, 박스 아래로 U턴, y=215) -->
+          <path d="M540 160 L540 215 L960 215 L960 160" class="arrow" marker-end="url(#arrowhead6)" stroke="#fb7185" fill="none"/>
+          <text class="edge-label" x="700" y="209" text-anchor="middle" fill="#fb7185">rejectApproval → paused</text>
+
+          <!-- running → blocked (가장 긴 가로, y=290) -->
+          <path d="M660 160 L660 290 L200 290 L200 300" class="arrow danger" marker-end="url(#arrowbad2)" fill="none"/>
+          <text class="edge-label" x="430" y="282" text-anchor="middle" fill="#fb7185">CLI · runner 실패</text>
+
+          <!-- running → quality_failed (중간 가로, y=265) -->
+          <path d="M700 160 L700 265 L540 265 L540 300" class="arrow" marker-end="url(#arrowamb)" stroke="#fbbf24" fill="none"/>
+          <text class="edge-label" x="620" y="259" text-anchor="middle" fill="#fbbf24">quality failed</text>
+
+          <!-- running → ready_for_review (짧은 가로, y=265 오른쪽) -->
+          <path d="M780 160 L780 265 L880 265 L880 300" class="arrow success" marker-end="url(#arrowok2)" fill="none"/>
+          <text class="edge-label" x="830" y="259" text-anchor="middle" fill="#34d399">quality passed</text>
+
+          <!-- paused → running (resume, 직선) -->
+          <path d="M860 100 L800 100" class="arrow" marker-end="url(#arrowhead6)"/>
+          <text class="edge-label" x="810" y="74">resumeTask</text>
+
+          <!-- quality_failed → ready_for_review (직선) -->
+          <path d="M680 340 L740 340" class="arrow" marker-end="url(#arrowhead6)" stroke="#fbbf24"/>
+          <text class="edge-label" x="690" y="332" fill="#fbbf24">repair · known risks</text>
+
+          <!-- ready_for_review → done (L자: 아래로 → 왼쪽으로 → 아래로, 박스 사이 갭 사용) -->
+          <path d="M880 385 L880 442 L430 442 L430 475" class="arrow success" marker-end="url(#arrowok2)" fill="none"/>
+          <text class="edge-label" x="650" y="436" text-anchor="middle" fill="#34d399">markDone</text>
+
+          <!-- cancelTask (any state, 오른쪽 마진 따라 내려가서 cancelled로) -->
+          <path d="M1060 100 L1110 100 L1110 510 L860 510" class="arrow dim" marker-end="url(#arrowhead6)" fill="none"/>
+          <text class="edge-label" x="1117" y="300">cancelTask</text>
+          <text class="edge-label" x="1117" y="314">(any state)</text>
+
+          <!-- drafting → ready_for_review (answer-only, 위로 우회) -->
+          <path d="M260 130 L290 130 L290 230 L880 230 L880 300" class="arrow dim" marker-end="url(#arrowhead6)" fill="none"/>
+          <text class="edge-label" x="560" y="222" text-anchor="middle">answer-only 응답 (approval 0개)</text>
+        </svg>
+      </div>
+
+      <div class="legend" aria-label="상태 머신 전이 범례">
+        <div class="item"><span class="swatch" style="background:rgba(52,211,153,0.2); border-color:var(--success)"></span>정상 진행 (approve · markDone)</div>
+        <div class="item"><span class="swatch" style="background:rgba(251,191,36,0.2); border-color:var(--warning)"></span>품질 게이트 분기</div>
+        <div class="item"><span class="swatch" style="background:rgba(251,113,133,0.2); border-color:var(--danger)"></span>실패 · 거절</div>
+        <div class="item"><span class="swatch" style="background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.4)"></span>특수 경로 (취소 · answer-only)</div>
+      </div>
+
+      <h3 style="margin:2.4rem 0 0.8rem; font-size:1.05rem; letter-spacing:-0.01em; color:var(--text-soft);">2-3 · 보조 상태 enum</h3>
+
+      <table class="feat-table" role="table" aria-label="보조 상태 enum 일람">
+        <thead>
+          <tr>
+            <th style="width:22%">Enum</th>
+            <th>가능한 값</th>
+            <th>의미</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature">ApprovalStatus</td>
+            <td>
+              <span class="pill warning">pending</span>
+              <span class="pill success">approved</span>
+              <span class="pill danger">rejected</span>
+              <span class="pill primary">always_approved_for_run</span>
+              <span class="pill teal">executed</span>
+            </td>
+            <td>승인 결정 + 실행 추적. <code>always_approved_for_run</code>은 같은 actionType 일괄 승인, <code>executed</code>는 runner 후의 종착.</td>
+          </tr>
+          <tr>
+            <td class="feature">AgentInvocationStatus</td>
+            <td>
+              <span class="pill warning">queued</span>
+              <span class="pill primary">running</span>
+              <span class="pill success">succeeded</span>
+              <span class="pill danger">failed</span>
+              <span class="pill">cancelled</span>
+            </td>
+            <td>CLI 호출 1건의 lifecycle. <code>queueDepth</code>가 RuntimeStatusBar에 표시되어 대기열 길이를 알 수 있다.</td>
+          </tr>
+          <tr>
+            <td class="feature">QualityGateStatus</td>
+            <td>
+              <span class="pill success">passed</span>
+              <span class="pill warning">warning</span>
+              <span class="pill danger">failed</span>
+              <span class="pill">not_run</span>
+            </td>
+            <td><code>passed</code>·<code>warning</code>만 markDone 허용. <code>failed</code>는 repair loop, <code>not_run</code>은 평가 전 초기값.</td>
+          </tr>
+          <tr>
+            <td class="feature">StepStatus / WorkerStepStatus</td>
+            <td>
+              <span class="pill">pending</span>
+              <span class="pill primary">running</span>
+              <span class="pill success">succeeded</span>
+              <span class="pill danger">failed</span>
+              <span class="pill">skipped</span>
+            </td>
+            <td>step과 worker step 공통. 파이프라인 step 단위 진행 표시에 사용.</td>
+          </tr>
+          <tr>
+            <td class="feature">ArtifactKind</td>
+            <td>
+              <span class="pill accent">plan</span>
+              <span class="pill accent">diff</span>
+              <span class="pill accent">log</span>
+              <span class="pill accent">test_result</span>
+              <span class="pill accent">quality_report</span>
+              <span class="pill accent">orchestration_plan</span>
+              <span class="pill accent">file</span>
+              <span class="pill accent">snapshot</span>
+            </td>
+            <td>모든 산출물은 8개 kind 중 하나. Right Panel의 Artifacts 탭이 kind별로 슬라이스한다.</td>
+          </tr>
+          <tr>
+            <td class="feature">ApprovalActionType</td>
+            <td>
+              <span class="pill primary">capability_use</span>
+              <span class="pill primary">model_use</span>
+              <span class="pill warning">file_write</span>
+              <span class="pill warning">shell</span>
+              <span class="pill warning">dependency_install</span>
+              <span class="pill warning">git_commit</span>
+              <span class="pill warning">network</span>
+              <span class="pill warning">skill_script</span>
+              <span class="pill pink">orchestration_plan</span>
+            </td>
+            <td>2종(advisory)은 consent-only — runner 호출 없이 다음 prompt에만 반영. 6종은 runner 측 사이드이펙트. 1종은 worker pipeline 실행 트리거.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tldr">
+        <span>🗺</span>
+        <div><strong>상태가 헷갈릴 때의 단서</strong> ·
+          <code>blocked</code>는 시스템이 자체적으로 멈춘 것(예외/실패), <code>paused</code>는 사용자가 명시적으로 멈춘 것.
+          <code>quality_failed</code>는 실행이 끝났지만 게이트가 막은 것, <code>ready_for_review</code>는 게이트가 통과했거나
+          부수효과가 없어 markDone만 남은 것. 의미가 비슷해 보이지만 회복 경로가 다 다르다.</div>
+      </div>
+    </section>
+
+    <!-- ====================== 03. 두 갈래 흐름 비교 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">03 — TWO FORKS</div>
         <h2>같은 입력, 두 가지 갈림길</h2>
         <p>
           사용자가 <strong>입력창에서 메시지를 보내는 순간</strong>, 코드는 단 한 가지를 본다:
@@ -699,10 +1077,10 @@
       </div>
     </section>
 
-    <!-- ====================== 03. 시나리오 A 상세 ====================== -->
+    <!-- ====================== 04. 시나리오 A 상세 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">03 — SCENARIO A</div>
+        <div class="num">04 — SCENARIO A</div>
         <h2>시나리오 A · 파이프라인을 골라서 보냈을 때</h2>
         <p>
           예: 스레드 헤더에 <code>Pipeline: code-review</code> 배지가 있고, 입력창 드롭다운도 같은 값.
@@ -773,7 +1151,7 @@
           <!-- Step 6: auto-approve & runApproved -->
           <rect class="node-rect node-success" x="320" y="480" width="460" height="68" rx="10"/>
           <text class="node-text"              x="550" y="504" text-anchor="middle">자동 승인 + orchestration.runApproved</text>
-          <text class="node-text mono"         x="550" y="522" text-anchor="middle">conversation.approve("auto-approved (per-message pipeline pick)")</text>
+          <text class="node-text mono"         x="550" y="522" text-anchor="middle">approve("auto-approved (pipeline pick)")</text>
           <text class="node-text small"        x="550" y="538" text-anchor="middle">autoInFlightRef pre-claim → 중복 실행 방지</text>
 
           <!-- arrow down -->
@@ -809,10 +1187,10 @@
       </div>
     </section>
 
-    <!-- ====================== 04. 시나리오 B 상세 ====================== -->
+    <!-- ====================== 05. 시나리오 B 상세 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">04 — SCENARIO B</div>
+        <div class="num">05 — SCENARIO B</div>
         <h2>시나리오 B · 파이프라인을 안 골랐을 때</h2>
         <p>
           이때는 일반 채팅 경로. 모드 버튼(<code>Template</code> / <code>Agent</code>)이 다음 분기를 결정한다.
@@ -906,8 +1284,8 @@
           <text class="node-text small"       x="860" y="758" text-anchor="middle">승인 · 거부 · 재지시 · Configure</text>
 
           <!-- Converge to merge note -->
-          <path d="M240 596 L240 700 L550 700 L550 740" class="arrow dim" marker-end="url(#arrowhead3)"/>
-          <path d="M860 772 L860 790" class="arrow dim" marker-end="url(#arrowhead3)"/>
+          <path d="M240 596 L240 770 L390 770 L390 780" class="arrow dim" marker-end="url(#arrowhead3)"/>
+          <path d="M860 772 L860 770 L710 770 L710 780" class="arrow dim" marker-end="url(#arrowhead3)"/>
 
           <rect class="node-rect node-success" x="370" y="780" width="360" height="34" rx="8"/>
           <text class="node-text"              x="550" y="802" text-anchor="middle">Quality Gate 통과 → markDone</text>
@@ -936,10 +1314,10 @@
       </div>
     </section>
 
-    <!-- ====================== 05. 핵심 기능별 흐름 ====================== -->
+    <!-- ====================== 06. 핵심 기능별 흐름 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">05 — FEATURE FLOWS</div>
+        <div class="num">06 — FEATURE FLOWS</div>
         <h2>각 기능이 동작할 때 안에서 일어나는 일</h2>
         <p>
           위 두 시나리오 안에 자리 잡은 작은 부품들. 각 부품이 호출되는 순간 어떤 패키지가 일하고
@@ -1197,10 +1575,225 @@
       </div>
     </section>
 
-    <!-- ====================== 06. 빠른 비교 표 ====================== -->
+    <!-- ====================== 07. 자동승인 매트릭스 & 리커버리 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">06 — QUICK REFERENCE</div>
+        <div class="num">07 — GUARDRAILS · RECOVERY</div>
+        <h2>승인은 누가 한 번에 풀어주고, 실패는 어떻게 되돌리는가</h2>
+        <p>
+          06장의 각 기능이 정상 케이스라면 이 장은 "예외와 우회". 자동승인이 어떤 트리거에서
+          어떤 actionType에 적용되는지, 그리고 흐름이 어디서 끊겼을 때 코드가 어떻게 회복 경로를
+          제시하는지를 한 자리에 모았다.
+        </p>
+      </div>
+
+      <h3 style="margin:0 0 0.8rem; font-size:1.05rem; letter-spacing:-0.01em; color:var(--text-soft);">7-1 · 자동승인 4×9 매트릭스</h3>
+
+      <div class="tldr" style="border-left-color:var(--danger); background:rgba(251,113,133,0.06); margin-top:0;">
+        <span>🛑</span>
+        <div><strong>BLOCK FLOOR (2단)</strong> · ① 활성 AgentProfile의 <code>permissions.blockedActions</code>,
+          ② 서비스 레이어 <code>policyEvaluation.decision === "blocked"</code> 또는 <code>allowAutoApprove === false</code> —
+          이 둘 중 하나만 걸려도 <u>아래 4개 트리거 어느 것도</u> 통과 못 한다.
+          표 안의 ✓는 두 floor를 모두 통과한 상태에서의 동작.
+          정확한 분기는 <code>shouldAutoApprove()</code> in <code>packages/core/src/conversation/auto-approve-policy.ts</code>.</div>
+      </div>
+
+      <table class="feat-table" role="table" aria-label="자동승인 트리거 × 액션 매트릭스">
+        <thead>
+          <tr>
+            <th style="width:18%">Action Type</th>
+            <th>① global<br/><code>autoApprove</code></th>
+            <th>② profile<br/><code>autoApproveActions</code></th>
+            <th>③ worker-file<br/><code>autoExecuteWorkerFileActions</code></th>
+            <th>④ pipeline-pick<br/>(per-message)</th>
+            <th>승인 후 실행 경로</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature"><span class="pill primary">capability_use</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><em>consent-only</em> · runner 호출 없음 (다음 prompt에 반영)</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill primary">model_use</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><em>consent-only</em> · 다음 agent.generatePlan에 적용</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">file_write</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓ (worker step만)</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → fs write</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">shell</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → spawn</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">dependency_install</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → npm/pnpm</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">git_commit</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → git</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">network</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → http</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill warning">skill_script</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓</span></td>
+            <td><code>runner.executeApproved</code> → skill script</td>
+          </tr>
+          <tr>
+            <td class="feature"><span class="pill pink">orchestration_plan</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td><span class="pill success">✓</span></td>
+            <td>—</td>
+            <td><span class="pill success">✓ (pre-claim)</span></td>
+            <td><code>orchestration.runApproved</code> → WorkerRunner.run</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="grid-2" style="margin-top:1.4rem;">
+        <div class="card">
+          <span class="sub">트리거 ① · 글로벌 토글</span>
+          <h3>모든 pending approval에 적용</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0; font-size:0.93rem;">
+            <code>HarnessSettings.approval.autoApprove</code>가 true면 <code>useEffect</code>가 pending approval을
+            감시하다가 <code>shouldAutoApprove()</code> 통과 시 <code>conversation.approve()</code> 호출.
+            메시지는 <code>auto-approved (settings.approval.autoApprove)</code>로 기록.
+          </p>
+        </div>
+        <div class="card">
+          <span class="sub">트리거 ② · 프로필 권한</span>
+          <h3>per-action ALLOW list</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0; font-size:0.93rem;">
+            활성 <code>AgentProfile.permissions.autoApproveActions</code>에 포함된 actionType만 자동승인.
+            글로벌 토글이 꺼져 있어도 적용. <code>blockedActions</code>가 항상 우선.
+          </p>
+        </div>
+        <div class="card">
+          <span class="sub">트리거 ③ · 워커 파일 자동실행</span>
+          <h3>좁은 범위, 안전한 차단</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0; font-size:0.93rem;">
+            <code>approval.autoExecuteWorkerFileActions</code>가 true이고 해당 approval이
+            <code>isWorkerFileActionApproval()</code> 통과 시에만 자동승인. WorkerStep이 생성한
+            <code>file_write</code> approval에만 한정 — 일반 채팅의 <code>file_write</code>는 제외.
+          </p>
+        </div>
+        <div class="card">
+          <span class="sub">트리거 ④ · 파이프라인 픽 동의</span>
+          <h3>가장 광범위, 가장 명시적</h3>
+          <p style="color:var(--text-soft); margin:0.6rem 0 0; font-size:0.93rem;">
+            <code>pipelineAutoTaskRunIdsRef</code>에 들어 있는 TaskRun에서 나오는 모든 approval은
+            block list 제외 모두 자동승인. <code>autoInFlightRef.add()</code>로 pre-claim해
+            글로벌 토글과의 race를 막는다 ("approval is executed" 에러 방지).
+          </p>
+        </div>
+      </div>
+
+      <h3 style="margin:2.4rem 0 0.8rem; font-size:1.05rem; letter-spacing:-0.01em; color:var(--text-soft);">7-2 · 실패 모드 & 회복 경로</h3>
+
+      <table class="feat-table" role="table" aria-label="실패 모드 및 회복 경로">
+        <thead>
+          <tr>
+            <th style="width:22%">증상</th>
+            <th style="width:32%">코드 위치 · 트리거</th>
+            <th>UI 표면화 + 회복 경로</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="feature">파이프라인 자동실행 실패</td>
+            <td><code>WorkbenchShell.handleCreateTask</code> L758-768<br/><code>autoInFlightRef.delete(id)</code> 후 throw</td>
+            <td><code>파이프라인 자동 실행 실패 ({id 8자}…): {message}</code>로 ConversationInput에 표시. <strong>회복</strong> = 동일 메시지 재전송 → 새 TaskRun으로 깨끗하게 재시도.</td>
+          </tr>
+          <tr>
+            <td class="feature">agent.generatePlan 실패</td>
+            <td>L683-694 try/catch<br/><code>noteAgentProgress("cli", "에이전트 실행 실패")</code></td>
+            <td>Right Panel · Agent 탭의 라이브 로그에 stage=cli 에러로 표시. TaskRun은 placeholder로 남아 사용자가 <strong>retry 버튼</strong> 또는 <strong>useTemplateFallback</strong>으로 회복.</td>
+          </tr>
+          <tr>
+            <td class="feature">advisory 승인 대기로 plan 안 뜸</td>
+            <td>L671-672<br/><code>advisoryApprovalCount === 0</code> 조건 미충족</td>
+            <td>capability_use / model_use가 pending 상태로 남아 있어 <strong>의도된 동작</strong>. 사용자가 advisory를 결정하면 별도 <code>useEffect</code>(L790-833)가 <code>agent.generatePlan</code>을 자동 호출.</td>
+          </tr>
+          <tr>
+            <td class="feature">orchestration.draftPlan 실패</td>
+            <td>L770-774<br/>파이프라인 케이스만 rethrow</td>
+            <td>파이프라인 픽이었으면 throw → ConversationInput에 surface. 레거시 orchMode였으면 silent log + 일반 채팅으로 fall-through.</td>
+          </tr>
+          <tr>
+            <td class="feature">runner.executeApproved 실패</td>
+            <td><code>runner-service.ts</code> L254<br/><code>setTaskRunStatus("blocked")</code></td>
+            <td>TaskRun 상태가 <code>blocked</code>로 전환되어 timeline에 빨갛게 표시. <strong>회복</strong> = <code>runner.retryApproval</code> 또는 approval 거부 후 새 plan 작성.</td>
+          </tr>
+          <tr>
+            <td class="feature">Quality Gate failed</td>
+            <td><code>task-run-completion-service.ts</code> L72<br/><code>setTaskRunStatus("quality_failed")</code></td>
+            <td>Right Panel · Quality 탭에 evidence와 함께 표시. <strong>회복 3가지</strong>: ① <code>quality.createRepairPlan</code>으로 repair loop, ② <code>quality.approveKnownRisks</code>로 강제 통과, ③ <code>cancelTask</code>로 종료.</td>
+          </tr>
+          <tr>
+            <td class="feature">CLI provider 미설치</td>
+            <td><code>agent.checkProviders</code> 결과 캐시<br/>RuntimeStatusBar dot이 회색/빨강</td>
+            <td>입력창의 Agent 모드 버튼이 disabled. <strong>회복</strong> = <code>claude</code>/<code>codex</code> CLI 설치 + <code>retry</code> 또는 Template 모드로 우회.</td>
+          </tr>
+          <tr>
+            <td class="feature">Approval id race ("executed")</td>
+            <td>글로벌 useEffect와 handleCreateTask 자동 승인 충돌</td>
+            <td><code>autoInFlightRef.add(id)</code>로 pre-claim, 글로벌 useEffect가 <code>inFlight.has(id)</code> 체크해 skip. 실패 시 <code>delete</code>로 다시 큐에 환원.</td>
+          </tr>
+          <tr>
+            <td class="feature">CLI 응답에 approval 0개</td>
+            <td><code>agent-planning-service.ts</code> L739<br/><code>setTaskRunStatus("ready_for_review")</code></td>
+            <td>답변-only 응답으로 처리. 별도 승인 없이 곧장 <code>ready_for_review</code>로 전환되어 markDone만 남는다.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="tldr">
+        <span>🔁</span>
+        <div><strong>회복의 일관된 패턴</strong> · 시스템은 거의 모든 실패를 <strong>새 TaskRun으로 재시도</strong>하도록 유도한다.
+          기존 TaskRun을 강제로 재가동하는 retry 버튼은 의도적으로 적게 두고, 사용자가 같은 메시지를 다시 보내거나
+          (드물게) repair plan을 받게 한다 — UI 상태를 깨끗하게 유지하기 위한 설계 선택이다.</div>
+      </div>
+    </section>
+
+    <!-- ====================== 08. 빠른 비교 표 ====================== -->
+    <section class="block">
+      <div class="section-head">
+        <div class="num">08 — QUICK REFERENCE</div>
         <h2>한 표로 두 갈래 다시 보기</h2>
         <p>같은 사용자 행위에 대해 두 경로가 무엇을 다르게 하는지 한 줄씩만 비교.</p>
       </div>
@@ -1253,10 +1846,10 @@
       </table>
     </section>
 
-    <!-- ====================== 07. 종합 흐름 ====================== -->
+    <!-- ====================== 09. 종합 흐름 ====================== -->
     <section class="block">
       <div class="section-head">
-        <div class="num">07 — END-TO-END</div>
+        <div class="num">09 — END-TO-END</div>
         <h2>모든 부품을 한 그림에</h2>
         <p>위에서 본 모든 흐름을 한 장에 압축. 색상으로 어떤 레이어가 일하는지 구분된다.</p>
       </div>
@@ -1359,7 +1952,8 @@
           <text class="node-text" x="700" y="697" text-anchor="middle">markDone → 완료</text>
 
           <!-- rejected path -->
-          <path d="M450 465 L420 465 L420 690 L380 690" class="arrow danger" marker-end="url(#arrowbad)"/>
+          <path d="M450 465 L370 465 L370 690 L380 690" class="arrow danger" marker-end="url(#arrowbad)"/>
+          <text class="edge-label" x="300" y="458" fill="#fb7185">rejected</text>
           <rect class="node-rect node-danger" x="200" y="676" width="180" height="32" rx="8"/>
           <text class="node-text" x="290" y="697" text-anchor="middle">cancelled / 재지시</text>
         </svg>
@@ -1374,8 +1968,8 @@
     </section>
 
     <footer class="foot">
-      <span>HarnessAgentOS · 동작 흐름 시각화</span>
-      <span>출처 · <code>docs/USAGE.md</code>, <code>WorkbenchShell.handleCreateTask</code></span>
+      <span>HarnessAgentOS · 동작 흐름 시각화 · 9개 섹션</span>
+      <span>출처 · <code>docs/USAGE.md</code> · <code>docs/contracts/ipc-contracts.md</code> · <code>WorkbenchShell.handleCreateTask</code> · <code>packages/storage/src/schema.ts</code> · <code>packages/core/src/types/*</code></span>
       <span>workspace/app-flow-visualization.html</span>
     </footer>
 
