@@ -94,21 +94,33 @@ export const buildBindingPolicyHints = (
   const hasToolPolicy =
     toolAllowlist.length > 0 || toolDenylist.length > 0;
 
-  if (draft.provider === "codex" && (hasMcpBindings || hasToolPolicy)) {
-    const unsupported: string[] = [];
-    if (hasMcpBindings) unsupported.push("MCP bindings");
-    if (hasToolPolicy) unsupported.push("tool policy");
+  if (draft.provider === "codex" && hasMcpBindings) {
     hints.push({
-      tone: "warning",
-      message: `Codex provider cannot enforce AgentProfile ${unsupported.join(" and ")} yet; Claude를 선택하거나 unsupported profile boundary를 제거해야 실행 전 fail-fast를 피할 수 있습니다.`,
+      tone: "info",
+      message:
+        "Codex MCP binding은 per-run mcp_servers override로 적용됩니다. 현재 검증된 범위는 stdio/no-secret 서버이며, secret refs 또는 remote transport는 CLI 실행 전에 차단됩니다.",
     });
-  } else if (draft.provider === "auto" && (hasMcpBindings || hasToolPolicy)) {
-    const unsupported: string[] = [];
-    if (hasMcpBindings) unsupported.push("MCP binding");
-    if (hasToolPolicy) unsupported.push("tool policy");
+  }
+
+  if (draft.provider === "codex" && hasToolPolicy) {
     hints.push({
       tone: "warning",
-      message: `provider=auto는 Codex로 선택될 수 있어 ${unsupported.join(" 또는 ")} 적용이 보장되지 않습니다. enforced profile boundary가 필요하면 Claude로 고정하세요.`,
+      message:
+        "Codex provider cannot enforce AgentProfile tool policy yet; Claude를 선택하거나 unsupported profile boundary를 제거해야 실행 전 fail-fast를 피할 수 있습니다.",
+    });
+  } else if (draft.provider === "auto" && hasToolPolicy) {
+    hints.push({
+      tone: "warning",
+      message:
+        "provider=auto는 Codex로 선택될 수 있어 tool policy 적용이 보장되지 않습니다. enforced profile boundary가 필요하면 Claude로 고정하세요.",
+    });
+  }
+
+  if (draft.provider === "auto" && hasMcpBindings) {
+    hints.push({
+      tone: "info",
+      message:
+        "Codex MCP binding은 auto provider가 Codex로 선택될 때 stdio/no-secret 서버에 한해 per-run mcp_servers override로 적용됩니다.",
     });
   }
 

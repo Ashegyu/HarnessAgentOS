@@ -42,6 +42,7 @@ import {
   AgentInvocationQueue,
   AgentPlanningService,
   RepoIndexService,
+  buildCodexMcpConfigOverrides,
   buildClaudeMcpConfig,
   checkProviders as probeAgentProviders,
   packRepoContext,
@@ -206,13 +207,14 @@ const initServices = (): {
     provider: AgentProvider;
   }): Promise<{
     mcpConfigPath: string | null;
+    codexConfigOverrides?: readonly string[];
     cleanup: () => Promise<void>;
   }> => {
-    // Codex CLI MCP arg format is not yet verified (V2 pending) — skip the
-    // file write for codex so we don't pass an unrecognized flag.
-    if (provider !== "claude") {
-      return { mcpConfigPath: null, cleanup: async () => {} };
-    }
+    const empty = {
+      mcpConfigPath: null,
+      codexConfigOverrides: [] as readonly string[],
+      cleanup: async () => {},
+    };
     const all = await state.mcpServers.list();
     let active = all.filter((s) => s.enabled && s.scope === "global");
     let profileForPolicy: AgentProfile | null = null;
@@ -230,7 +232,7 @@ const initServices = (): {
       }
     }
     if (active.length === 0) {
-      return { mcpConfigPath: null, cleanup: async () => {} };
+      return empty;
     }
     const activeForConfig = await Promise.all(
       active.map(async (server) =>
@@ -239,13 +241,27 @@ const initServices = (): {
           : server,
       ),
     );
+    if (provider === "codex") {
+      const codexConfigOverrides = buildCodexMcpConfigOverrides(
+        activeForConfig,
+        profileForPolicy?.permissions,
+      );
+      if (codexConfigOverrides.length === 0) {
+        return empty;
+      }
+      return {
+        mcpConfigPath: null,
+        codexConfigOverrides,
+        cleanup: async () => {},
+      };
+    }
     const config = await buildClaudeMcpConfig(
       activeForConfig,
       async (k) => secretVault.read(k),
       profileForPolicy?.permissions,
     );
     if (Object.keys(config.mcpServers).length === 0) {
-      return { mcpConfigPath: null, cleanup: async () => {} };
+      return empty;
     }
     await mkdir(mcpTmpDir, { recursive: true });
     const file = join(mcpTmpDir, `mcp-${randomUUID()}.json`);

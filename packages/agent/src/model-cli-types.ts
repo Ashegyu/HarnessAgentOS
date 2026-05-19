@@ -50,12 +50,17 @@ export interface ModelCliRequest {
   systemPrompt?: string;
   /**
    * Absolute path to a `.mcp.json` file (see `mcp-config-builder.ts`).
-   * Passed as `--mcp-config <path>` to Claude CLI; ignored for Codex
-   * until V2 verification of `codex exec --mcp-config` lands.
+   * Passed as `--mcp-config <path>` to Claude CLI only.
    * Main process is expected to write the file to a temp location for
    * the invocation and delete it after the run completes.
    */
   mcpConfigPath?: string;
+  /**
+   * Codex per-run config overrides passed as repeated `-c <key=value>`
+   * flags before `exec`. Used for verified `mcp_servers.*` settings only.
+   * Do not include plaintext secrets here because argv can be inspected.
+   */
+  codexConfigOverrides?: readonly string[];
   /**
    * Optional tool policy from the selected AgentProfile. This is an
    * execution-boundary hint only: unsupported providers must ignore it

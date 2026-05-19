@@ -98,6 +98,7 @@ export interface AgentPlanningServiceDeps {
     provider: AgentProvider;
   }) => Promise<{
     mcpConfigPath: string | null;
+    codexConfigOverrides?: readonly string[];
     cleanup: () => Promise<void>;
   }>;
   /**
@@ -404,8 +405,10 @@ export class AgentPlanningService {
       provider,
     );
     // Phase 4b — synthesize a temporary MCP config file when enabled
-    // servers exist for the resolved profile. `null` => omit --mcp-config.
+    // servers exist for the resolved profile. Claude receives a temp file;
+    // Codex receives verified `-c mcp_servers.*` overrides.
     let mcpConfigPath: string | null = null;
+    let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
     if (this.deps.prepareMcpInvocation) {
       const prep = await this.deps.prepareMcpInvocation({
@@ -413,11 +416,14 @@ export class AgentPlanningService {
         provider,
       });
       mcpConfigPath = prep.mcpConfigPath;
+      codexConfigOverrides = prep.codexConfigOverrides ?? [];
       mcpCleanup = prep.cleanup;
     }
     emitProgress(
       "mcp",
-      mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+      mcpConfigPath || codexConfigOverrides.length > 0
+        ? "MCP 설정 준비 완료"
+        : "활성 MCP 설정 없음",
     );
 
     try {
@@ -451,6 +457,7 @@ export class AgentPlanningService {
           : {}),
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(codexConfigOverrides.length > 0 ? { codexConfigOverrides } : {}),
         ...(toolPolicy ? { toolPolicy } : {}),
       };
       await this.recordLearnerSelection({
@@ -915,6 +922,7 @@ export class AgentPlanningService {
 
     // Per-invocation MCP config (Phase 4b). Cleaned up via try/finally.
     let mcpConfigPath: string | null = null;
+    let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
     if (this.deps.prepareMcpInvocation) {
       const prep = await this.deps.prepareMcpInvocation({
@@ -922,6 +930,7 @@ export class AgentPlanningService {
         provider,
       });
       mcpConfigPath = prep.mcpConfigPath;
+      codexConfigOverrides = prep.codexConfigOverrides ?? [];
       mcpCleanup = prep.cleanup;
     }
 
@@ -1015,7 +1024,9 @@ export class AgentPlanningService {
     );
     emitProgress(
       "mcp",
-      mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+      mcpConfigPath || codexConfigOverrides.length > 0
+        ? "MCP 설정 준비 완료"
+        : "활성 MCP 설정 없음",
     );
     try {
       const toolPolicy = toolPolicyForProvider(provider, input.profile);
@@ -1041,6 +1052,7 @@ export class AgentPlanningService {
           : {}),
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(codexConfigOverrides.length > 0 ? { codexConfigOverrides } : {}),
         ...(toolPolicy ? { toolPolicy } : {}),
       };
       const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
@@ -1413,9 +1425,6 @@ const assertProviderSupportsProfileBoundaries = (
 ): void => {
   if (provider !== "codex" || !profile) return;
   const unsupported: string[] = [];
-  if ((profile.mcpServerIds ?? []).length > 0) {
-    unsupported.push("MCP bindings");
-  }
   if (
     normalizeToolPolicyList(profile.permissions.toolAllowlist).length > 0 ||
     normalizeToolPolicyList(profile.permissions.toolDenylist).length > 0

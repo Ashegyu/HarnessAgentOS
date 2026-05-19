@@ -82,12 +82,13 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     }
     return args;
   }
-  // Codex CLI has no `--system-prompt`, no Claude-compatible `--resume`,
-  // and no verified per-invocation MCP config flag. Some options are
-  // global-only in the current CLI (`--ask-for-approval`), so they must
-  // appear before the `exec` subcommand. Use stdin (`-`) so prompts with
-  // spaces/non-ASCII never become accidental argv segments.
-  return [
+  // Codex CLI has no `--system-prompt` and no Claude-compatible `--resume`.
+  // Per-run MCP is passed with verified `-c mcp_servers.*` overrides, not
+  // `--mcp-config`. Some options are global-only in the current CLI
+  // (`--ask-for-approval`, `-c`), so they must appear before the `exec`
+  // subcommand. Use stdin (`-`) so prompts with spaces/non-ASCII never
+  // become accidental argv segments.
+  const args = [
     "--model",
     model,
     "--cd",
@@ -96,11 +97,14 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     "read-only",
     "--ask-for-approval",
     "never",
-    "exec",
-    "--json",
-    "--skip-git-repo-check",
-    "-",
   ];
+  for (const override of normalizeCodexConfigOverrides(
+    request.codexConfigOverrides,
+  )) {
+    args.push("-c", override);
+  }
+  args.push("exec", "--json", "--skip-git-repo-check", "-");
+  return args;
 };
 
 const normalizeToolPolicyPatterns = (
@@ -113,6 +117,19 @@ const normalizeToolPolicyPatterns = (
     const value = pattern.trim();
     if (!value || seen.has(value)) continue;
     seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
+};
+
+const normalizeCodexConfigOverrides = (
+  overrides: readonly string[] | undefined,
+): string[] => {
+  if (!overrides) return [];
+  const normalized: string[] = [];
+  for (const override of overrides) {
+    const value = override.trim();
+    if (!value) continue;
     normalized.push(value);
   }
   return normalized;

@@ -247,8 +247,8 @@
     </tr>
     <tr>
       <td>Codex MCP</td>
-      <td>현재는 설계상 보류. Claude CLI만 실제 <code>--mcp-config</code> 적용 경로로 취급</td>
-      <td>코드가 Codex MCP 인자 형식을 아직 검증하지 않았고, <code>prepareMcpInvocation</code>이 Codex provider에서 null을 반환한다.</td>
+      <td>Claude는 <code>--mcp-config</code>, Codex는 검증된 <code>-c mcp_servers.*</code> override로 분리 적용</td>
+      <td>Codex는 per-run stdio/no-secret MCP 설정까지만 지원한다. SecretVault refs, remote transport, tool policy 강제는 아직 차단한다.</td>
     </tr>
   </table>
 
@@ -407,7 +407,8 @@
       <td>MCP provider 제한</td>
       <td><code>apps/desktop/electron/main.ts</code>, <code>packages/agent/src/model-cli-types.ts</code></td>
       <td>
-        현재 코드상 Codex provider는 MCP config file을 만들지 않는다. 주석상 Codex <code>--mcp-config</code> 검증이 보류되어 있다.
+        Codex provider는 MCP config file을 만들지 않는다. 대신 <code>codex exec -c mcp_servers.*</code> per-run override를 사용하며,
+        argv secret 노출을 피하기 위해 SecretVault refs가 있는 서버와 remote transport는 실행 전에 거부한다.
       </td>
     </tr>
     <tr>
@@ -609,7 +610,7 @@
     <tr>
       <td>MCP server config</td>
       <td>기존 외부 MCP 등록 초안, command/url/envSecretRefs, healthCheck 계획</td>
-      <td>사용자 secret 값 자동 추출, global config 직접 수정, Codex 미검증 플래그 적용</td>
+      <td>사용자 secret 값 자동 추출, global config 직접 수정, Codex argv에 secret-bearing config 적용</td>
     </tr>
     <tr>
       <td>MCP server scaffold</td>
@@ -714,7 +715,7 @@ export interface McpServerConfigDraft {
     <li><code>mcp.upsert</code> 전 validation과 duplicate name check를 실행한다. disabled draft 저장은 허용하되, sanitized Claude MCP config key가 이미 enabled 서버와 충돌하면 <code>enabled=true</code> 저장 또는 toggle enable을 거부한다.</li>
     <li><code>mcp.healthCheck</code>가 성공하면 profile binding 후보를 보여준다.</li>
     <li>실패하면 row는 disabled 상태로 저장하거나 저장 자체를 보류한다.</li>
-    <li>Codex MCP config 전달은 현재 보류 상태다. 생성/preview 문구와 실제 적용 경계는 Claude <code>--mcp-config</code>로 한정한다.</li>
+    <li>Codex MCP config 전달은 <code>-c mcp_servers.*</code> override로 제한한다. 생성/preview 문구는 stdio/no-secret만 Codex 적용 가능하고 secret refs 또는 remote transport는 Claude <code>--mcp-config</code> 경계로 남는다고 표시한다.</li>
   </ol>
 
   <h3>6.6 MCP scaffold 자동 생성 흐름</h3>
@@ -856,8 +857,8 @@ window.harness.capabilityAuthoring.propose(input: {
     </tr>
     <tr>
       <td>Codex</td>
-      <td>코드상 MCP config 전달 보류</td>
-      <td>CLI help와 실제 invocation 검증 전까지 UI에 "MCP 적용 미검증" 표시</td>
+      <td><code>-c mcp_servers.*</code> per-run override 경로 있음</td>
+      <td>stdio/no-secret 서버만 적용. SecretVault refs, remote transport, tool policy 강제는 fail-fast로 차단</td>
     </tr>
     <tr>
       <td>auto</td>
@@ -871,7 +872,7 @@ window.harness.capabilityAuthoring.propose(input: {
   <h3>8.1 Settings - Agents 탭</h3>
   <ul>
     <li>AgentProfile 카드 안에 <code>MCP</code>, <code>Skill sources</code>, <code>Allowed skills</code>, <code>Tool allow/deny</code> 섹션을 한 화면에서 보이게 한다.</li>
-    <li>MCP가 필수인데 provider가 <code>codex</code> 또는 <code>auto</code>인 경우 경고 배지를 표시한다.</li>
+    <li>MCP가 필수인데 provider가 <code>codex</code> 또는 <code>auto</code>인 경우 stdio/no-secret 한정 지원과 unsupported transport/secret fail-fast 경계를 표시한다.</li>
     <li>Skill source만 선택되어 있고 <code>allowedSkillIds</code>가 비어 있으면 "전체 enabled skill 후보"로 명확히 표시한다.</li>
     <li>각 MCP 서버에는 최근 health 상태, scope, secret 필요 여부를 표시한다.</li>
   </ul>
@@ -1079,15 +1080,15 @@ Step 5. Approval
       <td>로컬 Claude CLI help에서 확인한 <code>--allowedTools</code>/<code>--disallowedTools</code>로 매핑한다. Claude <code>--allowedTools</code>는 strict exclusive allowlist가 아니라 permission hint로 관측되므로, 실제 차단 보장은 <code>--disallowedTools</code> 기준으로 다룬다. Harness 승인 경계를 보존하기 위해 Claude invocation에는 기본적으로 <code>Bash</code>, <code>Edit</code>, <code>MultiEdit</code>, <code>Write</code>, <code>NotebookEdit</code>, <code>Task</code>를 deny한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 전달하지 않는다. 단위 테스트는 generatePlan/worker request 전달과 provider별 CLI arg 생성을 고정하고, Claude live smoke는 synthetic fixture에서 allow/deny 동작을 확인한다.</td>
     </tr>
     <tr>
-      <td><span class="pill pill--green">P8</span> Codex 미지원 경계 fail-fast</td>
-      <td>Codex가 아직 강제할 수 없는 <code>AgentProfile</code> MCP binding 또는 tool policy가 있으면 CLI 실행 전에 차단</td>
+      <td><span class="pill pill--green">P8</span> Codex MCP 제한 지원과 tool policy fail-fast</td>
+      <td>Codex MCP binding은 stdio/no-secret 서버만 <code>-c mcp_servers.*</code>로 주입하고, 아직 강제할 수 없는 tool policy는 CLI 실행 전에 차단</td>
       <td>
         <code>packages/agent/src/agent-planning-service.ts</code><br />
         <code>packages/agent/src/agent-planning-service.test.mjs</code><br />
         <code>apps/desktop/src/screens/workbench/agent-profile-form.ts</code><br />
         <code>apps/desktop/src/screens/workbench/agent-profile-form.test.mjs</code>
       </td>
-      <td>Codex provider는 read-only planning path로만 유지한다. <code>mcpServerIds</code>, <code>toolAllowlist</code>, <code>toolDenylist</code>가 있는 Codex profile은 실제 지원이 검증될 때까지 <code>AGENT_PROVIDER_UNAVAILABLE</code>로 실패한다. Settings UI도 같은 경계를 저장 전 힌트로 표시한다. 이는 미지원 기능을 지원하는 것처럼 우회하지 않고, 사용자에게 Claude 선택 또는 profile boundary 제거를 요구하는 안전 우회다.</td>
+      <td>Codex provider는 MCP config file을 받지 않고 <code>codexConfigOverrides</code>를 통해 per-run <code>-c</code> 인자를 받는다. <code>mcpServerIds</code> 자체는 허용하되 활성 서버가 stdio/no-secret 범위를 벗어나면 CLI 실행 전에 fail-fast한다. <code>toolAllowlist</code>/<code>toolDenylist</code>는 Codex <code>exec</code> 강제 flag가 확인되지 않았으므로 계속 실행 전 거부한다.</td>
     </tr>
   </table>
 
@@ -1109,8 +1110,8 @@ Step 5. Approval
     <li>Skill 생성 approval 승인 전에는 <code>CapabilityRegistry.refresh</code> 결과가 바뀌지 않는다.</li>
     <li>승인 후 생성된 Skill이 capability list에 표시된다.</li>
     <li>MCP global + per-agent selection이 <code>buildClaudeMcpConfig</code> 입력에 올바르게 반영된다.</li>
-    <li>Codex provider invocation은 MCP config path를 받지 않는다.</li>
-    <li>Codex provider는 MCP binding 또는 tool policy가 있는 AgentProfile을 실행 전에 거부한다.</li>
+    <li>Codex provider invocation은 MCP config path를 받지 않고 <code>codexConfigOverrides</code>를 받는다.</li>
+    <li>Codex provider는 tool policy가 있는 AgentProfile을 실행 전에 거부하고, MCP binding은 stdio/no-secret override만 허용한다.</li>
     <li>MCP temp config file은 invocation 종료 후 삭제된다.</li>
   </ul>
 
@@ -1124,7 +1125,7 @@ Step 5. Approval
     <li>특정 reviewer AgentProfile에 새 Skill을 bind한다.</li>
     <li>새 TaskRun에서 capability 후보가 표시되지만 자동 실행되지 않는지 확인한다.</li>
     <li>테스트용 stdio MCP를 등록하고 healthCheck 성공 후 Claude profile에 bind한다.</li>
-    <li>Claude invocation에서 "MCP 설정 준비 완료" progress가 보이고, Codex profile에서는 경고 또는 "활성 MCP 설정 없음"이 보이는지 확인한다.</li>
+    <li>Claude invocation과 stdio/no-secret Codex invocation에서 "MCP 설정 준비 완료" progress가 보이고, Codex unsupported MCP 서버는 CLI 실행 전에 명확한 오류로 차단되는지 확인한다.</li>
     <li><code>smoke:agent-tool-calls</code>는 workspace 파일이 아니라 임시 synthetic fixture만 provider에 노출하고, Claude/Codex raw stream에서 <code>tool_call</code> 이벤트가 실제로 관측되는지 확인한다.</li>
     <li><code>smoke:agent-tool-policy</code>는 Claude에서 동일 synthetic fixture를 사용해 <code>Read</code> allow run은 tool_call을 관측하고, deny run은 <code>Read</code> tool_call이 실행되지 않는지 확인한다. Side-effect 도구는 기본 denylist로 함께 차단하고, Claude가 다른 read-only discovery tool을 선택할 수 있으므로 이 smoke는 denied tool 자체와 side-effect tool 미실행을 판정한다.</li>
   </ol>
@@ -1149,7 +1150,7 @@ npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
     <tr>
       <td>현재 구현과 충돌 여부</td>
       <td>부분 충돌 가능: Codex MCP 지원을 문서가 과장할 위험</td>
-      <td>Codex MCP는 미검증/보류로 명시하고 Claude 1차 적용으로 제한</td>
+      <td>Codex MCP는 stdio/no-secret per-run override로만 제한하고, secret/remote/tool policy는 fail-fast로 명시</td>
     </tr>
     <tr>
       <td>승인 모델 보존</td>
@@ -1180,7 +1181,7 @@ npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
 
   <h3>12.1 남은 불확실성</h3>
   <ul>
-    <li>2026-05-19 로컬 CLI help 실측 기준, <code>codex exec</code>에는 Claude의 <code>--mcp-config</code>처럼 per-invocation MCP config file을 전달하는 옵션이 보이지 않는다. <code>codex mcp add/list</code>는 전역 Codex MCP 설정 관리 명령으로 확인되므로, Harness는 Codex MCP binding/tool policy를 지원한다고 가정하지 않고 해당 profile을 fail-fast로 거부한다.</li>
+    <li>2026-05-19 로컬 검증 기준, <code>codex exec</code>에는 Claude의 <code>--mcp-config</code>처럼 per-invocation MCP config file을 전달하는 옵션이 보이지 않는다. 대신 <code>-c mcp_servers.&lt;key&gt;.*</code> override는 임시 stdio MCP 서버의 initialize/tools/list까지 확인됐다. Harness는 이 범위만 Codex MCP binding으로 지원하고, SecretVault refs, remote HTTP/SSE transport, 실제 tool call smoke는 아직 미검증 경계로 둔다.</li>
     <li>Claude는 로컬 CLI help에서 확인한 provider permission flag로 <code>toolAllowlist</code>/<code>toolDenylist</code>를 전달하고, live smoke로 <code>Read</code> allow/deny 동작을 확인한다. 단, <code>--allowedTools</code>는 strict exclusive allowlist가 아니므로 보안상 차단은 deny pattern 중심으로 해석한다. Claude provider-managed <code>Bash</code>/<code>Edit</code>/<code>Write</code> 계열 side effect 도구는 Harness Approval/Runner 우회를 막기 위해 기본 deny한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 pre-call enforcement는 아직 미지원이다.</li>
     <li>remote HTTP/SSE MCP의 auth 방식은 provider별 차이가 크므로 MVP에서는 config 등록과 healthCheck까지만 다룬다.</li>
     <li>Skill open format은 빠르게 확장 중이므로 Harness 내부 frontmatter는 portable 최소 필드와 Harness-specific 확장 필드를 분리해야 한다.</li>

@@ -212,7 +212,7 @@ test("serializeDraft normalizes comma-separated tags", () => {
   assert.deepEqual(out.tags, ["security", "review", "dotnet"]);
 });
 
-test("buildBindingPolicyHints warns when Codex profile has MCP bindings", () => {
+test("buildBindingPolicyHints marks Codex MCP bindings as limited per-run support", () => {
   const d = emptyDraft();
   d.name = "Codex MCP";
   d.provider = "codex";
@@ -221,9 +221,10 @@ test("buildBindingPolicyHints warns when Codex profile has MCP bindings", () => 
   const hints = buildBindingPolicyHints(d);
   const text = hints.map((hint) => hint.message).join("\n");
 
-  assert.equal(hints.some((hint) => hint.tone === "warning"), true);
-  assert.match(text, /Codex provider cannot enforce AgentProfile MCP bindings/);
-  assert.match(text, /Claude/);
+  assert.equal(hints.some((hint) => hint.tone === "info"), true);
+  assert.doesNotMatch(text, /cannot enforce AgentProfile MCP bindings/);
+  assert.match(text, /Codex MCP binding/);
+  assert.match(text, /stdio\/no-secret/);
 });
 
 test("buildBindingPolicyHints warns when Codex profile has tool policy", () => {
@@ -241,7 +242,7 @@ test("buildBindingPolicyHints warns when Codex profile has tool policy", () => {
   assert.match(text, /profile boundary/);
 });
 
-test("buildBindingPolicyHints warns when auto provider may resolve to Codex with boundaries", () => {
+test("buildBindingPolicyHints warns when auto provider may resolve to Codex with unsupported tool policy", () => {
   const d = emptyDraft();
   d.name = "Auto Boundaries";
   d.provider = "auto";
@@ -253,8 +254,8 @@ test("buildBindingPolicyHints warns when auto provider may resolve to Codex with
 
   assert.match(text, /provider=auto/);
   assert.match(text, /Codex/);
-  assert.match(text, /MCP binding/);
   assert.match(text, /tool policy/);
+  assert.match(text, /Codex MCP binding/);
 });
 
 test("buildBindingPolicyHints surfaces broad skill scope when allowedSkillIds is empty", () => {

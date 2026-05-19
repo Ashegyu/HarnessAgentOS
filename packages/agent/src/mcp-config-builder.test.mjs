@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildCodexMcpConfigOverrides,
   buildClaudeMcpConfig,
   isMcpToolAllowed,
   sanitizeServerName,
@@ -154,4 +155,57 @@ test("buildClaudeMcpConfig skips a server namespace denied by profile policy eve
     },
   );
   assert.deepEqual(cfg, { mcpServers: {} });
+});
+
+test("buildCodexMcpConfigOverrides emits stdio mcp_servers config overrides without secrets", () => {
+  const cfg = buildCodexMcpConfigOverrides([
+    { ...STDIO, envSecretRefs: {} },
+  ]);
+
+  assert.deepEqual(cfg, [
+    'mcp_servers.filesystem_mcp.command="/usr/local/bin/mcp-fs"',
+    'mcp_servers.filesystem_mcp.args=["--root", "/tmp"]',
+    'mcp_servers.filesystem_mcp.env.LOG_LEVEL="info"',
+  ]);
+});
+
+test("buildCodexMcpConfigOverrides filters server namespaces through tool policy", () => {
+  const repo = {
+    ...STDIO,
+    id: "mcp_repo",
+    name: "Repo MCP",
+    env: {},
+    envSecretRefs: {},
+  };
+  const blocked = {
+    ...STDIO,
+    id: "mcp_blocked",
+    name: "Blocked MCP",
+    env: {},
+    envSecretRefs: {},
+  };
+
+  const cfg = buildCodexMcpConfigOverrides([repo, blocked], {
+    toolAllowlist: ["mcp__repo_mcp__read_*"],
+    toolDenylist: [],
+  });
+
+  assert.deepEqual(cfg, [
+    'mcp_servers.repo_mcp.command="/usr/local/bin/mcp-fs"',
+    'mcp_servers.repo_mcp.args=["--root", "/tmp"]',
+  ]);
+});
+
+test("buildCodexMcpConfigOverrides rejects SecretVault refs to avoid argv secret exposure", () => {
+  assert.throws(
+    () => buildCodexMcpConfigOverrides([STDIO]),
+    /SecretVault refs/,
+  );
+});
+
+test("buildCodexMcpConfigOverrides rejects unverified remote transports", () => {
+  assert.throws(
+    () => buildCodexMcpConfigOverrides([{ ...HTTP, envSecretRefs: {} }]),
+    /stdio MCP servers only/,
+  );
 });

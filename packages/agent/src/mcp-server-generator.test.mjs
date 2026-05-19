@@ -14,7 +14,7 @@ test("buildGeneratedMcpServerDraft creates a disabled GitHub stdio draft with se
   assert.equal(draft.envSecretRefs.GITHUB_PERSONAL_ACCESS_TOKEN, "github_token");
   assert.deepEqual(draft.env, {});
   assert.equal(draft.enabled, false);
-  assert.match(draft.rationale, /Codex MCP config remains unsupported/);
+  assert.match(draft.rationale, /Codex per-run MCP is limited/);
 });
 
 test("buildGeneratedMcpServerDraft infers remote http draft and bearer placeholder", () => {

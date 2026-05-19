@@ -120,14 +120,14 @@ test("buildMcpServerBindingProposal does not bind global servers to a profile", 
   assert.match(result.preview.warnings.join("\n"), /global MCP server/);
 });
 
-test("buildMcpServerBindingProposal warns when provider is not Claude or health is not ready", () => {
+test("buildMcpServerBindingProposal warns when Codex binding uses limited verified delivery", () => {
   const result = buildMcpServerBindingProposal({
     profile: profile({ provider: "codex" }),
     server: server({ enabled: false, lastHealth: undefined }),
   });
 
   const warnings = result.preview.warnings.join("\n");
-  assert.match(warnings, /Codex MCP config delivery is not enabled/);
+  assert.match(warnings, /Codex per-run MCP delivery uses verified/);
   assert.match(warnings, /disabled/);
   assert.match(warnings, /health check has not succeeded/);
   assert.equal(result.proposal.risk, "medium");

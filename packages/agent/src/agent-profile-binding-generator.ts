@@ -222,9 +222,19 @@ const buildWarnings = (input: {
     );
   }
 
-  if (profile.provider !== "claude") {
+  if (profile.provider === "codex") {
+    if (server.transport === "stdio" && Object.keys(server.envSecretRefs).length === 0) {
+      warnings.push(
+        "Codex per-run MCP delivery uses verified mcp_servers overrides for stdio/no-secret servers. Actual MCP tool calls still depend on an authenticated Codex CLI run.",
+      );
+    } else {
+      warnings.push(
+        "Codex per-run MCP delivery is limited to stdio/no-secret servers; remote transports or SecretVault refs will fail before CLI launch.",
+      );
+    }
+  } else if (profile.provider !== "claude") {
     warnings.push(
-      "Codex MCP config delivery is not enabled; profile binding only affects Claude provider invocations today.",
+      "provider=auto may resolve to Codex; MCP delivery is limited to Codex stdio/no-secret servers or Claude MCP config.",
     );
   }
   if (!server.enabled) {
@@ -270,7 +280,7 @@ const rationaleFor = (input: {
   if (addMcpServerIds.length === 0) {
     return `"${server.name}" is already present in AgentProfile "${profile.name}".`;
   }
-  return `Add MCP server "${server.name}" to AgentProfile "${profile.name}" for future Claude invocations.`;
+  return `Add MCP server "${server.name}" to AgentProfile "${profile.name}" for future compatible provider invocations.`;
 };
 
 const buildSkillWarnings = (input: {

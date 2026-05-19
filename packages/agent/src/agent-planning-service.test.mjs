@@ -816,7 +816,7 @@ test("generatePlan rejects Codex profiles with unsupported tool policy", async (
   );
 });
 
-test("generatePlan rejects Codex profiles with MCP bindings", async () => {
+test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", async () => {
   const taskRun = {
     id: "tr-codex-mcp",
     threadId: "th-codex-mcp",
@@ -828,11 +828,92 @@ test("generatePlan rejects Codex profiles with MCP bindings", async () => {
   };
   const profile = codexProfile({
     id: "ap-codex-mcp",
+    name: "Codex MCP",
     mcpServerIds: ["mcp_repo"],
   });
+  const baseInvocation = {
+    id: "inv-codex-mcp",
+    taskRunId: taskRun.id,
+    provider: "codex",
+    model: "gpt-5.5",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const artifacts = [];
+  const events = [];
+  let artifactSeq = 0;
+  let stepSeq = 0;
+  let lastRequest = null;
+  let prepareInput = null;
+  let cleanupCalled = false;
+  const codexConfigOverrides = [
+    'mcp_servers.repo_mcp.command="node"',
+    'mcp_servers.repo_mcp.args=["server.mjs"]',
+  ];
+  const planOutput = {
+    summary: "Repo MCP ready",
+    assumptions: [],
+    steps: [{ title: "Use MCP", rationale: "repo context", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
   const svc = new AgentPlanningService({
     state: makeGateway({
       getTaskRun: async () => taskRun,
+      createStep: async (input) => ({
+        id: `step-${++stepSeq}`,
+        taskRunId: input.taskRunId,
+        index: input.index,
+        kind: input.kind,
+        title: input.title,
+        status: input.status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => {
+        const artifact = {
+          id: `art-${++artifactSeq}`,
+          taskRunId: input.taskRunId,
+          stepId: input.stepId,
+          kind: input.kind,
+          title: input.title,
+          uri: input.uri,
+          summary: input.summary,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        artifacts.push(artifact);
+        return artifact;
+      },
+      createAgentInvocation: async () => baseInvocation,
+      updateAgentInvocation: async (_id, patch) => ({
+        ...baseInvocation,
+        ...patch,
+      }),
+      setStepStatus: async (id, status) => ({
+        id,
+        taskRunId: taskRun.id,
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+      setTaskRunCurrentStep: async () => {},
+      createCheckpoint: async (input) => ({
+        id: "cp-codex-mcp",
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        reason: input.reason,
+        stateRef: input.stateRef,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
       listAgentProfiles: async () => [profile],
       getSettings: async () => ({
         activeAgentProfileId: profile.id,
@@ -857,20 +938,51 @@ test("generatePlan rejects Codex profiles with MCP bindings", async () => {
         claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
+    prepareMcpInvocation: async (input) => {
+      prepareInput = input;
+      return {
+        mcpConfigPath: null,
+        codexConfigOverrides,
+        cleanup: async () => {
+          cleanupCalled = true;
+        },
+      };
+    },
+    emitStreamEvent: (event) => events.push(event),
+    adapter: {
+      invoke: async (request) => {
+        lastRequest = request;
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          rawStdout: "",
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 10,
+        };
+      },
+    },
   });
 
-  await assert.rejects(
-    () => svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" }),
-    (err) =>
-      err.constructor.name === "AgentPlanningError" &&
-      err.code === "AGENT_PROVIDER_UNAVAILABLE" &&
-      /Codex provider cannot enforce AgentProfile MCP bindings/.test(
-        err.message,
-      ),
+  await svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" });
+
+  assert.deepEqual(prepareInput, {
+    profileId: profile.id,
+    provider: "codex",
+  });
+  assert.deepEqual(lastRequest.codexConfigOverrides, codexConfigOverrides);
+  assert.equal(lastRequest.mcpConfigPath, undefined);
+  assert.equal(cleanupCalled, true);
+  assert.equal(
+    events.find((event) => event.type === "progress" && event.stage === "mcp")
+      ?.message,
+    "MCP 설정 준비 완료",
   );
 });
 
-test("invokeForWorker rejects Codex profiles with unsupported MCP or tool policy", async () => {
+test("invokeForWorker rejects Codex profiles with unsupported tool policy", async () => {
   const taskRun = {
     id: "tr-codex-worker-policy",
     threadId: "th-codex-worker-policy",
@@ -882,7 +994,6 @@ test("invokeForWorker rejects Codex profiles with unsupported MCP or tool policy
   };
   const profile = codexProfile({
     id: "ap-codex-worker-policy",
-    mcpServerIds: ["mcp_repo"],
     permissions: {
       toolDenylist: ["Read"],
     },
@@ -915,9 +1026,7 @@ test("invokeForWorker rejects Codex profiles with unsupported MCP or tool policy
     (err) =>
       err.constructor.name === "AgentPlanningError" &&
       err.code === "AGENT_PROVIDER_UNAVAILABLE" &&
-      /Codex provider cannot enforce AgentProfile MCP bindings and tool policy/.test(
-        err.message,
-      ),
+      /Codex provider cannot enforce AgentProfile tool policy/.test(err.message),
   );
   assert.equal(invoked, false);
 });

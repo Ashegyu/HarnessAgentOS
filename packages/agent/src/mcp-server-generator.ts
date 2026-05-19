@@ -46,7 +46,7 @@ export const buildGeneratedMcpServerDraft = (
     recommendedProfileIds: [...(request.profileIds ?? [])],
     secretPlaceholders: Object.values(envSecretRefs),
     rationale:
-      "Generated from user intent only; save, health check, and profile binding stay explicit user actions. Codex MCP config remains unsupported.",
+      "Generated from user intent only; save, health check, and profile binding stay explicit user actions. Codex per-run MCP is limited to stdio/no-secret servers; secret refs and remote transports stay explicit provider-boundary warnings.",
   } satisfies Omit<GeneratedMcpServerDraft, "command" | "args" | "url">;
 
   if (transport === "stdio") {

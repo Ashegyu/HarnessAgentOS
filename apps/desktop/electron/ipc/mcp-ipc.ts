@@ -282,8 +282,12 @@ const buildPreview = (
 ): McpServerDraftPreview => {
   const server = draftServerOnly(draft);
   const errors: McpServerDraftPreviewIssue[] = [];
+  const codexSupportedDraft =
+    draft.transport === "stdio" && Object.keys(draft.envSecretRefs).length === 0;
   const warnings: string[] = [
-    "Codex MCP config delivery is not enabled; this draft only targets the Claude MCP config boundary.",
+    codexSupportedDraft
+      ? "Codex MCP config can be delivered per-run with -c mcp_servers.* for stdio/no-secret servers; actual use still needs an authenticated Codex CLI run."
+      : "Codex MCP config delivery is limited to stdio/no-secret servers; this draft requires Claude MCP config or server changes before Codex use.",
   ];
 
   const stamped = {

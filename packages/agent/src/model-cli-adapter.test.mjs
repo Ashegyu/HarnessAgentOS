@@ -147,6 +147,44 @@ test("buildCliInvocation uses Codex exec syntax and folds system prompt into std
   assert.ok(!plan.args.includes("--mcp-config"));
 });
 
+test("buildCliInvocation passes verified Codex MCP config overrides through -c", () => {
+  const plan = buildCliInvocation(
+    baseRequest({
+      modelConfig: {
+        provider: "codex",
+        model: "gpt-5.5",
+        timeoutMs: 300_000,
+        stallTimeoutMs: 60_000,
+      },
+      codexConfigOverrides: [
+        'mcp_servers.repo_mcp.command="node"',
+        'mcp_servers.repo_mcp.args=["server.mjs"]',
+      ],
+    }),
+  );
+
+  assert.equal(plan.command, "codex");
+  assert.deepEqual(plan.args, [
+    "--model",
+    "gpt-5.5",
+    "--cd",
+    "C:\\repo",
+    "--sandbox",
+    "read-only",
+    "--ask-for-approval",
+    "never",
+    "-c",
+    'mcp_servers.repo_mcp.command="node"',
+    "-c",
+    'mcp_servers.repo_mcp.args=["server.mjs"]',
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "-",
+  ]);
+  assert.ok(!plan.args.includes("--mcp-config"));
+});
+
 test("buildCliInvocation does not pass unverified tool policy flags to Codex", () => {
   const plan = buildCliInvocation(
     baseRequest({
