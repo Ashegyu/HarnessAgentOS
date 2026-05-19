@@ -263,6 +263,7 @@ export class AgentPlanningService {
     }
     const model = resolveModel(provider, modelHint);
     const agentStepName = formatStepAgentName(resolved.profile?.name);
+    assertProviderSupportsProfileBoundaries(provider, resolved.profile);
 
     // 1. plan step
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id))
@@ -904,6 +905,7 @@ export class AgentPlanningService {
     }
     const tuning = input.profile.tuning;
     const model = resolveModel(provider, tuning.model);
+    assertProviderSupportsProfileBoundaries(provider, input.profile);
 
     // Worker invocations are independent pipeline steps. They receive
     // repo context and explicit handoffs in the prompt, so they do not
@@ -1403,6 +1405,28 @@ const toolPolicyForProvider = (
     return undefined;
   }
   return { toolAllowlist, toolDenylist };
+};
+
+const assertProviderSupportsProfileBoundaries = (
+  provider: AgentProvider,
+  profile: AgentProfile | null | undefined,
+): void => {
+  if (provider !== "codex" || !profile) return;
+  const unsupported: string[] = [];
+  if ((profile.mcpServerIds ?? []).length > 0) {
+    unsupported.push("MCP bindings");
+  }
+  if (
+    normalizeToolPolicyList(profile.permissions.toolAllowlist).length > 0 ||
+    normalizeToolPolicyList(profile.permissions.toolDenylist).length > 0
+  ) {
+    unsupported.push("tool policy");
+  }
+  if (unsupported.length === 0) return;
+  throw new AgentPlanningError(
+    AGENT_PROVIDER_UNAVAILABLE,
+    `Codex provider cannot enforce AgentProfile ${unsupported.join(" and ")} yet; use Claude or remove unsupported profile boundaries.`,
+  );
 };
 
 const normalizeToolPolicyList = (patterns: readonly string[]): string[] => {

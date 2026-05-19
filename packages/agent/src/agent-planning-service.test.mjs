@@ -114,6 +114,26 @@ const workerProfile = (overrides = {}) => ({
   ...overrides,
 });
 
+const codexProfile = (overrides = {}) => {
+  const base = workerProfile({
+    provider: "codex",
+    tuning: {
+      model: "gpt-5.5",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+  });
+  return {
+    ...base,
+    ...overrides,
+    tuning: { ...base.tuning, ...(overrides.tuning ?? {}) },
+    permissions: { ...base.permissions, ...(overrides.permissions ?? {}) },
+  };
+};
+
 test("cancelInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FOUND", async () => {
   const svc = new AgentPlanningService({
     state: makeGateway(),
@@ -740,6 +760,166 @@ test("generatePlan uses approved Learner model recommendation when no explicit m
   assert.deepEqual(selections, [
     { taskRunId: "tr-learner-model", selectedModel: "gpt-5.5" },
   ]);
+});
+
+test("generatePlan rejects Codex profiles with unsupported tool policy", async () => {
+  const taskRun = {
+    id: "tr-codex-policy",
+    threadId: "th-codex-policy",
+    userRequest: "read current project",
+    targetDir: "/tmp/project",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = codexProfile({
+    id: "ap-codex-policy",
+    permissions: {
+      toolAllowlist: ["Read"],
+    },
+  });
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      listAgentProfiles: async () => [profile],
+      getSettings: async () => ({
+        activeAgentProfileId: profile.id,
+        agent: {
+          provider: "auto",
+          model: "",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+        },
+        orchestration: {
+          enabled: false,
+          defaultMode: "single_worker",
+          defaultInstructions: "",
+          workerProfiles: [],
+        },
+        approval: { autoApprove: false },
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        claude: { available: false, queueDepth: 0 },
+        codex: { available: true, queueDepth: 0 },
+      }),
+  });
+
+  await assert.rejects(
+    () => svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" }),
+    (err) =>
+      err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE" &&
+      /Codex provider cannot enforce AgentProfile tool policy/.test(err.message),
+  );
+});
+
+test("generatePlan rejects Codex profiles with MCP bindings", async () => {
+  const taskRun = {
+    id: "tr-codex-mcp",
+    threadId: "th-codex-mcp",
+    userRequest: "use repo mcp",
+    targetDir: "/tmp/project",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = codexProfile({
+    id: "ap-codex-mcp",
+    mcpServerIds: ["mcp_repo"],
+  });
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      listAgentProfiles: async () => [profile],
+      getSettings: async () => ({
+        activeAgentProfileId: profile.id,
+        agent: {
+          provider: "auto",
+          model: "",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+        },
+        orchestration: {
+          enabled: false,
+          defaultMode: "single_worker",
+          defaultInstructions: "",
+          workerProfiles: [],
+        },
+        approval: { autoApprove: false },
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        claude: { available: false, queueDepth: 0 },
+        codex: { available: true, queueDepth: 0 },
+      }),
+  });
+
+  await assert.rejects(
+    () => svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" }),
+    (err) =>
+      err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE" &&
+      /Codex provider cannot enforce AgentProfile MCP bindings/.test(
+        err.message,
+      ),
+  );
+});
+
+test("invokeForWorker rejects Codex profiles with unsupported MCP or tool policy", async () => {
+  const taskRun = {
+    id: "tr-codex-worker-policy",
+    threadId: "th-codex-worker-policy",
+    userRequest: "original request",
+    targetDir: "/tmp/project",
+    status: "running",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = codexProfile({
+    id: "ap-codex-worker-policy",
+    mcpServerIds: ["mcp_repo"],
+    permissions: {
+      toolDenylist: ["Read"],
+    },
+  });
+  let invoked = false;
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        codex: { available: true, queueDepth: 0 },
+      }),
+    adapter: {
+      invoke: async () => {
+        invoked = true;
+        throw new Error("adapter must not be invoked");
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      svc.invokeForWorker({
+        taskRunId: taskRun.id,
+        profile,
+        stepId: "step-codex-worker-policy",
+        userRequest: "use repo mcp",
+      }),
+    (err) =>
+      err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE" &&
+      /Codex provider cannot enforce AgentProfile MCP bindings and tool policy/.test(
+        err.message,
+      ),
+  );
+  assert.equal(invoked, false);
 });
 
 test("invokeForWorker asks for harness plan output and returns parsed actions", async () => {
