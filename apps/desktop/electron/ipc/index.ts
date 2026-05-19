@@ -148,6 +148,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     mcp: ctx.state.mcpServers,
     profiles: ctx.state.agentProfiles,
     probe: ctx.mcpProbe,
+    listSecretKeys: () => ctx.secretVault.listKeys(),
   });
   registerSkillSourceIpc({
     state: ctx.state,

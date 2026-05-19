@@ -62,11 +62,12 @@ const profileInput = (overrides = {}) => ({
   ...overrides,
 });
 
-const setupCtx = (file) => {
+const setupCtx = (file, options = {}) => {
   const db = openDb({ filePath: file });
   const state = new LocalStateService(db);
   const mcp = state.mcpServers;
   const profiles = state.agentProfiles;
+  const secretKeys = options.secretKeys ?? [];
   const probe = async (server) => {
     // Echo a stub health record so tests can assert handler behavior
     // without spawning anything.
@@ -75,7 +76,16 @@ const setupCtx = (file) => {
     }
     return { okAt: "2026-05-12T00:00:00.000Z", checkedAt: "2026-05-12T00:00:00.000Z" };
   };
-  return { db, ctx: { state, mcp, profiles, probe } };
+  return {
+    db,
+    ctx: {
+      state,
+      mcp,
+      profiles,
+      probe,
+      listSecretKeys: async () => secretKeys,
+    },
+  };
 };
 
 test("mcp.list returns ok([]) on a fresh DB", async () => {
@@ -377,6 +387,56 @@ test("mcp.upsert creates then updates the same row", async () => {
   }
 });
 
+test("mcp.upsert allows disabled servers with missing secret refs but rejects enabling them", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const draft = stdio({
+      enabled: false,
+      envSecretRefs: { API_TOKEN: "missing_token" },
+    });
+
+    const disabled = await h.upsert({ server: draft });
+    assert.equal(disabled.ok, true);
+
+    const enabled = await h.upsert({
+      server: { ...disabled.value, enabled: true },
+    });
+    assert.equal(enabled.ok, false);
+    assert.equal(enabled.error.code, "STATE_INVALID_INPUT");
+    assert.match(enabled.error.message, /missing_token/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.toggle refuses to enable a server while referenced secrets are missing", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const created = (
+      await h.upsert({
+        server: stdio({
+          enabled: false,
+          envSecretRefs: { API_TOKEN: "missing_token" },
+        }),
+      })
+    ).value;
+
+    const r = await h.toggle({ serverId: created.id, enabled: true });
+
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+    assert.match(r.error.message, /missing_token/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("mcp.upsert rejects invalid transport via STATE_INVALID_INPUT", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);
@@ -416,6 +476,56 @@ test("mcp.healthCheck stamps lastHealth via the probe", async () => {
     assert.equal(r.value.okAt, "2026-05-12T00:00:00.000Z");
     const refreshed = (await h.list()).value[0];
     assert.equal(refreshed.lastHealth.okAt, "2026-05-12T00:00:00.000Z");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.healthCheck refuses to probe while referenced secrets are missing", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const created = (
+      await h.upsert({
+        server: stdio({
+          enabled: false,
+          envSecretRefs: { API_TOKEN: "missing_token" },
+        }),
+      })
+    ).value;
+
+    const r = await h.healthCheck({ serverId: created.id });
+
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+    assert.match(r.error.message, /missing_token/);
+    assert.equal((await h.list()).value[0].lastHealth, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.healthCheck allows probe when referenced secrets exist", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file, { secretKeys: ["stored_token"] });
+  try {
+    const h = buildMcpHandlers(ctx);
+    const created = (
+      await h.upsert({
+        server: stdio({
+          enabled: false,
+          envSecretRefs: { API_TOKEN: "stored_token" },
+        }),
+      })
+    ).value;
+
+    const r = await h.healthCheck({ serverId: created.id });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.okAt, "2026-05-12T00:00:00.000Z");
   } finally {
     closeDb(db);
     t.cleanup();

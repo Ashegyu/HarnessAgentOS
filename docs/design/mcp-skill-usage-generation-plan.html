@@ -1098,7 +1098,7 @@ Step 5. Approval
     <li><code>GeneratedSkillDraft → SkillAuthorDraft</code> 변환과 frontmatter validation</li>
     <li>Skill body 금지 표현 warning</li>
     <li>MCP config draft transport별 validation</li>
-    <li>secret placeholder가 없을 때 healthCheck 또는 enable 차단</li>
+    <li>secret placeholder가 없을 때 healthCheck 또는 enable 차단: disabled draft 저장은 허용하되, referenced SecretVault key가 없으면 <code>enabled=true</code> 저장, toggle enable, healthCheck를 거부한다.</li>
     <li>AgentProfile binding proposal이 기존 ids를 중복 추가하지 않음</li>
     <li>tool deny pattern이 allow pattern보다 우선함</li>
   </ul>

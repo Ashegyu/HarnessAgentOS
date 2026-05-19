@@ -54,6 +54,7 @@ export interface McpIpcContext {
   mcp: McpServerRepository;
   profiles: AgentProfileRepository;
   probe: McpProbe;
+  listSecretKeys?: () => Promise<readonly string[]>;
 }
 
 const validateServerInput = (
@@ -402,8 +403,31 @@ const wrap = async <T>(fn: () => Promise<T>): Promise<HarnessResult<T>> => {
   }
 };
 
+const missingSecretRefs = async (
+  server: McpServerConfig,
+  listSecretKeys?: () => Promise<readonly string[]>,
+): Promise<string[]> => {
+  const required = Object.values(server.envSecretRefs)
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0);
+  if (required.length === 0) return [];
+  const available = new Set(await (listSecretKeys?.() ?? Promise.resolve([])));
+  return required.filter((key) => !available.has(key));
+};
+
+const missingSecretError = (
+  server: McpServerConfig,
+  missing: readonly string[],
+): HarnessResult<never> =>
+  err(
+    harnessError(
+      STATE_INVALID_INPUT,
+      `MCP server "${server.name}" references missing Secret Vault key(s): ${missing.join(", ")}`,
+    ),
+  );
+
 export const buildMcpHandlers = (ctx: McpIpcContext) => {
-  const { state, mcp, probe, profiles } = ctx;
+  const { state, mcp, probe, profiles, listSecretKeys } = ctx;
   return {
     list: async (): Promise<HarnessResult<McpServerConfig[]>> =>
       wrap(() => mcp.list()),
@@ -568,6 +592,10 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
     }): Promise<HarnessResult<McpServerConfig>> => {
       const v = validateServerInput(input?.server);
       if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      if (v.value.enabled) {
+        const missing = await missingSecretRefs(v.value, listSecretKeys);
+        if (missing.length > 0) return missingSecretError(v.value, missing);
+      }
       return wrap(() => mcp.upsert(v.value));
     },
 
@@ -598,6 +626,10 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
           harnessError(MCP_SERVER_NOT_FOUND, `unknown server: ${input.serverId}`),
         );
       }
+      if (input.enabled) {
+        const missing = await missingSecretRefs(existing, listSecretKeys);
+        if (missing.length > 0) return missingSecretError(existing, missing);
+      }
       return wrap(() => mcp.toggle(input.serverId, input.enabled));
     },
 
@@ -613,6 +645,8 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
           harnessError(MCP_SERVER_NOT_FOUND, `unknown server: ${input.serverId}`),
         );
       }
+      const missing = await missingSecretRefs(existing, listSecretKeys);
+      if (missing.length > 0) return missingSecretError(existing, missing);
       return wrap(async () => {
         const health = await probe(existing);
         await mcp.recordHealth(input.serverId, health);
