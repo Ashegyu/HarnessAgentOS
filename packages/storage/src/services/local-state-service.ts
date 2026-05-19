@@ -619,6 +619,38 @@ export class LocalStateService implements ConversationStateGateway {
     return this.agentInvocations.getLatestForTaskRun(taskRunId);
   }
 
+  async summarizeAgentInvocationCostByTaskRun(taskRunId: string) {
+    return this.agentInvocations.summarizeByTaskRun(taskRunId);
+  }
+
+  async sumAgentInvocationCostByTaskRun(taskRunId: string): Promise<number> {
+    return this.agentInvocations.sumCostByTaskRun(taskRunId);
+  }
+
+  async aggregateAgentInvocationCostByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }) {
+    return this.agentInvocations.aggregateByProfileAndDay(input);
+  }
+
+  async sumAgentInvocationCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number> {
+    return this.agentInvocations.sumCostByDay(input);
+  }
+
+  async summarizeAgentInvocationModelCosts(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+    limit?: number;
+  }) {
+    return this.agentInvocations.summarizeModelCosts(input);
+  }
+
   // -- Settings (Phase 9) -----------------------------------------------
 
   async getSettings(): Promise<HarnessSettings> {

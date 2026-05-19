@@ -73,6 +73,41 @@ const profileInput = (overrides = {}) => ({
   ...overrides,
 });
 
+const createCostedInvocation = async (
+  state,
+  taskRun,
+  {
+    provider = "codex",
+    model = "gpt-5.5",
+    profileId,
+    status = "succeeded",
+    costEstimate,
+    latencyMs,
+    finishedAt,
+  } = {},
+) => {
+  const promptArtifact = await state.createArtifact({
+    taskRunId: taskRun.id,
+    kind: "log",
+    title: `prompt ${model}`,
+    uri: `memory://prompt/${taskRun.id}/${model}/${Math.random()}`,
+  });
+  const invocation = await state.createAgentInvocation({
+    taskRunId: taskRun.id,
+    provider,
+    model,
+    promptArtifactId: promptArtifact.id,
+    ...(profileId ? { profileId } : {}),
+  });
+  await state.updateAgentInvocation(invocation.id, {
+    status,
+    ...(typeof latencyMs === "number" ? { latencyMs } : {}),
+    ...(typeof costEstimate === "number" ? { costEstimate } : {}),
+    ...(finishedAt ? { finishedAt } : {}),
+  });
+  return invocation;
+};
+
 test("recommend returns conservative fallback with no history", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -199,49 +234,23 @@ test("summarizeTaskRunCost adds active profile budget progress and invocation st
     });
 
     const today = new Date().toISOString().slice(0, 10);
-    const firstTrace = await state.createLearningTrace({ taskRunId: taskRun.id });
-    const secondTrace = await state.createLearningTrace({ taskRunId: taskRun.id });
-    await state.updateLearningTrace(firstTrace.id, {
-      selectedModel: "gpt-5.5",
-      costEstimate: 0.125,
-      latencyMs: 1_000,
-      success: true,
-    });
-    await state.updateLearningTrace(secondTrace.id, {
-      selectedModel: "claude-opus",
-      costEstimate: 0.375,
-      latencyMs: 2_000,
-      success: false,
-    });
-    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
-      `${today}T01:00:00.000Z`,
-      firstTrace.id,
-    );
-    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
-      `${today}T01:01:00.000Z`,
-      secondTrace.id,
-    );
-
-    const promptArtifact = await state.createArtifact({
-      taskRunId: taskRun.id,
-      kind: "log",
-      title: "prompt",
-      uri: "memory://prompt",
-    });
-    const succeeded = await state.createAgentInvocation({
-      taskRunId: taskRun.id,
+    const succeeded = await createCostedInvocation(state, taskRun, {
       provider: "codex",
       model: "gpt-5.5",
-      promptArtifactId: promptArtifact.id,
+      profileId: profile.id,
+      status: "succeeded",
+      costEstimate: 0.125,
+      latencyMs: 1_000,
+      finishedAt: `${today}T01:00:00.000Z`,
     });
-    const failed = await state.createAgentInvocation({
-      taskRunId: taskRun.id,
+    const failed = await createCostedInvocation(state, taskRun, {
       provider: "claude",
       model: "claude-opus",
-      promptArtifactId: promptArtifact.id,
+      status: "failed",
+      costEstimate: 0.375,
+      latencyMs: 2_000,
+      finishedAt: `${today}T01:01:00.000Z`,
     });
-    await state.updateAgentInvocation(succeeded.id, { status: "succeeded" });
-    await state.updateAgentInvocation(failed.id, { status: "failed" });
 
     const advisor = new LearnerAdvisor({
       state,
@@ -317,33 +326,28 @@ test("summarizeBudgetUsage returns profile trends, daily totals, and top models"
     );
     const coderTask = await seedTaskRun(state, "code");
     const reviewerTask = await seedTaskRun(state, "review");
-    const first = await state.createLearningTrace({ taskRunId: coderTask.id });
-    const second = await state.createLearningTrace({ taskRunId: coderTask.id });
-    const third = await state.createLearningTrace({ taskRunId: reviewerTask.id });
-    await state.updateLearningTrace(first.id, {
-      selectedModel: "gpt-5.5",
+    await createCostedInvocation(state, coderTask, {
+      model: "gpt-5.5",
+      profileId: coder.id,
       costEstimate: 0.2,
+      latencyMs: 100,
+      finishedAt: `${today}T01:00:00.000Z`,
     });
-    await state.updateLearningTrace(second.id, {
-      selectedModel: "gpt-5.5",
+    await createCostedInvocation(state, coderTask, {
+      model: "gpt-5.5",
+      profileId: coder.id,
       costEstimate: 0.3,
+      latencyMs: 100,
+      finishedAt: `${yesterday}T01:00:00.000Z`,
     });
-    await state.updateLearningTrace(third.id, {
-      selectedModel: "claude-opus",
+    await createCostedInvocation(state, reviewerTask, {
+      provider: "claude",
+      model: "claude-opus",
+      profileId: reviewer.id,
       costEstimate: 0.6,
+      latencyMs: 100,
+      finishedAt: `${today}T02:00:00.000Z`,
     });
-    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
-      `${today}T01:00:00.000Z`,
-      first.id,
-    );
-    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
-      `${yesterday}T01:00:00.000Z`,
-      second.id,
-    );
-    db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
-      `${today}T02:00:00.000Z`,
-      third.id,
-    );
 
     const advisor = new LearnerAdvisor({
       state,

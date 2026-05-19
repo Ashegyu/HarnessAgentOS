@@ -1,7 +1,12 @@
 import type {
   AgentInvocation,
   AgentInvocationStatus,
+  BudgetUsageModelSummary,
   CreateAgentInvocationInput,
+  LearningTraceProfileDayAggregate,
+  TaskRunCostInvocationSummary,
+  TaskRunCostModelBreakdown,
+  TaskRunCostSummary,
   UpdateAgentInvocationPatch,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
@@ -17,12 +22,30 @@ export interface AgentInvocationRepository {
   listByTaskRun(taskRunId: string): Promise<AgentInvocation[]>;
   listRecentWithLatency(limit?: number): Promise<AgentInvocation[]>;
   getLatestForTaskRun(taskRunId: string): Promise<AgentInvocation | null>;
+  summarizeByTaskRun(taskRunId: string): Promise<TaskRunCostSummary>;
+  aggregateByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }): Promise<LearningTraceProfileDayAggregate[]>;
+  sumCostByTaskRun(taskRunId: string): Promise<number>;
+  sumCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number>;
+  summarizeModelCosts(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+    limit?: number;
+  }): Promise<BudgetUsageModelSummary[]>;
 }
 
 interface AgentInvocationRow {
   id: string;
   task_run_id: string;
   step_id: string | null;
+  profile_id: string | null;
   provider: "claude" | "codex";
   model: string;
   status: AgentInvocationStatus;
@@ -39,6 +62,28 @@ interface AgentInvocationRow {
   updated_at: string;
 }
 
+interface CostSummaryRow {
+  id: string;
+  model: string | null;
+  status: AgentInvocationStatus;
+  cost: number | null;
+  latency_ms: number | null;
+  created_at: string;
+}
+
+interface ProfileDayAggregateRow {
+  profileId: string;
+  dateIso: string;
+  totalCostUsd: number;
+  count: number;
+}
+
+interface ModelCostAggregateRow {
+  model: string;
+  totalCostUsd: number;
+  invocationCount: number;
+}
+
 const rowToInvocation = (r: AgentInvocationRow): AgentInvocation => {
   const inv: AgentInvocation = {
     id: r.id,
@@ -51,6 +96,7 @@ const rowToInvocation = (r: AgentInvocationRow): AgentInvocation => {
     updatedAt: r.updated_at,
   };
   if (r.step_id !== null) inv.stepId = r.step_id;
+  if (r.profile_id !== null) inv.profileId = r.profile_id;
   if (r.raw_output_artifact_id !== null)
     inv.rawOutputArtifactId = r.raw_output_artifact_id;
   if (r.parsed_plan_artifact_id !== null)
@@ -85,14 +131,15 @@ export class SqliteAgentInvocationRepository
       updatedAt: now,
     };
     if (input.stepId !== undefined) inv.stepId = input.stepId;
+    if (input.profileId !== undefined) inv.profileId = input.profileId;
     this.db
       .prepare(
         `INSERT INTO agent_invocations(
-            id, task_run_id, step_id, provider, model, status,
+            id, task_run_id, step_id, profile_id, provider, model, status,
             prompt_artifact_id, raw_output_artifact_id, parsed_plan_artifact_id,
             error_code, error_message, started_at, finished_at, latency_ms,
             cost_estimate, created_at, updated_at)
-         VALUES(@id, @taskRunId, @stepId, @provider, @model, @status,
+         VALUES(@id, @taskRunId, @stepId, @profileId, @provider, @model, @status,
                 @promptArtifactId, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                 NULL, @createdAt, @updatedAt)`,
       )
@@ -100,6 +147,7 @@ export class SqliteAgentInvocationRepository
         id: inv.id,
         taskRunId: inv.taskRunId,
         stepId: inv.stepId ?? null,
+        profileId: inv.profileId ?? null,
         provider: inv.provider,
         model: inv.model,
         status: inv.status,
@@ -223,4 +271,164 @@ export class SqliteAgentInvocationRepository
     const list = await this.listByTaskRun(taskRunId);
     return list[0] ?? null;
   }
+
+  async summarizeByTaskRun(taskRunId: string): Promise<TaskRunCostSummary> {
+    const rows = this.db
+      .prepare(
+        `SELECT id,
+                model,
+                status,
+                cost_estimate AS cost,
+                latency_ms,
+                created_at
+         FROM agent_invocations
+         WHERE task_run_id = ?
+         ORDER BY datetime(created_at) ASC, rowid ASC`,
+      )
+      .all(taskRunId) as CostSummaryRow[];
+
+    const invocations = rows.map(rowToCostInvocation);
+    return {
+      taskRunId,
+      totalCostUsd: invocations.reduce((sum, item) => sum + item.cost, 0),
+      totalLatencyMs: invocations.reduce(
+        (sum, item) => sum + item.latencyMs,
+        0,
+      ),
+      invocationCount: invocations.length,
+      perModel: summarizePerModel(invocations),
+      invocations,
+    };
+  }
+
+  async sumCostByTaskRun(taskRunId: string): Promise<number> {
+    return (await this.summarizeByTaskRun(taskRunId)).totalCostUsd;
+  }
+
+  async aggregateByProfileAndDay(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+  }): Promise<LearningTraceProfileDayAggregate[]> {
+    const rows = this.db
+      .prepare(
+        `SELECT profile_id AS profileId,
+                date_iso AS dateIso,
+                COALESCE(SUM(cost), 0) AS totalCostUsd,
+                COUNT(*) AS count
+         FROM (
+           SELECT COALESCE(ai.profile_id, 'unassigned') AS profile_id,
+                  substr(COALESCE(ai.finished_at, ai.created_at), 1, 10) AS date_iso,
+                  COALESCE(ai.cost_estimate, 0) AS cost
+           FROM agent_invocations ai
+           WHERE COALESCE(ai.finished_at, ai.created_at) >= @sinceIso
+             AND COALESCE(ai.finished_at, ai.created_at) <= @untilIso
+         )
+         WHERE @profileId IS NULL OR profile_id = @profileId
+         GROUP BY profile_id, date_iso
+         ORDER BY date_iso ASC, profile_id ASC`,
+      )
+      .all({
+        sinceIso: input.sinceIso,
+        untilIso: input.untilIso,
+        profileId: input.profileId ?? null,
+      }) as ProfileDayAggregateRow[];
+    return rows.map((row) => ({
+      profileId: row.profileId,
+      dateIso: row.dateIso,
+      totalCostUsd: row.totalCostUsd,
+      count: row.count,
+    }));
+  }
+
+  async sumCostByDay(input: {
+    profileId?: string;
+    isoDate: string;
+  }): Promise<number> {
+    const rows = await this.aggregateByProfileAndDay({
+      sinceIso: `${input.isoDate}T00:00:00.000Z`,
+      untilIso: `${input.isoDate}T23:59:59.999Z`,
+      ...(input.profileId ? { profileId: input.profileId } : {}),
+    });
+    return rows.reduce((sum, row) => sum + row.totalCostUsd, 0);
+  }
+
+  async summarizeModelCosts(input: {
+    sinceIso: string;
+    untilIso: string;
+    profileId?: string;
+    limit?: number;
+  }): Promise<BudgetUsageModelSummary[]> {
+    const safeLimit = Math.max(1, Math.min(input.limit ?? 5, 50));
+    const rows = this.db
+      .prepare(
+        `SELECT COALESCE(NULLIF(TRIM(model), ''), 'unknown') AS model,
+                COALESCE(SUM(COALESCE(cost_estimate, 0)), 0) AS totalCostUsd,
+                COUNT(*) AS invocationCount
+         FROM agent_invocations
+         WHERE COALESCE(finished_at, created_at) >= @sinceIso
+           AND COALESCE(finished_at, created_at) <= @untilIso
+           AND (@profileId IS NULL OR COALESCE(profile_id, 'unassigned') = @profileId)
+         GROUP BY COALESCE(NULLIF(TRIM(model), ''), 'unknown')
+         ORDER BY totalCostUsd DESC, invocationCount DESC, model ASC
+         LIMIT @limit`,
+      )
+      .all({
+        sinceIso: input.sinceIso,
+        untilIso: input.untilIso,
+        profileId: input.profileId ?? null,
+        limit: safeLimit,
+      }) as ModelCostAggregateRow[];
+    return rows.map((row) => ({
+      model: row.model,
+      totalCostUsd: row.totalCostUsd,
+      invocationCount: row.invocationCount,
+    }));
+  }
 }
+
+const rowToCostInvocation = (
+  row: CostSummaryRow,
+): TaskRunCostInvocationSummary => {
+  const summary: TaskRunCostInvocationSummary = {
+    id: row.id,
+    model: normalizeModel(row.model),
+    cost: row.cost ?? 0,
+    latencyMs: row.latency_ms ?? 0,
+    createdAt: row.created_at,
+  };
+  if (row.status === "succeeded") summary.success = true;
+  if (row.status === "failed" || row.status === "cancelled") {
+    summary.success = false;
+  }
+  return summary;
+};
+
+const normalizeModel = (model: string | null): string => {
+  const trimmed = model?.trim() ?? "";
+  return trimmed.length > 0 ? trimmed : "unknown";
+};
+
+const summarizePerModel = (
+  invocations: TaskRunCostInvocationSummary[],
+): TaskRunCostModelBreakdown[] => {
+  const byModel = new Map<string, TaskRunCostModelBreakdown>();
+  for (const item of invocations) {
+    const current = byModel.get(item.model) ?? {
+      model: item.model,
+      cost: 0,
+      latencyMs: 0,
+      count: 0,
+    };
+    byModel.set(item.model, {
+      model: item.model,
+      cost: current.cost + item.cost,
+      latencyMs: current.latencyMs + item.latencyMs,
+      count: current.count + 1,
+    });
+  }
+  return [...byModel.values()].sort(
+    (left, right) =>
+      right.cost - left.cost || left.model.localeCompare(right.model),
+  );
+};

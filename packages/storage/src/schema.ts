@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -183,6 +183,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     id TEXT PRIMARY KEY,
     task_run_id TEXT NOT NULL,
     step_id TEXT,
+    profile_id TEXT,
     provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
     model TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),
@@ -199,6 +200,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at TEXT NOT NULL,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
     FOREIGN KEY(step_id) REFERENCES steps(id) ON DELETE SET NULL,
+    FOREIGN KEY(profile_id) REFERENCES agent_profiles(id) ON DELETE SET NULL,
     FOREIGN KEY(prompt_artifact_id) REFERENCES artifacts(id) ON DELETE RESTRICT,
     FOREIGN KEY(raw_output_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
     FOREIGN KEY(parsed_plan_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
@@ -402,6 +404,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_approvals_decided_at ON approvals(decided_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_artifacts_task_run_id ON artifacts(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_invocations_profile_time
+    ON agent_invocations(profile_id, finished_at, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_endpoints_enabled ON a2a_endpoints(enabled, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_remote_tasks_endpoint ON a2a_remote_tasks(endpoint_id)`,
 ];

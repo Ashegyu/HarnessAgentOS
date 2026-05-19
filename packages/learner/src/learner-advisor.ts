@@ -3,7 +3,6 @@ import {
   type AgentProfile,
   type Approval,
   type BudgetUsageDailyPoint,
-  type BudgetUsageModelSummary,
   type BudgetUsageProfileSummary,
   type BudgetUsageSummary,
   type CapabilitySuggestion,
@@ -128,7 +127,7 @@ export class LearnerAdvisor {
 
     const usageIsoDate = new Date().toISOString().slice(0, 10);
     const [summary, invocations, settings, profiles] = await Promise.all([
-      this.deps.state.summarizeLearningTraceCostByTaskRun(input.taskRunId),
+      this.deps.state.summarizeAgentInvocationCostByTaskRun(input.taskRunId),
       this.deps.state.listAgentInvocationsByTaskRun(input.taskRunId),
       this.deps.state.getSettings(),
       this.deps.state.listAgentProfiles(),
@@ -137,7 +136,7 @@ export class LearnerAdvisor {
       profiles,
       activeAgentProfileId: settings.activeAgentProfileId,
     });
-    const dailyCostUsd = await this.deps.state.sumLearningTraceCostByDay({
+    const dailyCostUsd = await this.deps.state.sumAgentInvocationCostByDay({
       ...(activeProfile ? { profileId: activeProfile.id } : {}),
       isoDate: usageIsoDate,
     });
@@ -184,14 +183,19 @@ export class LearnerAdvisor {
     const dateWindow = buildDateWindow(todayIso, days);
     const sinceIso = `${dateWindow[0]}T00:00:00.000Z`;
     const untilIso = `${dateWindow[dateWindow.length - 1]}T23:59:59.999Z`;
-    const [profiles, aggregates, traces] = await Promise.all([
+    const [profiles, aggregates, topModels] = await Promise.all([
       this.deps.state.listAgentProfiles(),
-      this.deps.state.aggregateLearningTraceCostByProfileAndDay({
+      this.deps.state.aggregateAgentInvocationCostByProfileAndDay({
         sinceIso,
         untilIso,
         ...(input.profileId ? { profileId: input.profileId } : {}),
       }),
-      this.deps.state.listLearningTraces(),
+      this.deps.state.summarizeAgentInvocationModelCosts({
+        sinceIso,
+        untilIso,
+        ...(input.profileId ? { profileId: input.profileId } : {}),
+        limit: 5,
+      }),
     ]);
     const selectedProfiles = input.profileId
       ? profiles.filter((profile) => profile.id === input.profileId)
@@ -199,11 +203,12 @@ export class LearnerAdvisor {
     const aggregateProfileIds = new Set(
       aggregates.map((aggregate) => aggregate.profileId),
     );
+    const includeUnassignedProfile =
+      aggregateProfileIds.has("unassigned") &&
+      (!input.profileId || input.profileId === "unassigned");
     const summaryProfiles = [
       ...selectedProfiles,
-      ...(aggregateProfileIds.has("unassigned") && !input.profileId
-        ? [unassignedProfile()]
-        : []),
+      ...(includeUnassignedProfile ? [unassignedProfile()] : []),
     ];
     const profileSummaries = summaryProfiles.map((profile) =>
       summarizeBudgetProfile({
@@ -223,14 +228,6 @@ export class LearnerAdvisor {
       (sum, profile) => sum + profile.todayCostUsd,
       0,
     );
-    const profileByModel = profileModelMap(profiles);
-    const topModels = summarizeTopModels({
-      traces,
-      sinceIso,
-      untilIso,
-      profileId: input.profileId,
-      profileByModel,
-    });
     return {
       sinceIso,
       untilIso,
@@ -580,7 +577,7 @@ const summarizeBudgetProfile = (input: {
 const unassignedProfile = (): AgentProfile => ({
   id: "unassigned",
   name: "Unassigned model",
-  description: "Learning traces whose selected model does not match an Agent Profile.",
+  description: "Agent invocations that were not launched through an Agent Profile.",
   category: "system",
   tags: [],
   provider: "auto",
@@ -612,52 +609,6 @@ const unassignedProfile = (): AgentProfile => ({
   createdAt: "",
   updatedAt: "",
 });
-
-const profileModelMap = (profiles: AgentProfile[]): Map<string, string> => {
-  const byModel = new Map<string, string>();
-  for (const profile of profiles) {
-    const model = profile.tuning.model.trim();
-    if (model.length === 0 || byModel.has(model)) continue;
-    byModel.set(model, profile.id);
-  }
-  return byModel;
-};
-
-const summarizeTopModels = (input: {
-  traces: LearningTrace[];
-  sinceIso: string;
-  untilIso: string;
-  profileId?: string;
-  profileByModel: Map<string, string>;
-}): BudgetUsageModelSummary[] => {
-  const buckets = new Map<string, BudgetUsageModelSummary>();
-  for (const trace of input.traces) {
-    if (trace.createdAt < input.sinceIso || trace.createdAt > input.untilIso) {
-      continue;
-    }
-    const model = trace.selectedModel?.trim() || "unknown";
-    const profileId = input.profileByModel.get(model) ?? "unassigned";
-    if (input.profileId && input.profileId !== profileId) continue;
-    const current = buckets.get(model) ?? {
-      model,
-      totalCostUsd: 0,
-      invocationCount: 0,
-    };
-    buckets.set(model, {
-      model,
-      totalCostUsd: current.totalCostUsd + (trace.costEstimate ?? 0),
-      invocationCount: current.invocationCount + 1,
-    });
-  }
-  return [...buckets.values()]
-    .sort(
-      (left, right) =>
-        right.totalCostUsd - left.totalCostUsd ||
-        right.invocationCount - left.invocationCount ||
-        left.model.localeCompare(right.model),
-    )
-    .slice(0, 5);
-};
 
 const rerankWithTraceHistory = (
   suggestions: CapabilitySuggestion[],

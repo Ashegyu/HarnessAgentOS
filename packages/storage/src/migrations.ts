@@ -42,6 +42,16 @@ export const applyMigrations = (db: DatabaseType): void => {
         ON approvals(decided_at DESC)`,
     );
 
+    // v26 — actual CLI invocation cost is budgeted against the profile
+    // that launched it. Existing rows remain unassigned.
+    if (!hasColumn(db, "agent_invocations", "profile_id")) {
+      db.exec(`ALTER TABLE agent_invocations ADD COLUMN profile_id TEXT`);
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_agent_invocations_profile_time
+        ON agent_invocations(profile_id, finished_at, created_at)`,
+    );
+
     // v23 — nullable per-profile budget caps. Stored separately from
     // permissions_json so old profile rows remain valid and empty caps stay NULL.
     if (!hasColumn(db, "agent_profiles", "budget_json")) {

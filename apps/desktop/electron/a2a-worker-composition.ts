@@ -98,6 +98,7 @@ export const createPersistentA2AWorkerInvoker = (
         provider: invocationProvider(input.profile),
         model: `a2a:${options.endpoint.id}`,
         promptArtifactId: promptArtifact.id,
+        profileId: input.profile.id,
         ...(input.stepId ? { stepId: input.stepId } : {}),
       });
       await options.state.updateAgentInvocation(invocation.id, {

@@ -158,6 +158,29 @@ test("v25 migration adds approvals decided_at index", () => {
   }
 });
 
+test("v26 migration adds agent invocation profile budget columns and index", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "agent_invocations", "profile_id"),
+      true,
+      "agent_invocations.profile_id must exist",
+    );
+    assert.equal(
+      hasIndex(db, "idx_agent_invocations_profile_time"),
+      true,
+      "agent invocation profile/time budget index must exist",
+    );
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "agent_invocations", "profile_id"), true);
+    assert.equal(hasIndex(db, "idx_agent_invocations_profile_time"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

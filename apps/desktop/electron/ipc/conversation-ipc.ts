@@ -467,8 +467,8 @@ export const registerConversationIpc = (
             state.listQualityGateResults(cast.taskRunId),
             state.repairAttempts.listByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
-            state.sumLearningTraceCostByTaskRun(cast.taskRunId),
-            state.sumLearningTraceCostByDay({
+            state.sumAgentInvocationCostByTaskRun(cast.taskRunId),
+            state.sumAgentInvocationCostByDay({
               ...(settings.activeAgentProfileId
                 ? { profileId: settings.activeAgentProfileId }
                 : {}),

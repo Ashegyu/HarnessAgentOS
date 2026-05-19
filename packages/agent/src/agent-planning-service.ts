@@ -337,6 +337,7 @@ export class AgentPlanningService {
       model,
       promptArtifactId: promptArtifact.id,
       stepId: planStep.id,
+      ...(resolved.profile ? { profileId: resolved.profile.id } : {}),
     });
 
     const startedAt = new Date().toISOString();
@@ -977,6 +978,7 @@ export class AgentPlanningService {
       provider,
       model,
       promptArtifactId: promptArtifact.id,
+      profileId: input.profile.id,
       ...(input.stepId ? { stepId: input.stepId } : {}),
     });
     const startedAt = new Date().toISOString();

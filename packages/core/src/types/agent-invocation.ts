@@ -10,6 +10,7 @@ export interface CreateAgentInvocationInput {
   model: string;
   promptArtifactId: string;
   stepId?: string;
+  profileId?: string;
 }
 
 export interface UpdateAgentInvocationPatch {
@@ -45,6 +46,7 @@ export interface AgentInvocation {
   id: string;
   taskRunId: string;
   stepId?: string;
+  profileId?: string;
   provider: AgentProvider;
   model: string;
   status: AgentInvocationStatus;

@@ -469,6 +469,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
     '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"raw stream answer"}]}}\n';
   let lastRequest = null;
   let adapterSignal = null;
+  let createAgentInvocationInput = null;
   const planOutput = {
     summary: "Project explained",
     assumptions: [],
@@ -508,7 +509,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
         artifacts.push(artifact);
         return artifact;
       },
-      createAgentInvocation: async () => baseInvocation,
+      createAgentInvocation: async (input) => {
+        createAgentInvocationInput = input;
+        return baseInvocation;
+      },
       updateAgentInvocation: async (_id, patch) => ({
         ...baseInvocation,
         ...patch,
@@ -590,6 +594,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
     taskRunId: "tr-progress",
     profileId: activeProfile.id,
   });
+  assert.equal(createAgentInvocationInput?.profileId, activeProfile.id);
   assert.deepEqual(lastRequest.toolPolicy, {
     toolAllowlist: ["Read", "mcp__repo__search"],
     toolDenylist: [
@@ -846,6 +851,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
   let artifactSeq = 0;
   let stepSeq = 0;
   let lastRequest = null;
+  let createAgentInvocationInput = null;
   let prepareInput = null;
   let cleanupCalled = false;
   const codexConfigOverrides = [
@@ -888,7 +894,10 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
         artifacts.push(artifact);
         return artifact;
       },
-      createAgentInvocation: async () => baseInvocation,
+      createAgentInvocation: async (input) => {
+        createAgentInvocationInput = input;
+        return baseInvocation;
+      },
       updateAgentInvocation: async (_id, patch) => ({
         ...baseInvocation,
         ...patch,
@@ -972,6 +981,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
     profileId: profile.id,
     provider: "codex",
   });
+  assert.equal(createAgentInvocationInput?.profileId, profile.id);
   assert.deepEqual(lastRequest.codexConfigOverrides, codexConfigOverrides);
   assert.equal(lastRequest.mcpConfigPath, undefined);
   assert.equal(cleanupCalled, true);
@@ -1178,6 +1188,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     profileId: profile.id,
   });
   assert.equal(createAgentInvocationInput?.stepId, "step-worker");
+  assert.equal(createAgentInvocationInput?.profileId, profile.id);
   assert.equal(result.proposedActions?.[0].type, "file_write");
   assert.equal(result.proposedActions?.[0].path, "created.txt");
   assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);
