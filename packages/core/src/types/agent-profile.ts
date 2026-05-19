@@ -92,6 +92,35 @@ export interface AgentProfile {
   updatedAt: string;
 }
 
+export type CapabilityBindingRisk = "low" | "medium" | "high";
+
+export interface CapabilityBindingProposal {
+  profileId: string;
+  addMcpServerIds: string[];
+  addSkillSourceIds: string[];
+  allowSkillIds: string[];
+  addToolAllowPatterns: string[];
+  addToolDenyPatterns: string[];
+  rationale: string;
+  risk: CapabilityBindingRisk;
+}
+
+export interface AgentProfileBindingSnapshot {
+  mcpServerIds: string[];
+  skillSourceIds: string[];
+  allowedSkillIds: string[];
+  toolAllowlist: string[];
+  toolDenylist: string[];
+}
+
+export interface AgentProfileBindingPreview {
+  ok: boolean;
+  warnings: string[];
+  alreadySatisfied: boolean;
+  before: AgentProfileBindingSnapshot;
+  after: AgentProfileBindingSnapshot;
+}
+
 export const DEFAULT_AGENT_PERMISSIONS: Readonly<AgentPermissions> =
   Object.freeze({
     autoApproveActions: Object.freeze([]) as readonly ApprovalActionType[],

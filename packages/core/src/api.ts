@@ -41,6 +41,8 @@ import type {
   RecommendTopologyInput,
   McpServerGenerationRequest,
   McpServerGenerationPreviewResult,
+  McpServerBindingProposalRequest,
+  McpServerBindingProposalResult,
   OrchestrationMode,
   OrchestrationPlan,
   OrchestrationRunResult,
@@ -368,6 +370,9 @@ export interface HarnessDesktopApi {
     generateServerDraft(input: {
       request: McpServerGenerationRequest;
     }): Promise<McpServerGenerationPreviewResult>;
+    generateProfileBindingProposal(input: {
+      request: McpServerBindingProposalRequest;
+    }): Promise<McpServerBindingProposalResult>;
     /** Create when input.server.id is empty/unknown; otherwise update in place. */
     upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
     delete(input: { serverId: string }): Promise<void>;

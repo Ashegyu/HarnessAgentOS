@@ -111,6 +111,7 @@ export const IPC_CHANNELS = {
   mcp: {
     list: "mcp:list",
     generateServerDraft: "mcp:generateServerDraft",
+    generateProfileBindingProposal: "mcp:generateProfileBindingProposal",
     upsert: "mcp:upsert",
     delete: "mcp:delete",
     toggle: "mcp:toggle",

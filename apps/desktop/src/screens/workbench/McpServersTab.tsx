@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  AgentProfile,
   McpServerConfig,
+  McpServerBindingProposalResult,
   McpServerGenerationPreviewResult,
   McpServerHealth,
 } from "@harness/core";
@@ -15,7 +17,7 @@ import {
 
 type ListState =
   | { kind: "loading" }
-  | { kind: "ready"; servers: McpServerConfig[] }
+  | { kind: "ready"; servers: McpServerConfig[]; profiles: AgentProfile[] }
   | { kind: "error"; message: string };
 
 const errorMessage = (e: unknown): string =>
@@ -28,21 +30,36 @@ const summarizeHealth = (h: McpServerHealth | undefined): string => {
   return `검사: ${new Date(h.checkedAt).toLocaleTimeString()}`;
 };
 
+const summarizeIds = (ids: readonly string[]): string =>
+  ids.length === 0 ? "(empty)" : ids.join(", ");
+
 export const McpServersTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ServerDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [bindingGenerating, setBindingGenerating] = useState(false);
   const [generationIntent, setGenerationIntent] = useState("");
   const [generationResult, setGenerationResult] =
     useState<McpServerGenerationPreviewResult | null>(null);
+  const [bindingProfileId, setBindingProfileId] = useState("");
+  const [bindingResult, setBindingResult] =
+    useState<McpServerBindingProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const servers = await window.harness.mcp.list();
-      setList({ kind: "ready", servers });
+      const [servers, profiles] = await Promise.all([
+        window.harness.mcp.list(),
+        window.harness.agents.list(),
+      ]);
+      setList({ kind: "ready", servers, profiles });
+      setBindingProfileId((current) =>
+        profiles.some((profile) => profile.id === current)
+          ? current
+          : profiles[0]?.id ?? "",
+      );
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -82,6 +99,7 @@ export const McpServersTab = (): JSX.Element => {
 
   const handleNewServer = (): void => {
     setGenerationResult(null);
+    setBindingResult(null);
     setError(null);
     setDraft(emptyServerDraft());
     setSelectedId("__new__");
@@ -100,6 +118,7 @@ export const McpServersTab = (): JSX.Element => {
         request: { userIntent },
       });
       setGenerationResult(result);
+      setBindingResult(null);
       setSelectedId("__new__");
       setDraft(mcpGeneratedDraftToFormDraft(result.draft));
     } catch (e) {
@@ -126,6 +145,7 @@ export const McpServersTab = (): JSX.Element => {
       });
       await refresh();
       setGenerationResult(null);
+      setBindingResult(null);
       setSelectedId(result.id);
     } catch (e) {
       setError(errorMessage(e));
@@ -143,6 +163,7 @@ export const McpServersTab = (): JSX.Element => {
       await window.harness.mcp.delete({ serverId: draft.id });
       await refresh();
       setGenerationResult(null);
+      setBindingResult(null);
       setSelectedId(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -180,6 +201,29 @@ export const McpServersTab = (): JSX.Element => {
       setError(errorMessage(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleGenerateBindingProposal = async (): Promise<void> => {
+    if (!draft || draft.id === null) return;
+    if (bindingProfileId.length === 0) {
+      setError("Binding proposal을 만들 AgentProfile을 선택하세요.");
+      return;
+    }
+    setBindingGenerating(true);
+    setError(null);
+    try {
+      const result = await window.harness.mcp.generateProfileBindingProposal({
+        request: {
+          serverId: draft.id,
+          profileId: bindingProfileId,
+        },
+      });
+      setBindingResult(result);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBindingGenerating(false);
     }
   };
 
@@ -234,6 +278,7 @@ export const McpServersTab = (): JSX.Element => {
                     }`}
                     onClick={() => {
                       setGenerationResult(null);
+                      setBindingResult(null);
                       setError(null);
                       setSelectedId(s.id);
                     }}
@@ -510,6 +555,115 @@ export const McpServersTab = (): JSX.Element => {
                     ))}
                   </ul>
                 </div>
+              )}
+
+              {draft.id !== null && list.kind === "ready" && (
+                <fieldset className="settings-fieldset">
+                  <legend>AgentProfile binding proposal</legend>
+                  <p className="settings-field__hint">
+                    저장된 MCP 서버와 AgentProfile을 읽어 변경 전/후
+                    <code>mcpServerIds</code> diff만 생성합니다. 이 단계는
+                    프로필을 수정하지 않습니다.
+                  </p>
+                  {list.profiles.length === 0 ? (
+                    <div className="empty-state">
+                      등록된 AgentProfile이 없습니다.
+                    </div>
+                  ) : (
+                    <div className="mcp-servers-tab__generator">
+                      <label className="settings-field">
+                        <span className="settings-field__label">
+                          대상 AgentProfile
+                        </span>
+                        <select
+                          className="settings-field__input"
+                          value={bindingProfileId}
+                          disabled={saving || bindingGenerating}
+                          onChange={(e) => {
+                            setBindingProfileId(e.target.value);
+                            setBindingResult(null);
+                          }}
+                        >
+                          {list.profiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name} · {profile.provider}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => void handleGenerateBindingProposal()}
+                        disabled={saving || bindingGenerating}
+                      >
+                        {bindingGenerating
+                          ? "proposal 생성 중…"
+                          : "binding proposal"}
+                      </button>
+                    </div>
+                  )}
+
+                  {bindingResult && (
+                    <div className="mcp-servers-tab__preview" role="note">
+                      <strong>Profile binding preview:</strong>{" "}
+                      <code>{bindingResult.profileName}</code> ←{" "}
+                      <code>{bindingResult.serverName}</code>
+                      <div>{bindingResult.proposal.rationale}</div>
+                      <div>
+                        risk: <code>{bindingResult.proposal.risk}</code>
+                        {bindingResult.preview.alreadySatisfied &&
+                          " · no profile-local change needed"}
+                      </div>
+                      <dl className="mcp-servers-tab__binding-diff">
+                        <dt>before mcpServerIds</dt>
+                        <dd>
+                          <code>
+                            {summarizeIds(
+                              bindingResult.preview.before.mcpServerIds,
+                            )}
+                          </code>
+                        </dd>
+                        <dt>after mcpServerIds</dt>
+                        <dd>
+                          <code>
+                            {summarizeIds(
+                              bindingResult.preview.after.mcpServerIds,
+                            )}
+                          </code>
+                        </dd>
+                        <dt>allowedSkillIds</dt>
+                        <dd>
+                          <code>
+                            {summarizeIds(
+                              bindingResult.preview.after.allowedSkillIds,
+                            )}
+                          </code>
+                        </dd>
+                        <dt>toolDenylist</dt>
+                        <dd>
+                          <code>
+                            {summarizeIds(
+                              bindingResult.preview.after.toolDenylist,
+                            )}
+                          </code>
+                        </dd>
+                      </dl>
+                      {bindingResult.preview.warnings.length > 0 && (
+                        <div className="mcp-servers-tab__warnings">
+                          <strong>확인:</strong>
+                          <ul>
+                            {bindingResult.preview.warnings.map(
+                              (warning, i) => (
+                                <li key={i}>{warning}</li>
+                              ),
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </fieldset>
               )}
 
               {error && (

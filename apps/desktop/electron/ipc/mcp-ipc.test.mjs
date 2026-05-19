@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDb, closeDb, SqliteMcpServerRepository } from "@harness/storage";
+import {
+  openDb,
+  closeDb,
+  SqliteAgentProfileRepository,
+  SqliteMcpServerRepository,
+} from "@harness/storage";
 import { buildMcpHandlers } from "./mcp-ipc.ts";
 
 const tmp = () => {
@@ -27,9 +32,40 @@ const stdio = (overrides = {}) => ({
   ...overrides,
 });
 
+const profileInput = (overrides = {}) => ({
+  name: "Reviewer",
+  description: "",
+  category: "review",
+  tags: ["review"],
+  provider: "claude",
+  role: "reviewer",
+  persona: "",
+  tuning: {
+    model: "claude-sonnet-4",
+    timeoutMs: 300_000,
+    stallTimeoutMs: 60_000,
+    contextDepth: 5,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  ...overrides,
+});
+
 const setupCtx = (file) => {
   const db = openDb({ filePath: file });
   const mcp = new SqliteMcpServerRepository(db);
+  const profiles = new SqliteAgentProfileRepository(db);
   const probe = async (server) => {
     // Echo a stub health record so tests can assert handler behavior
     // without spawning anything.
@@ -38,7 +74,7 @@ const setupCtx = (file) => {
     }
     return { okAt: "2026-05-12T00:00:00.000Z", checkedAt: "2026-05-12T00:00:00.000Z" };
   };
-  return { db, ctx: { mcp, probe } };
+  return { db, ctx: { mcp, profiles, probe } };
 };
 
 test("mcp.list returns ok([]) on a fresh DB", async () => {
@@ -107,6 +143,63 @@ test("mcp.generateServerDraft rejects invalid generation request", async () => {
     const r = await h.generateServerDraft({ request: { userIntent: "" } });
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "STATE_INVALID_INPUT");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateProfileBindingProposal previews profile binding without updating AgentProfile", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const server = (await h.upsert({
+      server: stdio({
+        name: "Repo MCP",
+        scope: "per-agent",
+        lastHealth: {
+          okAt: "2026-05-12T00:00:00.000Z",
+          checkedAt: "2026-05-12T00:00:00.000Z",
+        },
+      }),
+    })).value;
+    const profile = await ctx.profiles.create(profileInput());
+
+    const r = await h.generateProfileBindingProposal({
+      request: { serverId: server.id, profileId: profile.id },
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value.proposal.addMcpServerIds, [server.id]);
+    assert.deepEqual(r.value.preview.before.mcpServerIds, []);
+    assert.deepEqual(r.value.preview.after.mcpServerIds, [server.id]);
+    const unchanged = await ctx.profiles.get(profile.id);
+    assert.deepEqual(unchanged.mcpServerIds, []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateProfileBindingProposal returns a no-op for global servers", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const server = (await h.upsert({
+      server: stdio({ name: "Global MCP", scope: "global" }),
+    })).value;
+    const profile = await ctx.profiles.create(profileInput());
+
+    const r = await h.generateProfileBindingProposal({
+      request: { serverId: server.id, profileId: profile.id },
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value.proposal.addMcpServerIds, []);
+    assert.equal(r.value.preview.alreadySatisfied, true);
+    assert.match(r.value.preview.warnings.join("\n"), /global MCP server/);
   } finally {
     closeDb(db);
     t.cleanup();

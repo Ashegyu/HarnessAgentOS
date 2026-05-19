@@ -7,6 +7,11 @@
  * plaintext values stay out of this row entirely.
  */
 
+import type {
+  AgentProfileBindingPreview,
+  CapabilityBindingProposal,
+} from "./agent-profile.ts";
+
 export type McpTransport = "stdio" | "http" | "sse";
 
 export const MCP_TRANSPORTS: readonly McpTransport[] = [
@@ -92,6 +97,20 @@ export interface McpServerDraftPreview {
 export interface McpServerGenerationPreviewResult {
   draft: GeneratedMcpServerDraft;
   preview: McpServerDraftPreview;
+}
+
+export interface McpServerBindingProposalRequest {
+  serverId: string;
+  profileId: string;
+}
+
+export interface McpServerBindingProposalResult {
+  serverId: string;
+  serverName: string;
+  profileId: string;
+  profileName: string;
+  proposal: CapabilityBindingProposal;
+  preview: AgentProfileBindingPreview;
 }
 
 const TRANSPORT_SET: ReadonlySet<string> = new Set(MCP_TRANSPORTS);

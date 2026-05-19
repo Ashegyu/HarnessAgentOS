@@ -145,6 +145,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   });
   registerMcpIpc({
     mcp: ctx.state.mcpServers,
+    profiles: ctx.state.agentProfiles,
     probe: ctx.mcpProbe,
   });
   registerSkillSourceIpc({

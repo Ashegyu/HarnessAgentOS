@@ -7518,6 +7518,27 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   padding-left: 20px;
 }
 
+.mcp-servers-tab__binding-diff {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 8px 0 0;
+}
+
+.mcp-servers-tab__binding-diff dt {
+  color: var(--text-muted);
+}
+
+.mcp-servers-tab__binding-diff dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.mcp-servers-tab__binding-diff code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .remote-agents-tab__form,
 .mcp-servers-tab__form {
   display: flex;

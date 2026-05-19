@@ -1,5 +1,6 @@
 import {
   MCP_SERVER_NOT_FOUND,
+  AGENT_PROFILE_NOT_FOUND,
   STATE_INVALID_INPUT,
   err,
   harnessError,
@@ -8,6 +9,8 @@ import {
   ok,
   type HarnessResult,
   type GeneratedMcpServerDraft,
+  type McpServerBindingProposalRequest,
+  type McpServerBindingProposalResult,
   type McpServerConfig,
   type McpServerConfigDraft,
   type McpServerDraftPreview,
@@ -17,10 +20,14 @@ import {
   type McpServerHealth,
 } from "@harness/core";
 import {
+  buildMcpServerBindingProposal,
   buildGeneratedMcpServerDraft,
   sanitizeServerName,
 } from "@harness/agent";
-import type { McpServerRepository } from "@harness/storage";
+import type {
+  AgentProfileRepository,
+  McpServerRepository,
+} from "@harness/storage";
 
 /**
  * Probe contract — the IPC layer asks the host to actually contact the
@@ -32,6 +39,7 @@ export type McpProbe = (server: McpServerConfig) => Promise<McpServerHealth>;
 
 export interface McpIpcContext {
   mcp: McpServerRepository;
+  profiles: AgentProfileRepository;
   probe: McpProbe;
 }
 
@@ -94,6 +102,36 @@ const normalizeGenerationRequest = (
       userIntent: request.userIntent.trim(),
       preferredTransport,
       profileIds: profileIds === undefined ? undefined : [...profileIds],
+    },
+  };
+};
+
+const normalizeBindingProposalRequest = (
+  raw: unknown,
+):
+  | { ok: true; value: McpServerBindingProposalRequest }
+  | { ok: false; reason: string } => {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, reason: "request must be an object" };
+  }
+  const request = raw as Record<string, unknown>;
+  if (
+    typeof request.serverId !== "string" ||
+    request.serverId.trim().length === 0
+  ) {
+    return { ok: false, reason: "request.serverId is required" };
+  }
+  if (
+    typeof request.profileId !== "string" ||
+    request.profileId.trim().length === 0
+  ) {
+    return { ok: false, reason: "request.profileId is required" };
+  }
+  return {
+    ok: true,
+    value: {
+      serverId: request.serverId.trim(),
+      profileId: request.profileId.trim(),
     },
   };
 };
@@ -202,7 +240,7 @@ const wrap = async <T>(fn: () => Promise<T>): Promise<HarnessResult<T>> => {
 };
 
 export const buildMcpHandlers = (ctx: McpIpcContext) => {
-  const { mcp, probe } = ctx;
+  const { mcp, probe, profiles } = ctx;
   return {
     list: async (): Promise<HarnessResult<McpServerConfig[]>> =>
       wrap(() => mcp.list()),
@@ -220,6 +258,32 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
           preview: buildPreview(draft, existing),
         };
       });
+    },
+
+    generateProfileBindingProposal: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<McpServerBindingProposalResult>> => {
+      const v = normalizeBindingProposalRequest(input?.request);
+      if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      const server = await mcp.get(v.value.serverId);
+      if (!server) {
+        return err(
+          harnessError(
+            MCP_SERVER_NOT_FOUND,
+            `unknown server: ${v.value.serverId}`,
+          ),
+        );
+      }
+      const profile = await profiles.get(v.value.profileId);
+      if (!profile) {
+        return err(
+          harnessError(
+            AGENT_PROFILE_NOT_FOUND,
+            `unknown profile: ${v.value.profileId}`,
+          ),
+        );
+      }
+      return ok(buildMcpServerBindingProposal({ profile, server }));
     },
 
     upsert: async (input: {
