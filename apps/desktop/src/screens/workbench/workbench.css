@@ -6806,6 +6806,28 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   padding-left: 20px;
 }
 
+.agent-profile-policy-hints {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-profile-policy-hints__item {
+  overflow-wrap: anywhere;
+}
+
+.agent-profile-policy-hints__item--info {
+  color: var(--text-muted);
+}
+
+.agent-profile-policy-hints__item--warning {
+  color: var(--status-warning);
+}
+
 /* Migration banner (Phase 5b — legacy WorkerProfile → AgentProfile) */
 .agent-profiles-tab__migrate {
   margin: var(--space-2);

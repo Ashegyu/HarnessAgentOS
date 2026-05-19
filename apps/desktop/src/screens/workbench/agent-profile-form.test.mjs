@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildBindingPolicyHints,
   draftFromProfile,
   emptyDraft,
   serializeDraft,
@@ -209,4 +210,42 @@ test("serializeDraft normalizes comma-separated tags", () => {
   const out = serializeDraft(d);
   assert.equal(out.category, "review");
   assert.deepEqual(out.tags, ["security", "review", "dotnet"]);
+});
+
+test("buildBindingPolicyHints warns when Codex profile has MCP bindings", () => {
+  const d = emptyDraft();
+  d.name = "Codex MCP";
+  d.provider = "codex";
+  d.mcpServerIdsText = "mcp_repo";
+
+  const hints = buildBindingPolicyHints(d);
+
+  assert.equal(hints.some((hint) => hint.tone === "warning"), true);
+  assert.match(hints.map((hint) => hint.message).join("\n"), /Codex/);
+});
+
+test("buildBindingPolicyHints surfaces broad skill scope when allowedSkillIds is empty", () => {
+  const d = emptyDraft();
+  d.name = "Skill Source Only";
+  d.skillSourceIdsText = "ss_project";
+
+  const hints = buildBindingPolicyHints(d);
+
+  assert.match(
+    hints.map((hint) => hint.message).join("\n"),
+    /전체 enabled Skill 후보/,
+  );
+});
+
+test("buildBindingPolicyHints explains tool deny priority and event boundary", () => {
+  const d = emptyDraft();
+  d.name = "Tool Policy";
+  d.toolAllowlistText = "mcp__repo__*";
+  d.toolDenylistText = "mcp__repo__delete_*";
+
+  const hints = buildBindingPolicyHints(d);
+  const text = hints.map((hint) => hint.message).join("\n");
+
+  assert.match(text, /deny pattern이 allow pattern보다 우선/);
+  assert.match(text, /provider tool-call event/);
 });

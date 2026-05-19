@@ -53,6 +53,11 @@ export interface ProfileDraft {
 
 export type PermissionMode = "default" | "auto" | "block";
 
+export interface BindingPolicyHint {
+  tone: "info" | "warning";
+  message: string;
+}
+
 export const PERMISSION_MODES: readonly PermissionMode[] = [
   "default",
   "auto",
@@ -74,6 +79,56 @@ const parseList = (value: string): string[] => {
     out.push(item);
   }
   return out;
+};
+
+export const buildBindingPolicyHints = (
+  draft: ProfileDraft,
+): BindingPolicyHint[] => {
+  const mcpServerIds = parseList(draft.mcpServerIdsText);
+  const skillSourceIds = parseList(draft.skillSourceIdsText);
+  const allowedSkillIds = parseList(draft.allowedSkillIdsText);
+  const toolAllowlist = parseList(draft.toolAllowlistText);
+  const toolDenylist = parseList(draft.toolDenylistText);
+  const hints: BindingPolicyHint[] = [];
+
+  if (mcpServerIds.length > 0 && draft.provider === "codex") {
+    hints.push({
+      tone: "warning",
+      message:
+        "Codex MCP config 전달은 아직 검증되지 않았으므로 이 profile의 MCP binding은 Codex invocation에 적용되지 않습니다.",
+    });
+  } else if (mcpServerIds.length > 0 && draft.provider === "auto") {
+    hints.push({
+      tone: "warning",
+      message:
+        "provider=auto는 Codex로 선택될 수 있어 MCP binding 적용이 보장되지 않습니다. Claude 선택 시에만 MCP config가 준비됩니다.",
+    });
+  }
+
+  if (skillSourceIds.length > 0 && allowedSkillIds.length === 0) {
+    hints.push({
+      tone: "info",
+      message:
+        "Skill source가 선택되어 있고 allowedSkillIds가 비어 있어 전체 enabled Skill 후보를 허용합니다.",
+    });
+  }
+
+  if (toolDenylist.length > 0) {
+    hints.push({
+      tone: "info",
+      message: "tool deny pattern이 allow pattern보다 우선 적용됩니다.",
+    });
+  }
+
+  if (toolAllowlist.length > 0 || toolDenylist.length > 0) {
+    hints.push({
+      tone: "warning",
+      message:
+        "MCP tool pattern은 현재 Claude MCP config namespace 후보에 적용됩니다. 실제 직전 차단은 provider tool-call event 노출 확인 뒤에만 추가합니다.",
+    });
+  }
+
+  return hints;
 };
 
 const textToNumOrUndefined = (s: string): number | undefined => {

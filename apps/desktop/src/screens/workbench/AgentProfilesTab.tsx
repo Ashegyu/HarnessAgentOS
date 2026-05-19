@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentProfile, ApprovalActionType } from "@harness/core";
 import { APPROVAL_ACTION_TYPES, WORKER_ROLES } from "@harness/core";
 import {
+  buildBindingPolicyHints,
   draftFromProfile,
   emptyDraft,
   serializeDraft,
@@ -105,6 +106,10 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
 
   const validationErrors = useMemo(
     () => (draft ? validateDraft(draft) : []),
+    [draft],
+  );
+  const bindingPolicyHints = useMemo(
+    () => (draft ? buildBindingPolicyHints(draft) : []),
     [draft],
   );
 
@@ -645,6 +650,18 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
 
             <fieldset className="settings-fieldset">
               <legend>MCP / Skill binding</legend>
+              {bindingPolicyHints.length > 0 && (
+                <ul className="agent-profile-policy-hints">
+                  {bindingPolicyHints.map((hint) => (
+                    <li
+                      key={hint.message}
+                      className={`agent-profile-policy-hints__item agent-profile-policy-hints__item--${hint.tone}`}
+                    >
+                      {hint.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
               <label className="settings-field">
                 <span className="settings-field__label">
                   MCP server ids
