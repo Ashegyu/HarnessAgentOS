@@ -270,6 +270,7 @@ test("persistent A2A worker composition records invocation, raw output, and remo
       {
         type: "assistant_text",
         invocationId: invocation.id,
+        taskRunId: taskRun.id,
         text: "remote stream chunk",
       },
     ]);

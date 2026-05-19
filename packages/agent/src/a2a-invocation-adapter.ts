@@ -163,11 +163,16 @@ export class A2AInvocationAdapter {
         const errorCode = errorCodeForState(event.state);
         if (errorCode) {
           if (event.state === "canceled") {
-            emit({ type: "cancelled", invocationId: request.invocationId });
+            emit({
+              type: "cancelled",
+              invocationId: request.invocationId,
+              taskRunId: request.taskRunId,
+            });
           } else {
             emit({
               type: "failed",
               invocationId: request.invocationId,
+              taskRunId: request.taskRunId,
               errorCode,
               message: event.message ?? messageForState(event.state),
             });
@@ -187,6 +192,7 @@ export class A2AInvocationAdapter {
           emit({
             type: "assistant_text",
             invocationId: request.invocationId,
+            taskRunId: request.taskRunId,
             text: event.text,
           });
         }
@@ -207,6 +213,7 @@ export class A2AInvocationAdapter {
       emit({
         type: "result",
         invocationId: request.invocationId,
+        taskRunId: request.taskRunId,
         latencyMs,
         costEstimate,
       });

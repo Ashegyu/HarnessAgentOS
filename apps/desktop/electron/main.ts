@@ -336,6 +336,7 @@ const initServices = (): {
     enabled: () =>
       process.env.HARNESS_ORCHESTRATION_ENABLED === "1" || orchEnabledBySettings,
     agentPlanning: orchestrationWorkerInvoker,
+    onTaskRunChanged: (taskRunId) => eventBus.taskRunChanged(taskRunId),
   });
 
   // Phase 3 — path-policy registry hook. The skillSource IPC pushes

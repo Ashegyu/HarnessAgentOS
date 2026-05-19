@@ -4,6 +4,7 @@ import type {
 
 export interface ProviderToolCallStreamParserOptions {
   invocationId: string;
+  taskRunId?: string;
   provider: AgentToolCallEvent["provider"];
   source: "stdout" | "stderr";
 }
@@ -69,6 +70,7 @@ const extractClaudeToolCalls = (
     {
       type: "tool_call",
       invocationId: options.invocationId,
+      ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
       provider: options.provider,
       source: options.source,
       phase: "started",
@@ -124,6 +126,7 @@ const extractCodexToolCall = (
   return {
     type: "tool_call",
     invocationId: options.invocationId,
+    ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
     provider: options.provider,
     source: options.source,
     phase: inferCodexToolCallPhase(envelope, candidate),

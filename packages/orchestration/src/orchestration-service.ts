@@ -39,6 +39,7 @@ export interface OrchestrationServiceDeps {
    * the existing contract stays intact.
    */
   agentPlanning?: WorkerCliInvoker;
+  onTaskRunChanged?: (taskRunId: string) => void | Promise<void>;
 }
 
 export class OrchestrationService {
@@ -51,6 +52,9 @@ export class OrchestrationService {
     this.worker = new WorkerRunner({
       state: deps.state,
       ...(deps.agentPlanning ? { agentPlanning: deps.agentPlanning } : {}),
+      ...(deps.onTaskRunChanged
+        ? { onTaskRunChanged: deps.onTaskRunChanged }
+        : {}),
     });
   }
 

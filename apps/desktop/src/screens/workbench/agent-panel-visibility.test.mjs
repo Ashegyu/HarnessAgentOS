@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   shouldRenderAgentPanel,
+  taskRunIdFromAgentStreamEvent,
   taskRunIdToRefreshForAgentEvent,
 } from "./agent-panel-visibility.ts";
 
@@ -48,5 +49,29 @@ test("taskRunIdToRefreshForAgentEvent prefers explicit progress taskRunId", () =
       eventTaskRunId: "event_tr",
     }),
     "event_tr",
+  );
+});
+
+test("taskRunIdFromAgentStreamEvent reads task run scope from lifecycle events", () => {
+  assert.equal(
+    taskRunIdFromAgentStreamEvent({
+      type: "started",
+      invocationId: "inv_1",
+      taskRunId: "task_1",
+      provider: "codex",
+      model: "gpt-5.5",
+    }),
+    "task_1",
+  );
+});
+
+test("taskRunIdToRefreshForAgentEvent does not repull detail for raw chunks", () => {
+  assert.equal(
+    taskRunIdToRefreshForAgentEvent({
+      eventType: "raw",
+      selectedTaskRunId: "selected_tr",
+      eventTaskRunId: "event_tr",
+    }),
+    null,
   );
 });

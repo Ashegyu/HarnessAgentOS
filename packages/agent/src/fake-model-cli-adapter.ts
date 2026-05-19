@@ -446,6 +446,7 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
     onEvent({
       type: "started",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       provider: request.modelConfig.provider,
       model: request.modelConfig.model,
     });
@@ -478,6 +479,7 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
       onEvent({
         type: "raw",
         invocationId: request.invocationId,
+        taskRunId: request.taskRunId,
         source: "stdout",
         text: chunk,
       });
@@ -486,11 +488,13 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
     onEvent({
       type: "assistant_text",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       text: stdout,
     });
     onEvent({
       type: "result",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       latencyMs: this.now() - start,
       costEstimate: 0,
     });

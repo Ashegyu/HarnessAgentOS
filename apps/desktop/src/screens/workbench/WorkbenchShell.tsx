@@ -28,7 +28,10 @@ import type { CommandPaletteItem } from "./command-palette-model";
 import { SlimRail } from "./SlimRail";
 import { HeroEmpty } from "./HeroEmpty";
 import type { AgentProgressItem } from "./AgentProgressList";
-import { taskRunIdToRefreshForAgentEvent } from "./agent-panel-visibility";
+import {
+  taskRunIdFromAgentStreamEvent,
+  taskRunIdToRefreshForAgentEvent,
+} from "./agent-panel-visibility";
 import "./workbench.css";
 
 type ThreadsState =
@@ -475,7 +478,7 @@ export const WorkbenchShell = (): JSX.Element => {
       const refreshTaskRunId = taskRunIdToRefreshForAgentEvent({
         eventType: event.type,
         selectedTaskRunId,
-        eventTaskRunId: event.type === "progress" ? event.taskRunId : undefined,
+        eventTaskRunId: taskRunIdFromAgentStreamEvent(event),
       });
       if (event.type === "progress") {
         pushAgentProgress(event.taskRunId, event);

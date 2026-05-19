@@ -75,6 +75,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     onEvent({
       type: "started",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       provider,
       model,
     });
@@ -101,11 +102,13 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     const normalizedEvents: AgentStreamEvent[] = [];
     const stdoutToolCalls = new ProviderToolCallStreamParser({
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       provider,
       source: "stdout",
     });
     const stderrToolCalls = new ProviderToolCallStreamParser({
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       provider,
       source: "stderr",
     });
@@ -179,6 +182,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       onEvent({
         type: "raw",
         invocationId: request.invocationId,
+        taskRunId: request.taskRunId,
         source: "stdout",
         text,
       });
@@ -191,6 +195,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       onEvent({
         type: "raw",
         invocationId: request.invocationId,
+        taskRunId: request.taskRunId,
         source: "stderr",
         text,
       });
@@ -274,11 +279,13 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     onEvent({
       type: "assistant_text",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       text: finalText,
     });
     onEvent({
       type: "result",
       invocationId: request.invocationId,
+      taskRunId: request.taskRunId,
       latencyMs,
     });
 

@@ -348,7 +348,7 @@ export class AgentPlanningService {
     const emit = this.deps.emitStreamEvent ?? (() => {});
     const persistedStreamEvents: AgentStreamEvent[] = [];
     const emitCaptured = (event: AgentStreamEvent): void => {
-      const redacted = redactStreamEvent(event);
+      const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
       persistedStreamEvents.push(redacted);
       emit(redacted);
     };
@@ -527,7 +527,11 @@ export class AgentPlanningService {
         ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
       });
       if (isCancelled) {
-        emitCaptured({ type: "cancelled", invocationId: invocation.id });
+        emitCaptured({
+          type: "cancelled",
+          invocationId: invocation.id,
+          taskRunId: taskRun.id,
+        });
         await this.deps.state.updateAgentInvocation(invocation.id, {
           status: "cancelled",
           errorCode: AGENT_CANCELLED,
@@ -545,6 +549,7 @@ export class AgentPlanningService {
       emitCaptured({
         type: "failed",
         invocationId: invocation.id,
+        taskRunId: taskRun.id,
         errorCode: code,
         message,
       });
@@ -582,6 +587,7 @@ export class AgentPlanningService {
     const persistedStreamTranscript = buildPersistedStreamTranscript({
       events: persistedStreamEvents,
       invocationId: invocation.id,
+      taskRunId: taskRun.id,
       rawOutput: redactedRawOutput,
       assistantText: redactedOutput,
       latencyMs,
@@ -997,7 +1003,7 @@ export class AgentPlanningService {
     const emit = this.deps.emitStreamEvent ?? (() => {});
     const persistedStreamEvents: AgentStreamEvent[] = [];
     const emitCaptured = (event: AgentStreamEvent): void => {
-      const redacted = redactStreamEvent(event);
+      const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
       persistedStreamEvents.push(redacted);
       emit(redacted);
     };
@@ -1100,6 +1106,7 @@ export class AgentPlanningService {
       const persistedStreamTranscript = buildPersistedStreamTranscript({
         events: persistedStreamEvents,
         invocationId: invocation.id,
+        taskRunId: taskRun.id,
         rawOutput: redactedRawOutput,
         assistantText: redactedOutput,
         latencyMs: result.latencyMs,
@@ -1173,11 +1180,16 @@ export class AgentPlanningService {
       // InlineAgentStream sits at "응답 작성 중…" forever for a
       // failed worker call.
       if (isCancelled) {
-        emitCaptured({ type: "cancelled", invocationId: invocation.id });
+        emitCaptured({
+          type: "cancelled",
+          invocationId: invocation.id,
+          taskRunId: taskRun.id,
+        });
       } else {
         emitCaptured({
           type: "failed",
           invocationId: invocation.id,
+          taskRunId: taskRun.id,
           errorCode: code,
           message,
         });
@@ -1500,6 +1512,14 @@ const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {
   return e;
 };
 
+const withTaskRunScope = (
+  event: AgentStreamEvent,
+  taskRunId: string,
+): AgentStreamEvent =>
+  "taskRunId" in event && event.taskRunId
+    ? event
+    : { ...event, taskRunId };
+
 const redactUnknownStreamValue = (value: unknown, limit: number): unknown => {
   if (typeof value === "string") return redactSecrets(value, limit);
   try {
@@ -1513,6 +1533,7 @@ const redactUnknownStreamValue = (value: unknown, limit: number): unknown => {
 const buildPersistedStreamTranscript = (input: {
   events: readonly AgentStreamEvent[];
   invocationId: string;
+  taskRunId: string;
   rawOutput: string;
   assistantText: string;
   latencyMs: number;
@@ -1525,6 +1546,7 @@ const buildPersistedStreamTranscript = (input: {
     events.push({
       type: "raw",
       invocationId: input.invocationId,
+      taskRunId: input.taskRunId,
       source: "stdout",
       text: input.rawOutput,
     });
@@ -1536,6 +1558,7 @@ const buildPersistedStreamTranscript = (input: {
     events.push({
       type: "assistant_text",
       invocationId: input.invocationId,
+      taskRunId: input.taskRunId,
       text: input.assistantText,
     });
   }
@@ -1543,6 +1566,7 @@ const buildPersistedStreamTranscript = (input: {
     events.push({
       type: "result",
       invocationId: input.invocationId,
+      taskRunId: input.taskRunId,
       latencyMs: input.latencyMs,
       ...(input.costEstimate !== undefined
         ? { costEstimate: input.costEstimate }

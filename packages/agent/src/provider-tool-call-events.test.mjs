@@ -4,6 +4,7 @@ import { extractProviderToolCalls } from "./provider-tool-call-events.ts";
 
 const codexOptions = {
   invocationId: "inv-codex-mcp",
+  taskRunId: "task-codex-mcp",
   provider: "codex",
   source: "stdout",
 };
@@ -28,6 +29,7 @@ test("extractProviderToolCalls names Codex MCP tool calls from server and tool f
     {
       type: "tool_call",
       invocationId: "inv-codex-mcp",
+      taskRunId: "task-codex-mcp",
       provider: "codex",
       source: "stdout",
       phase: "started",

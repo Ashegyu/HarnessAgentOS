@@ -586,6 +586,117 @@ test("runApproved executes read-only dependency waves in parallel", async () => 
   }
 });
 
+test("runApproved waits for every declared dependency before a fan-in worker", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const architectProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Architect", role: "orchestrator" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Fan in",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: [],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review independently.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: [],
+        },
+        {
+          id: "synthesize",
+          agentProfileId: architectProfile.id,
+          title: "Synthesize",
+          instruction: "Use both upstream results.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan", "review"],
+          allowedActions: [],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const planGate = deferred();
+    const reviewGate = deferred();
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          handoffMessages: input.handoffMessages ?? [],
+        });
+        if (input.profile.name === "Planner") await planGate.promise;
+        if (input.profile.name === "Reviewer") await reviewGate.promise;
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () =>
+        calls.some((call) => call.profileName === "Planner") &&
+        calls.some((call) => call.profileName === "Reviewer"),
+      "parallel upstream workers should start first",
+    );
+    assert.equal(
+      calls.some((call) => call.profileName === "Architect"),
+      false,
+      "fan-in worker must not start until all dependencies finish",
+    );
+
+    planGate.resolve();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      calls.some((call) => call.profileName === "Architect"),
+      false,
+      "fan-in worker must still wait for the second dependency",
+    );
+
+    reviewGate.resolve();
+    await waitFor(
+      () => calls.some((call) => call.profileName === "Architect"),
+      "fan-in worker should start after every dependency finishes",
+    );
+    await run;
+
+    const architectCall = calls.find((call) => call.profileName === "Architect");
+    assert.deepEqual(
+      architectCall.handoffMessages.map((message) => message.fromTitle),
+      ["Plan", "Review"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved keeps non-read-only waves serial even when dependencies are empty", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -816,6 +927,110 @@ test("runApproved creates downstream approvals for worker file_write proposals",
     });
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun.status, "waiting_for_approval");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved surfaces worker file_write approvals before later workers finish", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "CliCoder", role: "coder" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Immediate approvals",
+      description: "",
+      steps: [
+        {
+          id: "write",
+          agentProfileId: coderProfile.id,
+          title: "Write",
+          instruction: "Create a file.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: ["file_write"],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review after the write proposal.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["write"],
+          allowedActions: [],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const reviewGate = deferred();
+    const starts = [];
+    const changedTaskRuns = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        if (input.profile.name === "CliCoder") {
+          return {
+            outputText: "Worker proposed file changes.",
+            proposedActions: [
+              {
+                type: "file_write",
+                path: "created-early.txt",
+                after: "created early\n",
+                rationale: "create as soon as this worker finishes",
+              },
+            ],
+          };
+        }
+        await reviewGate.promise;
+        return { outputText: "Reviewer output" };
+      },
+    };
+    const runner = new WorkerRunner({
+      state,
+      agentPlanning: fakeInvoker,
+      onTaskRunChanged: (taskRunId) => changedTaskRuns.push(taskRunId),
+    });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () => starts.includes("Reviewer"),
+      "reviewer should start after the first worker has finished",
+    );
+    const approvalsBeforeReviewFinishes =
+      await state.listApprovalsByTaskRun(taskRun.id);
+    const workerFileApprovals = approvalsBeforeReviewFinishes.filter(
+      (approval) =>
+        approval.actionType === "file_write" &&
+        approval.proposedAction?.filePatch?.path === "created-early.txt",
+    );
+    assert.equal(
+      workerFileApprovals.length,
+      1,
+      "first worker file proposal should be visible before later workers finish",
+    );
+    assert.ok(
+      changedTaskRuns.includes(taskRun.id),
+      "approval creation should notify the renderer immediately",
+    );
+
+    reviewGate.resolve();
+    const result = await run;
+    assert.deepEqual(result.proposedApprovalIds, [workerFileApprovals[0].id]);
   } finally {
     closeDb(db);
     t.cleanup();

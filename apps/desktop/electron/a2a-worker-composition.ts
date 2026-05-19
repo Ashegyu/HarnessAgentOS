@@ -111,7 +111,8 @@ export const createPersistentA2AWorkerInvoker = (
         endpointId: options.endpoint.id,
         adapter: options.adapter,
         createInvocationId: () => invocation.id,
-        onStreamEvent: options.emitStreamEvent,
+        onStreamEvent: (event) =>
+          options.emitStreamEvent?.(withTaskRunScope(event, input.taskRunId)),
         onRemoteTaskRef: async (ref) => {
           await options.state.a2aRemoteAgents.upsertRemoteTaskRef(ref);
         },
@@ -210,3 +211,11 @@ const lifecycleErrorCode = (
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const withTaskRunScope = (
+  event: AgentStreamEvent,
+  taskRunId: string,
+): AgentStreamEvent =>
+  "taskRunId" in event && event.taskRunId
+    ? event
+    : { ...event, taskRunId };

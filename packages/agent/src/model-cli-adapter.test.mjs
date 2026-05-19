@@ -309,6 +309,55 @@ test("DefaultModelCliAdapter passes AbortSignal into provider spawn options", as
   assert.equal(spawnCalls[0].options.signal, controller.signal);
 });
 
+test("DefaultModelCliAdapter scopes live stream events to the task run before close", async () => {
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    spawn: () => child,
+  });
+  const events = [];
+
+  const run = adapter.invoke(makeAdapterRequest(), (event) => events.push(event));
+  await Promise.resolve();
+
+  assert.deepEqual(events[0], {
+    type: "started",
+    invocationId: "inv_1",
+    taskRunId: "tsk_1",
+    provider: "codex",
+    model: "gpt-5.5",
+  });
+
+  child.stdout.emit(
+    "data",
+    Buffer.from(
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          type: "assistant_message",
+          role: "assistant",
+          text: "streamed before close",
+        },
+      }) + "\n",
+    ),
+  );
+  assert.equal(
+    events.find((event) => event.type === "raw")?.taskRunId,
+    "tsk_1",
+  );
+
+  child.emit("close", 0);
+  await run;
+
+  assert.equal(
+    events.find((event) => event.type === "assistant_text")?.taskRunId,
+    "tsk_1",
+  );
+  assert.equal(
+    events.find((event) => event.type === "result")?.taskRunId,
+    "tsk_1",
+  );
+});
+
 test("DefaultModelCliAdapter abort sends SIGTERM then SIGKILL fallback", async () => {
   const controller = new AbortController();
   const child = createMockChild();
@@ -398,6 +447,7 @@ test("DefaultModelCliAdapter emits normalized Claude tool_call stream events", a
     {
       type: "tool_call",
       invocationId: "inv-1",
+      taskRunId: "tsk-1",
       provider: "claude",
       source: "stdout",
       phase: "started",
@@ -457,6 +507,7 @@ test("DefaultModelCliAdapter emits normalized Codex tool_call stream events", as
     {
       type: "tool_call",
       invocationId: "inv_1",
+      taskRunId: "tsk_1",
       provider: "codex",
       source: "stdout",
       phase: "started",

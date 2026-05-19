@@ -123,6 +123,7 @@ export interface AgentToolCallEvent {
    */
   type: "tool_call";
   invocationId: string;
+  taskRunId?: string;
   provider: AgentProvider;
   source: "stdout" | "stderr";
   phase: "started" | "completed";
@@ -141,6 +142,7 @@ export type AgentStreamEvent =
   | {
       type: "started";
       invocationId: string;
+      taskRunId?: string;
       provider: AgentProvider;
       model: string;
     }
@@ -152,17 +154,20 @@ export type AgentStreamEvent =
        */
       type: "assistant_text";
       invocationId: string;
+      taskRunId?: string;
       text: string;
     }
   | {
       type: "raw";
       invocationId: string;
+      taskRunId?: string;
       source: "stdout" | "stderr";
       text: string;
     }
   | {
       type: "result";
       invocationId: string;
+      taskRunId?: string;
       latencyMs?: number;
       costEstimate?: number;
       usage?: Record<string, unknown>;
@@ -172,7 +177,8 @@ export type AgentStreamEvent =
   | {
       type: "failed";
       invocationId: string;
+      taskRunId?: string;
       errorCode: string;
       message: string;
     }
-  | { type: "cancelled"; invocationId: string };
+  | { type: "cancelled"; invocationId: string; taskRunId?: string };

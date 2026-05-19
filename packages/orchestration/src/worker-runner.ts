@@ -79,6 +79,7 @@ export type WorkerLifecycleInterruption =
 export interface WorkerRunnerDeps {
   state: LocalStateService;
   agentPlanning?: WorkerCliInvoker;
+  onTaskRunChanged?: (taskRunId: string) => void | Promise<void>;
 }
 
 export interface WorkerRunInput {
@@ -136,11 +137,6 @@ export class WorkerRunner {
 
     const stepArtifactIds: string[] = [];
     const updatedSteps: WorkerStep[] = [];
-    const acceptedActions: Array<{
-      action: AgentProposedAction;
-      details: ProposedActionDetails;
-      workerTitle: string;
-    }> = [];
     const policyReport: string[] = [];
     let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
     const handoffMessages: InternalAgentMessage[] = [];
@@ -173,6 +169,24 @@ export class WorkerRunner {
       await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
     ).length;
     let lastDbStepId: string | null = null;
+    const proposedApprovalIds: string[] = [];
+    let approvalStepOffset = 0;
+
+    const processWorkerResultSideEffects = async (
+      result: WorkerStepExecutionResult,
+    ): Promise<void> => {
+      if (result.acceptedActions.length > 0 && result.status === "succeeded") {
+        const createdApprovalIds = await this.createWorkerActionApprovals({
+          plan: input.plan,
+          result,
+          approvalStepIndex:
+            baseStepIndex + input.plan.workerSteps.length + approvalStepOffset,
+        });
+        approvalStepOffset += 1;
+        proposedApprovalIds.push(...createdApprovalIds);
+      }
+      await this.notifyTaskRunChanged(input.plan.taskRunId);
+    };
 
     for (const wave of executionWaves) {
       const preparedWave = await Promise.all(
@@ -193,8 +207,8 @@ export class WorkerRunner {
           handoffMessages,
         });
       const results = wave.parallelizable
-        ? await Promise.all(preparedWave.map(runOne))
-        : await runSerial(preparedWave, runOne);
+        ? await runParallel(preparedWave, runOne, processWorkerResultSideEffects)
+        : await runSerial(preparedWave, runOne, processWorkerResultSideEffects);
       for (const result of results) {
         stepArtifactIds.push(result.artifactId);
         updatedSteps.push({ ...result.planStep, status: result.status });
@@ -207,7 +221,6 @@ export class WorkerRunner {
           handoffsByStepId.set(result.planStep.id, result.handoff);
         }
         policyReport.push(...result.policyReport);
-        acceptedActions.push(...result.acceptedActions);
       }
       if (results.some((result) => result.status === "failed")) break;
     }
@@ -228,58 +241,17 @@ export class WorkerRunner {
       });
       stepArtifactIds.push(policyArtifact.id);
     }
-    const proposedApprovalIds: string[] = [];
-    if (
-      updatedSteps.length > 0 &&
-      !updatedSteps.some((s) => s.status === "failed") &&
-      acceptedActions.length > 0
-    ) {
-      const approvalStep = await this.deps.state.createStep({
-        taskRunId: input.plan.taskRunId,
-        index: baseStepIndex + updatedSteps.length,
-        kind: "approval",
-        title: "Worker action 승인 대기",
-        status: "pending",
-        inputSummary: acceptedActions.map((a) => a.details.type).join(","),
-      });
-      const checkpoint = await this.deps.state.createCheckpoint({
-        taskRunId: input.plan.taskRunId,
-        stepId: approvalStep.id,
-        reason: "before_edit",
-        stateRef: JSON.stringify({
-          taskRunStatus: "waiting_for_approval",
-          currentStepId: approvalStep.id,
-          artifactIds: stepArtifactIds,
-          orchestrationPlanId: input.plan.id,
-        }),
-        summary: workerActionCheckpointSummary(acceptedActions.length),
-      });
-      for (const { action, details, workerTitle } of acceptedActions) {
-        const approval = await this.deps.state.createApproval({
-          taskRunId: input.plan.taskRunId,
-          checkpointId: checkpoint.id,
-          actionType: details.type,
-          actionSummary: shortRationale(action, workerTitle),
-          status: "pending",
-        });
-        const withDetails = await this.deps.state.setApprovalProposedAction(
-          approval.id,
-          details,
-        );
-        proposedApprovalIds.push(withDetails.id);
-      }
-      await this.deps.state.setTaskRunCurrentStep(
-        input.plan.taskRunId,
-        approvalStep.id,
-      );
-    }
+    const hasUnresolvedWorkerApprovals = await this.hasUnresolvedApprovals({
+      taskRunId: input.plan.taskRunId,
+      approvalIds: proposedApprovalIds,
+    });
     await this.deps.state.setTaskRunStatus(
       input.plan.taskRunId,
       lifecycleInterruption !== null
         ? "paused"
         : updatedSteps.some((s) => s.status === "failed")
           ? "blocked"
-          : proposedApprovalIds.length > 0
+          : hasUnresolvedWorkerApprovals
             ? "waiting_for_approval"
             : "ready_for_review",
     );
@@ -291,6 +263,78 @@ export class WorkerRunner {
       workerSteps: updatedSteps,
       proposedApprovalIds,
     };
+  }
+
+  private async createWorkerActionApprovals(input: {
+    plan: OrchestrationPlan;
+    result: WorkerStepExecutionResult;
+    approvalStepIndex: number;
+  }): Promise<string[]> {
+    if (input.result.acceptedActions.length === 0) return [];
+    const approvalStep = await this.deps.state.createStep({
+      taskRunId: input.plan.taskRunId,
+      index: input.approvalStepIndex,
+      kind: "approval",
+      title: `Worker action 승인 대기 — ${input.result.planStep.title}`,
+      status: "pending",
+      inputSummary: input.result.acceptedActions
+        .map((a) => a.details.type)
+        .join(","),
+    });
+    const checkpoint = await this.deps.state.createCheckpoint({
+      taskRunId: input.plan.taskRunId,
+      stepId: approvalStep.id,
+      reason: "before_edit",
+      stateRef: JSON.stringify({
+        taskRunStatus: "waiting_for_approval",
+        currentStepId: approvalStep.id,
+        artifactIds: [input.result.artifactId],
+        orchestrationPlanId: input.plan.id,
+      }),
+      summary: workerActionCheckpointSummary(input.result.acceptedActions.length),
+    });
+    const approvalIds: string[] = [];
+    for (const { action, details, workerTitle } of input.result.acceptedActions) {
+      const approval = await this.deps.state.createApproval({
+        taskRunId: input.plan.taskRunId,
+        checkpointId: checkpoint.id,
+        actionType: details.type,
+        actionSummary: shortRationale(action, workerTitle),
+        status: "pending",
+      });
+      const withDetails = await this.deps.state.setApprovalProposedAction(
+        approval.id,
+        details,
+      );
+      approvalIds.push(withDetails.id);
+    }
+    await this.deps.state.setTaskRunCurrentStep(
+      input.plan.taskRunId,
+      approvalStep.id,
+    );
+    return approvalIds;
+  }
+
+  private async hasUnresolvedApprovals(input: {
+    taskRunId: string;
+    approvalIds: readonly string[];
+  }): Promise<boolean> {
+    if (input.approvalIds.length === 0) return false;
+    const ids = new Set(input.approvalIds);
+    const approvals = await this.deps.state.listApprovalsByTaskRun(
+      input.taskRunId,
+    );
+    return approvals.some(
+      (approval) =>
+        ids.has(approval.id) &&
+        (approval.status === "pending" ||
+          approval.status === "approved" ||
+          approval.status === "always_approved_for_run"),
+    );
+  }
+
+  private async notifyTaskRunChanged(taskRunId: string): Promise<void> {
+    await this.deps.onTaskRunChanged?.(taskRunId);
   }
 
   /**
@@ -547,10 +591,12 @@ export class WorkerRunner {
 const runSerial = async <T, R>(
   items: readonly T[],
   runOne: (item: T) => Promise<R>,
+  onResult?: (result: R) => Promise<void>,
 ): Promise<R[]> => {
   const results: R[] = [];
   for (const item of items) {
     const result = await runOne(item);
+    await onResult?.(result);
     results.push(result);
     if (
       typeof result === "object" &&
@@ -561,6 +607,28 @@ const runSerial = async <T, R>(
       break;
     }
   }
+  return results;
+};
+
+const runParallel = async <T, R>(
+  items: readonly T[],
+  runOne: (item: T) => Promise<R>,
+  onResult: (result: R) => Promise<void>,
+): Promise<R[]> => {
+  let sideEffectQueue: Promise<void> = Promise.resolve();
+  const processResult = async (result: R): Promise<void> => {
+    const next = sideEffectQueue.then(() => onResult(result));
+    sideEffectQueue = next.catch(() => {});
+    await next;
+  };
+  const results = await Promise.all(
+    items.map(async (item) => {
+      const result = await runOne(item);
+      await processResult(result);
+      return result;
+    }),
+  );
+  await sideEffectQueue;
   return results;
 };
 
