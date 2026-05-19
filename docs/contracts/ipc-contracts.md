@@ -1232,7 +1232,7 @@ mcp.healthCheck(input: { serverId: string }): Promise<McpServerHealth>;
 
 - `upsert`는 `server.id`가 기존 row와 매칭되면 update, 아니면 create로 동작한다.
 - `generateServerDraft`는 저장/파일쓰기/probe 없이 사용자 의도에서 MCP 서버 초안과 preview warning만 생성한다.
-- `generateServerScaffoldDraft`는 저장/파일쓰기/probe 없이 TypeScript stdio MCP scaffold 파일 후보와 stdout logging warning만 생성한다.
+- `generateServerScaffoldDraft`는 저장/파일쓰기/probe 없이 TypeScript stdio MCP scaffold 파일 후보를 생성한다. 생성 후보에는 stdout logging lint, TypeScript build, stdio MCP initialize smoke test가 포함된다.
 - `proposeServerScaffold`는 scaffold 파일별 pending `file_write` approval을 만들며, approval/runner 실행 전에는 파일을 쓰지 않는다.
 - `generateProfileBindingProposal`은 저장된 MCP 서버와 AgentProfile을 읽어 binding diff만 반환하며, AgentProfile row를 수정하지 않는다.
 - `applyProfileBindingProposal`은 같은 diff를 재계산한 뒤 `AgentProfile.mcpServerIds`만 갱신한다. global scope 서버는 no-op으로 남긴다.

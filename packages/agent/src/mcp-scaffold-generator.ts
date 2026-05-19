@@ -189,8 +189,59 @@ npm run build
 
 const smokeTest = (input: { slug: string }): string => `import { test } from "node:test";
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+
+const runBuild = () => {
+  const tsc = join(process.cwd(), "node_modules", "typescript", "bin", "tsc");
+  const result = spawnSync(process.execPath, [tsc, "-p", "tsconfig.json"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+};
+
+const encodeFrame = (body) =>
+  "Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body;
+
+const parseFrame = (output) => {
+  const header = output.match(/Content-Length: (\\d+)\\r\\n\\r\\n/);
+  if (!header || header.index === undefined) return null;
+  const bodyStart = header.index + header[0].length;
+  const bodyLength = Number(header[1]);
+  const bodyEnd = bodyStart + bodyLength;
+  if (output.length < bodyEnd) return null;
+  return JSON.parse(output.slice(bodyStart, bodyEnd));
+};
+
+const readFrame = (child) =>
+  new Promise((resolve, reject) => {
+    let output = "";
+    let settled = false;
+    const settle = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(value);
+    };
+    const timer = setTimeout(
+      () =>
+        settle(
+          reject,
+          new Error("timed out waiting for MCP initialize response. stdout=" + output),
+        ),
+      5000,
+    );
+    child.stdout.on("data", (chunk) => {
+      output += chunk.toString("utf8");
+      const frame = parseFrame(output);
+      if (frame) settle(resolve, frame);
+    });
+    child.once("exit", (code) =>
+      settle(reject, new Error("server exited before initialize response: " + code)),
+    );
+  });
 
 test("stdio server source does not use console.log", () => {
   const source = readFileSync(join(process.cwd(), "src", "index.ts"), "utf8");
@@ -200,6 +251,26 @@ test("stdio server source does not use console.log", () => {
 test("package name is scaffold slug", () => {
   const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
   assert.equal(pkg.name, ${JSON.stringify(input.slug)});
+});
+
+test("generated TypeScript builds", () => {
+  runBuild();
+});
+
+test("stdio server responds to MCP initialize", async (t) => {
+  runBuild();
+  const child = spawn(process.execPath, [join(process.cwd(), "dist", "index.js")], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  t.after(() => {
+    child.kill();
+  });
+  const requestBody = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"harness-scaffold-smoke","version":"0.0.0"}}}';
+  child.stdin.write(encodeFrame(requestBody));
+  const response = await readFrame(child);
+  assert.equal(response.id, 1);
+  assert.equal(response.result.serverInfo.name, ${JSON.stringify(input.slug)});
 });
 `;
 

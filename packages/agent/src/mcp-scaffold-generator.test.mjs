@@ -40,6 +40,9 @@ test("buildGeneratedMcpServerScaffoldDraft keeps stdio server source free of std
   assert.doesNotMatch(source.content, /console\.log/);
   assert.match(source.content, /console\.error/);
   assert.match(smoke.content, /console\\.log/);
+  assert.match(smoke.content, /spawn/);
+  assert.match(smoke.content, /Content-Length/);
+  assert.match(smoke.content, /"method":"initialize"/);
 });
 
 test("buildGeneratedMcpServerScaffoldDraft sanitizes unsafe names and warns for placeholders", () => {
