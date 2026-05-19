@@ -426,6 +426,32 @@ const missingSecretError = (
     ),
   );
 
+const findEnabledConfigKeyCollision = async (
+  server: McpServerConfig,
+  mcp: McpServerRepository,
+): Promise<{ key: string; existing: McpServerConfig } | null> => {
+  if (!server.enabled) return null;
+  const key = sanitizeServerName(server.name);
+  const existing = (await mcp.list()).find(
+    (candidate) =>
+      candidate.id !== server.id &&
+      candidate.enabled &&
+      sanitizeServerName(candidate.name) === key,
+  );
+  return existing ? { key, existing } : null;
+};
+
+const configKeyCollisionError = (
+  server: McpServerConfig,
+  collision: { key: string; existing: McpServerConfig },
+): HarnessResult<never> =>
+  err(
+    harnessError(
+      STATE_INVALID_INPUT,
+      `MCP server "${server.name}" would reuse Claude MCP config key "${collision.key}" already used by "${collision.existing.name}". Save disabled or choose a distinct name before enabling.`,
+    ),
+  );
+
 export const buildMcpHandlers = (ctx: McpIpcContext) => {
   const { state, mcp, probe, profiles, listSecretKeys } = ctx;
   return {
@@ -596,6 +622,8 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
         const missing = await missingSecretRefs(v.value, listSecretKeys);
         if (missing.length > 0) return missingSecretError(v.value, missing);
       }
+      const collision = await findEnabledConfigKeyCollision(v.value, mcp);
+      if (collision) return configKeyCollisionError(v.value, collision);
       return wrap(() => mcp.upsert(v.value));
     },
 
@@ -629,6 +657,9 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
       if (input.enabled) {
         const missing = await missingSecretRefs(existing, listSecretKeys);
         if (missing.length > 0) return missingSecretError(existing, missing);
+        const next = { ...existing, enabled: true };
+        const collision = await findEnabledConfigKeyCollision(next, mcp);
+        if (collision) return configKeyCollisionError(next, collision);
       }
       return wrap(() => mcp.toggle(input.serverId, input.enabled));
     },

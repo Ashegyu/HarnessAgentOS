@@ -412,6 +412,31 @@ test("mcp.upsert allows disabled servers with missing secret refs but rejects en
   }
 });
 
+test("mcp.upsert rejects enabling sanitized Claude config key collisions", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const first = await h.upsert({ server: stdio({ name: "GitHub MCP" }) });
+    assert.equal(first.ok, true);
+    const second = await h.upsert({
+      server: stdio({ name: "github/mcp", enabled: false }),
+    });
+    assert.equal(second.ok, true);
+
+    const r = await h.upsert({
+      server: { ...second.value, enabled: true },
+    });
+
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+    assert.match(r.error.message, /github_mcp/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("mcp.toggle refuses to enable a server while referenced secrets are missing", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);
@@ -431,6 +456,30 @@ test("mcp.toggle refuses to enable a server while referenced secrets are missing
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "STATE_INVALID_INPUT");
     assert.match(r.error.message, /missing_token/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.toggle refuses to enable sanitized Claude config key collisions", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const first = await h.upsert({ server: stdio({ name: "GitHub MCP" }) });
+    assert.equal(first.ok, true);
+    const second = (
+      await h.upsert({
+        server: stdio({ name: "github/mcp", enabled: false }),
+      })
+    ).value;
+
+    const r = await h.toggle({ serverId: second.id, enabled: true });
+
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+    assert.match(r.error.message, /github_mcp/);
   } finally {
     closeDb(db);
     t.cleanup();

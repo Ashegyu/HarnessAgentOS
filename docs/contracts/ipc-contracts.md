@@ -1237,6 +1237,7 @@ mcp.healthCheck(input: { serverId: string }): Promise<McpServerHealth>;
 - `generateProfileBindingProposal`은 저장된 MCP 서버와 AgentProfile을 읽어 binding diff만 반환하며, AgentProfile row를 수정하지 않는다.
 - `applyProfileBindingProposal`은 같은 diff를 재계산한 뒤 `AgentProfile.mcpServerIds`만 갱신한다. global scope 서버는 no-op으로 남긴다.
 - `envSecretRefs`가 있는 서버는 referenced SecretVault key가 존재하지 않으면 `enabled=true` 저장, `toggle(... enabled=true)`, `healthCheck`를 거부한다. disabled draft 저장은 허용한다.
+- sanitized Claude MCP config key가 이미 enabled 서버와 충돌하면 `enabled=true` 저장 또는 `toggle(... enabled=true)`를 거부한다. disabled draft 저장은 허용한다.
 - `healthCheck`는 renderer가 직접 process/network probe를 하지 않도록 main process handler로 격리한다.
 
 ## `window.harness.skillSource`
