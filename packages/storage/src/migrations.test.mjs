@@ -221,6 +221,30 @@ test("v26 migration upgrades existing agent_invocations before creating profile 
   }
 });
 
+test("v27 migration adds token usage columns to agent_invocations", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    for (const column of [
+      "input_tokens",
+      "output_tokens",
+      "total_tokens",
+      "usage_approximate",
+    ]) {
+      assert.equal(
+        hasColumn(db, "agent_invocations", column),
+        true,
+        `agent_invocations.${column} must exist`,
+      );
+    }
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "agent_invocations", "total_tokens"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

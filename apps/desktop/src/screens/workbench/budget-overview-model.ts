@@ -8,8 +8,8 @@ export type BudgetUsageTone = "passed" | "warning" | "failed" | "neutral";
 export const isBudgetUsageEmpty = (summary: BudgetUsageSummary): boolean =>
   summary.profiles.length === 0 &&
   summary.topModels.length === 0 &&
-  summary.windowCostUsd === 0 &&
-  unknownBudgetUsageCount(summary) === 0;
+  (summary.windowTokens ?? 0) === 0 &&
+  unknownTokenUsageCount(summary) === 0;
 
 export const unknownBudgetUsageCount = (
   summary: BudgetUsageSummary,
@@ -17,6 +17,20 @@ export const unknownBudgetUsageCount = (
   summary.unknownCostInvocationCount ??
   summary.profiles.reduce(
     (sum, profile) => sum + (profile.unknownCostInvocationCount ?? 0),
+    0,
+  );
+
+export const unknownTokenUsageCount = (
+  summary: BudgetUsageSummary,
+): number =>
+  summary.unknownTokenInvocationCount ??
+  summary.profiles.reduce(
+    (sum, profile) =>
+      sum +
+      (profile.unknownTokenInvocationCount ??
+        (profile.daily.some((point) => point.totalTokens !== undefined)
+          ? 0
+          : profile.daily.reduce((dailySum, point) => dailySum + point.count, 0))),
     0,
   );
 
@@ -33,6 +47,14 @@ export const maxDailyProfileCost = (summary: BudgetUsageSummary): number =>
     0,
     ...summary.profiles.flatMap((profile) =>
       profile.daily.map((point) => point.totalCostUsd),
+    ),
+  );
+
+export const maxDailyProfileTokens = (summary: BudgetUsageSummary): number =>
+  Math.max(
+    0,
+    ...summary.profiles.flatMap((profile) =>
+      profile.daily.map((point) => point.totalTokens ?? 0),
     ),
   );
 

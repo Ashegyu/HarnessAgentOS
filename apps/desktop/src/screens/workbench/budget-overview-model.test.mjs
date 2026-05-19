@@ -33,7 +33,7 @@ test("BudgetOverviewContent renders an empty data placeholder", () => {
   assert.equal(isBudgetUsageEmpty(emptySummary), true);
 });
 
-test("BudgetOverviewContent renders unknown provider cost as unpriced usage", () => {
+test("BudgetOverviewContent renders unknown token usage as unmeasured usage", () => {
   const summary = {
     ...emptySummary,
     unknownCostInvocationCount: 1,
@@ -74,7 +74,54 @@ test("BudgetOverviewContent renders unknown provider cost as unpriced usage", ()
 
   assert.equal(isBudgetUsageEmpty(summary), false);
   assert.match(html, /Unknown/);
-  assert.match(html, /1 call has unknown USD cost/);
+  assert.match(html, /1 call has unknown token usage/);
+});
+
+test("BudgetOverviewContent renders token usage instead of USD spend", () => {
+  const summary = {
+    ...emptySummary,
+    todayCostUsd: 0.5,
+    windowCostUsd: 0.5,
+    averageDailyCostUsd: 0.5,
+    todayTokens: 1250,
+    windowTokens: 1250,
+    averageDailyTokens: 1250,
+    profiles: [
+      {
+        profileId: "ap_coder",
+        profileName: "Coder",
+        model: "gpt-5.5",
+        todayCostUsd: 0.5,
+        windowCostUsd: 0.5,
+        averageDailyCostUsd: 0.5,
+        todayTokens: 1250,
+        windowTokens: 1250,
+        averageDailyTokens: 1250,
+        daily: [
+          {
+            dateIso: "2026-05-18",
+            totalCostUsd: 0.5,
+            totalTokens: 1250,
+            count: 1,
+          },
+        ],
+      },
+    ],
+    topModels: [
+      {
+        model: "gpt-5.5",
+        totalCostUsd: 0.5,
+        totalTokens: 1250,
+        invocationCount: 1,
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(BudgetOverviewContent, { summary }),
+  );
+
+  assert.match(html, /1,250/);
+  assert.doesNotMatch(html, /\$0\.5000/);
 });
 
 test("budget overview helpers classify daily budget usage", () => {

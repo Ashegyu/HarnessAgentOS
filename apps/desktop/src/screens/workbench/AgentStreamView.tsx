@@ -21,6 +21,8 @@ import {
 } from "./AgentProgressList";
 import { AgentStreamSections } from "./AgentStreamSections";
 
+const numberFormat = new Intl.NumberFormat();
+
 interface AgentStreamViewProps {
   invocation: AgentInvocation;
 }
@@ -56,6 +58,7 @@ export const AgentStreamView = ({
     setShowMeta(false);
 
     const isTerminal = isTerminalStatus(invocation.status);
+    const usage = usageFromInvocation(invocation);
     let cancelled = false;
 
     if (invocation.rawOutputArtifactId) {
@@ -70,6 +73,10 @@ export const AgentStreamView = ({
               : {}),
             ...(invocation.costEstimate !== undefined
               ? { costEstimate: invocation.costEstimate }
+              : {}),
+            ...(usage ? { usage } : {}),
+            ...(invocation.usageApproximate !== undefined
+              ? { usageApproximate: invocation.usageApproximate }
               : {}),
           });
           setParsed({ ...stateRef.current.parsed });
@@ -118,6 +125,10 @@ export const AgentStreamView = ({
     invocation.status,
     invocation.latencyMs,
     invocation.costEstimate,
+    invocation.inputTokens,
+    invocation.outputTokens,
+    invocation.totalTokens,
+    invocation.usageApproximate,
   ]);
 
   const status = invocation.status;
@@ -248,10 +259,8 @@ export const AgentStreamView = ({
         <div className="agent-stream-view__footer">
           <span>
             응답 시간 {Math.round(parsed.resultMeta.durationMs / 100) / 10}s · 도구 {parsed.toolUses.length}개
-            {parsed.resultMeta.costUsd !== undefined
-              ? ` · $${parsed.resultMeta.costUsd.toFixed(4)}${
-                  parsed.resultMeta.costEstimateApproximate ? " approx." : ""
-                }`
+            {resultTokenSummary(parsed.resultMeta)
+              ? ` · ${resultTokenSummary(parsed.resultMeta)}`
               : ""}
           </span>
         </div>
@@ -262,6 +271,21 @@ export const AgentStreamView = ({
 
 const isTerminalStatus = (status: AgentInvocationStatus): boolean =>
   status === "succeeded" || status === "failed" || status === "cancelled";
+
+const usageFromInvocation = (
+  invocation: AgentInvocation,
+): Record<string, unknown> | null => {
+  if (invocation.totalTokens === undefined) return null;
+  return {
+    ...(invocation.inputTokens !== undefined
+      ? { input_tokens: invocation.inputTokens }
+      : {}),
+    ...(invocation.outputTokens !== undefined
+      ? { output_tokens: invocation.outputTokens }
+      : {}),
+    total_tokens: invocation.totalTokens,
+  };
+};
 
 const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
   const out: Array<[string, string]> = [];
@@ -274,14 +298,6 @@ const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
   if (p.resultMeta) {
     out.push(["Duration", `${p.resultMeta.durationMs}ms (api ${p.resultMeta.durationApiMs}ms)`]);
     if (p.resultMeta.stopReason) out.push(["Stop", p.resultMeta.stopReason]);
-    if (p.resultMeta.costUsd !== undefined) {
-      out.push([
-        "Cost",
-        `$${p.resultMeta.costUsd.toFixed(4)}${
-          p.resultMeta.costEstimateApproximate ? " (approx.)" : ""
-        }`,
-      ]);
-    }
     if (p.resultMeta.usage) {
       const u = p.resultMeta.usage;
       const parts: string[] = [];
@@ -310,4 +326,14 @@ const buildMetaItems = (p: ParsedStream): Array<[string, string]> => {
     out.push(["Hooks", `${distinct.size}개 (${p.hooks.length} 이벤트)`]);
   }
   return out;
+};
+
+const resultTokenSummary = (
+  meta: NonNullable<ParsedStream["resultMeta"]>,
+): string | null => {
+  const total = meta.usage?.["total_tokens"];
+  if (typeof total !== "number") return null;
+  return `${numberFormat.format(Math.round(total))} tokens${
+    meta.usageApproximate ? " approx." : ""
+  }`;
 };

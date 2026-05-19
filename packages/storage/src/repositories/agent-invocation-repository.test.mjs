@@ -82,6 +82,18 @@ const createInvocation = async (
       ...(typeof options.costEstimate === "number"
         ? { costEstimate: options.costEstimate }
         : {}),
+      ...(typeof options.inputTokens === "number"
+        ? { inputTokens: options.inputTokens }
+        : {}),
+      ...(typeof options.outputTokens === "number"
+        ? { outputTokens: options.outputTokens }
+        : {}),
+      ...(typeof options.totalTokens === "number"
+        ? { totalTokens: options.totalTokens }
+        : {}),
+      ...(typeof options.usageApproximate === "boolean"
+        ? { usageApproximate: options.usageApproximate }
+        : {}),
     });
   }
   return { taskRun, invocation };
@@ -211,6 +223,71 @@ test("AgentInvocationRepository exposes unknown invocation cost separately from 
         latencyMs: 900,
         createdAt: created.invocation.createdAt,
         success: true,
+      },
+    ]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentInvocationRepository persists and summarizes token usage", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const state = new LocalStateService(db);
+    const profile = await state.agentProfiles.create(profileInput());
+    const created = await createInvocation(
+      state,
+      t.dir,
+      1200,
+      "2026-05-18T00:01:00.000Z",
+      {
+        profileId: profile.id,
+        model: "gpt-5.5",
+        costEstimate: 0.42,
+        inputTokens: 1000,
+        outputTokens: 250,
+        totalTokens: 1250,
+        usageApproximate: false,
+      },
+    );
+
+    const persisted = await state.getAgentInvocation(created.invocation.id);
+    const summary = await state.summarizeAgentInvocationCostByTaskRun(
+      created.taskRun.id,
+    );
+
+    assert.equal(persisted.inputTokens, 1000);
+    assert.equal(persisted.outputTokens, 250);
+    assert.equal(persisted.totalTokens, 1250);
+    assert.equal(persisted.usageApproximate, false);
+    assert.equal(summary.totalInputTokens, 1000);
+    assert.equal(summary.totalOutputTokens, 250);
+    assert.equal(summary.totalTokens, 1250);
+    assert.deepEqual(summary.perModel, [
+      {
+        model: "gpt-5.5",
+        cost: 0.42,
+        latencyMs: 1200,
+        count: 1,
+        inputTokens: 1000,
+        outputTokens: 250,
+        totalTokens: 1250,
+      },
+    ]);
+    assert.deepEqual(summary.invocations, [
+      {
+        id: created.invocation.id,
+        model: "gpt-5.5",
+        cost: 0.42,
+        latencyMs: 1200,
+        createdAt: created.invocation.createdAt,
+        success: true,
+        inputTokens: 1000,
+        outputTokens: 250,
+        totalTokens: 1250,
+        usageApproximate: false,
       },
     ]);
   } finally {

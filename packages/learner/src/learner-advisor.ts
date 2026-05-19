@@ -228,6 +228,22 @@ export class LearnerAdvisor {
       (sum, profile) => sum + profile.todayCostUsd,
       0,
     );
+    const windowTokens = profileSummaries.reduce(
+      (sum, profile) => sum + (profile.windowTokens ?? 0),
+      0,
+    );
+    const todayTokens = profileSummaries.reduce(
+      (sum, profile) => sum + (profile.todayTokens ?? 0),
+      0,
+    );
+    const knownTokenInvocationCount = profileSummaries.reduce(
+      (sum, profile) => sum + profileKnownTokenCount(profile),
+      0,
+    );
+    const unknownTokenInvocationCount = profileSummaries.reduce(
+      (sum, profile) => sum + (profile.unknownTokenInvocationCount ?? 0),
+      0,
+    );
     const unknownCostInvocationCount = profileSummaries.reduce(
       (sum, profile) => sum + (profile.unknownCostInvocationCount ?? 0),
       0,
@@ -244,6 +260,13 @@ export class LearnerAdvisor {
       todayCostUsd,
       windowCostUsd,
       averageDailyCostUsd: windowCostUsd / days,
+      ...budgetTokenUsageFields({
+        todayTokens,
+        windowTokens,
+        averageDailyTokens: windowTokens / days,
+        knownTokenInvocationCount,
+        unknownTokenInvocationCount,
+      }),
       ...costCompletenessFields({
         knownCostInvocationCount,
         unknownCostInvocationCount,
@@ -549,6 +572,11 @@ const summarizeBudgetProfile = (input: {
   aggregates: Array<{
     dateIso: string;
     totalCostUsd: number;
+    totalInputTokens?: number;
+    totalOutputTokens?: number;
+    totalTokens?: number;
+    knownTokenInvocationCount?: number;
+    unknownTokenInvocationCount?: number;
     count: number;
     knownCostInvocationCount?: number;
     unknownCostInvocationCount?: number;
@@ -564,6 +592,15 @@ const summarizeBudgetProfile = (input: {
     return {
       dateIso,
       totalCostUsd: row?.totalCostUsd ?? 0,
+      ...(row
+        ? dailyTokenUsageFields({
+            totalInputTokens: row.totalInputTokens ?? 0,
+            totalOutputTokens: row.totalOutputTokens ?? 0,
+            totalTokens: row.totalTokens ?? 0,
+            knownTokenInvocationCount: row.knownTokenInvocationCount ?? 0,
+            unknownTokenInvocationCount: row.unknownTokenInvocationCount ?? 0,
+          })
+        : {}),
       count: row?.count ?? 0,
       ...(row
         ? costCompletenessFields({
@@ -577,6 +614,20 @@ const summarizeBudgetProfile = (input: {
   const windowCostUsd = daily.reduce((sum, point) => sum + point.totalCostUsd, 0);
   const todayCostUsd =
     daily.find((point) => point.dateIso === input.todayIso)?.totalCostUsd ?? 0;
+  const windowTokens = daily.reduce(
+    (sum, point) => sum + (point.totalTokens ?? 0),
+    0,
+  );
+  const todayTokens =
+    daily.find((point) => point.dateIso === input.todayIso)?.totalTokens ?? 0;
+  const knownTokenInvocationCount = daily.reduce(
+    (sum, point) => sum + knownTokenCount(point),
+    0,
+  );
+  const unknownTokenInvocationCount = daily.reduce(
+    (sum, point) => sum + (point.unknownTokenInvocationCount ?? 0),
+    0,
+  );
   const unknownCostInvocationCount = daily.reduce(
     (sum, point) => sum + (point.unknownCostInvocationCount ?? 0),
     0,
@@ -596,6 +647,13 @@ const summarizeBudgetProfile = (input: {
     todayCostUsd,
     windowCostUsd,
     averageDailyCostUsd: windowCostUsd / input.dateWindow.length,
+    ...profileTokenUsageFields({
+      todayTokens,
+      windowTokens,
+      averageDailyTokens: windowTokens / input.dateWindow.length,
+      knownTokenInvocationCount,
+      unknownTokenInvocationCount,
+    }),
     ...costCompletenessFields({
       knownCostInvocationCount,
       unknownCostInvocationCount,
@@ -699,8 +757,80 @@ const knownCostCount = (input: {
   knownCostInvocationCount?: number;
 }): number => input.knownCostInvocationCount ?? input.count ?? 0;
 
+const knownTokenCount = (input: {
+  count?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+}): number =>
+  input.totalTokens === undefined
+    ? 0
+    : input.knownTokenInvocationCount ?? input.count ?? 1;
+
 const profileKnownCostCount = (profile: BudgetUsageProfileSummary): number =>
   profile.daily.reduce((sum, point) => sum + knownCostCount(point), 0);
+
+const profileKnownTokenCount = (profile: BudgetUsageProfileSummary): number =>
+  profile.daily.reduce((sum, point) => sum + knownTokenCount(point), 0);
+
+const dailyTokenUsageFields = (input: {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  knownTokenInvocationCount: number;
+  unknownTokenInvocationCount: number;
+}):
+  | {
+      totalInputTokens: number;
+      totalOutputTokens: number;
+      totalTokens: number;
+      knownTokenInvocationCount?: number;
+      unknownTokenInvocationCount?: number;
+    }
+  | Record<string, never> => {
+  if (input.knownTokenInvocationCount <= 0) return {};
+  return {
+    totalInputTokens: input.totalInputTokens,
+    totalOutputTokens: input.totalOutputTokens,
+    totalTokens: input.totalTokens,
+    ...(input.unknownTokenInvocationCount > 0
+      ? {
+          knownTokenInvocationCount: input.knownTokenInvocationCount,
+          unknownTokenInvocationCount: input.unknownTokenInvocationCount,
+        }
+      : {}),
+  };
+};
+
+const profileTokenUsageFields = (input: {
+  todayTokens: number;
+  windowTokens: number;
+  averageDailyTokens: number;
+  knownTokenInvocationCount: number;
+  unknownTokenInvocationCount: number;
+}):
+  | {
+      todayTokens: number;
+      windowTokens: number;
+      averageDailyTokens: number;
+      knownTokenInvocationCount?: number;
+      unknownTokenInvocationCount?: number;
+    }
+  | Record<string, never> => {
+  if (input.knownTokenInvocationCount <= 0) return {};
+  return {
+    todayTokens: input.todayTokens,
+    windowTokens: input.windowTokens,
+    averageDailyTokens: input.averageDailyTokens,
+    ...(input.unknownTokenInvocationCount > 0
+      ? {
+          knownTokenInvocationCount: input.knownTokenInvocationCount,
+          unknownTokenInvocationCount: input.unknownTokenInvocationCount,
+        }
+      : {}),
+  };
+};
+
+const budgetTokenUsageFields = profileTokenUsageFields;
 
 const costCompletenessFields = (input: {
   knownCostInvocationCount: number;

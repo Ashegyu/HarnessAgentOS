@@ -994,6 +994,147 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
   );
 });
 
+test("generatePlan persists token usage from provider metadata", async () => {
+  const taskRun = {
+    id: "tr-token-usage",
+    threadId: "th-token-usage",
+    userRequest: "measure tokens",
+    targetDir: "/tmp/project",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = codexProfile({
+    id: "ap-token-usage",
+    name: "Token Usage",
+  });
+  const invocation = {
+    id: "inv-token-usage",
+    taskRunId: taskRun.id,
+    provider: "codex",
+    model: "gpt-5.5",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const planOutput = {
+    summary: "Token usage captured",
+    assumptions: [],
+    steps: [{ title: "Report", rationale: "answer only", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  const updatePatches = [];
+  let artifactSeq = 0;
+  let stepSeq = 0;
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      createStep: async (input) => ({
+        id: `step-${++stepSeq}`,
+        taskRunId: input.taskRunId,
+        index: input.index,
+        kind: input.kind,
+        title: input.title,
+        status: input.status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async () => invocation,
+      updateAgentInvocation: async (_id, patch) => {
+        updatePatches.push(patch);
+        return { ...invocation, ...patch };
+      },
+      setStepStatus: async (id, status) => ({
+        id,
+        taskRunId: taskRun.id,
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+      setTaskRunCurrentStep: async () => {},
+      createCheckpoint: async (input) => ({
+        id: "cp-token-usage",
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        reason: input.reason,
+        stateRef: input.stateRef,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }),
+      listAgentProfiles: async () => [profile],
+      getSettings: async () => ({
+        activeAgentProfileId: profile.id,
+        agent: {
+          provider: "auto",
+          model: "",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+        },
+        orchestration: {
+          enabled: false,
+          defaultMode: "single_worker",
+          defaultInstructions: "",
+          workerProfiles: [],
+        },
+        approval: { autoApprove: false },
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        claude: { available: false, queueDepth: 0 },
+        codex: { available: true, queueDepth: 0 },
+      }),
+    adapter: {
+      invoke: async (request) => ({
+        provider: request.modelConfig.provider,
+        model: request.modelConfig.model,
+        exitCode: 0,
+        stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+        rawStdout: JSON.stringify({
+          type: "turn.completed",
+          usage: {
+            input_tokens: 100,
+            output_tokens: 20,
+            reasoning_output_tokens: 5,
+          },
+        }),
+        stderr: "",
+        normalizedEvents: [],
+        latencyMs: 10,
+      }),
+    },
+  });
+
+  await svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" });
+
+  const usagePatch = updatePatches.find(
+    (patch) => patch.rawOutputArtifactId !== undefined,
+  );
+  assert.equal(usagePatch.inputTokens, 100);
+  assert.equal(usagePatch.outputTokens, 25);
+  assert.equal(usagePatch.totalTokens, 125);
+  assert.equal(usagePatch.usageApproximate, false);
+});
+
 test("invokeForWorker rejects Codex profiles with unsupported tool policy", async () => {
   const taskRun = {
     id: "tr-codex-worker-policy",

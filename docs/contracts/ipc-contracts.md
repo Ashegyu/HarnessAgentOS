@@ -664,11 +664,21 @@ interface LearnerRecommendation {
 interface TaskRunCostSummary {
   taskRunId: string;
   totalCostUsd: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   totalLatencyMs: number;
   invocationCount: number;
   perModel: Array<{
     model: string;
     cost: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    knownTokenInvocationCount?: number;
+    unknownTokenInvocationCount?: number;
     latencyMs: number;
     count: number;
   }>;
@@ -676,6 +686,11 @@ interface TaskRunCostSummary {
     id: string;
     model: string;
     cost: number;
+    costKnown?: boolean;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    usageApproximate?: boolean;
     latencyMs: number;
     success?: boolean;
     createdAt: string;
@@ -708,6 +723,11 @@ interface BudgetUsageSummary {
   todayCostUsd: number;
   windowCostUsd: number;
   averageDailyCostUsd: number;
+  todayTokens?: number;
+  windowTokens?: number;
+  averageDailyTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   profiles: Array<{
     profileId: string;
     profileName: string;
@@ -720,16 +740,31 @@ interface BudgetUsageSummary {
     todayCostUsd: number;
     windowCostUsd: number;
     averageDailyCostUsd: number;
+    todayTokens?: number;
+    windowTokens?: number;
+    averageDailyTokens?: number;
+    knownTokenInvocationCount?: number;
+    unknownTokenInvocationCount?: number;
     dailyBudgetRatio?: number;
     daily: Array<{
       dateIso: string;
       totalCostUsd: number;
+      totalInputTokens?: number;
+      totalOutputTokens?: number;
+      totalTokens?: number;
+      knownTokenInvocationCount?: number;
+      unknownTokenInvocationCount?: number;
       count: number;
     }>;
   }>;
   topModels: Array<{
     model: string;
     totalCostUsd: number;
+    totalInputTokens?: number;
+    totalOutputTokens?: number;
+    totalTokens?: number;
+    knownTokenInvocationCount?: number;
+    unknownTokenInvocationCount?: number;
     invocationCount: number;
   }>;
 }

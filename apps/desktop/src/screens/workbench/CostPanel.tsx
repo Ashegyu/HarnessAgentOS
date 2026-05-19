@@ -23,18 +23,32 @@ type CostState =
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+const numberFormat = new Intl.NumberFormat();
+
 const formatUsd = (value: number): string =>
   value === 0 ? "$0.00" : `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
-const formatKnownUsd = (value: number, unknownCount = 0): string => {
-  if (unknownCount <= 0) return formatUsd(value);
-  return value > 0 ? `${formatUsd(value)} known` : "Unknown";
+const formatTokens = (value: number): string =>
+  numberFormat.format(Math.round(value));
+
+const formatKnownTokens = (
+  value: number | undefined,
+  unknownCount = 0,
+  approximate = false,
+): string => {
+  if (value === undefined) return "Unknown";
+  const suffix = [approximate ? "approx." : "", unknownCount > 0 ? "known" : ""]
+    .filter(Boolean)
+    .join(" ");
+  return suffix.length > 0
+    ? `${formatTokens(value)} tokens ${suffix}`
+    : `${formatTokens(value)} tokens`;
 };
 
-const unknownCostNotice = (count: number): string =>
+const unknownTokenNotice = (count: number): string =>
   count === 1
-    ? "1 call has unknown USD cost"
-    : `${count} calls have unknown USD cost`;
+    ? "1 call has unknown token usage"
+    : `${count} calls have unknown token usage`;
 
 const formatDuration = (ms: number): string => {
   if (ms <= 0) return "0ms";
@@ -74,7 +88,7 @@ export const CostPanel = ({ taskRunId }: CostPanelProps): JSX.Element => {
   }, [taskRunId]);
 
   if (state.kind === "loading") {
-    return <div className="empty-state">비용 요약을 불러오는 중...</div>;
+    return <div className="empty-state">사용량 요약을 불러오는 중...</div>;
   }
 
   if (state.kind === "error") {
@@ -91,22 +105,28 @@ export const CostSummaryView = ({
 }): JSX.Element => {
   const budgetRows = visibleBudgetProgress(summary);
   const statusCounts = summary.agentInvocationStatusCounts;
-  const unknownCostCount = summary.unknownCostInvocationCount ?? 0;
-  const maxModelCost = useMemo(
-    () => Math.max(0, ...summary.perModel.map((item) => item.cost)),
+  const unknownTokenCount = taskRunUnknownTokenCount(summary);
+  const maxModelTokens = useMemo(
+    () => Math.max(0, ...summary.perModel.map((item) => item.totalTokens ?? 0)),
     [summary.perModel],
   );
 
   return (
-    <section className="cost-panel" aria-label="Cost summary">
+    <section className="cost-panel" aria-label="Usage summary">
       <header className="panel-header panel-header--inset">
-        <span className="panel-header__title">Cost</span>
+        <span className="panel-header__title">Usage</span>
       </header>
       <div className="cost-panel__body">
         <dl className="cost-panel__metrics">
           <div>
-            <dt>Total USD</dt>
-            <dd>{formatKnownUsd(summary.totalCostUsd, unknownCostCount)}</dd>
+            <dt>Total tokens</dt>
+            <dd>
+              {formatKnownTokens(
+                summary.totalTokens,
+                unknownTokenCount,
+                hasApproximateUsage(summary.invocations),
+              )}
+            </dd>
           </div>
           <div>
             <dt>Latency</dt>
@@ -122,8 +142,8 @@ export const CostSummaryView = ({
           </div>
         </dl>
 
-        {unknownCostCount > 0 ? (
-          <div className="empty-state">{unknownCostNotice(unknownCostCount)}.</div>
+        {unknownTokenCount > 0 ? (
+          <div className="empty-state">{unknownTokenNotice(unknownTokenCount)}.</div>
         ) : null}
 
         {budgetRows.length > 0 ? (
@@ -134,13 +154,13 @@ export const CostSummaryView = ({
         ) : null}
 
         {!hasCostData(summary) ? (
-          <div className="empty-state">아직 비용 trace가 없습니다.</div>
+          <div className="empty-state">아직 사용량 trace가 없습니다.</div>
         ) : null}
 
         {summary.perModel.length > 0 ? (
           <ModelBreakdownChart
             items={summary.perModel}
-            maxCost={maxModelCost}
+            maxTokens={maxModelTokens}
           />
         ) : null}
 
@@ -195,15 +215,15 @@ const BudgetProgress = ({
 
 const ModelBreakdownChart = ({
   items,
-  maxCost,
+  maxTokens,
 }: {
   items: TaskRunCostModelBreakdown[];
-  maxCost: number;
+  maxTokens: number;
 }): JSX.Element => {
   const rowHeight = 28;
   const height = Math.max(44, items.length * rowHeight + 12);
   return (
-    <section className="cost-panel__models" aria-label="Model cost breakdown">
+    <section className="cost-panel__models" aria-label="Model token breakdown">
       <div className="cost-panel__section-head">
         <h4>Model breakdown</h4>
         <span>{items.length} models</span>
@@ -212,12 +232,12 @@ const ModelBreakdownChart = ({
         className="cost-panel__chart"
         viewBox={`0 0 100 ${height}`}
         role="img"
-        aria-label="Cost by model"
+        aria-label="Tokens by model"
         preserveAspectRatio="none"
       >
         {items.map((item, index) => {
           const y = index * rowHeight + 8;
-          const width = maxModelBarWidth(item.cost, maxCost);
+          const width = maxModelBarWidth(item.totalTokens ?? 0, maxTokens);
           return (
             <g key={item.model}>
               <rect
@@ -237,7 +257,10 @@ const ModelBreakdownChart = ({
           <li key={item.model}>
             <span>{item.model}</span>
             <strong>
-              {formatKnownUsd(item.cost, item.unknownCostInvocationCount ?? 0)} ·{" "}
+              {formatKnownTokens(
+                item.totalTokens,
+                modelUnknownTokenCount(item),
+              )} ·{" "}
               {item.count} calls ·{" "}
               {formatDuration(item.latencyMs)}
             </strong>
@@ -253,20 +276,20 @@ const InvocationTable = ({
 }: {
   summary: TaskRunCostSummary;
 }): JSX.Element => (
-  <section className="cost-panel__table-section" aria-label="Invocation costs">
+  <section className="cost-panel__table-section" aria-label="Invocation usage">
     <div className="cost-panel__section-head">
       <h4>Invocations</h4>
       <span>{summary.invocations.length} rows</span>
     </div>
     {summary.invocations.length === 0 ? (
-      <div className="empty-state">표시할 invocation 비용 기록이 없습니다.</div>
+      <div className="empty-state">표시할 invocation 사용량 기록이 없습니다.</div>
     ) : (
       <div className="cost-panel__table-wrap">
         <table className="cost-panel__table">
           <thead>
             <tr>
               <th>Model</th>
-              <th>Cost</th>
+              <th>Tokens</th>
               <th>Latency</th>
               <th>Status</th>
               <th>Time</th>
@@ -276,7 +299,7 @@ const InvocationTable = ({
             {summary.invocations.map((item) => (
               <tr key={item.id}>
                 <td>{item.model}</td>
-                <td>{formatKnownUsd(item.cost, item.costKnown === false ? 1 : 0)}</td>
+                <td>{formatInvocationTokens(item)}</td>
                 <td>{formatDuration(item.latencyMs)}</td>
                 <td>
                   <span className={statusClass(item.success)}>
@@ -293,8 +316,38 @@ const InvocationTable = ({
   </section>
 );
 
-const maxModelBarWidth = (cost: number, maxCost: number): number =>
-  maxCost > 0 ? Math.max(2, (cost / maxCost) * 100) : 0;
+const taskRunUnknownTokenCount = (summary: TaskRunCostSummary): number =>
+  summary.unknownTokenInvocationCount ??
+  (summary.invocationCount > 0 && summary.totalTokens === undefined
+    ? summary.invocationCount
+    : 0);
+
+const modelUnknownTokenCount = (item: TaskRunCostModelBreakdown): number =>
+  item.unknownTokenInvocationCount ??
+  (item.count > 0 && item.totalTokens === undefined ? item.count : 0);
+
+const hasApproximateUsage = (
+  invocations: TaskRunCostSummary["invocations"],
+): boolean => invocations.some((item) => item.usageApproximate === true);
+
+const formatInvocationTokens = (
+  item: TaskRunCostSummary["invocations"][number],
+): string => {
+  if (item.totalTokens === undefined) return "Unknown";
+  const parts = [`${formatTokens(item.totalTokens)} tokens`];
+  if (item.inputTokens !== undefined || item.outputTokens !== undefined) {
+    parts.push(
+      `(in ${formatTokens(item.inputTokens ?? 0)} / out ${formatTokens(
+        item.outputTokens ?? 0,
+      )})`,
+    );
+  }
+  if (item.usageApproximate) parts.push("approx.");
+  return parts.join(" ");
+};
+
+const maxModelBarWidth = (tokens: number, maxTokens: number): number =>
+  maxTokens > 0 ? Math.max(2, (tokens / maxTokens) * 100) : 0;
 
 const formatStatusCounts = (
   counts: TaskRunCostSummary["agentInvocationStatusCounts"],

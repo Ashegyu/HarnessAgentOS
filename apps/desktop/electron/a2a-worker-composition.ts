@@ -8,6 +8,7 @@ import {
   A2AInvocationError,
   A2AWorkerInvoker,
   OfficialA2AClientPort,
+  estimateModelUsage,
   type A2AWorkerInvokeInput,
   type A2AWorkerOutcome,
 } from "@harness/agent";
@@ -127,6 +128,18 @@ export const createPersistentA2AWorkerInvoker = (
           uri: `harness:a2a-output/${input.taskRunId}/${invocation.id}/${createArtifactUriNonce()}`,
           summary: outcome.outputText,
         });
+        const usageEstimate = estimateModelUsage({
+          provider: invocationProvider(input.profile),
+          model: `a2a:${options.endpoint.id}`,
+          prompt: input.userRequest,
+          output: outcome.outputText,
+        });
+        const usagePatch = {
+          inputTokens: usageEstimate.inputTokens,
+          outputTokens: usageEstimate.outputTokens,
+          totalTokens: usageEstimate.totalTokens,
+          usageApproximate: usageEstimate.approximate,
+        };
         await options.state.updateAgentInvocation(
           invocation.id,
           outcome.lifecycle
@@ -137,12 +150,14 @@ export const createPersistentA2AWorkerInvoker = (
                 errorMessage: outcome.lifecycle.message,
                 finishedAt,
                 latencyMs: elapsedMs(startedAt, finishedAt),
+                ...usagePatch,
               }
             : {
                 status: "succeeded",
                 rawOutputArtifactId: rawOutputArtifact.id,
                 finishedAt,
                 latencyMs: elapsedMs(startedAt, finishedAt),
+                ...usagePatch,
               },
         );
         return outcome;

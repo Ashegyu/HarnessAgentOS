@@ -56,6 +56,7 @@ export const InlineAgentStream = ({
     setProgress([]);
 
     const isTerminal = isTerminalStatus(invocation.status);
+    const usage = usageFromInvocation(invocation);
     let cancelled = false;
 
     if (invocation.rawOutputArtifactId) {
@@ -70,6 +71,10 @@ export const InlineAgentStream = ({
               : {}),
             ...(invocation.costEstimate !== undefined
               ? { costEstimate: invocation.costEstimate }
+              : {}),
+            ...(usage ? { usage } : {}),
+            ...(invocation.usageApproximate !== undefined
+              ? { usageApproximate: invocation.usageApproximate }
               : {}),
           });
           setParsed({ ...stateRef.current.parsed });
@@ -117,6 +122,10 @@ export const InlineAgentStream = ({
     invocation.status,
     invocation.latencyMs,
     invocation.costEstimate,
+    invocation.inputTokens,
+    invocation.outputTokens,
+    invocation.totalTokens,
+    invocation.usageApproximate,
   ]);
 
   const isRunning =
@@ -185,3 +194,18 @@ export const InlineAgentStream = ({
 
 const isTerminalStatus = (status: AgentInvocation["status"]): boolean =>
   status === "succeeded" || status === "failed" || status === "cancelled";
+
+const usageFromInvocation = (
+  invocation: AgentInvocation,
+): Record<string, unknown> | null => {
+  if (invocation.totalTokens === undefined) return null;
+  return {
+    ...(invocation.inputTokens !== undefined
+      ? { input_tokens: invocation.inputTokens }
+      : {}),
+    ...(invocation.outputTokens !== undefined
+      ? { output_tokens: invocation.outputTokens }
+      : {}),
+    total_tokens: invocation.totalTokens,
+  };
+};

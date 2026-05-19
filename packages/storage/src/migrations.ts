@@ -52,6 +52,21 @@ export const applyMigrations = (db: DatabaseType): void => {
         ON agent_invocations(profile_id, finished_at, created_at)`,
     );
 
+    // v27 — token usage is the primary usage metric. USD estimates remain
+    // optional because provider pricing can be unavailable or unverified.
+    if (!hasColumn(db, "agent_invocations", "input_tokens")) {
+      db.exec(`ALTER TABLE agent_invocations ADD COLUMN input_tokens INTEGER`);
+    }
+    if (!hasColumn(db, "agent_invocations", "output_tokens")) {
+      db.exec(`ALTER TABLE agent_invocations ADD COLUMN output_tokens INTEGER`);
+    }
+    if (!hasColumn(db, "agent_invocations", "total_tokens")) {
+      db.exec(`ALTER TABLE agent_invocations ADD COLUMN total_tokens INTEGER`);
+    }
+    if (!hasColumn(db, "agent_invocations", "usage_approximate")) {
+      db.exec(`ALTER TABLE agent_invocations ADD COLUMN usage_approximate INTEGER`);
+    }
+
     // v23 — nullable per-profile budget caps. Stored separately from
     // permissions_json so old profile rows remain valid and empty caps stay NULL.
     if (!hasColumn(db, "agent_profiles", "budget_json")) {

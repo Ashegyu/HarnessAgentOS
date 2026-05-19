@@ -67,6 +67,11 @@ export interface LearnerDecisionRecord {
 export interface TaskRunCostModelBreakdown {
   model: string;
   cost: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   latencyMs: number;
   count: number;
   knownCostInvocationCount?: number;
@@ -78,6 +83,10 @@ export interface TaskRunCostInvocationSummary {
   model: string;
   cost: number;
   costKnown?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  usageApproximate?: boolean;
   latencyMs: number;
   createdAt: string;
   success?: boolean;
@@ -116,6 +125,11 @@ export interface TaskRunCostBudgetSummary {
 export interface TaskRunCostSummary {
   taskRunId: string;
   totalCostUsd: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   totalLatencyMs: number;
   invocationCount: number;
   knownCostInvocationCount?: number;
@@ -130,6 +144,11 @@ export interface LearningTraceProfileDayAggregate {
   profileId: string;
   dateIso: string;
   totalCostUsd: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   count: number;
   knownCostInvocationCount?: number;
   unknownCostInvocationCount?: number;
@@ -138,6 +157,11 @@ export interface LearningTraceProfileDayAggregate {
 export interface BudgetUsageModelSummary {
   model: string;
   totalCostUsd: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   invocationCount: number;
   knownCostInvocationCount?: number;
   unknownCostInvocationCount?: number;
@@ -146,6 +170,11 @@ export interface BudgetUsageModelSummary {
 export interface BudgetUsageDailyPoint {
   dateIso: string;
   totalCostUsd: number;
+  totalInputTokens?: number;
+  totalOutputTokens?: number;
+  totalTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   count: number;
   knownCostInvocationCount?: number;
   unknownCostInvocationCount?: number;
@@ -159,6 +188,11 @@ export interface BudgetUsageProfileSummary {
   todayCostUsd: number;
   windowCostUsd: number;
   averageDailyCostUsd: number;
+  todayTokens?: number;
+  windowTokens?: number;
+  averageDailyTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   knownCostInvocationCount?: number;
   unknownCostInvocationCount?: number;
   dailyBudgetRatio?: number;
@@ -173,6 +207,11 @@ export interface BudgetUsageSummary {
   todayCostUsd: number;
   windowCostUsd: number;
   averageDailyCostUsd: number;
+  todayTokens?: number;
+  windowTokens?: number;
+  averageDailyTokens?: number;
+  knownTokenInvocationCount?: number;
+  unknownTokenInvocationCount?: number;
   knownCostInvocationCount?: number;
   unknownCostInvocationCount?: number;
   profiles: BudgetUsageProfileSummary[];

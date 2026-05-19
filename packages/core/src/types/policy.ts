@@ -19,8 +19,12 @@ export interface PolicyBudgetDecision {
 export interface BudgetUsageSnapshot {
   accumulatedTaskRunCostUsd: number;
   accumulatedDailyCostUsd: number;
+  accumulatedTaskRunTokens?: number;
+  accumulatedDailyTokens?: number;
   unknownTaskRunCostInvocationCount?: number;
   unknownDailyCostInvocationCount?: number;
+  unknownTaskRunTokenInvocationCount?: number;
+  unknownDailyTokenInvocationCount?: number;
   isoDate: string;
 }
 

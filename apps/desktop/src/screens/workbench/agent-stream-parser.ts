@@ -257,6 +257,8 @@ export const hydrateSavedAgentOutput = (
     terminal?: boolean;
     latencyMs?: number;
     costEstimate?: number;
+    usage?: Record<string, unknown>;
+    usageApproximate?: boolean;
   },
 ): StreamParserState => {
   const text = content.trim();

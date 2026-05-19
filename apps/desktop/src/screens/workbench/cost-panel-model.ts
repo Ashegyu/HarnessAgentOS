@@ -21,4 +21,7 @@ export const budgetProgressPercent = (
 ): number => Math.max(0, Math.min(100, progress.ratio * 100));
 
 export const hasCostData = (summary: TaskRunCostSummary): boolean =>
-  summary.invocationCount > 0 || summary.totalCostUsd > 0 || summary.totalLatencyMs > 0;
+  summary.invocationCount > 0 ||
+  (summary.totalTokens ?? 0) > 0 ||
+  summary.totalCostUsd > 0 ||
+  summary.totalLatencyMs > 0;

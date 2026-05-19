@@ -480,12 +480,31 @@ export const registerConversationIpc = (
           (sum, row) => sum + row.totalCostUsd,
           0,
         );
+        const accumulatedTaskRunTokens = agentInvocations.reduce(
+          (sum, invocation) => sum + (invocation.totalTokens ?? 0),
+          0,
+        );
+        const accumulatedDailyTokens = dailyAgentInvocationCostRows.reduce(
+          (sum, row) => sum + (row.totalTokens ?? 0),
+          0,
+        );
         const unknownTaskRunCostInvocationCount = agentInvocations.filter(
           (invocation) => invocation.costEstimate === undefined,
+        ).length;
+        const unknownTaskRunTokenInvocationCount = agentInvocations.filter(
+          (invocation) => invocation.totalTokens === undefined,
         ).length;
         const unknownDailyCostInvocationCount =
           dailyAgentInvocationCostRows.reduce(
             (sum, row) => sum + (row.unknownCostInvocationCount ?? 0),
+            0,
+          );
+        const unknownDailyTokenInvocationCount =
+          dailyAgentInvocationCostRows.reduce(
+            (sum, row) =>
+              sum +
+              (row.unknownTokenInvocationCount ??
+                (row.totalTokens === undefined ? row.count : 0)),
             0,
           );
         const a2aRemoteTaskRefs = (
@@ -508,11 +527,19 @@ export const registerConversationIpc = (
           budgetUsage: {
             accumulatedTaskRunCostUsd,
             accumulatedDailyCostUsd,
+            accumulatedTaskRunTokens,
+            accumulatedDailyTokens,
             ...(unknownTaskRunCostInvocationCount > 0
               ? { unknownTaskRunCostInvocationCount }
               : {}),
             ...(unknownDailyCostInvocationCount > 0
               ? { unknownDailyCostInvocationCount }
+              : {}),
+            ...(unknownTaskRunTokenInvocationCount > 0
+              ? { unknownTaskRunTokenInvocationCount }
+              : {}),
+            ...(unknownDailyTokenInvocationCount > 0
+              ? { unknownDailyTokenInvocationCount }
               : {}),
             isoDate: usageIsoDate,
           },

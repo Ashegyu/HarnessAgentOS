@@ -8,8 +8,8 @@ import {
   budgetUsageTone,
   dailyBudgetPercent,
   isBudgetUsageEmpty,
-  maxDailyProfileCost,
-  unknownBudgetUsageCount,
+  maxDailyProfileTokens,
+  unknownTokenUsageCount,
 } from "./budget-overview-model";
 
 type BudgetState =
@@ -23,15 +23,25 @@ const errorMessage = (e: unknown): string =>
 const formatUsd = (value: number): string =>
   value === 0 ? "$0.00" : `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
-const formatKnownUsd = (value: number, unknownCount = 0): string => {
-  if (unknownCount <= 0) return formatUsd(value);
-  return value > 0 ? `${formatUsd(value)} known` : "Unknown";
+const numberFormat = new Intl.NumberFormat();
+
+const formatTokens = (value: number): string =>
+  numberFormat.format(Math.round(value));
+
+const formatKnownTokens = (
+  value: number | undefined,
+  unknownCount = 0,
+): string => {
+  if (value === undefined) return "Unknown";
+  return unknownCount > 0
+    ? `${formatTokens(value)} tokens known`
+    : `${formatTokens(value)} tokens`;
 };
 
-const unknownCostNotice = (count: number): string =>
+const unknownTokenNotice = (count: number): string =>
   count === 1
-    ? "1 call has unknown USD cost"
-    : `${count} calls have unknown USD cost`;
+    ? "1 call has unknown token usage"
+    : `${count} calls have unknown token usage`;
 
 export const BudgetOverviewTab = (): JSX.Element => {
   const [days, setDays] = useState(7);
@@ -87,23 +97,23 @@ export const BudgetOverviewContent = ({
 }: {
   summary: BudgetUsageSummary;
 }): JSX.Element => {
-  const maxCost = useMemo(() => maxDailyProfileCost(summary), [summary]);
-  const unknownCount = unknownBudgetUsageCount(summary);
-  const todayUnknownCount = unknownTodayCostCount(summary);
+  const maxTokens = useMemo(() => maxDailyProfileTokens(summary), [summary]);
+  const unknownCount = unknownTokenUsageCount(summary);
+  const todayUnknownCount = unknownTodayTokenCount(summary);
   return (
     <div className="budget-overview__content">
       <dl className="budget-overview__metrics">
         <div>
           <dt>Today</dt>
-          <dd>{formatKnownUsd(summary.todayCostUsd, todayUnknownCount)}</dd>
+          <dd>{formatKnownTokens(summary.todayTokens, todayUnknownCount)}</dd>
         </div>
         <div>
           <dt>{summary.days}-day avg</dt>
-          <dd>{formatKnownUsd(summary.averageDailyCostUsd, unknownCount)}</dd>
+          <dd>{formatKnownTokens(summary.averageDailyTokens, unknownCount)}</dd>
         </div>
         <div>
           <dt>{summary.days}-day total</dt>
-          <dd>{formatKnownUsd(summary.windowCostUsd, unknownCount)}</dd>
+          <dd>{formatKnownTokens(summary.windowTokens, unknownCount)}</dd>
         </div>
         <div>
           <dt>Profiles</dt>
@@ -112,7 +122,7 @@ export const BudgetOverviewContent = ({
       </dl>
 
       {unknownCount > 0 ? (
-        <div className="empty-state">{unknownCostNotice(unknownCount)}.</div>
+        <div className="empty-state">{unknownTokenNotice(unknownCount)}.</div>
       ) : null}
 
       {isBudgetUsageEmpty(summary) ? (
@@ -120,12 +130,12 @@ export const BudgetOverviewContent = ({
       ) : null}
 
       {summary.profiles.length > 0 ? (
-        <section className="budget-overview__charts" aria-label="Profile cost trend">
+        <section className="budget-overview__charts" aria-label="Profile token trend">
           {summary.profiles.map((profile) => (
             <ProfileTrend
               key={profile.profileId}
               profile={profile}
-              maxCost={maxCost}
+              maxTokens={maxTokens}
             />
           ))}
         </section>
@@ -146,9 +156,9 @@ export const BudgetOverviewContent = ({
               <li key={model.model}>
                 <span>{model.model}</span>
                 <strong>
-                  {formatKnownUsd(
-                    model.totalCostUsd,
-                    model.unknownCostInvocationCount ?? 0,
+                  {formatKnownTokens(
+                    model.totalTokens,
+                    modelUnknownTokenCount(model),
                   )}{" "}
                   · {model.invocationCount}
                 </strong>
@@ -163,10 +173,10 @@ export const BudgetOverviewContent = ({
 
 const ProfileTrend = ({
   profile,
-  maxCost,
+  maxTokens,
 }: {
   profile: BudgetUsageProfileSummary;
-  maxCost: number;
+  maxTokens: number;
 }): JSX.Element => {
   const tone = budgetUsageTone(profile);
   return (
@@ -177,23 +187,22 @@ const ProfileTrend = ({
           <span>{profile.model}</span>
         </div>
         <span className={`status-pill status-pill--${toneClass(tone)}`}>
-          {formatKnownUsd(
-            profile.todayCostUsd,
-            profileTodayUnknownCostCount(profile),
-          )}
+          {formatKnownTokens(profile.todayTokens, profileTodayUnknownTokenCount(profile))}
         </span>
       </div>
       <svg
         className="budget-overview__sparkline"
         viewBox="0 0 120 44"
         role="img"
-        aria-label={`${profile.profileName} daily budget usage`}
+        aria-label={`${profile.profileName} daily token usage`}
         preserveAspectRatio="none"
       >
         {profile.daily.map((point, index) => {
           const width = 120 / Math.max(1, profile.daily.length);
           const height =
-            maxCost > 0 ? Math.max(1, (point.totalCostUsd / maxCost) * 36) : 1;
+            maxTokens > 0
+              ? Math.max(1, ((point.totalTokens ?? 0) / maxTokens) * 36)
+              : 1;
           return (
             <rect
               key={point.dateIso}
@@ -234,7 +243,7 @@ const ProfileUsageTable = ({
         <thead>
           <tr>
             <th>Profile</th>
-            <th>Limits</th>
+            <th>USD caps</th>
             <th>Today</th>
             <th>Window</th>
             <th>Average</th>
@@ -249,21 +258,21 @@ const ProfileUsageTable = ({
               </td>
               <td>{formatBudget(profile.budget)}</td>
               <td>
-                {formatKnownUsd(
-                  profile.todayCostUsd,
-                  profileTodayUnknownCostCount(profile),
+                {formatKnownTokens(
+                  profile.todayTokens,
+                  profileTodayUnknownTokenCount(profile),
                 )}
               </td>
               <td>
-                {formatKnownUsd(
-                  profile.windowCostUsd,
-                  profile.unknownCostInvocationCount ?? 0,
+                {formatKnownTokens(
+                  profile.windowTokens,
+                  profile.unknownTokenInvocationCount ?? 0,
                 )}
               </td>
               <td>
-                {formatKnownUsd(
-                  profile.averageDailyCostUsd,
-                  profile.unknownCostInvocationCount ?? 0,
+                {formatKnownTokens(
+                  profile.averageDailyTokens,
+                  profile.unknownTokenInvocationCount ?? 0,
                 )}
               </td>
             </tr>
@@ -294,15 +303,24 @@ const toneClass = (tone: ReturnType<typeof budgetUsageTone>): string => {
   return "neutral";
 };
 
-const profileTodayUnknownCostCount = (
+const profileTodayUnknownTokenCount = (
   profile: BudgetUsageProfileSummary,
 ): number =>
-  profile.daily.at(-1)?.unknownCostInvocationCount ??
-  profile.unknownCostInvocationCount ??
+  profile.daily.at(-1)?.unknownTokenInvocationCount ??
+  (profile.daily.at(-1)?.totalTokens === undefined
+    ? profile.daily.at(-1)?.count
+    : undefined) ??
+  profile.unknownTokenInvocationCount ??
   0;
 
-const unknownTodayCostCount = (summary: BudgetUsageSummary): number =>
+const unknownTodayTokenCount = (summary: BudgetUsageSummary): number =>
   summary.profiles.reduce(
-    (sum, profile) => sum + profileTodayUnknownCostCount(profile),
+    (sum, profile) => sum + profileTodayUnknownTokenCount(profile),
     0,
   );
+
+const modelUnknownTokenCount = (
+  model: BudgetUsageSummary["topModels"][number],
+): number =>
+  model.unknownTokenInvocationCount ??
+  (model.totalTokens === undefined ? model.invocationCount : 0);

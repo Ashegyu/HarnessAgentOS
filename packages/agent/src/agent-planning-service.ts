@@ -601,6 +601,10 @@ export class AgentPlanningService {
     await this.deps.state.updateAgentInvocation(invocation.id, {
       rawOutputArtifactId: rawOutputArtifact.id,
       latencyMs,
+      inputTokens: usageEstimate.inputTokens,
+      outputTokens: usageEstimate.outputTokens,
+      totalTokens: usageEstimate.totalTokens,
+      usageApproximate: usageEstimate.approximate,
       ...(costEstimate !== undefined ? { costEstimate } : {}),
     });
 
@@ -1121,6 +1125,10 @@ export class AgentPlanningService {
         status: "succeeded",
         rawOutputArtifactId: rawOutputArtifact.id,
         latencyMs: result.latencyMs,
+        inputTokens: usageEstimate.inputTokens,
+        outputTokens: usageEstimate.outputTokens,
+        totalTokens: usageEstimate.totalTokens,
+        usageApproximate: usageEstimate.approximate,
         ...(costEstimate !== undefined ? { costEstimate } : {}),
         finishedAt,
       });

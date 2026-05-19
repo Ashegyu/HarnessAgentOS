@@ -26,6 +26,10 @@ export interface UpdateAgentInvocationPatch {
   finishedAt?: string | null;
   latencyMs?: number | null;
   costEstimate?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  totalTokens?: number | null;
+  usageApproximate?: boolean | null;
 }
 
 export type AgentInvocationStatus =
@@ -61,6 +65,10 @@ export interface AgentInvocation {
   finishedAt?: string;
   latencyMs?: number;
   costEstimate?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  usageApproximate?: boolean;
   createdAt: string;
   updatedAt: string;
 }
