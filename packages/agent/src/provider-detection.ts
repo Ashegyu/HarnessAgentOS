@@ -76,6 +76,7 @@ const probeProviderCandidates = async (
     last ?? {
       available: false,
       error: "no provider command candidates",
+      command: candidates[0],
       queueDepth: options.queueDepth ?? 0,
     }
   );
@@ -104,6 +105,7 @@ const probeProviderCommand = (
       settle({
         available: false,
         error: e instanceof Error ? e.message : String(e),
+        command,
         queueDepth,
       });
       return;
@@ -115,6 +117,7 @@ const probeProviderCommand = (
       settle({
         available: false,
         error: `probe timeout after ${timeoutMs}ms`,
+        command,
         queueDepth,
       });
     }, timeoutMs);
@@ -126,13 +129,17 @@ const probeProviderCommand = (
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      settle({ available: false, error: err.message, queueDepth });
+      settle({ available: false, error: err.message, command, queueDepth });
     });
     child.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) {
         const version = parseVersion(stdout) ?? parseVersion(stderr);
-        const probe: AgentProviderProbe = { available: true, queueDepth };
+        const probe: AgentProviderProbe = {
+          available: true,
+          command,
+          queueDepth,
+        };
         if (version) probe.version = version;
         settle(probe);
         return;
@@ -140,6 +147,7 @@ const probeProviderCommand = (
       settle({
         available: false,
         error: stderr.trim() || `${command} --version exited with code ${code}`,
+        command,
         queueDepth,
       });
     });

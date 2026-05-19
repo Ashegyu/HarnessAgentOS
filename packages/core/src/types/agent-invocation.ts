@@ -65,6 +65,8 @@ export interface AgentProviderProbe {
   available: boolean;
   version?: string;
   error?: string;
+  /** Executable path or command name used by the successful/last probe. */
+  command?: string;
   /**
    * Phase 8 — in-process invocation queue depth for this provider,
    * including any in-flight invocation. RuntimeStatusBar surfaces this

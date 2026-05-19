@@ -18,6 +18,18 @@ const labelFor = (
   return `${name} ✓${depth}`;
 };
 
+const detailFor = (
+  name: "claude" | "codex",
+  probe: AgentProviderStatusMap[keyof AgentProviderStatusMap],
+): string => {
+  const status = probe.available
+    ? probe.version ?? "available"
+    : probe.error ?? "unavailable";
+  return probe.command
+    ? `${name} ${status}\ncommand ${probe.command}`
+    : `${name} ${status}`;
+};
+
 /**
  * Phase 8 — small pill rendered inside RuntimeStatusBar. Probes
  * `agent.checkProviders()` on mount, refreshes when a stream event
@@ -81,7 +93,7 @@ export const AgentProviderStatus = (): JSX.Element | null => {
     <span
       className="runtime-status-bar__group"
       aria-label="Agent providers"
-      title={`claude ${claude.available ? claude.version ?? "available" : claude.error ?? "unavailable"}\ncodex ${codex.available ? codex.version ?? "available" : codex.error ?? "unavailable"}`}
+      title={`${detailFor("claude", claude)}\n${detailFor("codex", codex)}`}
     >
       <button
         type="button"

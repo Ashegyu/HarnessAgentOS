@@ -4,6 +4,7 @@ import {
   providerForModel,
   defaultModelFor,
   normalizeModelForProvider,
+  probeProvider,
 } from "./provider-detection.ts";
 import {
   getProviderCommandCandidates,
@@ -37,16 +38,46 @@ test("normalizeModelForProvider upgrades unsupported Codex ChatGPT gpt-5 model",
   assert.equal(normalizeModelForProvider("codex", "gpt-5.5"), "gpt-5.5");
 });
 
-test("codex command candidates include the Windows app executable before PATH lookup", () => {
+test("codex command candidates prefer the npm native executable used by CMD shims", () => {
+  const appData = "C:\\Users\\me\\AppData\\Roaming";
   const localAppData = "C:\\Users\\me\\AppData\\Local";
-  const expected = "C:\\Users\\me\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe";
+  const npmNative =
+    "C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe";
+  const windowsApps =
+    "C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\codex.exe";
+  const localApp =
+    "C:\\Users\\me\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe";
   const candidates = getProviderCommandCandidates("codex", {
     platform: "win32",
-    env: { LOCALAPPDATA: localAppData },
-    exists: (path) => path === expected,
+    env: {
+      APPDATA: appData,
+      LOCALAPPDATA: localAppData,
+      Path: `${appData}\\npm;${localAppData}\\Microsoft\\WindowsApps`,
+    },
+    exists: (path) =>
+      path === npmNative || path === windowsApps || path === localApp,
   });
 
-  assert.deepEqual(candidates, [expected, "codex"]);
+  assert.deepEqual(candidates, [npmNative, windowsApps, localApp, "codex"]);
+});
+
+test("codex command candidates do not use npm cmd shims directly", () => {
+  const appData = "C:\\Users\\me\\AppData\\Roaming";
+  const localAppData = "C:\\Users\\me\\AppData\\Local";
+  const cmdShim = "C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd";
+  const localApp =
+    "C:\\Users\\me\\AppData\\Local\\OpenAI\\Codex\\bin\\codex.exe";
+  const candidates = getProviderCommandCandidates("codex", {
+    platform: "win32",
+    env: {
+      APPDATA: appData,
+      LOCALAPPDATA: localAppData,
+      Path: `${appData}\\npm`,
+    },
+    exists: (path) => path === cmdShim || path === localApp,
+  });
+
+  assert.deepEqual(candidates, [localApp, "codex"]);
 });
 
 test("claude command candidates include the Windows local bin executable before PATH lookup", () => {
@@ -66,4 +97,12 @@ test("cliPathOverride wins over provider executable discovery", () => {
     resolveProviderCommand("codex", "C:\\Tools\\codex.exe"),
     "C:\\Tools\\codex.exe",
   );
+});
+
+test("probeProvider reports the command used for diagnostics", async () => {
+  const probe = await probeProvider(process.execPath, { timeoutMs: 3_000 });
+
+  assert.equal(probe.available, true);
+  assert.equal(probe.command, process.execPath);
+  assert.match(probe.version ?? "", /^v\d+\./);
 });
