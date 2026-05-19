@@ -1065,7 +1065,7 @@ Step 5. Approval
         <code>packages/agent/src/provider-tool-call-events.ts</code><br />
         <code>apps/desktop/src/screens/workbench/agent-stream-parser.ts</code>
       </td>
-      <td>provider raw stream에서 tool_call event가 emit되고 저장된 transcript hydration이 unknown 없이 tool section으로 복원되는 테스트. provider-managed MCP의 실제 실행 직전 차단은 아직 지원하지 않음</td>
+      <td>provider raw stream에서 tool_call event가 emit되고 저장된 transcript hydration이 unknown 없이 tool section으로 복원되는 테스트. 2026-05-19 live smoke에서 synthetic fixture 기준 Claude <code>Read</code>, Codex <code>command_execution</code> 관측 확인. provider-managed MCP의 실제 실행 직전 차단은 아직 지원하지 않음</td>
     </tr>
   </table>
 
@@ -1102,13 +1102,15 @@ Step 5. Approval
     <li>새 TaskRun에서 capability 후보가 표시되지만 자동 실행되지 않는지 확인한다.</li>
     <li>테스트용 stdio MCP를 등록하고 healthCheck 성공 후 Claude profile에 bind한다.</li>
     <li>Claude invocation에서 "MCP 설정 준비 완료" progress가 보이고, Codex profile에서는 경고 또는 "활성 MCP 설정 없음"이 보이는지 확인한다.</li>
+    <li><code>smoke:agent-tool-calls</code>는 workspace 파일이 아니라 임시 synthetic fixture만 provider에 노출하고, Claude/Codex raw stream에서 <code>tool_call</code> 이벤트가 실제로 관측되는지 확인한다.</li>
   </ol>
 
   <h3>11.4 실행 명령</h3>
   <pre><code>npm run check
 node --import tsx --test --test-force-exit packages/skillify-adapter/**/*.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/electron/**/*skill-source*.test.mjs apps/desktop/electron/**/*mcp*.test.mjs
-node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs</code></pre>
+node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
+npm --workspace=@harness/desktop run smoke:agent-tool-calls</code></pre>
 
   <h2 id="review">12. 작성 전 자체 검토 결과</h2>
 
@@ -1153,7 +1155,7 @@ node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs</code></
   <h3>12.1 남은 불확실성</h3>
   <ul>
     <li>Codex CLI의 현재 MCP config 인자 지원 여부는 별도 실측이 필요하다.</li>
-    <li>Provider raw stream의 tool-call 관측 계약은 추가됐지만, MCP tool allow/deny를 실제 tool call 직전에서 강제하려면 CLI가 실행 전 차단 가능한 hook을 노출하는지 추가 확인해야 한다.</li>
+    <li>Provider raw stream의 tool-call 관측 계약과 synthetic fixture live smoke는 확인됐지만, MCP tool allow/deny를 실제 tool call 직전에서 강제하려면 CLI가 실행 전 차단 가능한 hook을 노출하는지 추가 확인해야 한다.</li>
     <li>remote HTTP/SSE MCP의 auth 방식은 provider별 차이가 크므로 MVP에서는 config 등록과 healthCheck까지만 다룬다.</li>
     <li>Skill open format은 빠르게 확장 중이므로 Harness 내부 frontmatter는 portable 최소 필드와 Harness-specific 확장 필드를 분리해야 한다.</li>
   </ul>

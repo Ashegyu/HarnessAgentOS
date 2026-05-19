@@ -16,6 +16,7 @@
     "smoke:e2e": "npm run rebuild:node --silent && node --import tsx scripts/smoke-e2e-runner.mjs",
     "smoke:agent-fake": "npm run rebuild:node --silent && node --import tsx scripts/smoke-agent-fake.mjs",
     "smoke:agent-live": "npm run rebuild:node --silent && node --import tsx scripts/smoke-agent-live.mjs",
+    "smoke:agent-tool-calls": "node --import tsx scripts/smoke-agent-tool-call-events.mjs",
     "smoke:a2a-remote-live": "npm run rebuild:node --silent && node --import tsx scripts/smoke-a2a-remote-live.mjs",
     "smoke:all": "npm run smoke:e2e && npm run smoke:agent-fake && npm run e2e && npm run rebuild:node",
     "e2e": "npm run rebuild:electron && npm run build && playwright test"
