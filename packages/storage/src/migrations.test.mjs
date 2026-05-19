@@ -181,6 +181,46 @@ test("v26 migration adds agent invocation profile budget columns and index", () 
   }
 });
 
+test("v26 migration upgrades existing agent_invocations before creating profile index", () => {
+  const t = tmp();
+  const db = new Database(t.file);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.exec(`CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  db.exec(`CREATE TABLE agent_invocations (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    step_id TEXT,
+    provider TEXT NOT NULL CHECK(provider IN ('claude','codex')),
+    model TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','cancelled')),
+    prompt_artifact_id TEXT NOT NULL,
+    raw_output_artifact_id TEXT,
+    parsed_plan_artifact_id TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    latency_ms INTEGER,
+    cost_estimate REAL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  db.prepare(
+    `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '25')`,
+  ).run();
+
+  try {
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "agent_invocations", "profile_id"), true);
+    assert.equal(hasIndex(db, "idx_agent_invocations_profile_time"), true);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

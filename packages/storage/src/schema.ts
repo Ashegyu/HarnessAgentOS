@@ -404,8 +404,6 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_approvals_decided_at ON approvals(decided_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_artifacts_task_run_id ON artifacts(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_agent_invocations_profile_time
-    ON agent_invocations(profile_id, finished_at, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_endpoints_enabled ON a2a_endpoints(enabled, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_remote_tasks_endpoint ON a2a_remote_tasks(endpoint_id)`,
 ];
