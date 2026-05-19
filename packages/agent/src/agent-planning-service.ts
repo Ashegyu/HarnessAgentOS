@@ -420,73 +420,75 @@ export class AgentPlanningService {
     );
 
     try {
-    const request: ModelCliRequest = {
-      invocationId: invocation.id,
-      taskRunId: taskRun.id,
-      cwd: taskRun.targetDir,
-      prompt: redactedUserPrompt,
-      systemPrompt: redactedSystemPrompt,
-      modelConfig: {
-        provider,
-        model,
-        // Priority: explicit input.timeout > active profile tuning > service defaults.
-        // Resolver always provides a tuning block (legacy fallback synthesizes
-        // one from HarnessSettings.agent), so `resolved.tuning.timeoutMs` is
-        // safe to read directly.
-        timeoutMs:
-          input.timeoutMs ?? resolved.tuning.timeoutMs ?? this.defaults.timeoutMs,
-        stallTimeoutMs:
-          input.stallTimeoutMs ??
-          resolved.tuning.stallTimeoutMs ??
-          this.defaults.stallTimeoutMs,
-      },
-      sandbox: {
-        primaryDir: taskRun.targetDir,
-        enforceInPrompt: true,
-      },
-      ...(resolved.profile?.cli.cliPathOverride
-        ? { cliPathOverride: resolved.profile.cli.cliPathOverride }
-        : {}),
-      ...(existingSessionId ? { sessionId: existingSessionId } : {}),
-      ...(mcpConfigPath ? { mcpConfigPath } : {}),
-    };
-    await this.recordLearnerSelection({
-      taskRunId: taskRun.id,
-      ...(approvedLearnerModel ? { selectedModel: model } : {}),
-      ...(capabilityContexts.length > 0
-        ? {
-            selectedCapabilities: capabilityContexts.map(
-              (ctx) => ctx.capability.id,
-            ),
-          }
-        : {}),
-    });
-    let assistantOutput = "";
-    let rawProviderOutput = "";
-    let latencyMs = 0;
-    let costEstimate: number | undefined;
-    let resultSessionId: string | undefined;
-    try {
-      const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
-      emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
-      const result = await this.queue.enqueue({
-        provider,
+      const toolPolicy = toolPolicyFromProfile(resolved.profile);
+      const request: ModelCliRequest = {
         invocationId: invocation.id,
-        work: (signal) => {
-          emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
-          return this.adapter.invoke(
-            request,
-            emitCaptured,
-            signal,
-          );
+        taskRunId: taskRun.id,
+        cwd: taskRun.targetDir,
+        prompt: redactedUserPrompt,
+        systemPrompt: redactedSystemPrompt,
+        modelConfig: {
+          provider,
+          model,
+          // Priority: explicit input.timeout > active profile tuning > service defaults.
+          // Resolver always provides a tuning block (legacy fallback synthesizes
+          // one from HarnessSettings.agent), so `resolved.tuning.timeoutMs` is
+          // safe to read directly.
+          timeoutMs:
+            input.timeoutMs ?? resolved.tuning.timeoutMs ?? this.defaults.timeoutMs,
+          stallTimeoutMs:
+            input.stallTimeoutMs ??
+            resolved.tuning.stallTimeoutMs ??
+            this.defaults.stallTimeoutMs,
         },
+        sandbox: {
+          primaryDir: taskRun.targetDir,
+          enforceInPrompt: true,
+        },
+        ...(resolved.profile?.cli.cliPathOverride
+          ? { cliPathOverride: resolved.profile.cli.cliPathOverride }
+          : {}),
+        ...(existingSessionId ? { sessionId: existingSessionId } : {}),
+        ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(toolPolicy ? { toolPolicy } : {}),
+      };
+      await this.recordLearnerSelection({
+        taskRunId: taskRun.id,
+        ...(approvedLearnerModel ? { selectedModel: model } : {}),
+        ...(capabilityContexts.length > 0
+          ? {
+              selectedCapabilities: capabilityContexts.map(
+                (ctx) => ctx.capability.id,
+              ),
+            }
+          : {}),
       });
-      assistantOutput = result.stdout;
-      rawProviderOutput = result.rawStdout ?? result.stdout;
-      latencyMs = result.latencyMs;
-      costEstimate = result.costEstimate;
-      resultSessionId = result.sessionId;
-    } catch (e) {
+      let assistantOutput = "";
+      let rawProviderOutput = "";
+      let latencyMs = 0;
+      let costEstimate: number | undefined;
+      let resultSessionId: string | undefined;
+      try {
+        const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
+        emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
+        const result = await this.queue.enqueue({
+          provider,
+          invocationId: invocation.id,
+          work: (signal) => {
+            emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
+            return this.adapter.invoke(
+              request,
+              emitCaptured,
+              signal,
+            );
+          },
+        });
+        assistantOutput = result.stdout;
+        rawProviderOutput = result.rawStdout ?? result.stdout;
+        latencyMs = result.latencyMs;
+        costEstimate = result.costEstimate;
+        resultSessionId = result.sessionId;
+      } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
       const code = isCancelled
         ? AGENT_CANCELLED
@@ -1014,6 +1016,7 @@ export class AgentPlanningService {
       mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
     );
     try {
+      const toolPolicy = toolPolicyFromProfile(input.profile);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -1036,6 +1039,7 @@ export class AgentPlanningService {
           : {}),
         ...(existingSessionId ? { sessionId: existingSessionId } : {}),
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
+        ...(toolPolicy ? { toolPolicy } : {}),
       };
       const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
       emitProgress("queued", "Worker CLI 실행 대기열 등록", cliProgressDetail);
@@ -1368,6 +1372,31 @@ const renderPlanMarkdown = (
     for (const q of plan.questions) lines.push(`- ${q}`);
   }
   return lines.join("\n");
+};
+
+const toolPolicyFromProfile = (
+  profile: AgentProfile | null | undefined,
+): ModelCliRequest["toolPolicy"] | undefined => {
+  const permissions = profile?.permissions;
+  if (!permissions) return undefined;
+  const toolAllowlist = normalizeToolPolicyList(permissions.toolAllowlist);
+  const toolDenylist = normalizeToolPolicyList(permissions.toolDenylist);
+  if (toolAllowlist.length === 0 && toolDenylist.length === 0) {
+    return undefined;
+  }
+  return { toolAllowlist, toolDenylist };
+};
+
+const normalizeToolPolicyList = (patterns: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const pattern of patterns) {
+    const value = pattern.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
 };
 
 const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {

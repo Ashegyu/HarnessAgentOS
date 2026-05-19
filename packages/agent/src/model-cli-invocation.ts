@@ -61,6 +61,18 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     if (request.mcpConfigPath) {
       args.push("--mcp-config", request.mcpConfigPath);
     }
+    const toolAllowlist = normalizeToolPolicyPatterns(
+      request.toolPolicy?.toolAllowlist,
+    );
+    if (toolAllowlist.length > 0) {
+      args.push("--allowedTools", toolAllowlist.join(","));
+    }
+    const toolDenylist = normalizeToolPolicyPatterns(
+      request.toolPolicy?.toolDenylist,
+    );
+    if (toolDenylist.length > 0) {
+      args.push("--disallowedTools", toolDenylist.join(","));
+    }
     // HarnessAgentOS owns the invocation MCP surface. Without strict mode,
     // Claude may also load user/project MCP configs and surface unrelated
     // startup failures inside the workbench run.
@@ -89,6 +101,21 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     "--skip-git-repo-check",
     "-",
   ];
+};
+
+const normalizeToolPolicyPatterns = (
+  patterns: readonly string[] | undefined,
+): string[] => {
+  if (!patterns) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const pattern of patterns) {
+    const value = pattern.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+  }
+  return normalized;
 };
 
 const buildStdin = (request: ModelCliRequest): string => {

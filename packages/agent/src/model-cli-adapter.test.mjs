@@ -90,6 +90,25 @@ test("buildCliInvocation isolates Claude from external MCP configs", () => {
   assert.ok(!plan.args.includes("--mcp-config"));
 });
 
+test("buildCliInvocation maps Claude tool policy to provider permission flags", () => {
+  const plan = buildCliInvocation(
+    baseRequest({
+      toolPolicy: {
+        toolAllowlist: [" Read ", "mcp__repo__search", "Read", ""],
+        toolDenylist: ["Bash(git *)", " ", "mcp__repo__delete"],
+      },
+    }),
+  );
+
+  assert.equal(plan.command, "claude");
+  const allowIndex = plan.args.indexOf("--allowedTools");
+  const denyIndex = plan.args.indexOf("--disallowedTools");
+  assert.ok(allowIndex >= 0, "Claude invocation must pass --allowedTools");
+  assert.ok(denyIndex >= 0, "Claude invocation must pass --disallowedTools");
+  assert.equal(plan.args[allowIndex + 1], "Read,mcp__repo__search");
+  assert.equal(plan.args[denyIndex + 1], "Bash(git *),mcp__repo__delete");
+});
+
 test("buildCliInvocation uses Codex exec syntax and folds system prompt into stdin", () => {
   const plan = buildCliInvocation(
     baseRequest({
@@ -126,6 +145,27 @@ test("buildCliInvocation uses Codex exec syntax and folds system prompt into std
   assert.ok(!plan.args.includes("--system-prompt"));
   assert.ok(!plan.args.includes("--resume"));
   assert.ok(!plan.args.includes("--mcp-config"));
+});
+
+test("buildCliInvocation does not pass unverified tool policy flags to Codex", () => {
+  const plan = buildCliInvocation(
+    baseRequest({
+      modelConfig: {
+        provider: "codex",
+        model: "gpt-5.5",
+        timeoutMs: 300_000,
+        stallTimeoutMs: 60_000,
+      },
+      toolPolicy: {
+        toolAllowlist: ["Read"],
+        toolDenylist: ["Bash(*)"],
+      },
+    }),
+  );
+
+  assert.equal(plan.command, "codex");
+  assert.ok(!plan.args.includes("--allowedTools"));
+  assert.ok(!plan.args.includes("--disallowedTools"));
 });
 
 test("extractCodexExecPayload returns the final assistant message from JSONL", () => {

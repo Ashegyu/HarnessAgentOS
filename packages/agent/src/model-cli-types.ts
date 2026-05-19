@@ -4,6 +4,17 @@ import type {
   AgentStreamEvent,
 } from "@harness/core";
 
+export interface ModelCliToolPolicy {
+  /**
+   * Provider-facing tool patterns derived from AgentProfile permissions.
+   * Claude maps these to `--allowedTools`; Codex currently has no verified
+   * `exec` equivalent, so the adapter does not pass them there.
+   */
+  toolAllowlist: readonly string[];
+  /** Deny patterns remain higher priority in Harness policy and provider flags. */
+  toolDenylist: readonly string[];
+}
+
 /**
  * Phase 8 — request envelope passed into ModelCliAdapter.invoke.
  * The adapter MUST treat `cwd` and `sandbox.primaryDir` as authoritative
@@ -45,6 +56,12 @@ export interface ModelCliRequest {
    * the invocation and delete it after the run completes.
    */
   mcpConfigPath?: string;
+  /**
+   * Optional tool policy from the selected AgentProfile. This is an
+   * execution-boundary hint only: unsupported providers must ignore it
+   * rather than invent unverified flags.
+   */
+  toolPolicy?: ModelCliToolPolicy;
   /**
    * Absolute executable override from AgentProfile.cli.cliPathOverride.
    * When unset, the adapter resolves a provider-specific default command.

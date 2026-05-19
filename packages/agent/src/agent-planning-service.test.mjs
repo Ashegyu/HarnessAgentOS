@@ -436,8 +436,8 @@ test("generatePlan emits progress events before and after CLI invocation", async
       autoApproveActions: [],
       blockedActions: [],
       allowedSkillIds: [],
-      toolAllowlist: [],
-      toolDenylist: [],
+      toolAllowlist: ["Read", "mcp__repo__search"],
+      toolDenylist: ["Bash(git *)"],
     },
     mcpServerIds: [],
     skillSourceIds: [],
@@ -447,6 +447,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
   };
   const rawProviderOutput =
     '{"type":"item.completed","item":{"type":"assistant_message","role":"assistant","content":[{"type":"output_text","text":"raw stream answer"}]}}\n';
+  let lastRequest = null;
   let adapterSignal = null;
   const planOutput = {
     summary: "Project explained",
@@ -541,6 +542,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
     emitStreamEvent: (event) => events.push(event),
     adapter: {
       invoke: async (request, onEvent, signal) => {
+        lastRequest = request;
         adapterSignal = signal;
         onEvent({
           type: "started",
@@ -567,6 +569,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
   assert.deepEqual(capabilityContextInput, {
     taskRunId: "tr-progress",
     profileId: activeProfile.id,
+  });
+  assert.deepEqual(lastRequest.toolPolicy, {
+    toolAllowlist: ["Read", "mcp__repo__search"],
+    toolDenylist: ["Bash(git *)"],
   });
   assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
@@ -758,8 +764,8 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
       autoApproveActions: [],
       blockedActions: [],
       allowedSkillIds: [],
-      toolAllowlist: [],
-      toolDenylist: [],
+      toolAllowlist: ["Read", "mcp__repo__search"],
+      toolDenylist: ["Bash(git *)"],
     },
     mcpServerIds: [],
     skillSourceIds: [],
@@ -878,6 +884,10 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.equal(result.proposedActions?.[0].type, "file_write");
   assert.equal(result.proposedActions?.[0].path, "created.txt");
   assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);
+  assert.deepEqual(lastRequest.toolPolicy, {
+    toolAllowlist: ["Read", "mcp__repo__search"],
+    toolDenylist: ["Bash(git *)"],
+  });
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
   assert.match(lastRequest.prompt, /create a file/);
