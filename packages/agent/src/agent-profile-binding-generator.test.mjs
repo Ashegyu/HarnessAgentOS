@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   applyMcpServerBindingProposal,
+  applySkillSourceBindingProposal,
   buildMcpServerBindingProposal,
+  buildSkillSourceBindingProposal,
 } from "./agent-profile-binding-generator.ts";
 
 const profile = (overrides = {}) => ({
@@ -53,6 +55,19 @@ const server = (overrides = {}) => ({
     okAt: "2026-05-12T00:00:00.000Z",
     checkedAt: "2026-05-12T00:00:00.000Z",
   },
+  createdAt: "2026-05-12T00:00:00.000Z",
+  updatedAt: "2026-05-12T00:00:00.000Z",
+  ...overrides,
+});
+
+const source = (overrides = {}) => ({
+  id: "ss_generated",
+  name: "Generated Skills",
+  origin: "custom",
+  rootDir: "/tmp/skills",
+  trusted: true,
+  enabled: true,
+  registeredInPathPolicy: true,
   createdAt: "2026-05-12T00:00:00.000Z",
   updatedAt: "2026-05-12T00:00:00.000Z",
   ...overrides,
@@ -150,4 +165,65 @@ test("applyMcpServerBindingProposal rejects mismatched profiles", () => {
     () => applyMcpServerBindingProposal(profile({ id: "ap_b" }), result),
     /does not target AgentProfile/,
   );
+});
+
+test("buildSkillSourceBindingProposal adds source and explicit allowed skill ids", () => {
+  const result = buildSkillSourceBindingProposal({
+    profile: profile(),
+    source: source(),
+    capabilityIds: ["review-helper", "review-helper", "repair-helper"],
+  });
+
+  assert.deepEqual(result.proposal.addSkillSourceIds, ["ss_generated"]);
+  assert.deepEqual(result.proposal.allowSkillIds, [
+    "review-helper",
+    "repair-helper",
+  ]);
+  assert.deepEqual(result.preview.after.skillSourceIds, [
+    "ss_project",
+    "ss_generated",
+  ]);
+  assert.deepEqual(result.preview.after.allowedSkillIds, [
+    "review-skill",
+    "review-helper",
+    "repair-helper",
+  ]);
+  assert.equal(result.preview.alreadySatisfied, false);
+});
+
+test("buildSkillSourceBindingProposal does not narrow all-skills profiles", () => {
+  const result = buildSkillSourceBindingProposal({
+    profile: profile({
+      permissions: {
+        ...profile().permissions,
+        allowedSkillIds: [],
+      },
+    }),
+    source: source(),
+    capabilityIds: ["review-helper"],
+  });
+
+  assert.deepEqual(result.proposal.allowSkillIds, []);
+  assert.deepEqual(result.preview.after.allowedSkillIds, []);
+  assert.match(result.preview.warnings.join("\n"), /already allows all/);
+});
+
+test("applySkillSourceBindingProposal updates only skill source and allowed skill ids", () => {
+  const original = profile();
+  const result = buildSkillSourceBindingProposal({
+    profile: original,
+    source: source(),
+    capabilityIds: ["review-helper"],
+  });
+
+  const updated = applySkillSourceBindingProposal(original, result);
+
+  assert.deepEqual(updated.skillSourceIds, ["ss_project", "ss_generated"]);
+  assert.deepEqual(updated.permissions.allowedSkillIds, [
+    "review-skill",
+    "review-helper",
+  ]);
+  assert.deepEqual(updated.mcpServerIds, original.mcpServerIds);
+  assert.deepEqual(updated.permissions.toolAllowlist, original.permissions.toolAllowlist);
+  assert.deepEqual(original.skillSourceIds, ["ss_project"]);
 });

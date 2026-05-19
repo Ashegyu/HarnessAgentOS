@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
+  AgentProfile,
   ApprovalActionType,
   Capability,
   CapabilityRiskLevel,
+  SkillProfileBindingProposalResult,
   SkillAuthorPreview,
   SkillSource,
 } from "@harness/core";
@@ -14,6 +16,7 @@ import {
   describeStatus,
   emptyAddDraft,
   emptySkillAuthorDraft,
+  skillSourceCapabilitySourceKey,
   skillAuthorInputToFormDraft,
   skillAuthorDraftToInput,
   skillSlugFromName,
@@ -34,6 +37,13 @@ const errorMessage = (e: unknown): string =>
 export const SkillSourcesTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [bindingProfileIds, setBindingProfileIds] = useState<
+    Record<string, string>
+  >({});
+  const [bindingResults, setBindingResults] = useState<
+    Record<string, SkillProfileBindingProposalResult | undefined>
+  >({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addDraft, setAddDraft] = useState<AddSourceDraft>(emptyAddDraft());
@@ -48,12 +58,14 @@ export const SkillSourcesTab = (): JSX.Element => {
 
   const refresh = useCallback(async () => {
     try {
-      const [sources, nextCapabilities] = await Promise.all([
+      const [sources, nextCapabilities, nextProfiles] = await Promise.all([
         window.harness.skillSource.list(),
         window.harness.capability.list(),
+        window.harness.agents.list(),
       ]);
       setList({ kind: "ready", sources });
       setCapabilities(nextCapabilities);
+      setProfiles(nextProfiles);
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -266,6 +278,70 @@ export const SkillSourcesTab = (): JSX.Element => {
       setError(errorMessage(e));
     } finally {
       setAuthorBusy(false);
+    }
+  };
+
+  const capabilityIdsForSource = (source: SkillSource): string[] => {
+    const sourceKey = skillSourceCapabilitySourceKey(source);
+    return capabilities
+      .filter((capability) => capability.source === sourceKey)
+      .map((capability) => capability.id);
+  };
+
+  const selectedBindingProfileId = (sourceId: string): string =>
+    bindingProfileIds[sourceId] ?? profiles[0]?.id ?? "";
+
+  const handlePreviewBinding = async (source: SkillSource): Promise<void> => {
+    const profileId = selectedBindingProfileId(source.id);
+    if (profileId.length === 0) return;
+    setBusyId(`bind:${source.id}`);
+    setError(null);
+    try {
+      const result =
+        await window.harness.skillSource.generateProfileBindingProposal({
+          request: {
+            sourceId: source.id,
+            profileId,
+            capabilityIds: capabilityIdsForSource(source),
+          },
+        });
+      setBindingResults((current) => ({
+        ...current,
+        [source.id]: result,
+      }));
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleApplyBinding = async (source: SkillSource): Promise<void> => {
+    const profileId = selectedBindingProfileId(source.id);
+    if (profileId.length === 0) return;
+    setBusyId(`bind:${source.id}`);
+    setError(null);
+    try {
+      const result =
+        await window.harness.skillSource.applyProfileBindingProposal({
+          request: {
+            sourceId: source.id,
+            profileId,
+            capabilityIds: capabilityIdsForSource(source),
+          },
+        });
+      setBindingResults((current) => ({
+        ...current,
+        [source.id]: result,
+      }));
+      setError(
+        `profile binding 적용 완료 — ${result.profileName} / ${source.name}`,
+      );
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -635,7 +711,10 @@ export const SkillSourcesTab = (): JSX.Element => {
           {list.sources.map((s) => {
             const status = describeStatus(s);
             const busy = busyId === s.id;
+            const bindingBusy = busyId === `bind:${s.id}`;
             const capabilityCount = capabilityCountForSource(s, capabilities);
+            const bindingResult = bindingResults[s.id];
+            const selectedProfileId = selectedBindingProfileId(s.id);
             return (
               <li key={s.id} className="skill-source-row">
                 <div className="skill-source-row__head">
@@ -725,6 +804,70 @@ export const SkillSourcesTab = (): JSX.Element => {
                     </button>
                   )}
                 </div>
+                {profiles.length > 0 && (
+                  <div className="skill-source-row__actions">
+                    <select
+                      className="settings-field__input"
+                      value={selectedProfileId}
+                      disabled={busy || bindingBusy}
+                      onChange={(e) => {
+                        const profileId = e.target.value;
+                        setBindingProfileIds((current) => ({
+                          ...current,
+                          [s.id]: profileId,
+                        }));
+                        setBindingResults((current) => ({
+                          ...current,
+                          [s.id]: undefined,
+                        }));
+                      }}
+                    >
+                      {profiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} ({profile.provider})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => void handlePreviewBinding(s)}
+                      disabled={busy || bindingBusy || selectedProfileId.length === 0}
+                    >
+                      {bindingBusy ? "..." : "binding preview"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => void handleApplyBinding(s)}
+                      disabled={busy || bindingBusy || selectedProfileId.length === 0}
+                    >
+                      binding 적용
+                    </button>
+                  </div>
+                )}
+                {bindingResult && (
+                  <div className="skill-sources-tab__notice">
+                    <strong>{bindingResult.profileName}</strong>
+                    <span>
+                      {" "}
+                      source {bindingResult.preview.before.skillSourceIds.length}
+                      {" -> "}
+                      {bindingResult.preview.after.skillSourceIds.length},
+                      allowed skills{" "}
+                      {bindingResult.preview.before.allowedSkillIds.length}
+                      {" -> "}
+                      {bindingResult.preview.after.allowedSkillIds.length}
+                    </span>
+                    {bindingResult.preview.warnings.length > 0 && (
+                      <ul>
+                        {bindingResult.preview.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}

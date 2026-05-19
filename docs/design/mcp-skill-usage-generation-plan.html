@@ -1024,9 +1024,10 @@ Step 5. Approval
       <td>
         <code>packages/skillify-adapter/src/skill-authoring-generator.ts</code><br />
         <code>apps/desktop/electron/ipc/skill-source-ipc.ts</code><br />
-        기존 <code>skillSource.previewSkillDraft</code>/<code>proposeSkillFile</code> IPC 재사용
+        기존 <code>skillSource.previewSkillDraft</code>/<code>proposeSkillFile</code> IPC 재사용<br />
+        <code>skillSource.generateProfileBindingProposal</code>/<code>applyProfileBindingProposal</code>
       </td>
-      <td>승인 전 파일 미생성, 승인 후 refresh로 capability 표시</td>
+      <td>승인 전 파일 미생성, 승인 후 refresh로 capability 표시. Skill source profile binding은 preview가 먼저 diff를 보여주고, 적용 시 <code>skillSourceIds</code>와 explicit <code>allowedSkillIds</code>만 갱신한다.</td>
     </tr>
     <tr>
       <td><span class="pill pill--green">P3</span> MCP config 생성</td>

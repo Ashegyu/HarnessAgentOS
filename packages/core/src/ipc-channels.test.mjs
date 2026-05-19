@@ -136,6 +136,8 @@ test("mcp namespace exposes server management verbs", () => {
 test("skillSource namespace exposes registration verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.skillSource).sort(), [
     "add",
+    "applyProfileBindingProposal",
+    "generateProfileBindingProposal",
     "generateSkillDraft",
     "list",
     "previewSkillDraft",
@@ -146,6 +148,14 @@ test("skillSource namespace exposes registration verbs", () => {
   ]);
   assert.equal(isAllowedChannel("skillSource:add"), true);
   assert.equal(isAllowedChannel("skillSource:generateSkillDraft"), true);
+  assert.equal(
+    isAllowedChannel("skillSource:generateProfileBindingProposal"),
+    true,
+  );
+  assert.equal(
+    isAllowedChannel("skillSource:applyProfileBindingProposal"),
+    true,
+  );
   assert.equal(isAllowedChannel("skillSource:previewSkillDraft"), true);
 });
 

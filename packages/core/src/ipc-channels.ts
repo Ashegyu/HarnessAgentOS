@@ -130,6 +130,9 @@ export const IPC_CHANNELS = {
     generateSkillDraft: "skillSource:generateSkillDraft",
     previewSkillDraft: "skillSource:previewSkillDraft",
     proposeSkillFile: "skillSource:proposeSkillFile",
+    generateProfileBindingProposal:
+      "skillSource:generateProfileBindingProposal",
+    applyProfileBindingProposal: "skillSource:applyProfileBindingProposal",
   },
   /**
    * SecretVault management. Write/clear/listKeys only — there is no read

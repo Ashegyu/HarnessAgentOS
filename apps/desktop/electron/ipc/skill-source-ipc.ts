@@ -1,4 +1,5 @@
 import {
+  AGENT_PROFILE_NOT_FOUND,
   APPROVAL_ACTION_TYPES,
   CAPABILITY_RISK_LEVELS,
   SKILL_SOURCE_NOT_FOUND,
@@ -15,9 +16,16 @@ import {
   type SkillAuthorDraft,
   type SkillAuthorPreview,
   type SkillFileProposalResult,
+  type SkillProfileBindingApplyResult,
+  type SkillProfileBindingProposalRequest,
+  type SkillProfileBindingProposalResult,
   type SkillSource,
   type SkillSourceRefreshResult,
 } from "@harness/core";
+import {
+  applySkillSourceBindingProposal,
+  buildSkillSourceBindingProposal,
+} from "@harness/agent";
 import type { LocalStateService, SkillSourceRepository } from "@harness/storage";
 import {
   buildGeneratedSkillDraft,
@@ -249,6 +257,78 @@ export const buildSkillSourceHandlers = (ctx: SkillSourceIpcContext) => {
         };
       });
     },
+
+    generateProfileBindingProposal: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<SkillProfileBindingProposalResult>> => {
+      const request = normalizeProfileBindingRequest(input?.request);
+      if (!request.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, request.reason));
+      }
+      const source = await skillSources.get(request.value.sourceId);
+      if (!source) {
+        return err(
+          harnessError(
+            SKILL_SOURCE_NOT_FOUND,
+            `unknown source: ${request.value.sourceId}`,
+          ),
+        );
+      }
+      const profile = await state.agentProfiles.get(request.value.profileId);
+      if (!profile) {
+        return err(
+          harnessError(
+            AGENT_PROFILE_NOT_FOUND,
+            `unknown profile: ${request.value.profileId}`,
+          ),
+        );
+      }
+      return ok(
+        buildSkillSourceBindingProposal({
+          profile,
+          source,
+          capabilityIds: request.value.capabilityIds ?? [],
+        }),
+      );
+    },
+
+    applyProfileBindingProposal: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<SkillProfileBindingApplyResult>> => {
+      const request = normalizeProfileBindingRequest(input?.request);
+      if (!request.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, request.reason));
+      }
+      const source = await skillSources.get(request.value.sourceId);
+      if (!source) {
+        return err(
+          harnessError(
+            SKILL_SOURCE_NOT_FOUND,
+            `unknown source: ${request.value.sourceId}`,
+          ),
+        );
+      }
+      const profile = await state.agentProfiles.get(request.value.profileId);
+      if (!profile) {
+        return err(
+          harnessError(
+            AGENT_PROFILE_NOT_FOUND,
+            `unknown profile: ${request.value.profileId}`,
+          ),
+        );
+      }
+      const proposal = buildSkillSourceBindingProposal({
+        profile,
+        source,
+        capabilityIds: request.value.capabilityIds ?? [],
+      });
+      return wrap(async () => {
+        const updated = await state.agentProfiles.update(
+          applySkillSourceBindingProposal(profile, proposal),
+        );
+        return { ...proposal, profile: updated };
+      });
+    },
   };
 };
 
@@ -308,6 +388,42 @@ const normalizeSkillGenerationRequest = (
       typeof input.userIntent === "string" ? input.userIntent.trim() : "",
     profileIds,
     evidenceArtifactIds,
+  };
+};
+
+const normalizeProfileBindingRequest = (
+  value: unknown,
+):
+  | { ok: true; value: SkillProfileBindingProposalRequest }
+  | { ok: false; reason: string } => {
+  const input =
+    typeof value === "object" && value !== null
+      ? (value as Record<string, unknown>)
+      : {};
+  if (
+    typeof input.sourceId !== "string" ||
+    input.sourceId.trim().length === 0
+  ) {
+    return { ok: false, reason: "sourceId is required" };
+  }
+  if (
+    typeof input.profileId !== "string" ||
+    input.profileId.trim().length === 0
+  ) {
+    return { ok: false, reason: "profileId is required" };
+  }
+  const capabilityIds = Array.isArray(input.capabilityIds)
+    ? input.capabilityIds.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  return {
+    ok: true,
+    value: {
+      sourceId: input.sourceId.trim(),
+      profileId: input.profileId.trim(),
+      capabilityIds,
+    },
   };
 };
 

@@ -53,6 +53,36 @@ const setupCtx = (file) => {
   };
 };
 
+const profileInput = (overrides = {}) => ({
+  name: "Reviewer",
+  description: "",
+  category: "review",
+  tags: [],
+  provider: "claude",
+  role: "reviewer",
+  persona: "",
+  tuning: {
+    model: "claude-sonnet-4",
+    timeoutMs: 300_000,
+    stallTimeoutMs: 60_000,
+    contextDepth: 5,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: ["existing-skill"],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  ...overrides,
+});
+
 test("skillSource.list returns ok([]) on a fresh DB", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);
@@ -221,6 +251,62 @@ test("skillSource.generateSkillDraft returns preview without writing a file", as
       existsSync(join(rootDir, r.value.preview.relativePath)),
       false,
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("skillSource.generateProfileBindingProposal previews without updating AgentProfile", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildSkillSourceHandlers(ctx);
+    const source = (await h.add({ name: "A", rootDir: "/tmp/skills" })).value;
+    const profile = await ctx.state.agentProfiles.create(profileInput());
+
+    const r = await h.generateProfileBindingProposal({
+      request: {
+        sourceId: source.id,
+        profileId: profile.id,
+        capabilityIds: ["review-helper"],
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value.proposal.addSkillSourceIds, [source.id]);
+    assert.deepEqual(r.value.proposal.allowSkillIds, ["review-helper"]);
+    const unchanged = await ctx.state.agentProfiles.get(profile.id);
+    assert.deepEqual(unchanged.skillSourceIds, []);
+    assert.deepEqual(unchanged.permissions.allowedSkillIds, ["existing-skill"]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("skillSource.applyProfileBindingProposal updates AgentProfile bindings", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildSkillSourceHandlers(ctx);
+    const source = (await h.add({ name: "A", rootDir: "/tmp/skills" })).value;
+    const profile = await ctx.state.agentProfiles.create(profileInput());
+
+    const r = await h.applyProfileBindingProposal({
+      request: {
+        sourceId: source.id,
+        profileId: profile.id,
+        capabilityIds: ["review-helper"],
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value.profile.skillSourceIds, [source.id]);
+    assert.deepEqual(r.value.profile.permissions.allowedSkillIds, [
+      "existing-skill",
+      "review-helper",
+    ]);
   } finally {
     closeDb(db);
     t.cleanup();

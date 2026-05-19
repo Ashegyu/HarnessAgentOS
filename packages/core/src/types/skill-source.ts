@@ -1,4 +1,9 @@
 import type { Approval, ApprovalActionType } from "./approval.ts";
+import type {
+  AgentProfile,
+  AgentProfileBindingPreview,
+  CapabilityBindingProposal,
+} from "./agent-profile.ts";
 import type { CapabilityRiskLevel } from "./capability.ts";
 
 /**
@@ -90,6 +95,26 @@ export interface SkillFileProposalResult {
   taskRunId: string;
   approval: Approval;
   preview: SkillAuthorPreview;
+}
+
+export interface SkillProfileBindingProposalRequest {
+  sourceId: string;
+  profileId: string;
+  capabilityIds?: readonly string[];
+}
+
+export interface SkillProfileBindingProposalResult {
+  sourceId: string;
+  sourceName: string;
+  profileId: string;
+  profileName: string;
+  proposal: CapabilityBindingProposal;
+  preview: AgentProfileBindingPreview;
+}
+
+export interface SkillProfileBindingApplyResult
+  extends SkillProfileBindingProposalResult {
+  profile: AgentProfile;
 }
 
 export interface SkillSourceRefreshResult {

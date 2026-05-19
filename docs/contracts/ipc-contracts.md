@@ -1251,6 +1251,29 @@ skillSource.refresh(input: { sourceId: string }): Promise<SkillSourceRefreshResu
 skillSource.generateSkillDraft(input: { request: SkillGenerationRequest }): Promise<SkillGenerationPreviewResult>;
 skillSource.previewSkillDraft(input: { draft: SkillAuthorDraft }): Promise<SkillAuthorPreview>;
 skillSource.proposeSkillFile(input: { draft: SkillAuthorDraft }): Promise<SkillFileProposalResult>;
+skillSource.generateProfileBindingProposal(input: { request: SkillProfileBindingProposalRequest }): Promise<SkillProfileBindingProposalResult>;
+skillSource.applyProfileBindingProposal(input: { request: SkillProfileBindingProposalRequest }): Promise<SkillProfileBindingApplyResult>;
+```
+
+```ts
+interface SkillProfileBindingProposalRequest {
+  sourceId: string;
+  profileId: string;
+  capabilityIds?: readonly string[];
+}
+
+interface SkillProfileBindingProposalResult {
+  sourceId: string;
+  sourceName: string;
+  profileId: string;
+  profileName: string;
+  proposal: CapabilityBindingProposal;
+  preview: AgentProfileBindingPreview;
+}
+
+interface SkillProfileBindingApplyResult extends SkillProfileBindingProposalResult {
+  profile: AgentProfile;
+}
 ```
 
 동작:
@@ -1263,6 +1286,8 @@ skillSource.proposeSkillFile(input: { draft: SkillAuthorDraft }): Promise<SkillF
 - `previewSkillDraft`는 생성될 `SKILL.md`를 loader 기준으로 검증하고 preview만 반환한다.
 - `proposeSkillFile`은 파일을 직접 쓰지 않고 `file_write` approval을 생성한다.
 - `proposeSkillFile`로 생성된 approval이 runner에서 실행되면 main process가 해당 source를 refresh해 capability registry를 갱신한다.
+- `generateProfileBindingProposal`은 저장된 SkillSource와 AgentProfile을 읽어 `skillSourceIds` 및 필요한 경우 `allowedSkillIds` diff만 반환하며, AgentProfile row를 수정하지 않는다.
+- `applyProfileBindingProposal`은 같은 diff를 재계산한 뒤 `AgentProfile.skillSourceIds`와 explicit `permissions.allowedSkillIds`만 갱신한다. `allowedSkillIds=[]`는 전체 enabled Skill 허용 의미이므로 자동으로 좁히지 않는다.
 
 ## `window.harness.secret`
 

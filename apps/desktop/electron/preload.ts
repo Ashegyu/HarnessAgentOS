@@ -442,6 +442,16 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped(IPC_CHANNELS.skillSource.previewSkillDraft, input),
     proposeSkillFile: (input) =>
       invokeUnwrapped(IPC_CHANNELS.skillSource.proposeSkillFile, input),
+    generateProfileBindingProposal: (input) =>
+      invokeUnwrapped(
+        IPC_CHANNELS.skillSource.generateProfileBindingProposal,
+        input,
+      ),
+    applyProfileBindingProposal: (input) =>
+      invokeUnwrapped(
+        IPC_CHANNELS.skillSource.applyProfileBindingProposal,
+        input,
+      ),
   },
   secret: {
     write: async (input) => {

@@ -31,6 +31,9 @@ import type {
   SkillGenerationPreviewResult,
   SkillAuthorPreview,
   SkillFileProposalResult,
+  SkillProfileBindingApplyResult,
+  SkillProfileBindingProposalRequest,
+  SkillProfileBindingProposalResult,
   SkillSource,
   SkillSourceRefreshResult,
   LearnerRecommendation,
@@ -409,6 +412,12 @@ export interface HarnessDesktopApi {
     proposeSkillFile(input: {
       draft: SkillAuthorDraft;
     }): Promise<SkillFileProposalResult>;
+    generateProfileBindingProposal(input: {
+      request: SkillProfileBindingProposalRequest;
+    }): Promise<SkillProfileBindingProposalResult>;
+    applyProfileBindingProposal(input: {
+      request: SkillProfileBindingProposalRequest;
+    }): Promise<SkillProfileBindingApplyResult>;
   };
   /**
    * Secret vault. Plaintext values flow renderer → main one-way; the main
