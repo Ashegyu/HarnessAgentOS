@@ -320,7 +320,11 @@ export class WorkerRunner {
   }> {
     assertActionTypeAllowed(roleToActionIntent(step.role));
     const invoker = this.deps.agentPlanning;
-    const userRequest = step.instruction ?? step.inputSummary;
+    const taskRun = await this.deps.state.getTaskRun(taskRunId);
+    const userRequest = composeWorkerUserRequest({
+      originalUserRequest: taskRun?.userRequest ?? "",
+      stepInstruction: step.instruction ?? step.inputSummary,
+    });
     if (invoker && profile && userRequest.length > 0) {
       const { outputText, proposedActions, lifecycle } =
         await invoker.invokeForWorker({
@@ -634,6 +638,23 @@ const lifecycleBody = (
     lines.push("", output.trim());
   }
   return lines.join("\n");
+};
+
+const composeWorkerUserRequest = (input: {
+  originalUserRequest: string;
+  stepInstruction: string;
+}): string => {
+  const original = input.originalUserRequest.trim();
+  const instruction = input.stepInstruction.trim();
+  if (original.length === 0) return instruction;
+  if (instruction.length === 0 || instruction === original) return original;
+  return [
+    "ORIGINAL USER REQUEST",
+    original,
+    "",
+    "PIPELINE STEP INSTRUCTION",
+    instruction,
+  ].join("\n");
 };
 
 const roleToActionIntent = (role: WorkerRole): string => {

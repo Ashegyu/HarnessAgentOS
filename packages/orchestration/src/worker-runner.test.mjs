@@ -19,11 +19,11 @@ const tmp = () => {
   };
 };
 
-const seedTaskRun = async (state) => {
+const seedTaskRun = async (state, overrides = {}) => {
   const thread = await state.createThread({ title: "t", targetDir: "/tmp/proj" });
   return state.createTaskRun({
     threadId: thread.id,
-    userRequest: "do",
+    userRequest: overrides.userRequest ?? "do",
     targetDir: "/tmp/proj",
     status: "running",
   });
@@ -213,7 +213,9 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, {
+      userRequest: "Create a Kanban SaaS app with billing.",
+    });
     const profile = await state.agentProfiles.create(
       validProfileInput({ name: "CliCoder", persona: "Be precise." }),
     );
@@ -267,11 +269,18 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
     assert.match(calls[0].stepId, /^stp_/);
     assert.equal(calls[0].profileId, profile.id);
     assert.equal(calls[0].profileName, "CliCoder");
-    // The full instruction must arrive at the invoker, not the 120-char
-    // inputSummary truncation that the planner stores for display.
-    assert.equal(
+    // The original user request and the full pipeline instruction must
+    // both arrive at the invoker. Without this, pipeline workers only see
+    // the static step instruction and lose what the user actually typed.
+    assert.match(calls[0].userRequest, /ORIGINAL USER REQUEST/);
+    assert.match(
       calls[0].userRequest,
-      "Refactor the parser without changing behaviour.",
+      /Create a Kanban SaaS app with billing\./,
+    );
+    assert.match(calls[0].userRequest, /PIPELINE STEP INSTRUCTION/);
+    assert.match(
+      calls[0].userRequest,
+      /Refactor the parser without changing behaviour\./,
     );
 
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
