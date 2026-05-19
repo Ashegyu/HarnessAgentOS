@@ -224,7 +224,7 @@ PROJECT CONTRACT
 const readOnlySuffix = (label: string): string => `\
 ${label} OUTPUT
 - Work read-only unless the pipeline step explicitly allows file_write or shell.
-- Return findings, risks, assumptions, and next verification steps in Korean.
+- 한국어로 발견 사항, 위험, 가정, 다음 검증 단계를 보고한다.
 - Do not claim the task is complete; report what evidence would make it complete.
 `;
 
@@ -232,6 +232,7 @@ const proposalSuffix = (label: string): string => `\
 ${label} OUTPUT
 - Propose the smallest safe change and list every intended file path before any file_write action.
 - Include targeted verification commands and explain what each command proves.
+- 한국어로 변경 의도, 검증 근거, 남은 위험을 보고한다.
 - Keep dependency install, network, and git actions out of the proposal unless the pipeline explicitly allows them.
 `;
 
@@ -239,7 +240,7 @@ const testSuffix = (label: string): string => `\
 ${label} OUTPUT
 - Start from the failing or missing behavior, then name the narrowest useful test or smoke check.
 - Separate product defects from test defects.
-- Report exact verification evidence and remaining coverage gaps in Korean.
+- 한국어로 정확한 검증 증거와 남은 커버리지 공백을 보고한다.
 `;
 
 export class SqliteAgentProfileRepository implements AgentProfileRepository {
