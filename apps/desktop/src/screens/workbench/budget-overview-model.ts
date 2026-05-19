@@ -8,7 +8,17 @@ export type BudgetUsageTone = "passed" | "warning" | "failed" | "neutral";
 export const isBudgetUsageEmpty = (summary: BudgetUsageSummary): boolean =>
   summary.profiles.length === 0 &&
   summary.topModels.length === 0 &&
-  summary.windowCostUsd === 0;
+  summary.windowCostUsd === 0 &&
+  unknownBudgetUsageCount(summary) === 0;
+
+export const unknownBudgetUsageCount = (
+  summary: BudgetUsageSummary,
+): number =>
+  summary.unknownCostInvocationCount ??
+  summary.profiles.reduce(
+    (sum, profile) => sum + (profile.unknownCostInvocationCount ?? 0),
+    0,
+  );
 
 export const budgetUsageTone = (
   profile: BudgetUsageProfileSummary,

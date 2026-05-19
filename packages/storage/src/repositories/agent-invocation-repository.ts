@@ -76,12 +76,16 @@ interface ProfileDayAggregateRow {
   dateIso: string;
   totalCostUsd: number;
   count: number;
+  knownCostInvocationCount: number;
+  unknownCostInvocationCount: number;
 }
 
 interface ModelCostAggregateRow {
   model: string;
   totalCostUsd: number;
   invocationCount: number;
+  knownCostInvocationCount: number;
+  unknownCostInvocationCount: number;
 }
 
 const rowToInvocation = (r: AgentInvocationRow): AgentInvocation => {
@@ -288,6 +292,11 @@ export class SqliteAgentInvocationRepository
       .all(taskRunId) as CostSummaryRow[];
 
     const invocations = rows.map(rowToCostInvocation);
+    const unknownCostInvocationCount = invocations.filter(
+      (item) => item.costKnown === false,
+    ).length;
+    const knownCostInvocationCount =
+      invocations.length - unknownCostInvocationCount;
     return {
       taskRunId,
       totalCostUsd: invocations.reduce((sum, item) => sum + item.cost, 0),
@@ -296,6 +305,10 @@ export class SqliteAgentInvocationRepository
         0,
       ),
       invocationCount: invocations.length,
+      ...costCompletenessFields({
+        knownCostInvocationCount,
+        unknownCostInvocationCount,
+      }),
       perModel: summarizePerModel(invocations),
       invocations,
     };
@@ -314,12 +327,14 @@ export class SqliteAgentInvocationRepository
       .prepare(
         `SELECT profile_id AS profileId,
                 date_iso AS dateIso,
-                COALESCE(SUM(cost), 0) AS totalCostUsd,
-                COUNT(*) AS count
+                COALESCE(SUM(CASE WHEN cost IS NOT NULL THEN cost ELSE 0 END), 0) AS totalCostUsd,
+                COUNT(*) AS count,
+                SUM(CASE WHEN cost IS NOT NULL THEN 1 ELSE 0 END) AS knownCostInvocationCount,
+                SUM(CASE WHEN cost IS NULL THEN 1 ELSE 0 END) AS unknownCostInvocationCount
          FROM (
            SELECT COALESCE(ai.profile_id, 'unassigned') AS profile_id,
                   substr(COALESCE(ai.finished_at, ai.created_at), 1, 10) AS date_iso,
-                  COALESCE(ai.cost_estimate, 0) AS cost
+                  ai.cost_estimate AS cost
            FROM agent_invocations ai
            WHERE COALESCE(ai.finished_at, ai.created_at) >= @sinceIso
              AND COALESCE(ai.finished_at, ai.created_at) <= @untilIso
@@ -338,6 +353,10 @@ export class SqliteAgentInvocationRepository
       dateIso: row.dateIso,
       totalCostUsd: row.totalCostUsd,
       count: row.count,
+      ...costCompletenessFields({
+        knownCostInvocationCount: row.knownCostInvocationCount,
+        unknownCostInvocationCount: row.unknownCostInvocationCount,
+      }),
     }));
   }
 
@@ -363,8 +382,10 @@ export class SqliteAgentInvocationRepository
     const rows = this.db
       .prepare(
         `SELECT COALESCE(NULLIF(TRIM(model), ''), 'unknown') AS model,
-                COALESCE(SUM(COALESCE(cost_estimate, 0)), 0) AS totalCostUsd,
-                COUNT(*) AS invocationCount
+                COALESCE(SUM(CASE WHEN cost_estimate IS NOT NULL THEN cost_estimate ELSE 0 END), 0) AS totalCostUsd,
+                COUNT(*) AS invocationCount,
+                SUM(CASE WHEN cost_estimate IS NOT NULL THEN 1 ELSE 0 END) AS knownCostInvocationCount,
+                SUM(CASE WHEN cost_estimate IS NULL THEN 1 ELSE 0 END) AS unknownCostInvocationCount
          FROM agent_invocations
          WHERE COALESCE(finished_at, created_at) >= @sinceIso
            AND COALESCE(finished_at, created_at) <= @untilIso
@@ -383,6 +404,10 @@ export class SqliteAgentInvocationRepository
       model: row.model,
       totalCostUsd: row.totalCostUsd,
       invocationCount: row.invocationCount,
+      ...costCompletenessFields({
+        knownCostInvocationCount: row.knownCostInvocationCount,
+        unknownCostInvocationCount: row.unknownCostInvocationCount,
+      }),
     }));
   }
 }
@@ -397,6 +422,7 @@ const rowToCostInvocation = (
     latencyMs: row.latency_ms ?? 0,
     createdAt: row.created_at,
   };
+  if (row.cost === null) summary.costKnown = false;
   if (row.status === "succeeded") summary.success = true;
   if (row.status === "failed" || row.status === "cancelled") {
     summary.success = false;
@@ -412,23 +438,63 @@ const normalizeModel = (model: string | null): string => {
 const summarizePerModel = (
   invocations: TaskRunCostInvocationSummary[],
 ): TaskRunCostModelBreakdown[] => {
-  const byModel = new Map<string, TaskRunCostModelBreakdown>();
+  const byModel = new Map<
+    string,
+    TaskRunCostModelBreakdown & {
+      knownCostInvocationCount: number;
+      unknownCostInvocationCount: number;
+    }
+  >();
   for (const item of invocations) {
     const current = byModel.get(item.model) ?? {
       model: item.model,
       cost: 0,
       latencyMs: 0,
       count: 0,
+      knownCostInvocationCount: 0,
+      unknownCostInvocationCount: 0,
     };
+    const costKnown = item.costKnown !== false;
     byModel.set(item.model, {
       model: item.model,
       cost: current.cost + item.cost,
       latencyMs: current.latencyMs + item.latencyMs,
       count: current.count + 1,
+      knownCostInvocationCount:
+        current.knownCostInvocationCount + (costKnown ? 1 : 0),
+      unknownCostInvocationCount:
+        current.unknownCostInvocationCount + (costKnown ? 0 : 1),
     });
   }
-  return [...byModel.values()].sort(
-    (left, right) =>
-      right.cost - left.cost || left.model.localeCompare(right.model),
-  );
+  return [...byModel.values()]
+    .map((item) => ({
+      model: item.model,
+      cost: item.cost,
+      latencyMs: item.latencyMs,
+      count: item.count,
+      ...costCompletenessFields({
+        knownCostInvocationCount: item.knownCostInvocationCount,
+        unknownCostInvocationCount: item.unknownCostInvocationCount,
+      }),
+    }))
+    .sort(
+      (left, right) =>
+        right.cost - left.cost || left.model.localeCompare(right.model),
+    );
 };
+
+const costCompletenessFields = (input: {
+  knownCostInvocationCount: number;
+  unknownCostInvocationCount: number;
+}):
+  | {
+      knownCostInvocationCount: number;
+      unknownCostInvocationCount: number;
+    }
+  | Record<string, never> =>
+  input.unknownCostInvocationCount > 0
+    ? {
+        knownCostInvocationCount: input.knownCostInvocationCount,
+        unknownCostInvocationCount: input.unknownCostInvocationCount,
+      }
+    : {};

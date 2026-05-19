@@ -33,6 +33,50 @@ test("BudgetOverviewContent renders an empty data placeholder", () => {
   assert.equal(isBudgetUsageEmpty(emptySummary), true);
 });
 
+test("BudgetOverviewContent renders unknown provider cost as unpriced usage", () => {
+  const summary = {
+    ...emptySummary,
+    unknownCostInvocationCount: 1,
+    profiles: [
+      {
+        profileId: "ap_coder",
+        profileName: "Coder",
+        model: "gpt-unknown-price",
+        todayCostUsd: 0,
+        windowCostUsd: 0,
+        averageDailyCostUsd: 0,
+        knownCostInvocationCount: 0,
+        unknownCostInvocationCount: 1,
+        daily: [
+          {
+            dateIso: "2026-05-18",
+            totalCostUsd: 0,
+            count: 1,
+            knownCostInvocationCount: 0,
+            unknownCostInvocationCount: 1,
+          },
+        ],
+      },
+    ],
+    topModels: [
+      {
+        model: "gpt-unknown-price",
+        totalCostUsd: 0,
+        invocationCount: 1,
+        knownCostInvocationCount: 0,
+        unknownCostInvocationCount: 1,
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(BudgetOverviewContent, { summary }),
+  );
+
+  assert.equal(isBudgetUsageEmpty(summary), false);
+  assert.match(html, /Unknown/);
+  assert.match(html, /1 call has unknown USD cost/);
+});
+
 test("budget overview helpers classify daily budget usage", () => {
   const profile = {
     profileId: "ap_coder",

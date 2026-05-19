@@ -228,6 +228,14 @@ export class LearnerAdvisor {
       (sum, profile) => sum + profile.todayCostUsd,
       0,
     );
+    const unknownCostInvocationCount = profileSummaries.reduce(
+      (sum, profile) => sum + (profile.unknownCostInvocationCount ?? 0),
+      0,
+    );
+    const knownCostInvocationCount = profileSummaries.reduce(
+      (sum, profile) => sum + profileKnownCostCount(profile),
+      0,
+    );
     return {
       sinceIso,
       untilIso,
@@ -236,6 +244,10 @@ export class LearnerAdvisor {
       todayCostUsd,
       windowCostUsd,
       averageDailyCostUsd: windowCostUsd / days,
+      ...costCompletenessFields({
+        knownCostInvocationCount,
+        unknownCostInvocationCount,
+      }),
       profiles: profileSummaries,
       topModels,
     };
@@ -538,6 +550,8 @@ const summarizeBudgetProfile = (input: {
     dateIso: string;
     totalCostUsd: number;
     count: number;
+    knownCostInvocationCount?: number;
+    unknownCostInvocationCount?: number;
   }>;
   dateWindow: string[];
   todayIso: string;
@@ -551,11 +565,26 @@ const summarizeBudgetProfile = (input: {
       dateIso,
       totalCostUsd: row?.totalCostUsd ?? 0,
       count: row?.count ?? 0,
+      ...(row
+        ? costCompletenessFields({
+            knownCostInvocationCount:
+              row.knownCostInvocationCount ?? row.count,
+            unknownCostInvocationCount: row.unknownCostInvocationCount ?? 0,
+          })
+        : {}),
     };
   });
   const windowCostUsd = daily.reduce((sum, point) => sum + point.totalCostUsd, 0);
   const todayCostUsd =
     daily.find((point) => point.dateIso === input.todayIso)?.totalCostUsd ?? 0;
+  const unknownCostInvocationCount = daily.reduce(
+    (sum, point) => sum + (point.unknownCostInvocationCount ?? 0),
+    0,
+  );
+  const knownCostInvocationCount = daily.reduce(
+    (sum, point) => sum + knownCostCount(point),
+    0,
+  );
   const dailyLimit = input.profile.permissions.budget?.perDayUsd;
   return {
     profileId: input.profile.id,
@@ -567,6 +596,10 @@ const summarizeBudgetProfile = (input: {
     todayCostUsd,
     windowCostUsd,
     averageDailyCostUsd: windowCostUsd / input.dateWindow.length,
+    ...costCompletenessFields({
+      knownCostInvocationCount,
+      unknownCostInvocationCount,
+    }),
     ...(typeof dailyLimit === "number" && dailyLimit > 0
       ? { dailyBudgetRatio: todayCostUsd / dailyLimit }
       : {}),
@@ -660,6 +693,30 @@ const inferLatencyHint = (traces: LearningTrace[]): EffortHint | undefined => {
   if (avg < 60_000) return "medium";
   return "high";
 };
+
+const knownCostCount = (input: {
+  count?: number;
+  knownCostInvocationCount?: number;
+}): number => input.knownCostInvocationCount ?? input.count ?? 0;
+
+const profileKnownCostCount = (profile: BudgetUsageProfileSummary): number =>
+  profile.daily.reduce((sum, point) => sum + knownCostCount(point), 0);
+
+const costCompletenessFields = (input: {
+  knownCostInvocationCount: number;
+  unknownCostInvocationCount: number;
+}):
+  | {
+      knownCostInvocationCount: number;
+      unknownCostInvocationCount: number;
+    }
+  | Record<string, never> =>
+  input.unknownCostInvocationCount > 0
+    ? {
+        knownCostInvocationCount: input.knownCostInvocationCount,
+        unknownCostInvocationCount: input.unknownCostInvocationCount,
+      }
+    : {};
 
 const buildRationale = (input: {
   reranked: CapabilitySuggestion[];

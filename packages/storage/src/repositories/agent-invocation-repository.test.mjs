@@ -168,6 +168,57 @@ test("AgentInvocationRepository persists profileId and summarizes cost by task r
   }
 });
 
+test("AgentInvocationRepository exposes unknown invocation cost separately from zero-dollar spend", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const state = new LocalStateService(db);
+    const profile = await state.agentProfiles.create(profileInput());
+    const created = await createInvocation(
+      state,
+      t.dir,
+      900,
+      "2026-05-18T00:01:00.000Z",
+      {
+        profileId: profile.id,
+        model: "gpt-unknown-price",
+      },
+    );
+
+    const summary = await state.summarizeAgentInvocationCostByTaskRun(
+      created.taskRun.id,
+    );
+
+    assert.equal(summary.totalCostUsd, 0);
+    assert.equal(summary.knownCostInvocationCount, 0);
+    assert.equal(summary.unknownCostInvocationCount, 1);
+    assert.deepEqual(summary.perModel, [
+      {
+        model: "gpt-unknown-price",
+        cost: 0,
+        latencyMs: 900,
+        count: 1,
+        knownCostInvocationCount: 0,
+        unknownCostInvocationCount: 1,
+      },
+    ]);
+    assert.deepEqual(summary.invocations, [
+      {
+        id: created.invocation.id,
+        model: "gpt-unknown-price",
+        cost: 0,
+        costKnown: false,
+        latencyMs: 900,
+        createdAt: created.invocation.createdAt,
+        success: true,
+      },
+    ]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentInvocationRepository aggregates budget usage by invocation profile and day", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -237,6 +288,56 @@ test("AgentInvocationRepository aggregates budget usage by invocation profile an
       }),
       0.2,
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentInvocationRepository carries unknown cost counts through budget aggregates", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const state = new LocalStateService(db);
+    const profile = await state.agentProfiles.create(profileInput());
+    await createInvocation(state, t.dir, 100, "2026-05-18T01:00:00.000Z", {
+      profileId: profile.id,
+      model: "shared-model",
+      costEstimate: 0.2,
+    });
+    await createInvocation(state, t.dir, 200, "2026-05-18T02:00:00.000Z", {
+      profileId: profile.id,
+      model: "shared-model",
+    });
+
+    const aggregates = await state.aggregateAgentInvocationCostByProfileAndDay({
+      sinceIso: "2026-05-18T00:00:00.000Z",
+      untilIso: "2026-05-18T23:59:59.999Z",
+    });
+    const topModels = await state.summarizeAgentInvocationModelCosts({
+      sinceIso: "2026-05-18T00:00:00.000Z",
+      untilIso: "2026-05-18T23:59:59.999Z",
+    });
+
+    assert.deepEqual(aggregates, [
+      {
+        profileId: profile.id,
+        dateIso: "2026-05-18",
+        totalCostUsd: 0.2,
+        count: 2,
+        knownCostInvocationCount: 1,
+        unknownCostInvocationCount: 1,
+      },
+    ]);
+    assert.deepEqual(topModels, [
+      {
+        model: "shared-model",
+        totalCostUsd: 0.2,
+        invocationCount: 2,
+        knownCostInvocationCount: 1,
+        unknownCostInvocationCount: 1,
+      },
+    ]);
   } finally {
     closeDb(db);
     t.cleanup();

@@ -69,12 +69,15 @@ export interface TaskRunCostModelBreakdown {
   cost: number;
   latencyMs: number;
   count: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
 }
 
 export interface TaskRunCostInvocationSummary {
   id: string;
   model: string;
   cost: number;
+  costKnown?: boolean;
   latencyMs: number;
   createdAt: string;
   success?: boolean;
@@ -115,6 +118,8 @@ export interface TaskRunCostSummary {
   totalCostUsd: number;
   totalLatencyMs: number;
   invocationCount: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
   perModel: TaskRunCostModelBreakdown[];
   invocations: TaskRunCostInvocationSummary[];
   agentInvocationStatusCounts?: TaskRunCostStatusCounts;
@@ -126,18 +131,24 @@ export interface LearningTraceProfileDayAggregate {
   dateIso: string;
   totalCostUsd: number;
   count: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
 }
 
 export interface BudgetUsageModelSummary {
   model: string;
   totalCostUsd: number;
   invocationCount: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
 }
 
 export interface BudgetUsageDailyPoint {
   dateIso: string;
   totalCostUsd: number;
   count: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
 }
 
 export interface BudgetUsageProfileSummary {
@@ -148,6 +159,8 @@ export interface BudgetUsageProfileSummary {
   todayCostUsd: number;
   windowCostUsd: number;
   averageDailyCostUsd: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
   dailyBudgetRatio?: number;
   daily: BudgetUsageDailyPoint[];
 }
@@ -160,6 +173,8 @@ export interface BudgetUsageSummary {
   todayCostUsd: number;
   windowCostUsd: number;
   averageDailyCostUsd: number;
+  knownCostInvocationCount?: number;
+  unknownCostInvocationCount?: number;
   profiles: BudgetUsageProfileSummary[];
   topModels: BudgetUsageModelSummary[];
 }

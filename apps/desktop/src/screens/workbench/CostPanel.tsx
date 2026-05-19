@@ -26,6 +26,16 @@ const errorMessage = (e: unknown): string =>
 const formatUsd = (value: number): string =>
   value === 0 ? "$0.00" : `$${value.toFixed(value >= 1 ? 2 : 4)}`;
 
+const formatKnownUsd = (value: number, unknownCount = 0): string => {
+  if (unknownCount <= 0) return formatUsd(value);
+  return value > 0 ? `${formatUsd(value)} known` : "Unknown";
+};
+
+const unknownCostNotice = (count: number): string =>
+  count === 1
+    ? "1 call has unknown USD cost"
+    : `${count} calls have unknown USD cost`;
+
 const formatDuration = (ms: number): string => {
   if (ms <= 0) return "0ms";
   if (ms < 1_000) return `${ms}ms`;
@@ -74,13 +84,14 @@ export const CostPanel = ({ taskRunId }: CostPanelProps): JSX.Element => {
   return <CostSummaryView summary={state.summary} />;
 };
 
-const CostSummaryView = ({
+export const CostSummaryView = ({
   summary,
 }: {
   summary: TaskRunCostSummary;
 }): JSX.Element => {
   const budgetRows = visibleBudgetProgress(summary);
   const statusCounts = summary.agentInvocationStatusCounts;
+  const unknownCostCount = summary.unknownCostInvocationCount ?? 0;
   const maxModelCost = useMemo(
     () => Math.max(0, ...summary.perModel.map((item) => item.cost)),
     [summary.perModel],
@@ -95,7 +106,7 @@ const CostSummaryView = ({
         <dl className="cost-panel__metrics">
           <div>
             <dt>Total USD</dt>
-            <dd>{formatUsd(summary.totalCostUsd)}</dd>
+            <dd>{formatKnownUsd(summary.totalCostUsd, unknownCostCount)}</dd>
           </div>
           <div>
             <dt>Latency</dt>
@@ -110,6 +121,10 @@ const CostSummaryView = ({
             <dd>{formatStatusCounts(statusCounts)}</dd>
           </div>
         </dl>
+
+        {unknownCostCount > 0 ? (
+          <div className="empty-state">{unknownCostNotice(unknownCostCount)}.</div>
+        ) : null}
 
         {budgetRows.length > 0 ? (
           <BudgetProgress
@@ -222,7 +237,8 @@ const ModelBreakdownChart = ({
           <li key={item.model}>
             <span>{item.model}</span>
             <strong>
-              {formatUsd(item.cost)} · {item.count} calls ·{" "}
+              {formatKnownUsd(item.cost, item.unknownCostInvocationCount ?? 0)} ·{" "}
+              {item.count} calls ·{" "}
               {formatDuration(item.latencyMs)}
             </strong>
           </li>
@@ -260,7 +276,7 @@ const InvocationTable = ({
             {summary.invocations.map((item) => (
               <tr key={item.id}>
                 <td>{item.model}</td>
-                <td>{formatUsd(item.cost)}</td>
+                <td>{formatKnownUsd(item.cost, item.costKnown === false ? 1 : 0)}</td>
                 <td>{formatDuration(item.latencyMs)}</td>
                 <td>
                   <span className={statusClass(item.success)}>

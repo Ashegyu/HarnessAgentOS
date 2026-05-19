@@ -457,7 +457,7 @@ export const registerConversationIpc = (
           repairAttempts,
           agentInvocations,
           accumulatedTaskRunCostUsd,
-          accumulatedDailyCostUsd,
+          dailyAgentInvocationCostRows,
         ] =
           await Promise.all([
             state.listStepsByTaskRun(cast.taskRunId),
@@ -468,13 +468,26 @@ export const registerConversationIpc = (
             state.repairAttempts.listByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
             state.sumAgentInvocationCostByTaskRun(cast.taskRunId),
-            state.sumAgentInvocationCostByDay({
+            state.aggregateAgentInvocationCostByProfileAndDay({
+              sinceIso: `${usageIsoDate}T00:00:00.000Z`,
+              untilIso: `${usageIsoDate}T23:59:59.999Z`,
               ...(settings.activeAgentProfileId
                 ? { profileId: settings.activeAgentProfileId }
                 : {}),
-              isoDate: usageIsoDate,
             }),
           ]);
+        const accumulatedDailyCostUsd = dailyAgentInvocationCostRows.reduce(
+          (sum, row) => sum + row.totalCostUsd,
+          0,
+        );
+        const unknownTaskRunCostInvocationCount = agentInvocations.filter(
+          (invocation) => invocation.costEstimate === undefined,
+        ).length;
+        const unknownDailyCostInvocationCount =
+          dailyAgentInvocationCostRows.reduce(
+            (sum, row) => sum + (row.unknownCostInvocationCount ?? 0),
+            0,
+          );
         const a2aRemoteTaskRefs = (
           await Promise.all(
             agentInvocations.map((invocation) =>
@@ -495,6 +508,12 @@ export const registerConversationIpc = (
           budgetUsage: {
             accumulatedTaskRunCostUsd,
             accumulatedDailyCostUsd,
+            ...(unknownTaskRunCostInvocationCount > 0
+              ? { unknownTaskRunCostInvocationCount }
+              : {}),
+            ...(unknownDailyCostInvocationCount > 0
+              ? { unknownDailyCostInvocationCount }
+              : {}),
             isoDate: usageIsoDate,
           },
         });

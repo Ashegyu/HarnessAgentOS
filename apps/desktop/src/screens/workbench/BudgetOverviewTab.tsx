@@ -9,6 +9,7 @@ import {
   dailyBudgetPercent,
   isBudgetUsageEmpty,
   maxDailyProfileCost,
+  unknownBudgetUsageCount,
 } from "./budget-overview-model";
 
 type BudgetState =
@@ -21,6 +22,16 @@ const errorMessage = (e: unknown): string =>
 
 const formatUsd = (value: number): string =>
   value === 0 ? "$0.00" : `$${value.toFixed(value >= 1 ? 2 : 4)}`;
+
+const formatKnownUsd = (value: number, unknownCount = 0): string => {
+  if (unknownCount <= 0) return formatUsd(value);
+  return value > 0 ? `${formatUsd(value)} known` : "Unknown";
+};
+
+const unknownCostNotice = (count: number): string =>
+  count === 1
+    ? "1 call has unknown USD cost"
+    : `${count} calls have unknown USD cost`;
 
 export const BudgetOverviewTab = (): JSX.Element => {
   const [days, setDays] = useState(7);
@@ -77,26 +88,32 @@ export const BudgetOverviewContent = ({
   summary: BudgetUsageSummary;
 }): JSX.Element => {
   const maxCost = useMemo(() => maxDailyProfileCost(summary), [summary]);
+  const unknownCount = unknownBudgetUsageCount(summary);
+  const todayUnknownCount = unknownTodayCostCount(summary);
   return (
     <div className="budget-overview__content">
       <dl className="budget-overview__metrics">
         <div>
           <dt>Today</dt>
-          <dd>{formatUsd(summary.todayCostUsd)}</dd>
+          <dd>{formatKnownUsd(summary.todayCostUsd, todayUnknownCount)}</dd>
         </div>
         <div>
           <dt>{summary.days}-day avg</dt>
-          <dd>{formatUsd(summary.averageDailyCostUsd)}</dd>
+          <dd>{formatKnownUsd(summary.averageDailyCostUsd, unknownCount)}</dd>
         </div>
         <div>
           <dt>{summary.days}-day total</dt>
-          <dd>{formatUsd(summary.windowCostUsd)}</dd>
+          <dd>{formatKnownUsd(summary.windowCostUsd, unknownCount)}</dd>
         </div>
         <div>
           <dt>Profiles</dt>
           <dd>{summary.profiles.length}</dd>
         </div>
       </dl>
+
+      {unknownCount > 0 ? (
+        <div className="empty-state">{unknownCostNotice(unknownCount)}.</div>
+      ) : null}
 
       {isBudgetUsageEmpty(summary) ? (
         <div className="empty-state">표시할 budget 사용량이 없습니다.</div>
@@ -129,7 +146,11 @@ export const BudgetOverviewContent = ({
               <li key={model.model}>
                 <span>{model.model}</span>
                 <strong>
-                  {formatUsd(model.totalCostUsd)} · {model.invocationCount}
+                  {formatKnownUsd(
+                    model.totalCostUsd,
+                    model.unknownCostInvocationCount ?? 0,
+                  )}{" "}
+                  · {model.invocationCount}
                 </strong>
               </li>
             ))}
@@ -156,7 +177,10 @@ const ProfileTrend = ({
           <span>{profile.model}</span>
         </div>
         <span className={`status-pill status-pill--${toneClass(tone)}`}>
-          {formatUsd(profile.todayCostUsd)}
+          {formatKnownUsd(
+            profile.todayCostUsd,
+            profileTodayUnknownCostCount(profile),
+          )}
         </span>
       </div>
       <svg
@@ -224,9 +248,24 @@ const ProfileUsageTable = ({
                 <span>{profile.model}</span>
               </td>
               <td>{formatBudget(profile.budget)}</td>
-              <td>{formatUsd(profile.todayCostUsd)}</td>
-              <td>{formatUsd(profile.windowCostUsd)}</td>
-              <td>{formatUsd(profile.averageDailyCostUsd)}</td>
+              <td>
+                {formatKnownUsd(
+                  profile.todayCostUsd,
+                  profileTodayUnknownCostCount(profile),
+                )}
+              </td>
+              <td>
+                {formatKnownUsd(
+                  profile.windowCostUsd,
+                  profile.unknownCostInvocationCount ?? 0,
+                )}
+              </td>
+              <td>
+                {formatKnownUsd(
+                  profile.averageDailyCostUsd,
+                  profile.unknownCostInvocationCount ?? 0,
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -254,3 +293,16 @@ const toneClass = (tone: ReturnType<typeof budgetUsageTone>): string => {
   if (tone === "warning") return "warning";
   return "neutral";
 };
+
+const profileTodayUnknownCostCount = (
+  profile: BudgetUsageProfileSummary,
+): number =>
+  profile.daily.at(-1)?.unknownCostInvocationCount ??
+  profile.unknownCostInvocationCount ??
+  0;
+
+const unknownTodayCostCount = (summary: BudgetUsageSummary): number =>
+  summary.profiles.reduce(
+    (sum, profile) => sum + profileTodayUnknownCostCount(profile),
+    0,
+  );

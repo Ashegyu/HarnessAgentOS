@@ -386,6 +386,68 @@ test("summarizeBudgetUsage returns profile trends, daily totals, and top models"
   }
 });
 
+test("summarizeBudgetUsage carries unknown cost counts from agent invocations", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const profile = await state.agentProfiles.create(
+      profileInput({ name: "Unknown Cost Coder" }),
+    );
+    const taskRun = await seedTaskRun(state, "code with unknown pricing");
+    await createCostedInvocation(state, taskRun, {
+      model: "gpt-unknown-price",
+      profileId: profile.id,
+      costEstimate: 0.2,
+      latencyMs: 100,
+      finishedAt: `${today}T01:00:00.000Z`,
+    });
+    await createCostedInvocation(state, taskRun, {
+      model: "gpt-unknown-price",
+      profileId: profile.id,
+      latencyMs: 100,
+      finishedAt: `${today}T02:00:00.000Z`,
+    });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const summary = await advisor.summarizeBudgetUsage({ days: 1 });
+    const profileSummary = summary.profiles.find(
+      (item) => item.profileId === profile.id,
+    );
+
+    assert.equal(summary.windowCostUsd, 0.2);
+    assert.equal(summary.knownCostInvocationCount, 1);
+    assert.equal(summary.unknownCostInvocationCount, 1);
+    assert.equal(profileSummary.knownCostInvocationCount, 1);
+    assert.equal(profileSummary.unknownCostInvocationCount, 1);
+    assert.deepEqual(profileSummary.daily, [
+      {
+        dateIso: today,
+        totalCostUsd: 0.2,
+        count: 2,
+        knownCostInvocationCount: 1,
+        unknownCostInvocationCount: 1,
+      },
+    ]);
+    assert.deepEqual(summary.topModels, [
+      {
+        model: "gpt-unknown-price",
+        totalCostUsd: 0.2,
+        invocationCount: 2,
+        knownCostInvocationCount: 1,
+        unknownCostInvocationCount: 1,
+      },
+    ]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("proposeRecommendationApprovals creates model_use and capability_use approvals without duplicates", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
