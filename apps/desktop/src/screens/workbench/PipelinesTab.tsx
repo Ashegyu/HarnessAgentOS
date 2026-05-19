@@ -451,6 +451,10 @@ export const PipelinesTab = ({
                   placeholder="예: 빌드 에러, 리팩터링, 보안 리뷰"
                   onChange={(e) => setPipelineRequestFilter(e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  유형 키워드를 적으면 아래 chip 후보가 좁혀지고 pipeline 추천 점수가
+                  이 키워드 기준으로 다시 계산됩니다.
+                </span>
               </label>
               <div
                 className="pipeline-intent-filter__chips"
@@ -681,6 +685,10 @@ export const PipelinesTab = ({
                     disabled={saving}
                     onChange={(e) => updateDraft({ name: e.target.value })}
                   />
+                  <span className="settings-field__hint">
+                    pipeline을 구분할 표시 이름입니다. General 탭 "기본 Pipeline"과
+                    thread 생성 화면의 pipeline 선택 목록에 노출됩니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">설명</span>
@@ -692,6 +700,10 @@ export const PipelinesTab = ({
                       updateDraft({ description: e.target.value })
                     }
                   />
+                  <span className="settings-field__hint">
+                    어떤 요청 유형에 적합한 pipeline인지 한두 줄로. 추천 엔진의
+                    매칭 점수 계산에도 입력으로 사용됩니다.
+                  </span>
                 </label>
               </fieldset>
 
@@ -818,6 +830,11 @@ export const PipelinesTab = ({
                               </option>
                             )}
                         </select>
+                        <span className="settings-field__hint">
+                          Local CLI는 로컬 claude/codex 프로세스를 spawn합니다.
+                          Remote endpoint를 고르면 위 Agent Profile 대신 해당 A2A
+                          endpoint로 task가 위임됩니다.
+                        </span>
                       </label>
                       <label className="settings-field">
                         <span className="settings-field__label">
@@ -841,10 +858,19 @@ export const PipelinesTab = ({
                             </option>
                           ))}
                         </select>
+                        <span className="settings-field__hint">
+                          이 step이 어떤 형식의 결과를 내야 하는지 강제합니다.
+                          비워두면 Agent Profile의 role 기본 contract를 따릅니다.
+                        </span>
                       </label>
                       <div className="settings-field">
                         <span className="settings-field__label">
                           의존 Step
+                        </span>
+                        <span className="settings-field__hint">
+                          체크된 step들이 모두 완료되어야 이 step이 시작됩니다.
+                          아무 것도 체크하지 않으면 step 순서대로 직렬 실행되고,
+                          공통 의존성을 가진 step끼리는 병렬로 실행됩니다.
                         </span>
                         <div className="pipeline-step__option-grid">
                           {draft.steps
@@ -879,6 +905,10 @@ export const PipelinesTab = ({
                       <div className="settings-field">
                         <span className="settings-field__label">
                           허용 Action
+                        </span>
+                        <span className="settings-field__hint">
+                          이 step의 worker가 만들 수 있는 approval action 종류를 좁힙니다.
+                          비워두면 Agent Profile role의 기본 허용 action을 그대로 사용합니다.
                         </span>
                         <div className="pipeline-step__option-row">
                           {PIPELINE_WORKER_ACTION_CHOICES.map((action) => (
@@ -930,6 +960,11 @@ export const PipelinesTab = ({
                             updateStep(i, { instruction: e.target.value })
                           }
                         />
+                        <span className="settings-field__hint">
+                          이 step의 worker prompt 본문입니다. 의존 step의 결과는
+                          이 prompt 위에 자동으로 컨텍스트로 붙으므로 여기서는
+                          "무엇을 결정/생성/검토할지"만 적으세요.
+                        </span>
                       </label>
                     </li>
                   ))}

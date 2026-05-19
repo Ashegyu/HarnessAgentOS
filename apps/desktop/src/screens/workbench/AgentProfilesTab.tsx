@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AgentProfile, ApprovalActionType } from "@harness/core";
+import type {
+  AgentProfile,
+  ApprovalActionType,
+  Capability,
+  McpServerConfig,
+  SkillSource,
+} from "@harness/core";
 import { APPROVAL_ACTION_TYPES, WORKER_ROLES } from "@harness/core";
 import {
   buildBindingPolicyHints,
@@ -19,6 +25,7 @@ import {
   roleLabel,
   roleOptionLabel,
 } from "./role-metadata";
+import { skillSourceCapabilitySourceKey } from "./skill-source-form";
 
 interface Props {
   /** Used to flash a saved-confirmation back to the parent. */
@@ -50,6 +57,34 @@ const ACTION_LABELS: Record<ApprovalActionType, string> = {
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
+/**
+ * Parse the underlying text state for an *IdsText draft field — the same
+ * splitter used by `parseList` in agent-profile-form. Keeping the parse
+ * here makes the checkbox UI authoritative without duplicating the saver.
+ */
+const parseIdSet = (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const raw of text.split(/[\r\n,]+/)) {
+    const item = raw.trim();
+    if (item.length > 0) out.add(item);
+  }
+  return out;
+};
+
+const toggleIdInText = (
+  text: string,
+  id: string,
+  checked: boolean,
+): string => {
+  const set = parseIdSet(text);
+  if (checked) set.add(id);
+  else set.delete(id);
+  return [...set].join("\n");
+};
+
+const removeIdFromText = (text: string, id: string): string =>
+  toggleIdInText(text, id, false);
+
 export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -57,14 +92,23 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
+  const [skillSources, setSkillSources] = useState<SkillSource[]>([]);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
 
   const refresh = useCallback(async () => {
     setList({ kind: "loading" });
     try {
-      const [profiles, settings] = await Promise.all([
+      const [profiles, settings, mcp, sources, caps] = await Promise.all([
         window.harness.agents.list(),
         window.harness.settings.get(),
+        window.harness.mcp.list(),
+        window.harness.skillSource.list(),
+        window.harness.capability.list(),
       ]);
+      setMcpServers(mcp);
+      setSkillSources(sources);
+      setCapabilities(caps);
       // Detect legacy data the user can promote into AgentProfile rows.
       // Plan returns null when there's nothing to migrate (either there
       // are already profile rows, or the user has pristine defaults).
@@ -112,6 +156,43 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
     () => (draft ? buildBindingPolicyHints(draft) : []),
     [draft],
   );
+
+  const selectedMcpIds = useMemo(
+    () => (draft ? parseIdSet(draft.mcpServerIdsText) : new Set<string>()),
+    [draft?.mcpServerIdsText, draft],
+  );
+  const selectedSkillSourceIds = useMemo(
+    () => (draft ? parseIdSet(draft.skillSourceIdsText) : new Set<string>()),
+    [draft?.skillSourceIdsText, draft],
+  );
+  const selectedAllowedSkillIds = useMemo(
+    () => (draft ? parseIdSet(draft.allowedSkillIdsText) : new Set<string>()),
+    [draft?.allowedSkillIdsText, draft],
+  );
+  const staleMcpIds = useMemo(() => {
+    const known = new Set(mcpServers.map((s) => s.id));
+    return [...selectedMcpIds].filter((id) => !known.has(id));
+  }, [selectedMcpIds, mcpServers]);
+  const staleSkillSourceIds = useMemo(() => {
+    const known = new Set(skillSources.map((s) => s.id));
+    return [...selectedSkillSourceIds].filter((id) => !known.has(id));
+  }, [selectedSkillSourceIds, skillSources]);
+  // Allowed skill candidates are scoped to the currently selected sources;
+  // a capability is "in scope" iff its source key matches a selected
+  // SkillSource. This mirrors how the runner resolves allowedSkillIds.
+  const allowedSkillCandidates = useMemo(() => {
+    if (selectedSkillSourceIds.size === 0) return [] as Capability[];
+    const selectedSourceKeys = new Set(
+      skillSources
+        .filter((src) => selectedSkillSourceIds.has(src.id))
+        .map((src) => skillSourceCapabilitySourceKey(src)),
+    );
+    return capabilities.filter((cap) => selectedSourceKeys.has(cap.source));
+  }, [selectedSkillSourceIds, skillSources, capabilities]);
+  const staleAllowedSkillIds = useMemo(() => {
+    const known = new Set(allowedSkillCandidates.map((c) => c.id));
+    return [...selectedAllowedSkillIds].filter((id) => !known.has(id));
+  }, [selectedAllowedSkillIds, allowedSkillCandidates]);
 
   const categories = useMemo(() => {
     if (list.kind !== "ready") return [];
@@ -400,6 +481,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("name", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  프로필을 구분하는 표시 이름입니다. 사이드바, thread 헤더, 추천 카드에 그대로 노출됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">설명</span>
@@ -409,6 +493,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("description", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  이 프로필이 어떤 시나리오에 적합한지 한두 줄로 적습니다. 프로필 선택 UI 툴팁에 사용됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">분류</span>
@@ -419,6 +506,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("category", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  사이드바 그룹화와 분류 필터에 사용되는 소문자 키 (예: <code>core</code>, <code>review</code>, <code>security</code>).
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">태그</span>
@@ -430,6 +520,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("tagsText", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  쉼표로 구분하는 키워드입니다. orchestration planner의 worker 선택과 검색 인덱싱에 사용됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">실행 Provider</span>
@@ -445,6 +538,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   <option value="claude">claude</option>
                   <option value="codex">codex</option>
                 </select>
+                <span className="settings-field__hint">
+                  auto는 General 탭의 Provider 설정을 따릅니다. MCP binding과 tool 정책은 현재 claude provider만 enforced입니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">역할(Role)</span>
@@ -501,6 +597,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("model", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  비워두면 General 탭의 전역 Model을 따릅니다. <code>claude-sonnet-4-6</code> 같은 ID로 이 프로필만 덮어쓸 수 있습니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -515,6 +614,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("temperatureText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  낮을수록(0에 가까울수록) 결정적, 높을수록 창의적인 응답이 나옵니다. 리뷰·정밀 작업은 낮게, 브레인스토밍은 높게 잡으세요.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -529,6 +631,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("maxTokensText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  단일 응답이 생성할 수 있는 최대 토큰 수입니다. 짧게 잡으면 비용을 줄이지만 답이 잘릴 수 있습니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">전체 제한 시간 (ms)</span>
@@ -539,6 +644,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   disabled={saving}
                   onChange={(e) => updateDraft("timeoutMsText", e.target.value)}
                 />
+                <span className="settings-field__hint">
+                  이 프로필의 invocation이 넘으면 강제 종료되는 한계입니다. General 탭의 Hard timeout보다 짧게 잡으면 이 값이 우선합니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -553,6 +661,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("stallTimeoutMsText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  마지막 stream 출력 이후 이 시간 동안 아무 응답이 없으면 stall로 간주하고 invocation을 중단합니다. 전체 제한 시간보다 짧게 잡으세요.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">컨텍스트 깊이</span>
@@ -565,6 +676,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("contextDepthText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  prompt에 함께 전달할 최근 step/checkpoint 개수입니다. 1 이상의 정수만 허용됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -579,6 +693,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("systemPromptPrefix", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  ROLE 블록 앞에 자동으로 붙는 조직·언어 정책입니다 (예: "항상 한국어로 답하세요"). 이 프로필의 모든 invocation에 적용됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -593,6 +710,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("systemPromptSuffix", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  ROLE 블록 끝에 붙는 마지막 알림입니다 (예: "모든 파일 변경은 Approval을 거쳐야 합니다").
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -608,6 +728,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("cliPathOverride", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  비워두면 PATH에서 claude/codex CLI를 검색합니다. 특정 빌드를 쓰려면 실행 파일의 절대 경로를 적으세요.
+                </span>
               </label>
             </fieldset>
 
@@ -662,48 +785,229 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   ))}
                 </ul>
               )}
-              <label className="settings-field">
-                <span className="settings-field__label">
-                  MCP server ids
+              <div className="settings-field">
+                <span className="settings-field__label">MCP servers</span>
+                <span className="settings-field__hint">
+                  per-agent scope만 체크 가능합니다. global scope는 활성화된 모든
+                  agent invocation에서 자동 적용되므로 여기서 선택할 필요가 없습니다.
                 </span>
-                <textarea
-                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
-                  rows={3}
-                  value={draft.mcpServerIdsText}
-                  disabled={saving}
-                  onChange={(e) =>
-                    updateDraft("mcpServerIdsText", e.target.value)
-                  }
-                />
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">
-                  Skill source ids
+                {mcpServers.length === 0 ? (
+                  <div className="settings-field__hint">
+                    등록된 MCP 서버가 없습니다. MCP 탭에서 먼저 등록하세요.
+                  </div>
+                ) : (
+                  <ul className="agent-profile-binding-list">
+                    {mcpServers.map((s) => {
+                      const isPerAgent = s.scope === "per-agent";
+                      return (
+                        <li key={s.id} className="agent-profile-binding-item">
+                          <label>
+                            <input
+                              type="checkbox"
+                              disabled={
+                                saving ||
+                                (!isPerAgent && !selectedMcpIds.has(s.id))
+                              }
+                              checked={selectedMcpIds.has(s.id)}
+                              onChange={(e) =>
+                                updateDraft(
+                                  "mcpServerIdsText",
+                                  toggleIdInText(
+                                    draft.mcpServerIdsText,
+                                    s.id,
+                                    e.target.checked,
+                                  ),
+                                )
+                              }
+                            />
+                            <span className="agent-profile-binding-item__name">
+                              {s.name}
+                            </span>
+                            <span className="agent-profile-binding-item__meta">
+                              {isPerAgent ? "per-agent" : "global · 자동 적용"}
+                              {!s.enabled && " · off"}
+                              {" · "}
+                              <code>{s.id}</code>
+                            </span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {staleMcpIds.length > 0 && (
+                  <div className="agent-profile-binding-stale">
+                    <strong>현재 등록된 서버에 없는 id:</strong>
+                    <ul>
+                      {staleMcpIds.map((id) => (
+                        <li key={id}>
+                          <code>{id}</code>{" "}
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={saving}
+                            onClick={() =>
+                              updateDraft(
+                                "mcpServerIdsText",
+                                removeIdFromText(draft.mcpServerIdsText, id),
+                              )
+                            }
+                          >
+                            제거
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="settings-field">
+                <span className="settings-field__label">Skill sources</span>
+                <span className="settings-field__hint">
+                  이 프로필이 사용할 SKILL.md 디렉터리를 선택합니다. trust 승격
+                  안 된 source는 <code>skill_script</code> 액션이 차단됩니다.
                 </span>
-                <textarea
-                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
-                  rows={3}
-                  value={draft.skillSourceIdsText}
-                  disabled={saving}
-                  onChange={(e) =>
-                    updateDraft("skillSourceIdsText", e.target.value)
-                  }
-                />
-              </label>
-              <label className="settings-field">
-                <span className="settings-field__label">
-                  Allowed skill ids
+                {skillSources.length === 0 ? (
+                  <div className="settings-field__hint">
+                    등록된 Skill source가 없습니다. Skill 탭에서 먼저 등록하세요.
+                  </div>
+                ) : (
+                  <ul className="agent-profile-binding-list">
+                    {skillSources.map((src) => (
+                      <li key={src.id} className="agent-profile-binding-item">
+                        <label>
+                          <input
+                            type="checkbox"
+                            disabled={saving}
+                            checked={selectedSkillSourceIds.has(src.id)}
+                            onChange={(e) =>
+                              updateDraft(
+                                "skillSourceIdsText",
+                                toggleIdInText(
+                                  draft.skillSourceIdsText,
+                                  src.id,
+                                  e.target.checked,
+                                ),
+                              )
+                            }
+                          />
+                          <span className="agent-profile-binding-item__name">
+                            {src.name}
+                          </span>
+                          <span className="agent-profile-binding-item__meta">
+                            {src.origin}
+                            {!src.enabled && " · disabled"}
+                            {!src.trusted && " · untrusted"}
+                            {" · "}
+                            <code>{src.id}</code>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {staleSkillSourceIds.length > 0 && (
+                  <div className="agent-profile-binding-stale">
+                    <strong>현재 등록된 source에 없는 id:</strong>
+                    <ul>
+                      {staleSkillSourceIds.map((id) => (
+                        <li key={id}>
+                          <code>{id}</code>{" "}
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={saving}
+                            onClick={() =>
+                              updateDraft(
+                                "skillSourceIdsText",
+                                removeIdFromText(draft.skillSourceIdsText, id),
+                              )
+                            }
+                          >
+                            제거
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="settings-field">
+                <span className="settings-field__label">Allowed skill ids</span>
+                <span className="settings-field__hint">
+                  비워두면 선택된 source의 enabled skill을 전부 허용합니다.
+                  특정 skill만 허용하려면 아래에서 골라주세요.
                 </span>
-                <textarea
-                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
-                  rows={3}
-                  value={draft.allowedSkillIdsText}
-                  disabled={saving}
-                  onChange={(e) =>
-                    updateDraft("allowedSkillIdsText", e.target.value)
-                  }
-                />
-              </label>
+                {selectedSkillSourceIds.size === 0 ? (
+                  <div className="settings-field__hint">
+                    Skill source를 먼저 선택하면 그 안의 skill 후보가 나타납니다.
+                  </div>
+                ) : allowedSkillCandidates.length === 0 ? (
+                  <div className="settings-field__hint">
+                    선택된 source에 등록된 capability가 없습니다. Skill 탭에서
+                    재스캔하거나 SKILL.md를 추가하세요.
+                  </div>
+                ) : (
+                  <ul className="agent-profile-binding-list">
+                    {allowedSkillCandidates.map((cap) => (
+                      <li key={cap.id} className="agent-profile-binding-item">
+                        <label>
+                          <input
+                            type="checkbox"
+                            disabled={saving}
+                            checked={selectedAllowedSkillIds.has(cap.id)}
+                            onChange={(e) =>
+                              updateDraft(
+                                "allowedSkillIdsText",
+                                toggleIdInText(
+                                  draft.allowedSkillIdsText,
+                                  cap.id,
+                                  e.target.checked,
+                                ),
+                              )
+                            }
+                          />
+                          <span className="agent-profile-binding-item__name">
+                            {cap.name}
+                          </span>
+                          <span className="agent-profile-binding-item__meta">
+                            {cap.riskLevel}
+                            {" · "}
+                            <code>{cap.id}</code>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {staleAllowedSkillIds.length > 0 && (
+                  <div className="agent-profile-binding-stale">
+                    <strong>현재 후보에 없는 id:</strong>
+                    <ul>
+                      {staleAllowedSkillIds.map((id) => (
+                        <li key={id}>
+                          <code>{id}</code>{" "}
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            disabled={saving}
+                            onClick={() =>
+                              updateDraft(
+                                "allowedSkillIdsText",
+                                removeIdFromText(draft.allowedSkillIdsText, id),
+                              )
+                            }
+                          >
+                            제거
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
               <label className="settings-field">
                 <span className="settings-field__label">
                   Tool allow patterns
@@ -717,6 +1021,10 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("toolAllowlistText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  허용할 MCP tool 이름 패턴 (한 줄당 하나). 비우면 모두 허용입니다.
+                  와일드카드 사용 예: <code>read_*</code>, <code>list_*</code>. claude provider에서만 enforced.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -731,11 +1039,18 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("toolDenylistText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  차단할 MCP tool 패턴 (한 줄당 하나). allow보다 항상 우선합니다.
+                  예: <code>shell_exec</code>, <code>network_*</code>.
+                </span>
               </label>
             </fieldset>
 
             <fieldset className="settings-fieldset">
               <legend>비용 한도</legend>
+              <p className="settings-field__hint">
+                비워두면 무제한입니다. 한도를 넘기 직전 invocation은 pre-execution budget gate에서 차단됩니다.
+              </p>
               <label className="settings-field">
                 <span className="settings-field__label">
                   단일 호출 한도 (USD)
@@ -751,6 +1066,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("perInvocationUsdText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  agent invocation 1회의 예상 비용이 이 값을 넘으면 시작 전에 차단됩니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -767,6 +1085,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("perTaskRunUsdText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  하나의 TaskRun 안에서 이 프로필이 누적으로 쓸 수 있는 한도입니다.
+                </span>
               </label>
               <label className="settings-field">
                 <span className="settings-field__label">
@@ -783,6 +1104,9 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     updateDraft("perDayUsdText", e.target.value)
                   }
                 />
+                <span className="settings-field__hint">
+                  로컬 자정~자정까지 이 프로필이 누적으로 쓸 수 있는 한도입니다. Budget 탭에서 현재 사용량을 확인할 수 있습니다.
+                </span>
               </label>
             </fieldset>
 

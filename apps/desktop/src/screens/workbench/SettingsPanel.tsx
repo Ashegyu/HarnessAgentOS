@@ -364,6 +364,11 @@ export const SettingsPanel = ({
                   <option value="claude">claude</option>
                   <option value="codex">codex</option>
                 </select>
+                <span className="settings-field__hint">
+                  auto는 가용한 CLI(claude → codex 순)를 자동 선택합니다.
+                  특정 제품군에 고정하려면 claude / codex를 직접 지정하세요.
+                  Agent Profile에서 같은 옵션을 덮어쓸 수 있습니다.
+                </span>
               </label>
 
               <label className="settings-field">
@@ -376,6 +381,10 @@ export const SettingsPanel = ({
                   disabled={state.saving}
                   onChange={(e) => dispatch({ type: "setModel", value: e.target.value })}
                 />
+                <span className="settings-field__hint">
+                  비워두면 각 CLI의 기본 모델을 그대로 씁니다.
+                  <code>claude-sonnet-4-6</code> 같은 ID를 직접 지정할 수 있습니다.
+                </span>
               </label>
 
               <label className="settings-field">
@@ -392,6 +401,10 @@ export const SettingsPanel = ({
                     if (v > 0) dispatch({ type: "setTimeoutMs", value: v });
                   }}
                 />
+                <span className="settings-field__hint">
+                  한 번의 agent invocation이 이 시간을 넘으면 강제 종료됩니다.
+                  길게 잡으면 빠진 응답을 오래 기다려 비용·블로킹이 늘어납니다.
+                </span>
               </label>
 
               <label className="settings-field">
@@ -408,6 +421,10 @@ export const SettingsPanel = ({
                     if (v > 0) dispatch({ type: "setStallTimeoutMs", value: v });
                   }}
                 />
+                <span className="settings-field__hint">
+                  마지막 stream 출력 이후 이 시간 동안 아무것도 오지 않으면
+                  stall로 간주하고 invocation을 종료합니다. Hard timeout보다 짧게 잡으세요.
+                </span>
               </label>
 
               <label className="settings-field">
@@ -424,6 +441,10 @@ export const SettingsPanel = ({
                     if (Number.isInteger(v) && v >= 1) dispatch({ type: "setContextDepth", value: v });
                   }}
                 />
+                <span className="settings-field__hint">
+                  agent에게 함께 전달할 최근 step/checkpoint 개수입니다.
+                  늘리면 맥락은 풍부해지지만 prompt 토큰 비용이 같이 증가합니다.
+                </span>
               </label>
             </fieldset>
 
@@ -441,6 +462,10 @@ export const SettingsPanel = ({
                 />
                 <span className="settings-field__label">Orchestration 활성화</span>
               </label>
+              <p className="settings-field__hint">
+                끄면 사용자 입력이 단일 worker에게 그대로 전달됩니다.
+                켜면 Pipelines 탭에서 정의한 단계 순서를 따라 planner → worker가 협업합니다.
+              </p>
 
               {pipelines.length > 0 && (
                 <label className="settings-field">
@@ -466,6 +491,10 @@ export const SettingsPanel = ({
                       </option>
                     ))}
                   </select>
+                  <span className="settings-field__hint">
+                    새 thread가 기본으로 쓸 pipeline입니다.
+                    선택하면 아래 Legacy Mode는 비활성화되고 pipeline의 단계 정의가 우선합니다.
+                  </span>
                 </label>
               )}
 
@@ -486,6 +515,11 @@ export const SettingsPanel = ({
                   <option value="planner_worker">planner_worker</option>
                   <option value="multi_worker">multi_worker</option>
                 </select>
+                <span className="settings-field__hint">
+                  Pipeline이 지정되지 않은 thread에만 적용되는 구버전 mode입니다.
+                  single_worker는 worker 한 명, planner_worker는 plan → worker,
+                  multi_worker는 plan → 다중 worker 분배입니다.
+                </span>
               </label>
 
               <label className="settings-field">
@@ -500,6 +534,10 @@ export const SettingsPanel = ({
                     dispatch({ type: "setDefaultInstructions", value: e.target.value })
                   }
                 />
+                <span className="settings-field__hint">
+                  새 task의 planner 프롬프트 앞에 자동으로 붙는 조직/팀 지침입니다.
+                  비워두면 사용자 입력만 전달됩니다.
+                </span>
               </label>
 
               <p className="settings-field__hint">

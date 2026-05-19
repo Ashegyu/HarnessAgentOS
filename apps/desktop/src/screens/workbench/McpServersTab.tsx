@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
-  AgentProfile,
   McpServerConfig,
-  McpServerBindingProposalResult,
   McpServerGenerationPreviewResult,
   McpServerHealth,
   McpServerScaffoldPreviewResult,
@@ -20,7 +18,7 @@ import {
 
 type ListState =
   | { kind: "loading" }
-  | { kind: "ready"; servers: McpServerConfig[]; profiles: AgentProfile[] }
+  | { kind: "ready"; servers: McpServerConfig[] }
   | { kind: "error"; message: string };
 
 const errorMessage = (e: unknown): string =>
@@ -33,17 +31,12 @@ const summarizeHealth = (h: McpServerHealth | undefined): string => {
   return `검사: ${new Date(h.checkedAt).toLocaleTimeString()}`;
 };
 
-const summarizeIds = (ids: readonly string[]): string =>
-  ids.length === 0 ? "(empty)" : ids.join(", ");
-
 export const McpServersTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ServerDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [bindingGenerating, setBindingGenerating] = useState(false);
-  const [bindingApplying, setBindingApplying] = useState(false);
   const [generationIntent, setGenerationIntent] = useState("");
   const [generationResult, setGenerationResult] =
     useState<McpServerGenerationPreviewResult | null>(null);
@@ -55,23 +48,12 @@ export const McpServersTab = (): JSX.Element => {
     useState<McpServerScaffoldPreviewResult | null>(null);
   const [scaffoldProposal, setScaffoldProposal] =
     useState<McpServerScaffoldProposalResult | null>(null);
-  const [bindingProfileId, setBindingProfileId] = useState("");
-  const [bindingResult, setBindingResult] =
-    useState<McpServerBindingProposalResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [servers, profiles] = await Promise.all([
-        window.harness.mcp.list(),
-        window.harness.agents.list(),
-      ]);
-      setList({ kind: "ready", servers, profiles });
-      setBindingProfileId((current) =>
-        profiles.some((profile) => profile.id === current)
-          ? current
-          : profiles[0]?.id ?? "",
-      );
+      const servers = await window.harness.mcp.list();
+      setList({ kind: "ready", servers });
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -111,7 +93,6 @@ export const McpServersTab = (): JSX.Element => {
 
   const handleNewServer = (): void => {
     setGenerationResult(null);
-    setBindingResult(null);
     setError(null);
     setDraft(emptyServerDraft());
     setSelectedId("__new__");
@@ -130,7 +111,6 @@ export const McpServersTab = (): JSX.Element => {
         request: { userIntent },
       });
       setGenerationResult(result);
-      setBindingResult(null);
       setSelectedId("__new__");
       setDraft(mcpGeneratedDraftToFormDraft(result.draft));
     } catch (e) {
@@ -157,7 +137,6 @@ export const McpServersTab = (): JSX.Element => {
       });
       await refresh();
       setGenerationResult(null);
-      setBindingResult(null);
       setSelectedId(result.id);
     } catch (e) {
       setError(errorMessage(e));
@@ -175,7 +154,6 @@ export const McpServersTab = (): JSX.Element => {
       await window.harness.mcp.delete({ serverId: draft.id });
       await refresh();
       setGenerationResult(null);
-      setBindingResult(null);
       setSelectedId(null);
     } catch (e) {
       setError(errorMessage(e));
@@ -263,49 +241,6 @@ export const McpServersTab = (): JSX.Element => {
     }
   };
 
-  const handleGenerateBindingProposal = async (): Promise<void> => {
-    if (!draft || draft.id === null) return;
-    if (bindingProfileId.length === 0) {
-      setError("Binding proposal을 만들 AgentProfile을 선택하세요.");
-      return;
-    }
-    setBindingGenerating(true);
-    setError(null);
-    try {
-      const result = await window.harness.mcp.generateProfileBindingProposal({
-        request: {
-          serverId: draft.id,
-          profileId: bindingProfileId,
-        },
-      });
-      setBindingResult(result);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBindingGenerating(false);
-    }
-  };
-
-  const handleApplyBindingProposal = async (): Promise<void> => {
-    if (!draft || draft.id === null || !bindingResult) return;
-    setBindingApplying(true);
-    setError(null);
-    try {
-      const result = await window.harness.mcp.applyProfileBindingProposal({
-        request: {
-          serverId: bindingResult.serverId,
-          profileId: bindingResult.profileId,
-        },
-      });
-      await refresh();
-      setBindingResult(result);
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBindingApplying(false);
-    }
-  };
-
   return (
     <div className="mcp-servers-tab">
       <div className="mcp-servers-tab__banner" role="note">
@@ -355,7 +290,6 @@ export const McpServersTab = (): JSX.Element => {
                     }`}
                     onClick={() => {
                       setGenerationResult(null);
-                      setBindingResult(null);
                       setError(null);
                       setSelectedId(s.id);
                     }}
@@ -586,6 +520,9 @@ export const McpServersTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("name", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    UI에 노출되는 표시 이름입니다. 영문/숫자/하이픈으로 자동 정규화된 값이 Claude MCP config key가 되므로, 다른 enabled 서버와 충돌하지 않게 지으세요.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">설명</span>
@@ -597,6 +534,9 @@ export const McpServersTab = (): JSX.Element => {
                       updateDraft("description", e.target.value)
                     }
                   />
+                  <span className="settings-field__hint">
+                    이 서버가 어떤 tool을 노출하는지 한두 줄로. AgentProfile 편집 화면의 binding 목록에 노출됩니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">Scope</span>
@@ -614,6 +554,10 @@ export const McpServersTab = (): JSX.Element => {
                     <option value="global">global (모든 프로필 후보)</option>
                     <option value="per-agent">per-agent (특정 프로필만)</option>
                   </select>
+                  <span className="settings-field__hint">
+                    global은 활성화된 모든 claude invocation에 자동 연결됩니다.
+                    per-agent는 AgentProfile의 <code>mcpServerIds</code>에 포함된 경우에만 연결됩니다.
+                  </span>
                 </label>
                 <label className="settings-field settings-field--checkbox">
                   <input
@@ -624,6 +568,9 @@ export const McpServersTab = (): JSX.Element => {
                   />
                   <span className="settings-field__label">활성화</span>
                 </label>
+                <span className="settings-field__hint">
+                  비활성화된 서버는 저장은 되지만 invocation에 연결되지 않습니다. envSecretRefs가 Vault에 등록되어 있고 config key 충돌이 없을 때만 활성화할 수 있습니다.
+                </span>
               </fieldset>
 
               <fieldset className="settings-fieldset">
@@ -645,6 +592,10 @@ export const McpServersTab = (): JSX.Element => {
                     <option value="http">http (원격 endpoint)</option>
                     <option value="sse">sse (server-sent events)</option>
                   </select>
+                  <span className="settings-field__hint">
+                    stdio는 로컬에서 명령을 spawn해 stdin/stdout으로 통신합니다.
+                    http/sse는 원격 endpoint를 HEAD/GET으로 reach해 통신합니다.
+                  </span>
                 </label>
 
                 {draft.transport === "stdio" ? (
@@ -661,6 +612,9 @@ export const McpServersTab = (): JSX.Element => {
                         disabled={saving}
                         onChange={(e) => updateDraft("command", e.target.value)}
                       />
+                      <span className="settings-field__hint">
+                        절대 경로 또는 PATH에서 찾을 수 있는 명령. <code>npx</code> 같은 launcher도 가능합니다 (인자에 패키지명을 적으세요).
+                      </span>
                     </label>
                     <label className="settings-field">
                       <span className="settings-field__label">
@@ -676,6 +630,9 @@ export const McpServersTab = (): JSX.Element => {
                           updateDraft("argsText", e.target.value)
                         }
                       />
+                      <span className="settings-field__hint">
+                        공백으로 구분합니다. 따옴표가 포함된 인자는 미지원 — 그런 경우 wrapper 스크립트를 만들어 command에 지정하세요.
+                      </span>
                     </label>
                   </>
                 ) : (
@@ -689,6 +646,9 @@ export const McpServersTab = (): JSX.Element => {
                       disabled={saving}
                       onChange={(e) => updateDraft("url", e.target.value)}
                     />
+                    <span className="settings-field__hint">
+                      MCP endpoint의 전체 URL. Health check는 HEAD → 실패 시 GET으로 reach를 확인합니다 (3초 timeout).
+                    </span>
                   </label>
                 )}
               </fieldset>
@@ -707,6 +667,9 @@ export const McpServersTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("envText", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    spawn 시점에 자식 프로세스에게 그대로 전달되는 평문 환경변수입니다. 비밀 값은 여기 적지 말고 아래 envSecretRefs를 쓰세요.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">
@@ -742,129 +705,6 @@ export const McpServersTab = (): JSX.Element => {
                     ))}
                   </ul>
                 </div>
-              )}
-
-              {draft.id !== null && list.kind === "ready" && (
-                <fieldset className="settings-fieldset">
-                  <legend>AgentProfile binding proposal</legend>
-                  <p className="settings-field__hint">
-                    저장된 MCP 서버와 AgentProfile을 읽어 변경 전/후
-                    <code>mcpServerIds</code> diff만 생성합니다. 이 단계는
-                    프로필을 수정하지 않습니다.
-                  </p>
-                  {list.profiles.length === 0 ? (
-                    <div className="empty-state">
-                      등록된 AgentProfile이 없습니다.
-                    </div>
-                  ) : (
-                    <div className="mcp-servers-tab__generator">
-                      <label className="settings-field">
-                        <span className="settings-field__label">
-                          대상 AgentProfile
-                        </span>
-                        <select
-                          className="settings-field__input"
-                          value={bindingProfileId}
-                          disabled={
-                            saving || bindingGenerating || bindingApplying
-                          }
-                          onChange={(e) => {
-                            setBindingProfileId(e.target.value);
-                            setBindingResult(null);
-                          }}
-                        >
-                          {list.profiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
-                              {profile.name} · {profile.provider}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        className="btn btn--ghost"
-                        onClick={() => void handleGenerateBindingProposal()}
-                        disabled={
-                          saving || bindingGenerating || bindingApplying
-                        }
-                      >
-                        {bindingGenerating
-                          ? "proposal 생성 중…"
-                          : "binding proposal"}
-                      </button>
-                    </div>
-                  )}
-
-                  {bindingResult && (
-                    <div className="mcp-servers-tab__preview" role="note">
-                      <strong>Profile binding preview:</strong>{" "}
-                      <code>{bindingResult.profileName}</code> ←{" "}
-                      <code>{bindingResult.serverName}</code>
-                      <div>{bindingResult.proposal.rationale}</div>
-                      <div>
-                        risk: <code>{bindingResult.proposal.risk}</code>
-                        {bindingResult.preview.alreadySatisfied &&
-                          " · no profile-local change needed"}
-                      </div>
-                      {bindingResult.proposal.addMcpServerIds.length > 0 && (
-                        <button
-                          type="button"
-                          className="btn btn--primary btn--sm"
-                          onClick={() => void handleApplyBindingProposal()}
-                          disabled={saving || bindingApplying}
-                        >
-                          {bindingApplying ? "적용 중…" : "프로필에 적용"}
-                        </button>
-                      )}
-                      <dl className="mcp-servers-tab__binding-diff">
-                        <dt>before mcpServerIds</dt>
-                        <dd>
-                          <code>
-                            {summarizeIds(
-                              bindingResult.preview.before.mcpServerIds,
-                            )}
-                          </code>
-                        </dd>
-                        <dt>after mcpServerIds</dt>
-                        <dd>
-                          <code>
-                            {summarizeIds(
-                              bindingResult.preview.after.mcpServerIds,
-                            )}
-                          </code>
-                        </dd>
-                        <dt>allowedSkillIds</dt>
-                        <dd>
-                          <code>
-                            {summarizeIds(
-                              bindingResult.preview.after.allowedSkillIds,
-                            )}
-                          </code>
-                        </dd>
-                        <dt>toolDenylist</dt>
-                        <dd>
-                          <code>
-                            {summarizeIds(
-                              bindingResult.preview.after.toolDenylist,
-                            )}
-                          </code>
-                        </dd>
-                      </dl>
-                      {bindingResult.preview.warnings.length > 0 && (
-                        <div className="mcp-servers-tab__warnings">
-                          <strong>확인:</strong>
-                          <ul>
-                            {bindingResult.preview.warnings.map(
-                              (warning, i) => (
-                                <li key={i}>{warning}</li>
-                              ),
-                            )}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </fieldset>
               )}
 
               {error && (

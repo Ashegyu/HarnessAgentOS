@@ -146,6 +146,10 @@ export const SecretsTab = (): JSX.Element => {
                 {reveal ? "🙈" : "👁"}
               </button>
             </div>
+            <span className="settings-field__hint">
+              저장 직후 OS keychain에 암호화되어 보관되고 이 화면에서 평문으로
+              다시 표시되지 않습니다. 잃어버리면 다시 입력해야 합니다.
+            </span>
           </label>
 
           {validationErrors.length > 0 && (

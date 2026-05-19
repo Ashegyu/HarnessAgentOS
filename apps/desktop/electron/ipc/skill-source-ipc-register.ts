@@ -32,4 +32,12 @@ export const registerSkillSourceIpc = (ctx: SkillSourceIpcContext): void => {
     IPC_CHANNELS.skillSource.proposeSkillFile,
     async (_e, input) => h.proposeSkillFile(input),
   );
+  ipcMain.handle(
+    IPC_CHANNELS.skillSource.generateProfileBindingProposal,
+    async (_e, input) => h.generateProfileBindingProposal(input),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.skillSource.applyProfileBindingProposal,
+    async (_e, input) => h.applyProfileBindingProposal(input),
+  );
 };

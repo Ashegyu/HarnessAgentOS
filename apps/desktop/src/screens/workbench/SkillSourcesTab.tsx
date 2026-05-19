@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
-  AgentProfile,
   ApprovalActionType,
   Capability,
   CapabilityRiskLevel,
-  SkillProfileBindingProposalResult,
   SkillAuthorPreview,
   SkillSource,
 } from "@harness/core";
@@ -37,13 +35,6 @@ const errorMessage = (e: unknown): string =>
 export const SkillSourcesTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [capabilities, setCapabilities] = useState<Capability[]>([]);
-  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
-  const [bindingProfileIds, setBindingProfileIds] = useState<
-    Record<string, string>
-  >({});
-  const [bindingResults, setBindingResults] = useState<
-    Record<string, SkillProfileBindingProposalResult | undefined>
-  >({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [addDraft, setAddDraft] = useState<AddSourceDraft>(emptyAddDraft());
@@ -58,14 +49,12 @@ export const SkillSourcesTab = (): JSX.Element => {
 
   const refresh = useCallback(async () => {
     try {
-      const [sources, nextCapabilities, nextProfiles] = await Promise.all([
+      const [sources, nextCapabilities] = await Promise.all([
         window.harness.skillSource.list(),
         window.harness.capability.list(),
-        window.harness.agents.list(),
       ]);
       setList({ kind: "ready", sources });
       setCapabilities(nextCapabilities);
-      setProfiles(nextProfiles);
     } catch (e) {
       setList({ kind: "error", message: errorMessage(e) });
     }
@@ -281,70 +270,6 @@ export const SkillSourcesTab = (): JSX.Element => {
     }
   };
 
-  const capabilityIdsForSource = (source: SkillSource): string[] => {
-    const sourceKey = skillSourceCapabilitySourceKey(source);
-    return capabilities
-      .filter((capability) => capability.source === sourceKey)
-      .map((capability) => capability.id);
-  };
-
-  const selectedBindingProfileId = (sourceId: string): string =>
-    bindingProfileIds[sourceId] ?? profiles[0]?.id ?? "";
-
-  const handlePreviewBinding = async (source: SkillSource): Promise<void> => {
-    const profileId = selectedBindingProfileId(source.id);
-    if (profileId.length === 0) return;
-    setBusyId(`bind:${source.id}`);
-    setError(null);
-    try {
-      const result =
-        await window.harness.skillSource.generateProfileBindingProposal({
-          request: {
-            sourceId: source.id,
-            profileId,
-            capabilityIds: capabilityIdsForSource(source),
-          },
-        });
-      setBindingResults((current) => ({
-        ...current,
-        [source.id]: result,
-      }));
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleApplyBinding = async (source: SkillSource): Promise<void> => {
-    const profileId = selectedBindingProfileId(source.id);
-    if (profileId.length === 0) return;
-    setBusyId(`bind:${source.id}`);
-    setError(null);
-    try {
-      const result =
-        await window.harness.skillSource.applyProfileBindingProposal({
-          request: {
-            sourceId: source.id,
-            profileId,
-            capabilityIds: capabilityIdsForSource(source),
-          },
-        });
-      setBindingResults((current) => ({
-        ...current,
-        [source.id]: result,
-      }));
-      setError(
-        `profile binding 적용 완료 — ${result.profileName} / ${source.name}`,
-      );
-      await refresh();
-    } catch (e) {
-      setError(errorMessage(e));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const handleRemove = async (s: SkillSource): Promise<void> => {
     // Project/user sentinels are seeded by main.ts on every boot, so a
     // delete would just resurrect on the next launch. Block the action
@@ -420,6 +345,9 @@ export const SkillSourcesTab = (): JSX.Element => {
               placeholder="예: 팀 공통 skills"
               disabled={busyId !== null}
             />
+            <span className="settings-field__hint">
+              UI에 표시되는 이름입니다. 디렉터리를 고르면 마지막 폴더명으로 자동 채워집니다.
+            </span>
           </label>
           <label className="settings-field">
             <span className="settings-field__label">디렉터리</span>
@@ -443,6 +371,10 @@ export const SkillSourcesTab = (): JSX.Element => {
                 찾아보기…
               </button>
             </div>
+            <span className="settings-field__hint">
+              <code>&lt;rootDir&gt;/&lt;id&gt;/SKILL.md</code> 구조의 폴더입니다.
+              추가하면 path-policy whitelist에 자동 등록되고 재스캔으로 capability에 반영됩니다.
+            </span>
           </label>
           {addErrors.length > 0 && (
             <ul
@@ -513,6 +445,10 @@ export const SkillSourcesTab = (): JSX.Element => {
               placeholder="예: 리뷰 전에 위험한 diff와 승인 필요 액션을 정리하는 skill"
               onChange={(e) => setAuthorIntent(e.target.value)}
             />
+            <span className="settings-field__hint">
+              어떤 상황에 이 skill을 쓰고 싶은지 자연어로 적습니다.
+              "자동 초안 생성" 버튼이 이 의도로부터 slug·trigger·allowed actions·본문 초안을 생성합니다.
+            </span>
           </label>
           <div className="skill-sources-tab__add-actions">
             <button
@@ -538,6 +474,10 @@ export const SkillSourcesTab = (): JSX.Element => {
                 placeholder="review-helper"
                 onChange={(e) => updateAuthor({ slug: e.target.value })}
               />
+              <span className="settings-field__hint">
+                SKILL.md 파일 경로(<code>&lt;slug&gt;/SKILL.md</code>)와 capability id에 그대로 사용됩니다.
+                소문자/숫자/-/_만, 2-63자.
+              </span>
             </label>
             <label className="settings-field">
               <span className="settings-field__label">이름</span>
@@ -558,6 +498,9 @@ export const SkillSourcesTab = (): JSX.Element => {
                   });
                 }}
               />
+              <span className="settings-field__hint">
+                사용자가 보는 표시 이름입니다. Skill ID가 비어 있으면 이 이름으로부터 자동 생성됩니다.
+              </span>
             </label>
             <label className="settings-field">
               <span className="settings-field__label">설명</span>
@@ -569,6 +512,10 @@ export const SkillSourcesTab = (): JSX.Element => {
                   updateAuthor({ description: e.target.value })
                 }
               />
+              <span className="settings-field__hint">
+                추천 엔진이 "이 요청에 이 skill이 맞는가"를 판단하는 핵심 텍스트입니다.
+                언제 쓰면 좋은지 한두 문장으로.
+              </span>
             </label>
             <label className="settings-field">
               <span className="settings-field__label">Risk</span>
@@ -588,6 +535,9 @@ export const SkillSourcesTab = (): JSX.Element => {
                   </option>
                 ))}
               </select>
+              <span className="settings-field__hint">
+                low는 정보 정리만, medium은 파일/명령 등 부수 효과, high는 비밀·삭제·배포 같은 위험 동작이 포함된 경우입니다.
+              </span>
             </label>
           </div>
           <label className="settings-field">
@@ -602,9 +552,16 @@ export const SkillSourcesTab = (): JSX.Element => {
                 updateAuthor({ triggerTermsText: e.target.value })
               }
             />
+            <span className="settings-field__hint">
+              사용자 요청에 이 단어가 등장하면 이 skill을 후보로 올립니다. 쉼표로 구분.
+            </span>
           </label>
           <div className="settings-field">
             <span className="settings-field__label">Declared actions</span>
+            <span className="settings-field__hint">
+              이 skill이 수행할 수 있는 side effect 종류를 미리 선언합니다.
+              체크 안 된 액션은 실행 시 거부됩니다. <code>skill_script</code>는 trusted source에서만 실행 가능합니다.
+            </span>
             <div className="pipeline-step__option-row">
               {SKILL_AUTHOR_ACTION_CHOICES.map((action) => (
                 <label key={action} className="pipeline-step__check">
@@ -630,6 +587,10 @@ export const SkillSourcesTab = (): JSX.Element => {
               disabled={authorBusy}
               onChange={(e) => updateAuthor({ body: e.target.value })}
             />
+            <span className="settings-field__hint">
+              agent가 이 skill을 발동했을 때 system prompt에 주입되는 본문입니다.
+              "approval bypass", "사용자에게 숨김" 같은 표현은 preview 단계에서 경고로 표시됩니다.
+            </span>
           </label>
           {authorErrors.length > 0 && (
             <ul className="skill-sources-tab__author-errors">
@@ -711,10 +672,7 @@ export const SkillSourcesTab = (): JSX.Element => {
           {list.sources.map((s) => {
             const status = describeStatus(s);
             const busy = busyId === s.id;
-            const bindingBusy = busyId === `bind:${s.id}`;
             const capabilityCount = capabilityCountForSource(s, capabilities);
-            const bindingResult = bindingResults[s.id];
-            const selectedProfileId = selectedBindingProfileId(s.id);
             return (
               <li key={s.id} className="skill-source-row">
                 <div className="skill-source-row__head">
@@ -804,70 +762,6 @@ export const SkillSourcesTab = (): JSX.Element => {
                     </button>
                   )}
                 </div>
-                {profiles.length > 0 && (
-                  <div className="skill-source-row__actions">
-                    <select
-                      className="settings-field__input"
-                      value={selectedProfileId}
-                      disabled={busy || bindingBusy}
-                      onChange={(e) => {
-                        const profileId = e.target.value;
-                        setBindingProfileIds((current) => ({
-                          ...current,
-                          [s.id]: profileId,
-                        }));
-                        setBindingResults((current) => ({
-                          ...current,
-                          [s.id]: undefined,
-                        }));
-                      }}
-                    >
-                      {profiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name} ({profile.provider})
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      onClick={() => void handlePreviewBinding(s)}
-                      disabled={busy || bindingBusy || selectedProfileId.length === 0}
-                    >
-                      {bindingBusy ? "..." : "binding preview"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--primary btn--sm"
-                      onClick={() => void handleApplyBinding(s)}
-                      disabled={busy || bindingBusy || selectedProfileId.length === 0}
-                    >
-                      binding 적용
-                    </button>
-                  </div>
-                )}
-                {bindingResult && (
-                  <div className="skill-sources-tab__notice">
-                    <strong>{bindingResult.profileName}</strong>
-                    <span>
-                      {" "}
-                      source {bindingResult.preview.before.skillSourceIds.length}
-                      {" -> "}
-                      {bindingResult.preview.after.skillSourceIds.length},
-                      allowed skills{" "}
-                      {bindingResult.preview.before.allowedSkillIds.length}
-                      {" -> "}
-                      {bindingResult.preview.after.allowedSkillIds.length}
-                    </span>
-                    {bindingResult.preview.warnings.length > 0 && (
-                      <ul>
-                        {bindingResult.preview.warnings.map((warning) => (
-                          <li key={warning}>{warning}</li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                )}
               </li>
             );
           })}

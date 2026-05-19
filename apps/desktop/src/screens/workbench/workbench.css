@@ -6828,6 +6828,65 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--status-warning);
 }
 
+.agent-profile-binding-list {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  background: var(--surface-1);
+}
+
+.agent-profile-binding-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.agent-profile-binding-item label input[type="checkbox"]:disabled + .agent-profile-binding-item__name,
+.agent-profile-binding-item label input[type="checkbox"]:disabled ~ .agent-profile-binding-item__meta {
+  opacity: 0.55;
+}
+
+.agent-profile-binding-item__name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.agent-profile-binding-item__meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.agent-profile-binding-stale {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--status-warning-fill, rgba(214, 152, 75, 0.12));
+  border: 1px solid var(--status-warning-edge, rgba(214, 152, 75, 0.4));
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.agent-profile-binding-stale ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* Migration banner (Phase 5b — legacy WorkerProfile → AgentProfile) */
 .agent-profiles-tab__migrate {
   margin: var(--space-2);

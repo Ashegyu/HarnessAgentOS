@@ -212,6 +212,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("name", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    UI에 표시되는 이름입니다. AgentProfile의 worker 선택 목록과
+                    pipeline step의 worker 후보에 노출됩니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">Base URL</span>
@@ -223,6 +227,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("baseUrl", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    A2A endpoint 루트. invocation 시 이 URL로 task/message 요청을 보냅니다.
+                    HTTPS만 권장합니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">Agent Card URL</span>
@@ -234,6 +242,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("agentCardUrl", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    상대 endpoint가 자신을 설명하는 JSON 카드 URL. 비워두면 Base URL의
+                    <code>/.well-known/agent-card.json</code>이 자동 시도됩니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">Transport</span>
@@ -252,6 +264,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                     <option value="http-json">http-json</option>
                     <option value="grpc">grpc</option>
                   </select>
+                  <span className="settings-field__hint">
+                    Agent Card에 여러 transport가 선언돼 있을 때 우선 시도할 형식입니다.
+                    실제 가용 transport가 다르면 카드의 첫 번째 선언으로 fallback됩니다.
+                  </span>
                 </label>
                 <label className="settings-field">
                   <span className="settings-field__label">Auth secret ref</span>
@@ -263,6 +279,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                     disabled={saving}
                     onChange={(e) => updateDraft("authSecretRef", e.target.value)}
                   />
+                  <span className="settings-field__hint">
+                    요청 헤더에 <code>Authorization: Bearer &lt;값&gt;</code>으로 주입할 Secret Vault 키 이름입니다.
+                    값을 직접 적지 말고 Secrets 탭에 등록한 키 이름을 적으세요.
+                  </span>
                 </label>
                 <label className="settings-field settings-field--checkbox">
                   <input
@@ -273,6 +293,9 @@ export const RemoteAgentsTab = (): JSX.Element => {
                   />
                   <span className="settings-field__label">활성화</span>
                 </label>
+                <span className="settings-field__hint">
+                  비활성화하면 worker 후보에서 빠지지만 카드와 설정은 그대로 보관됩니다.
+                </span>
                 <label className="settings-field settings-field--checkbox">
                   <input
                     type="checkbox"
@@ -282,6 +305,10 @@ export const RemoteAgentsTab = (): JSX.Element => {
                   />
                   <span className="settings-field__label">신뢰된 endpoint</span>
                 </label>
+                <span className="settings-field__hint">
+                  신뢰 표시된 endpoint만 file/shell 류 부수효과 응답을 그대로 Approval로 변환합니다.
+                  처음 등록하는 외부 endpoint는 꺼둔 채 응답 패턴을 검증한 뒤 승격하세요.
+                </span>
               </fieldset>
 
               {selectedEntry?.card && (
