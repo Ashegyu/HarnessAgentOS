@@ -561,6 +561,32 @@ test("hydrateSavedAgentOutput replays persisted Harness stream events", () => {
   assert.equal(s.parsed.resultMeta?.durationMs, 42);
 });
 
+test("hydrateSavedAgentOutput replays persisted tool_call stream events", () => {
+  const s = initStreamParserState();
+
+  hydrateSavedAgentOutput(
+    s,
+    line({
+      type: "tool_call",
+      invocationId: "inv-1",
+      provider: "claude",
+      source: "stdout",
+      phase: "started",
+      toolName: "mcp_repo__search",
+      toolCallId: "toolu_1",
+      input: { query: "agent profile" },
+    }),
+  );
+
+  assert.deepEqual(s.parsed.toolUses, [
+    {
+      name: "mcp_repo__search",
+      input: { query: "agent profile" },
+    },
+  ]);
+  assert.deepEqual(s.parsed.unknown, []);
+});
+
 test("hydrateSavedAgentOutput preserves completed stream sections", () => {
   const s = initStreamParserState();
 

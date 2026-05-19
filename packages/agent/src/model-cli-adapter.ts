@@ -19,6 +19,7 @@ import {
   formatProviderExitFailure,
 } from "./model-cli-invocation.ts";
 import { resolveProviderCommand } from "./provider-executable.ts";
+import { ProviderToolCallStreamParser } from "./provider-tool-call-events.ts";
 
 const DEFAULT_ABORT_KILL_GRACE_MS = 2_000;
 
@@ -97,6 +98,23 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     let stdout = "";
     let stderr = "";
+    const normalizedEvents: AgentStreamEvent[] = [];
+    const stdoutToolCalls = new ProviderToolCallStreamParser({
+      invocationId: request.invocationId,
+      provider,
+      source: "stdout",
+    });
+    const stderrToolCalls = new ProviderToolCallStreamParser({
+      invocationId: request.invocationId,
+      provider,
+      source: "stderr",
+    });
+    const emitNormalizedEvents = (events: AgentStreamEvent[]): void => {
+      for (const event of events) {
+        normalizedEvents.push(event);
+        onEvent(event);
+      }
+    };
     let lastChunkAt = Date.now();
     let killedByUs = false;
     let killReason: "timeout" | "stall" | "aborted" | null = null;
@@ -164,6 +182,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         source: "stdout",
         text,
       });
+      emitNormalizedEvents(stdoutToolCalls.feed(text));
     });
     child.stderr?.on("data", (b: Buffer) => {
       const text = b.toString("utf8");
@@ -175,6 +194,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         source: "stderr",
         text,
       });
+      emitNormalizedEvents(stderrToolCalls.feed(text));
     });
 
     try {
@@ -210,6 +230,8 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         resolve(code ?? -1);
       });
     });
+    emitNormalizedEvents(stdoutToolCalls.flush());
+    emitNormalizedEvents(stderrToolCalls.flush());
 
     if (killedByUs && killReason === "timeout") {
       throw new AgentCliError(
@@ -267,7 +289,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       stdout: finalText,
       rawStdout: stdout,
       stderr,
-      normalizedEvents: [],
+      normalizedEvents,
       latencyMs,
       ...(sessionId !== undefined ? { sessionId } : {}),
     };

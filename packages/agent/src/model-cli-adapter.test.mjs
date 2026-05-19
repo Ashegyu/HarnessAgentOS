@@ -248,3 +248,121 @@ test("DefaultModelCliAdapter keeps SIGKILL fallback after abort error event", as
     `expected SIGKILL fallback after abort error, got ${JSON.stringify(child.killCalls)}`,
   );
 });
+
+test("DefaultModelCliAdapter emits normalized Claude tool_call stream events", async () => {
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    spawn: () => {
+      queueMicrotask(() => {
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "stream_event",
+              event: {
+                type: "content_block_start",
+                index: 2,
+                content_block: {
+                  type: "tool_use",
+                  id: "toolu_1",
+                  name: "mcp_repo__search",
+                  input: { query: "agent profile" },
+                },
+              },
+            }) + "\n",
+          ),
+        );
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "result",
+              result: "done",
+            }) + "\n",
+          ),
+        );
+        child.emit("close", 0);
+      });
+      return child;
+    },
+  });
+  const events = [];
+
+  await adapter.invoke(baseRequest(), (event) => events.push(event));
+
+  assert.deepEqual(
+    events.find((event) => event.type === "tool_call"),
+    {
+      type: "tool_call",
+      invocationId: "inv-1",
+      provider: "claude",
+      source: "stdout",
+      phase: "started",
+      toolName: "mcp_repo__search",
+      toolCallId: "toolu_1",
+      input: { query: "agent profile" },
+    },
+  );
+});
+
+test("DefaultModelCliAdapter emits normalized Codex tool_call stream events", async () => {
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    spawn: () => {
+      queueMicrotask(() => {
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "response_item",
+              payload: {
+                type: "function_call",
+                call_id: "call_1",
+                name: "shell_command",
+                arguments: JSON.stringify({
+                  command: "npm run check",
+                  workdir: "C:\\work",
+                }),
+              },
+            }) + "\n",
+          ),
+        );
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({
+              type: "item.completed",
+              item: {
+                type: "assistant_message",
+                role: "assistant",
+                text: "done",
+              },
+            }) + "\n",
+          ),
+        );
+        child.emit("close", 0);
+      });
+      return child;
+    },
+  });
+  const events = [];
+
+  await adapter.invoke(makeAdapterRequest(), (event) => events.push(event));
+
+  assert.deepEqual(
+    events.find((event) => event.type === "tool_call"),
+    {
+      type: "tool_call",
+      invocationId: "inv_1",
+      provider: "codex",
+      source: "stdout",
+      phase: "started",
+      toolName: "shell_command",
+      toolCallId: "call_1",
+      input: {
+        command: "npm run check",
+        workdir: "C:\\work",
+      },
+    },
+  );
+});

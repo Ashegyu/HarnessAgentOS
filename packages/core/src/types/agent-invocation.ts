@@ -101,12 +101,29 @@ export interface AgentProgressEvent {
   at: string;
 }
 
+export interface AgentToolCallEvent {
+  /**
+   * Observed provider tool-call signal. This is telemetry only: Harness can
+   * display and persist it, but it is not a pre-execution interception point
+   * for provider-managed MCP tools.
+   */
+  type: "tool_call";
+  invocationId: string;
+  provider: AgentProvider;
+  source: "stdout" | "stderr";
+  phase: "started" | "completed";
+  toolName: string;
+  toolCallId?: string;
+  input?: unknown;
+}
+
 /**
  * Stream chunks normalized across providers. Renderer subscribes to
  * `events:agentStreamEvent` and filters by `invocationId`.
  */
 export type AgentStreamEvent =
   | AgentProgressEvent
+  | AgentToolCallEvent
   | {
       type: "started";
       invocationId: string;

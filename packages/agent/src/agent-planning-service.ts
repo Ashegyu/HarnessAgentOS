@@ -1386,10 +1386,32 @@ const redactStreamEvent = (e: AgentStreamEvent): AgentStreamEvent => {
   if (e.type === "raw") {
     return { ...e, text: redactSecrets(e.text, 8_000) };
   }
+  if (e.type === "tool_call") {
+    return {
+      ...e,
+      toolName: redactSecrets(e.toolName, 1_000),
+      ...(e.toolCallId !== undefined
+        ? { toolCallId: redactSecrets(e.toolCallId, 1_000) }
+        : {}),
+      ...(e.input !== undefined
+        ? { input: redactUnknownStreamValue(e.input, 8_000) }
+        : {}),
+    };
+  }
   if (e.type === "failed") {
     return { ...e, message: redactSecrets(e.message, 2_000) };
   }
   return e;
+};
+
+const redactUnknownStreamValue = (value: unknown, limit: number): unknown => {
+  if (typeof value === "string") return redactSecrets(value, limit);
+  try {
+    const redacted = redactSecrets(JSON.stringify(value), limit);
+    return JSON.parse(redacted) as unknown;
+  } catch {
+    return redactSecrets(String(value), limit);
+  }
 };
 
 const buildPersistedStreamTranscript = (input: {

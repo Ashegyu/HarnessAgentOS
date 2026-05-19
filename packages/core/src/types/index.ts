@@ -27,6 +27,7 @@ export type {
   AgentProgressEvent,
   AgentProgressStage,
   AgentStreamEvent,
+  AgentToolCallEvent,
 } from "./agent-invocation.ts";
 export * from "./agent-plan-output.ts";
 export * from "./agent-planning-gateway.ts";

@@ -1,4 +1,8 @@
-import type { AgentProgressEvent, AgentProgressStage } from "@harness/core";
+import type {
+  AgentProgressEvent,
+  AgentProgressStage,
+  AgentToolCallEvent,
+} from "@harness/core";
 
 // Parses raw stdout chunks from claude --output-format=stream-json into
 // structured events the UI can render. Each JSON-per-line event becomes
@@ -183,6 +187,14 @@ export const setIntermediateAssistantText = (
   text: string,
 ): StreamParserState => {
   applyIntermediateAssistantText(state, text);
+  return state;
+};
+
+export const recordObservedToolCall = (
+  state: StreamParserState,
+  event: Pick<AgentToolCallEvent, "toolName" | "input" | "toolCallId">,
+): StreamParserState => {
+  appendObservedToolCallSection(state, event);
   return state;
 };
 
@@ -453,6 +465,19 @@ const ingestPersistedHarnessStreamEvent = (
   if (type === "raw" && hasInvocation) {
     if (typeof obj["text"] === "string") {
       feedPersistedRawChunk(state, obj["text"] as string);
+    }
+    return true;
+  }
+  if (type === "tool_call" && hasInvocation) {
+    const toolName = obj["toolName"];
+    if (typeof toolName === "string" && toolName.length > 0) {
+      recordObservedToolCall(state, {
+        toolName,
+        ...(obj["input"] !== undefined ? { input: obj["input"] } : {}),
+        ...(typeof obj["toolCallId"] === "string"
+          ? { toolCallId: obj["toolCallId"] as string }
+          : {}),
+      });
     }
     return true;
   }
@@ -737,6 +762,38 @@ const appendUniqueToolUses = (
   }
 };
 
+const appendObservedToolCallSection = (
+  state: StreamParserState,
+  event: Pick<AgentToolCallEvent, "toolName" | "input" | "toolCallId">,
+): void => {
+  const input = event.input ?? null;
+  const key = `${event.toolName}:${safeJson(input)}`;
+  const existingIndex = state.parsed.toolUses.findIndex(
+    (existing) =>
+      existing.name === event.toolName &&
+      (existing.input === null ||
+        `${existing.name}:${safeJson(existing.input)}` === key),
+  );
+  if (existingIndex >= 0) {
+    const existing = state.parsed.toolUses[existingIndex];
+    if (existing && existing.input === null && input !== null) {
+      existing.input = input;
+      const section = state.parsed.sections.find(
+        (candidate) =>
+          candidate.kind === "tool" &&
+          candidate.name === event.toolName &&
+          candidate.input === null,
+      );
+      if (section?.kind === "tool") section.input = input;
+    }
+    return;
+  }
+  appendToolUseSection(state, {
+    name: event.toolName,
+    input,
+  });
+};
+
 const appendTextDeltaSection = (
   state: StreamParserState,
   kind: "thinking" | "response",
@@ -853,6 +910,14 @@ const stringArray = (value: unknown): string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
     : [];
+
+const safeJson = (value: unknown): string => {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
 
 const ingestCodexLine = (
   state: StreamParserState,

@@ -10,6 +10,7 @@ import {
   hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
+  recordObservedToolCall,
   setIntermediateAssistantText,
   type ParsedStream,
   type StreamParserState,
@@ -90,6 +91,9 @@ export const AgentStreamView = ({
         } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
           // Trigger a render with a fresh object so React picks it up.
+          setParsed({ ...stateRef.current.parsed });
+        } else if (event.type === "tool_call") {
+          recordObservedToolCall(stateRef.current, event);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
           setIntermediateAssistantText(stateRef.current, event.text);

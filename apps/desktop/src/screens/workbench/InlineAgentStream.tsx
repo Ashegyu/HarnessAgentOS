@@ -6,6 +6,7 @@ import {
   hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
+  recordObservedToolCall,
   setIntermediateAssistantText,
   type ParsedStream,
   type StreamParserState,
@@ -89,6 +90,9 @@ export const InlineAgentStream = ({
           setProgress((items) => [...items, event].slice(-12));
         } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
+          setParsed({ ...stateRef.current.parsed });
+        } else if (event.type === "tool_call") {
+          recordObservedToolCall(stateRef.current, event);
           setParsed({ ...stateRef.current.parsed });
         } else if (event.type === "assistant_text") {
           setIntermediateAssistantText(stateRef.current, event.text);
