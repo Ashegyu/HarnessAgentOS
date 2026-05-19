@@ -420,7 +420,7 @@ export class AgentPlanningService {
     );
 
     try {
-      const toolPolicy = toolPolicyFromProfile(resolved.profile);
+      const toolPolicy = toolPolicyForProvider(provider, resolved.profile);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -1016,7 +1016,7 @@ export class AgentPlanningService {
       mcpConfigPath ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
     );
     try {
-      const toolPolicy = toolPolicyFromProfile(input.profile);
+      const toolPolicy = toolPolicyForProvider(provider, input.profile);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -1374,13 +1374,31 @@ const renderPlanMarkdown = (
   return lines.join("\n");
 };
 
-const toolPolicyFromProfile = (
+// Claude Code can invoke provider-managed tools before Harness has a
+// chance to create approvals. Keep side-effect tools denied by default;
+// the model should propose file/shell actions for Approval + Runner.
+const CLAUDE_DEFAULT_DENIED_SIDE_EFFECT_TOOLS = [
+  "Bash",
+  "Edit",
+  "MultiEdit",
+  "Write",
+  "NotebookEdit",
+  "Task",
+] as const;
+
+const toolPolicyForProvider = (
+  provider: AgentProvider,
   profile: AgentProfile | null | undefined,
 ): ModelCliRequest["toolPolicy"] | undefined => {
+  if (provider !== "claude") return undefined;
   const permissions = profile?.permissions;
-  if (!permissions) return undefined;
-  const toolAllowlist = normalizeToolPolicyList(permissions.toolAllowlist);
-  const toolDenylist = normalizeToolPolicyList(permissions.toolDenylist);
+  const toolAllowlist = normalizeToolPolicyList(
+    permissions?.toolAllowlist ?? [],
+  );
+  const toolDenylist = normalizeToolPolicyList([
+    ...CLAUDE_DEFAULT_DENIED_SIDE_EFFECT_TOOLS,
+    ...(permissions?.toolDenylist ?? []),
+  ]);
   if (toolAllowlist.length === 0 && toolDenylist.length === 0) {
     return undefined;
   }

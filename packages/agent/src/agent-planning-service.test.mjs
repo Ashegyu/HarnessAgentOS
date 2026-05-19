@@ -572,7 +572,15 @@ test("generatePlan emits progress events before and after CLI invocation", async
   });
   assert.deepEqual(lastRequest.toolPolicy, {
     toolAllowlist: ["Read", "mcp__repo__search"],
-    toolDenylist: ["Bash(git *)"],
+    toolDenylist: [
+      "Bash",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "NotebookEdit",
+      "Task",
+      "Bash(git *)",
+    ],
   });
   assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
@@ -886,7 +894,15 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);
   assert.deepEqual(lastRequest.toolPolicy, {
     toolAllowlist: ["Read", "mcp__repo__search"],
-    toolDenylist: ["Bash(git *)"],
+    toolDenylist: [
+      "Bash",
+      "Edit",
+      "MultiEdit",
+      "Write",
+      "NotebookEdit",
+      "Task",
+      "Bash(git *)",
+    ],
   });
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);

@@ -1075,7 +1075,7 @@ Step 5. Approval
         <code>packages/agent/src/model-cli-invocation.ts</code><br />
         <code>packages/agent/src/agent-planning-service.ts</code>
       </td>
-      <td>로컬 Claude CLI help에서 확인한 <code>--allowedTools</code>/<code>--disallowedTools</code>로 매핑한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 전달하지 않는다. 단위 테스트는 generatePlan/worker request 전달과 provider별 CLI arg 생성을 고정한다.</td>
+      <td>로컬 Claude CLI help에서 확인한 <code>--allowedTools</code>/<code>--disallowedTools</code>로 매핑한다. Claude <code>--allowedTools</code>는 strict exclusive allowlist가 아니라 permission hint로 관측되므로, 실제 차단 보장은 <code>--disallowedTools</code> 기준으로 다룬다. Harness 승인 경계를 보존하기 위해 Claude invocation에는 기본적으로 <code>Bash</code>, <code>Edit</code>, <code>MultiEdit</code>, <code>Write</code>, <code>NotebookEdit</code>, <code>Task</code>를 deny한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 전달하지 않는다. 단위 테스트는 generatePlan/worker request 전달과 provider별 CLI arg 생성을 고정하고, Claude live smoke는 synthetic fixture에서 allow/deny 동작을 확인한다.</td>
     </tr>
   </table>
 
@@ -1113,6 +1113,7 @@ Step 5. Approval
     <li>테스트용 stdio MCP를 등록하고 healthCheck 성공 후 Claude profile에 bind한다.</li>
     <li>Claude invocation에서 "MCP 설정 준비 완료" progress가 보이고, Codex profile에서는 경고 또는 "활성 MCP 설정 없음"이 보이는지 확인한다.</li>
     <li><code>smoke:agent-tool-calls</code>는 workspace 파일이 아니라 임시 synthetic fixture만 provider에 노출하고, Claude/Codex raw stream에서 <code>tool_call</code> 이벤트가 실제로 관측되는지 확인한다.</li>
+    <li><code>smoke:agent-tool-policy</code>는 Claude에서 동일 synthetic fixture를 사용해 <code>Read</code> allow run은 tool_call을 관측하고, deny run은 <code>Read</code> tool_call이 실행되지 않는지 확인한다. Side-effect 도구는 기본 denylist로 함께 차단하고, Claude가 다른 read-only discovery tool을 선택할 수 있으므로 이 smoke는 denied tool 자체와 side-effect tool 미실행을 판정한다.</li>
   </ol>
 
   <h3>11.4 실행 명령</h3>
@@ -1121,7 +1122,8 @@ node --import tsx --test --test-force-exit packages/skillify-adapter/**/*.test.m
 node --import tsx --test --test-force-exit apps/desktop/electron/**/*skill-source*.test.mjs apps/desktop/electron/**/*mcp*.test.mjs
 node --import tsx --test --test-force-exit packages/agent/**/*.test.mjs
 node --import tsx --test --test-force-exit packages/agent/src/model-cli-adapter.test.mjs packages/agent/src/agent-planning-service.test.mjs
-npm --workspace=@harness/desktop run smoke:agent-tool-calls</code></pre>
+npm --workspace=@harness/desktop run smoke:agent-tool-calls
+npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
 
   <h2 id="review">12. 작성 전 자체 검토 결과</h2>
 
@@ -1166,7 +1168,7 @@ npm --workspace=@harness/desktop run smoke:agent-tool-calls</code></pre>
   <h3>12.1 남은 불확실성</h3>
   <ul>
     <li>Codex CLI의 현재 MCP config 인자 지원 여부는 별도 실측이 필요하다.</li>
-    <li>Claude는 로컬 CLI help에서 확인한 provider permission flag로 <code>toolAllowlist</code>/<code>toolDenylist</code>를 전달한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 pre-call enforcement는 아직 미지원이다.</li>
+    <li>Claude는 로컬 CLI help에서 확인한 provider permission flag로 <code>toolAllowlist</code>/<code>toolDenylist</code>를 전달하고, live smoke로 <code>Read</code> allow/deny 동작을 확인한다. 단, <code>--allowedTools</code>는 strict exclusive allowlist가 아니므로 보안상 차단은 deny pattern 중심으로 해석한다. Claude provider-managed <code>Bash</code>/<code>Edit</code>/<code>Write</code> 계열 side effect 도구는 Harness Approval/Runner 우회를 막기 위해 기본 deny한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 pre-call enforcement는 아직 미지원이다.</li>
     <li>remote HTTP/SSE MCP의 auth 방식은 provider별 차이가 크므로 MVP에서는 config 등록과 healthCheck까지만 다룬다.</li>
     <li>Skill open format은 빠르게 확장 중이므로 Harness 내부 frontmatter는 portable 최소 필드와 Harness-specific 확장 필드를 분리해야 한다.</li>
   </ul>
