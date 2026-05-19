@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DEFAULT_CODEX_MODEL } from "@harness/core";
 import { workerProfileToAgentProfileInput } from "./profile-migrator.ts";
 
 const legacyAgent = {
@@ -20,11 +21,12 @@ test("workerProfileToAgentProfileInput fills tuning from legacy agent settings",
   };
   const ap = workerProfileToAgentProfileInput(wp, legacyAgent, { isDefault: true });
   assert.equal(ap.name, "Coder Claude");
-  assert.equal(ap.provider, "claude");
+  assert.equal(ap.provider, "codex");
   assert.equal(ap.role, "coder");
   assert.equal(ap.category, "legacy");
   assert.deepEqual(ap.tags, ["legacy-worker", "coder"]);
-  assert.equal(ap.tuning.model, "claude-sonnet-4");
+  assert.equal(ap.tuning.model, DEFAULT_CODEX_MODEL);
+  assert.equal(ap.tuning.reasoningEffort, "xhigh");
   assert.equal(ap.tuning.timeoutMs, 600_000);
   assert.equal(ap.tuning.stallTimeoutMs, 90_000);
   assert.equal(ap.tuning.contextDepth, 7);
@@ -42,11 +44,11 @@ test("workerProfileToAgentProfileInput defaults isDefault=false", () => {
   const wp = { id: "wp_1", name: "X", provider: "auto", model: "", role: "coder" };
   const ap = workerProfileToAgentProfileInput(wp, legacyAgent);
   assert.equal(ap.isDefault, false);
+  assert.equal(ap.provider, "codex");
+  assert.equal(ap.tuning.model, DEFAULT_CODEX_MODEL);
 });
 
-test("workerProfileToAgentProfileInput uses workerProfile.model over legacy.model", () => {
-  // The legacy global agent.model might differ from a per-worker override.
-  // The per-worker value wins so behavior survives the migration.
+test("workerProfileToAgentProfileInput preserves workerProfile.model when it is Codex-compatible", () => {
   const wp = {
     id: "wp_1",
     name: "Reviewer",

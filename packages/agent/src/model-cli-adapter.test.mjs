@@ -147,6 +147,31 @@ test("buildCliInvocation uses Codex exec syntax and folds system prompt into std
   assert.ok(!plan.args.includes("--mcp-config"));
 });
 
+test("buildCliInvocation passes Codex reasoning effort through a verified -c override", () => {
+  const plan = buildCliInvocation(
+    baseRequest({
+      modelConfig: {
+        provider: "codex",
+        model: "gpt-5.5",
+        reasoningEffort: "xhigh",
+        timeoutMs: 300_000,
+        stallTimeoutMs: 60_000,
+      },
+    }),
+  );
+
+  assert.equal(plan.command, "codex");
+  const effortIndex = plan.args.indexOf("model_reasoning_effort=xhigh");
+  assert.ok(effortIndex > 0, "Codex invocation must pass model_reasoning_effort");
+  assert.equal(plan.args[effortIndex - 1], "-c");
+  assert.equal(
+    plan.args.indexOf("exec") > effortIndex,
+    true,
+    "Codex -c overrides must appear before exec",
+  );
+  assert.ok(!plan.args.includes("--reasoning-effort"));
+});
+
 test("buildCliInvocation passes verified Codex MCP config overrides through -c", () => {
   const plan = buildCliInvocation(
     baseRequest({

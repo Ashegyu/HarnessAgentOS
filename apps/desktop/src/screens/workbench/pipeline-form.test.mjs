@@ -75,6 +75,24 @@ const seededPipelines = [
     "이미지 생성 프롬프트 비주얼 디자인 에셋",
   ),
   pipeline(
+    "pipe_template_new_project_delivery",
+    "New Project Delivery",
+    [
+      "ap_plan",
+      "ap_plan",
+      "ap_orch",
+      "ap_plan",
+      "ap_plan",
+      "ap_code",
+      "ap_build",
+      "ap_test",
+      "ap_review",
+      "ap_security",
+      "ap_review",
+    ],
+    "새 프로젝트 생성 PRD 이미지 생성 계획 아키텍처 구현 검증 리뷰",
+  ),
+  pipeline(
     "pipe_template_supervised_delivery",
     "Supervised Delivery",
     [
@@ -179,6 +197,18 @@ test("rankPipelinesForRequest prioritizes image asset flow for visual design", (
   );
   assert.equal(ranked[0].pipeline.name, "Image Asset Prompt Flow");
   assert.equal(ranked[0].intent, "visual_design");
+});
+
+test("rankPipelinesForRequest prioritizes new project delivery for project creation", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "새로운 프로젝트를 생성해줘. 이미지 생성, PRD, 계획, 아키텍처, 구현, 리뷰, 검토까지 필요해",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "New Project Delivery");
+  assert.equal(ranked[0].intent, "new_project_delivery");
+  assert.ok(ranked[0].matchedRoles.includes("coder"));
+  assert.ok(ranked[0].matchedRoles.includes("build-error-resolver"));
 });
 
 test("rankPipelinesForRequest keeps seed order when request is empty", () => {

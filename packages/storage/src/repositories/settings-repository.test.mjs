@@ -8,6 +8,7 @@ import { SqliteSettingsRepository } from "./settings-repository.ts";
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 
 const tmp = () => {
@@ -24,7 +25,8 @@ test("SettingsRepository returns DEFAULT_HARNESS_SETTINGS when no row exists", a
   try {
     const repo = new SqliteSettingsRepository(db);
     const settings = await repo.get();
-    assert.equal(settings.agent.provider, "auto");
+    assert.equal(settings.agent.provider, "codex");
+    assert.equal(settings.agent.model, DEFAULT_CODEX_MODEL);
     assert.equal(settings.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
     assert.equal(settings.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
     assert.equal(settings.agent.contextDepth, 5);

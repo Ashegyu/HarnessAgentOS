@@ -129,6 +129,7 @@ export interface AgentModelTuning {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   timeoutMs: number;
   stallTimeoutMs: number;
   contextDepth: number;
@@ -476,6 +477,7 @@ AgentProfile = {
   description: '', persona: '',
   tuning: {
     model: workerProfile.model,
+    reasoningEffort: 'xhigh',
     timeoutMs: legacy.agent.timeoutMs,
     stallTimeoutMs: legacy.agent.stallTimeoutMs,
     contextDepth: legacy.agent.contextDepth,

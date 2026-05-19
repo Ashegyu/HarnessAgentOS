@@ -213,6 +213,15 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.equal(defaults[0].role, "planner", "planner is the default");
     assert.ok(all.every((p) => p.skillSourceIds.includes("ss_project")), "all profiles reference ss_project");
     assert.ok(all.every((p) => p.category.length > 0), "all profiles have a category");
+    assert.ok(all.every((p) => p.provider === "codex"), "all seed profiles run on Codex");
+    assert.ok(
+      all.every((p) => p.tuning.model === DEFAULT_CODEX_MODEL),
+      "all seed profiles use the supported Codex default model",
+    );
+    assert.ok(
+      all.every((p) => p.tuning.reasoningEffort === "xhigh"),
+      "all seed profiles default to explicit Codex xhigh effort",
+    );
     assert.ok(all.some((p) => p.name === "ECC Security Reviewer" && p.tags.includes("security")));
     assert.ok(all.some((p) => p.name === "Agno Product PRD Strategist" && p.tags.includes("prd")));
     assert.ok(all.some((p) => p.name === "Ruflo Architecture Designer" && p.tags.includes("architecture")));
@@ -229,6 +238,61 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       "framework seed persona should be Korean-facing",
     );
     assertFrameworkProfilesPresent(all);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed upgrades existing seed profiles to Codex", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const planner = await repo.create(
+      makeProfileInput({
+        name: "Planner",
+        role: "planner",
+        provider: "claude",
+        tuning: {
+          model: "claude-sonnet-4",
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+          stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+          contextDepth: 5,
+          systemPromptPrefix: "keep-prefix",
+          systemPromptSuffix: "keep-suffix",
+        },
+        isDefault: true,
+      }),
+    );
+    const tdd = await repo.create(
+      makeProfileInput({
+        name: "ECC TDD Guide",
+        role: "tester",
+        provider: "claude",
+        tuning: {
+          model: "claude-sonnet-4",
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+          stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+          contextDepth: 5,
+          systemPromptPrefix: "keep-tdd-prefix",
+          systemPromptSuffix: "keep-tdd-suffix",
+        },
+      }),
+    );
+
+    await repo.ensureSeed();
+
+    const refreshedPlanner = await repo.get(planner.id);
+    const refreshedTdd = await repo.get(tdd.id);
+    assert.equal(refreshedPlanner.provider, "codex");
+    assert.equal(refreshedPlanner.tuning.model, DEFAULT_CODEX_MODEL);
+    assert.equal(refreshedPlanner.tuning.reasoningEffort, "xhigh");
+    assert.equal(refreshedPlanner.tuning.systemPromptPrefix, "keep-prefix");
+    assert.equal(refreshedTdd.provider, "codex");
+    assert.equal(refreshedTdd.tuning.model, DEFAULT_CODEX_MODEL);
+    assert.equal(refreshedTdd.tuning.reasoningEffort, "xhigh");
+    assert.equal(refreshedTdd.tuning.systemPromptPrefix, "keep-tdd-prefix");
   } finally {
     closeDb(db);
     t.cleanup();

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_AGENT_PERMISSIONS,
   AGENT_PROFILE_ACTION_TYPES,
+  AGENT_REASONING_EFFORTS,
   isAgentProfile,
   isAgentPermissions,
   isAgentModelTuning,
@@ -151,12 +152,20 @@ test("isAgentModelTuning requires the budget fields", () => {
   );
 });
 
-test("isAgentModelTuning allows optional temperature/maxTokens", () => {
+test("isAgentModelTuning allows optional temperature/maxTokens/reasoning effort", () => {
+  assert.deepEqual([...AGENT_REASONING_EFFORTS], [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
   assert.equal(
     isAgentModelTuning({
       model: "claude-sonnet-4",
       temperature: 0.2,
       maxTokens: 4096,
+      reasoningEffort: "xhigh",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -164,6 +173,21 @@ test("isAgentModelTuning allows optional temperature/maxTokens", () => {
       systemPromptSuffix: "",
     }),
     true,
+  );
+});
+
+test("isAgentModelTuning rejects unknown reasoning effort", () => {
+  assert.equal(
+    isAgentModelTuning({
+      model: "gpt-5.5",
+      reasoningEffort: "turbo",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    }),
+    false,
   );
 });
 

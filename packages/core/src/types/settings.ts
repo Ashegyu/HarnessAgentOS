@@ -76,8 +76,8 @@ export interface HarnessSettings {
 export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
   Object.freeze({
     agent: Object.freeze({
-      provider: "auto" as AgentProvider,
-      model: "",
+      provider: "codex" as AgentProvider,
+      model: DEFAULT_CODEX_MODEL,
       timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
       stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 5,

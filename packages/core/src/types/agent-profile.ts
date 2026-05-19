@@ -18,6 +18,16 @@ import { WORKER_ROLES, type WorkerRole } from "./orchestration.ts";
 export const AGENT_PROFILE_ACTION_TYPES: readonly ApprovalActionType[] =
   APPROVAL_ACTION_TYPES;
 
+export type AgentReasoningEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export const AGENT_REASONING_EFFORTS: readonly AgentReasoningEffort[] = [
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+];
+
 export interface AgentBudget {
   /** Maximum estimated USD cost for a single approval/invocation. */
   perInvocationUsd?: number;
@@ -60,6 +70,7 @@ export interface AgentModelTuning {
   /** undefined = use provider default. */
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: AgentReasoningEffort;
   timeoutMs: number;
   stallTimeoutMs: number;
   contextDepth: number;
@@ -133,6 +144,9 @@ export const DEFAULT_AGENT_PERMISSIONS: Readonly<AgentPermissions> =
 const VALID_PROVIDERS: readonly AgentProvider[] = ["auto", "claude", "codex"];
 const ACTION_SET: ReadonlySet<string> = new Set(APPROVAL_ACTION_TYPES);
 const ROLE_SET: ReadonlySet<string> = new Set(WORKER_ROLES);
+const REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
+  AGENT_REASONING_EFFORTS,
+);
 
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((item) => typeof item === "string");
@@ -195,6 +209,13 @@ export const isAgentModelTuning = (v: unknown): v is AgentModelTuning => {
   if (typeof t.systemPromptSuffix !== "string") return false;
   if (t.temperature !== undefined && typeof t.temperature !== "number") return false;
   if (t.maxTokens !== undefined && typeof t.maxTokens !== "number") return false;
+  if (
+    t.reasoningEffort !== undefined &&
+    (typeof t.reasoningEffort !== "string" ||
+      !REASONING_EFFORT_SET.has(t.reasoningEffort))
+  ) {
+    return false;
+  }
   return true;
 };
 

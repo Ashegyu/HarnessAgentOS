@@ -89,7 +89,7 @@ profile.permissions.autoApproveActions
 #### 기본 정보 섹션
 - **이름** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
 - **분류/태그** — UI 필터와 profile 선택 힌트에 사용하는 메타데이터
-- **Provider** — `claude` / `codex` / `auto`
+- **Provider** — 기본 seed 프로필은 `codex`를 사용합니다. 기존 데이터 호환을 위해 `claude` / `auto`도 저장 가능하지만 Codex 전용 설정은 Codex 실행에만 전달됩니다.
 - **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`를 사용합니다.
 - **Role 설명 카드** — 선택한 role의 책임, 사용 시점, 안전 경계를 표시합니다.
 - **Model** — 비워두면 provider 기본값
@@ -101,11 +101,12 @@ profile.permissions.autoApproveActions
 - **System Prompt Prefix** — ROLE 프롬프트 위에 더해지는 조직/프로젝트 정책
 - **System Prompt Suffix** — output contract 뒤에 추가되는 마무리 지시
 
-> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX`. `--system-prompt` 인자로 Claude에 전달되어 `--resume`에서도 유지됩니다.
+> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX`. Claude provider는 `--system-prompt` 인자로 전달하고, Codex provider는 stdin의 `SYSTEM INSTRUCTIONS` 블록에 접어 넣습니다.
 
 #### Tuning 섹션
 - **Temperature** — 0.0~1.0
 - **Max tokens** — 응답 최대 길이
+- **Reasoning effort** — `low` / `medium` / `high` / `xhigh` / `max`. Codex 실행에서는 `model_reasoning_effort` override로 전달되고, Claude provider에는 검증된 CLI 플래그가 없어 전달하지 않습니다.
 - **Timeout (ms)** / **Stall timeout (ms)** — General 탭과 동일하지만 이 프로필만 override
 - **Context depth** — 이 프로필 전용 turn 수
 
@@ -151,12 +152,13 @@ ActionType별 정책 매트릭스:
 #### 예시 1 — Strict Reviewer
 ```yaml
 name: Strict Reviewer
-provider: claude
-model: claude-sonnet-4-6
+provider: codex
+model: gpt-5.5
 persona: |
   당신은 보안과 가독성에 엄격한 코드 리뷰어입니다.
   변경된 파일만 분석하고, 새 코드를 작성하지 않습니다.
 tuning:
+  reasoningEffort: xhigh
   temperature: 0.1
   timeoutMs: 180000
 permissions:
@@ -168,9 +170,11 @@ mcpServerIds: []
 #### 예시 2 — Full-Auto Coder (위험)
 ```yaml
 name: Full-Auto Coder
-provider: claude
-model: claude-opus-4-7
+provider: codex
+model: gpt-5.5
 persona: 빠른 프로토타이핑 코더. 안전 망 없이 작동.
+tuning:
+  reasoningEffort: xhigh
 permissions:
   block: []
   autoApproveActions: [file_write, shell, dependency_install]
@@ -201,6 +205,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 | Architecture RFC | 시스템 설계, API/IPC 계약, migration 영향, 보안/성능 리뷰를 연결 |
 | Visual Design Delivery | PRD → UX flow → image prompt → frontend 구현 → 디자인 QA 흐름 |
 | Image Asset Prompt Flow | 실제 이미지 호출 없이 image 생성 프롬프트, style guide, QA 기준을 handoff |
+| New Project Delivery | 새 프로젝트 생성을 PRD, 계획, 아키텍처, 이미지/에셋 사양, 구현, 검증, 리뷰까지 연결 |
 | Frontend Product Delivery | 제품 요구사항, UI 아키텍처, UX, 구현, 검증, 디자인 QA를 연결 |
 | Skill and Agent Expansion | Hermes/ECC 패턴으로 skill/agent 후보와 Harness profile/pipeline 개선안을 설계 |
 | Supervised Delivery | orchestrator → planner → coder → build-error-resolver → tester → security-reviewer → reviewer 흐름 |
@@ -210,7 +215,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 
 기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
 
-Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다. `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
+Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다. `새 프로젝트 생성`은 New Project Delivery를, `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
 
 ---
 
@@ -293,8 +298,8 @@ envSecretRefs:
 | Provider | MCP 지원 | 비고 |
 |----------|:-------:|------|
 | `claude` | ✅ | `--mcp-config <path>` 인자로 전달 |
-| `codex` | ❌ | V2 검증 전이라 미지원. 인자 생성은 skip되고 CLI에는 전달되지 않음 |
-| `auto` | ✅ (claude 선택 시) | provider-detection 결과에 따름 |
+| `codex` | 제한 지원 | 검증된 stdio/no-secret 서버만 per-run `mcp_servers.*` config override로 전달 |
+| `auto` | 제한 지원 | 실제 선택 provider에 따름. Codex 선택 시 위 제한을 그대로 적용 |
 
 ### 4.4 HTTP/SSE 인증
 

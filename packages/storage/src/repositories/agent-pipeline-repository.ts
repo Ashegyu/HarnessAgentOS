@@ -805,6 +805,135 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
     ],
   },
   {
+    id: "pipe_template_new_project_delivery",
+    name: "New Project Delivery",
+    description:
+      "새 프로젝트 생성을 PRD, 계획, 아키텍처, 이미지/에셋 생성 사양, 구현, 검증, 리뷰까지 연결하는 end-to-end 흐름입니다.",
+    steps: [
+      {
+        id: "prd",
+        profile: PROFILE_REFS.product,
+        title: "새 프로젝트 PRD 작성",
+        instruction:
+          "사용자 요청을 새 프로젝트의 목표 사용자, 핵심 문제, 주요 기능, 성공 기준, scope/non-scope, acceptance criteria로 정리한 PRD로 작성하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "project-plan",
+        profile: PROFILE_REFS.planner,
+        title: "프로젝트 생성 계획",
+        instruction:
+          "PRD를 실행 가능한 생성 계획으로 분해하세요. 기술 스택, 초기 파일 구조, 단계별 구현 순서, 검증 명령, 승인 받아야 할 파일 쓰기 범위를 한국어로 명확히 정의하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["prd"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "architecture",
+        profile: PROFILE_REFS.architecture,
+        title: "초기 아키텍처 설계",
+        instruction:
+          "프로젝트 생성 계획을 바탕으로 모듈 경계, 데이터 흐름, UI/API/저장소 경계, approval/runner 경계, 확장 가능한 폴더 구조를 설계하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["project-plan"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "ux-flow",
+        profile: PROFILE_REFS.ux,
+        title: "초기 UX와 화면 흐름",
+        instruction:
+          "PRD와 아키텍처를 바탕으로 첫 화면, 핵심 사용자 흐름, empty/loading/error state, responsive/accessibility expectation, 주요 copy를 정의하세요.",
+        expectedArtifactKinds: ["plan", "snapshot", "log"],
+        dependsOn: ["prd", "architecture"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "image-assets",
+        profile: PROFILE_REFS.image,
+        title: "이미지 생성/에셋 사양",
+        instruction:
+          "프로젝트에 필요한 이미지 생성 프롬프트, 스타일 제약, aspect ratio, asset variant, 검수 기준, 구현 handoff를 작성하세요. 현재 Harness에서는 실제 외부 이미지 생성 호출을 실행하지 말고 승인 가능한 사양만 산출하세요.",
+        expectedArtifactKinds: ["file", "snapshot", "log"],
+        dependsOn: ["ux-flow"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implementation",
+        profile: PROFILE_REFS.coder,
+        title: "프로젝트 파일 생성 제안",
+        instruction:
+          "승인된 PRD, 계획, 아키텍처, UX, 에셋 사양을 바탕으로 새 프로젝트 초기 파일과 코드를 생성하는 최소 diff를 제안하세요. 모든 파일 쓰기는 Harness approval을 통해서만 제안하고, JSON 파일을 canonical state로 쓰지 마세요.",
+        expectedArtifactKinds: ["diff", "file", "log"],
+        dependsOn: ["architecture", "ux-flow", "image-assets"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "build-recovery",
+        profile: PROFILE_REFS.build,
+        title: "빌드/실행 복구",
+        instruction:
+          "승인된 프로젝트 파일 생성 후 build, typecheck, lint, test, smoke 실행 가능성을 확인하세요. 실패하면 첫 실제 원인을 추적하고 가장 작은 수정안을 Harness approval로만 제안하세요.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: ["implementation"],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+      {
+        id: "verification",
+        profile: PROFILE_REFS.tester,
+        title: "새 프로젝트 검증",
+        instruction:
+          "새 프로젝트가 실제로 실행 가능한지 focused test, build, smoke 또는 수동 검증 증거를 정리하세요. 실행하지 못한 검증은 이유와 남은 위험을 한국어로 남기세요.",
+        expectedArtifactKinds: ["test_result", "snapshot", "log"],
+        dependsOn: ["build-recovery"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "design-review",
+        profile: PROFILE_REFS.designReview,
+        title: "디자인/UX 리뷰",
+        instruction:
+          "생성된 프로젝트의 첫 화면, UX 흐름, 이미지/에셋 사양, 접근성, 텍스트 overflow, 상태 누락을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "snapshot", "log"],
+        dependsOn: ["implementation", "image-assets"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "security-review",
+        profile: PROFILE_REFS.security,
+        title: "보안/side-effect 경계 리뷰",
+        instruction:
+          "새 프로젝트 생성 결과에서 secret, unsafe shell/file path, approval bypass, dependency/network assumptions, untrusted input 처리 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["implementation"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "final-review",
+        profile: PROFILE_REFS.reviewer,
+        title: "출시 준비 최종 검토",
+        instruction:
+          "PRD, 계획, 아키텍처, 구현, 검증, 디자인/보안 리뷰 결과를 종합해 새 프로젝트가 사용자가 실행할 수 있는 상태인지 판단하고 남은 follow-up을 한국어로 정리하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verification", "design-review", "security-review"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
     id: "pipe_template_frontend_product_delivery",
     name: "Frontend Product Delivery",
     description:

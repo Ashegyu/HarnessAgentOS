@@ -1,9 +1,21 @@
 import {
   DEFAULT_AGENT_PERMISSIONS,
+  DEFAULT_CODEX_MODEL,
   type AgentSettings,
   type WorkerProfile,
 } from "@harness/core";
 import type { CreateAgentProfileInput } from "../repositories/agent-profile-repository.ts";
+
+const codexMigrationModel = (model: string): string => {
+  const trimmed = model.trim();
+  const lower = trimmed.toLowerCase();
+  if (trimmed.length === 0 || lower === "gpt-5" || lower.startsWith("claude")) {
+    return DEFAULT_CODEX_MODEL;
+  }
+  return trimmed;
+};
+
+const CODEX_MIGRATION_REASONING_EFFORT = "xhigh";
 
 /**
  * Lossy conversion from the legacy `WorkerProfile` shape to a full
@@ -24,13 +36,12 @@ export const workerProfileToAgentProfileInput = (
   description: "",
   category: "legacy",
   tags: ["legacy-worker", wp.role],
-  provider: wp.provider,
+  provider: "codex",
   role: wp.role,
   persona: "",
   tuning: {
-    // Per-worker overrides win; fall back to legacy globals only when the
-    // worker didn't set a model.
-    model: wp.model,
+    model: codexMigrationModel(wp.model),
+    reasoningEffort: CODEX_MIGRATION_REASONING_EFFORT,
     timeoutMs: legacyAgent.timeoutMs,
     stallTimeoutMs: legacyAgent.stallTimeoutMs,
     contextDepth: legacyAgent.contextDepth,

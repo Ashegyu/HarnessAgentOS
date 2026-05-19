@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { DEFAULT_CODEX_MODEL } from "@harness/core";
 import {
   buildBindingPolicyHints,
   draftFromProfile,
@@ -21,6 +22,7 @@ const SAMPLE_PROFILE = {
     model: "claude-sonnet-4",
     temperature: 0.2,
     maxTokens: 4096,
+    reasoningEffort: "xhigh",
     timeoutMs: 600_000,
     stallTimeoutMs: 90_000,
     contextDepth: 7,
@@ -56,6 +58,9 @@ test("emptyDraft has reasonable defaults that pass validation immediately", () =
   d.name = "Required"; // empty name is the only required field
   const errors = validateDraft(d);
   assert.deepEqual(errors, []);
+  assert.equal(d.provider, "codex");
+  assert.equal(d.model, DEFAULT_CODEX_MODEL);
+  assert.equal(d.reasoningEffort, "xhigh");
 });
 
 test("validateDraft rejects empty name", () => {
@@ -93,6 +98,15 @@ test("validateDraft rejects temperature outside 0-2", () => {
   assert.equal(errors[0].field, "temperatureText");
 });
 
+test("validateDraft rejects unknown reasoning effort", () => {
+  const d = emptyDraft();
+  d.name = "X";
+  d.reasoningEffort = "turbo";
+  const errors = validateDraft(d);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "reasoningEffort");
+});
+
 test("draftFromProfile populates permissionMap from auto/block lists", () => {
   const d = draftFromProfile(SAMPLE_PROFILE);
   assert.equal(d.permissionMap.file_write, "auto");
@@ -101,6 +115,7 @@ test("draftFromProfile populates permissionMap from auto/block lists", () => {
   // Other tuning fields round-trip into text inputs
   assert.equal(d.temperatureText, "0.2");
   assert.equal(d.maxTokensText, "4096");
+  assert.equal(d.reasoningEffort, "xhigh");
   assert.equal(d.systemPromptPrefix, "PREFIX");
   assert.equal(d.category, "security");
   assert.equal(d.tagsText, "review, security, review");
@@ -125,6 +140,7 @@ test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
   assert.equal(out.tuning.model, SAMPLE_PROFILE.tuning.model);
   assert.equal(out.tuning.temperature, 0.2);
   assert.equal(out.tuning.maxTokens, 4096);
+  assert.equal(out.tuning.reasoningEffort, "xhigh");
   assert.equal(out.tuning.systemPromptPrefix, "PREFIX");
   assert.deepEqual(out.permissions.autoApproveActions, ["file_write"]);
   assert.deepEqual(out.permissions.blockedActions, ["git_commit"]);

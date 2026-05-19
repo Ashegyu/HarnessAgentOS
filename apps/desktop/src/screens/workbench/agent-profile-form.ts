@@ -1,12 +1,15 @@
 import type {
   AgentPermissions,
   AgentProfile,
+  AgentReasoningEffort,
   ApprovalActionType,
 } from "@harness/core";
 import {
+  AGENT_REASONING_EFFORTS,
   APPROVAL_ACTION_TYPES,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 
 /**
@@ -29,6 +32,7 @@ export interface ProfileDraft {
   role: AgentProfile["role"];
   persona: string;
   model: string;
+  reasoningEffort: AgentReasoningEffort | "";
   /** UI uses strings so the user can type partial numbers. */
   temperatureText: string;
   maxTokensText: string;
@@ -68,6 +72,10 @@ const numToText = (n: number | undefined): string =>
   n === undefined ? "" : String(n);
 
 const listToText = (values: readonly string[]): string => values.join("\n");
+
+const isReasoningEffort = (value: unknown): value is AgentReasoningEffort =>
+  typeof value === "string" &&
+  (AGENT_REASONING_EFFORTS as readonly string[]).includes(value);
 
 const parseList = (value: string): string[] => {
   const seen = new Set<string>();
@@ -181,10 +189,11 @@ export const emptyDraft = (): ProfileDraft => ({
   description: "",
   category: "core",
   tagsText: "",
-  provider: "auto",
+  provider: "codex",
   role: "coder",
   persona: "",
-  model: "",
+  model: DEFAULT_CODEX_MODEL,
+  reasoningEffort: "xhigh",
   temperatureText: "",
   maxTokensText: "",
   timeoutMsText: String(DEFAULT_AGENT_TIMEOUT_MS),
@@ -215,6 +224,7 @@ export const draftFromProfile = (p: AgentProfile): ProfileDraft => ({
   role: p.role,
   persona: p.persona,
   model: p.tuning.model,
+  reasoningEffort: p.tuning.reasoningEffort ?? "",
   temperatureText: numToText(p.tuning.temperature),
   maxTokensText: numToText(p.tuning.maxTokens),
   timeoutMsText: numToText(p.tuning.timeoutMs),
@@ -249,6 +259,15 @@ export const validateDraft = (
   }
   if (draft.category.trim().length === 0) {
     errors.push({ field: "category", message: "Category는 필수입니다" });
+  }
+  if (
+    draft.reasoningEffort !== "" &&
+    !isReasoningEffort(draft.reasoningEffort)
+  ) {
+    errors.push({
+      field: "reasoningEffort",
+      message: "Reasoning effort는 low/medium/high/xhigh/max 중 하나여야 합니다",
+    });
   }
   const timeout = textToNumOrUndefined(draft.timeoutMsText);
   if (timeout === undefined || timeout <= 0) {
@@ -330,6 +349,9 @@ export const serializeDraft = (
   if (temp !== undefined) tuning.temperature = temp;
   const max = textToNumOrUndefined(draft.maxTokensText);
   if (max !== undefined) tuning.maxTokens = max;
+  if (isReasoningEffort(draft.reasoningEffort)) {
+    tuning.reasoningEffort = draft.reasoningEffort;
+  }
 
   const auto: ApprovalActionType[] = [];
   const block: ApprovalActionType[] = [];

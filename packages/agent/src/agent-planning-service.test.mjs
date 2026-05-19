@@ -834,6 +834,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
   const profile = codexProfile({
     id: "ap-codex-mcp",
     name: "Codex MCP",
+    tuning: { reasoningEffort: "xhigh" },
     mcpServerIds: ["mcp_repo"],
   });
   const baseInvocation = {
@@ -982,6 +983,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
     provider: "codex",
   });
   assert.equal(createAgentInvocationInput?.profileId, profile.id);
+  assert.equal(lastRequest.modelConfig.reasoningEffort, "xhigh");
   assert.deepEqual(lastRequest.codexConfigOverrides, codexConfigOverrides);
   assert.equal(lastRequest.mcpConfigPath, undefined);
   assert.equal(cleanupCalled, true);
@@ -1249,6 +1251,7 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
     provider: "codex",
     tuning: {
       model: "gpt-5.5",
+      reasoningEffort: "high",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -1341,6 +1344,10 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
   for (let i = 0; i < 8; i += 1) await Promise.resolve();
   assert.equal(starts.length, 2, "same-provider workers should start together");
   assert.equal(requests.some((request) => request.sessionId !== undefined), false);
+  assert.equal(
+    requests.every((request) => request.modelConfig.reasoningEffort === "high"),
+    true,
+  );
 
   gate.resolve();
   const [firstResult, secondResult] = await Promise.all([first, second]);

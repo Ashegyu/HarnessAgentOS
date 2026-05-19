@@ -1,3 +1,5 @@
+import type { AgentReasoningEffort } from "./agent-profile.ts";
+
 /**
  * Phase 8 — Agent invocation row.
  * Persisted in the SQLite `agent_invocations` table; one row per CLI run.
@@ -36,7 +38,7 @@ export type AgentInvocationStatus =
 export interface AgentModelConfig {
   provider: AgentProvider;
   model: string;
-  reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  reasoningEffort?: AgentReasoningEffort;
   maxTokens?: number;
   timeoutMs: number;
   stallTimeoutMs: number;

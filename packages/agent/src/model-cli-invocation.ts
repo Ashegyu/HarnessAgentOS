@@ -1,4 +1,8 @@
-import type { AgentProvider } from "@harness/core";
+import {
+  AGENT_REASONING_EFFORTS,
+  type AgentProvider,
+  type AgentReasoningEffort,
+} from "@harness/core";
 import type { ModelCliRequest } from "./model-cli-types.ts";
 
 export interface CliInvocation {
@@ -98,6 +102,12 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     "--ask-for-approval",
     "never",
   ];
+  const reasoningEffort = normalizeReasoningEffort(
+    request.modelConfig.reasoningEffort,
+  );
+  if (reasoningEffort) {
+    args.push("-c", `model_reasoning_effort=${reasoningEffort}`);
+  }
   for (const override of normalizeCodexConfigOverrides(
     request.codexConfigOverrides,
   )) {
@@ -134,6 +144,17 @@ const normalizeCodexConfigOverrides = (
   }
   return normalized;
 };
+
+const REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
+  AGENT_REASONING_EFFORTS,
+);
+
+const normalizeReasoningEffort = (
+  effort: unknown,
+): AgentReasoningEffort | undefined =>
+  typeof effort === "string" && REASONING_EFFORT_SET.has(effort)
+    ? (effort as AgentReasoningEffort)
+    : undefined;
 
 const buildStdin = (request: ModelCliRequest): string => {
   if (request.modelConfig.provider !== "codex" || !request.systemPrompt) {

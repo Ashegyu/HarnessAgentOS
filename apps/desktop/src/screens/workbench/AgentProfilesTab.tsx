@@ -6,7 +6,11 @@ import type {
   McpServerConfig,
   SkillSource,
 } from "@harness/core";
-import { APPROVAL_ACTION_TYPES, WORKER_ROLES } from "@harness/core";
+import {
+  AGENT_REASONING_EFFORTS,
+  APPROVAL_ACTION_TYPES,
+  WORKER_ROLES,
+} from "@harness/core";
 import {
   buildBindingPolicyHints,
   draftFromProfile,
@@ -539,7 +543,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   <option value="codex">codex</option>
                 </select>
                 <span className="settings-field__hint">
-                  auto는 General 탭의 Provider 설정을 따릅니다. MCP binding과 tool 정책은 현재 claude provider만 enforced입니다.
+                  auto는 General 탭의 Provider 설정을 따릅니다. Codex MCP binding은 검증된 stdio/no-secret 서버만 per-run override로 전달되고, tool 정책은 현재 claude provider에서만 enforced입니다.
                 </span>
               </label>
               <label className="settings-field">
@@ -599,6 +603,32 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
                 <span className="settings-field__hint">
                   비워두면 General 탭의 전역 Model을 따릅니다. <code>claude-sonnet-4-6</code> 같은 ID로 이 프로필만 덮어쓸 수 있습니다.
+                </span>
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  Reasoning effort
+                </span>
+                <select
+                  className="settings-field__input"
+                  value={draft.reasoningEffort}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft(
+                      "reasoningEffort",
+                      e.target.value as ProfileDraft["reasoningEffort"],
+                    )
+                  }
+                >
+                  <option value="">provider 기본값</option>
+                  {AGENT_REASONING_EFFORTS.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
+                    </option>
+                  ))}
+                </select>
+                <span className="settings-field__hint">
+                  Codex 실행에서는 <code>model_reasoning_effort</code> override로 전달됩니다. Claude provider에는 검증된 CLI 플래그가 없어 전달하지 않습니다.
                 </span>
               </label>
               <label className="settings-field">

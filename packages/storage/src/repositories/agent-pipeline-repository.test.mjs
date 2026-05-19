@@ -123,6 +123,7 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       "Build Recovery",
       "Frontend Product Delivery",
       "Image Asset Prompt Flow",
+      "New Project Delivery",
       "Parallel Review Hardening",
       "Product PRD Discovery",
       "Refactor Safety",
@@ -180,6 +181,55 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       [],
       "image prompt generation is read-only until a concrete image runner exists",
     );
+
+    const newProject = all.find((p) => p.id === "pipe_template_new_project_delivery");
+    assert.ok(newProject, "New Project Delivery template should exist");
+    assert.deepEqual(
+      newProject.steps.map((step) => step.id),
+      [
+        "prd",
+        "project-plan",
+        "architecture",
+        "ux-flow",
+        "image-assets",
+        "implementation",
+        "build-recovery",
+        "verification",
+        "design-review",
+        "security-review",
+        "final-review",
+      ],
+    );
+    assert.deepEqual(
+      newProject.steps.map((step) => profileRoles.get(step.agentProfileId)),
+      [
+        "planner",
+        "planner",
+        "orchestrator",
+        "planner",
+        "planner",
+        "coder",
+        "build-error-resolver",
+        "tester",
+        "reviewer",
+        "security-reviewer",
+        "reviewer",
+      ],
+    );
+    assert.deepEqual(
+      newProject.steps.find((step) => step.id === "implementation")?.allowedActions,
+      ["file_write"],
+      "project creation files must be proposed through Harness approvals",
+    );
+    assert.deepEqual(
+      newProject.steps.find((step) => step.id === "build-recovery")?.allowedActions,
+      ["shell", "file_write"],
+    );
+    assert.deepEqual(
+      newProject.steps.find((step) => step.id === "image-assets")?.allowedActions,
+      [],
+      "image generation planning remains read-only until a concrete image runner exists",
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -194,7 +244,7 @@ test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
     await pipelines.ensureSeed();
 
     const all = await pipelines.list();
-    assert.equal(all.length, 10);
+    assert.equal(all.length, 11);
     assert.equal(
       all.filter((p) => p.id === "pipe_template_refactor_safety").length,
       1,

@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_HARNESS_SETTINGS } from "./settings.ts";
+import { DEFAULT_CODEX_MODEL, DEFAULT_HARNESS_SETTINGS } from "./settings.ts";
 
 test("DEFAULT_HARNESS_SETTINGS has expected agent defaults", () => {
-  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.provider, "auto");
-  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.model, "");
+  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.provider, "codex");
+  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.model, DEFAULT_CODEX_MODEL);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.timeoutMs, 60 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.stallTimeoutMs, 10 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.contextDepth, 5);

@@ -7,6 +7,7 @@ import {
   DEFAULT_AGENT_PERMISSIONS,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
 } from "@harness/core";
 
 /**
@@ -42,6 +43,22 @@ export interface MigrationPlan {
   inputs: readonly CreateAgentProfilePayload[];
 }
 
+const codexMigrationModel = (model: string): string => {
+  const trimmed = model.trim();
+  const lower = trimmed.toLowerCase();
+  if (trimmed.length === 0 || lower === "gpt-5" || lower.startsWith("claude")) {
+    return DEFAULT_CODEX_MODEL;
+  }
+  return trimmed;
+};
+
+const CODEX_MIGRATION_REASONING_EFFORT = "xhigh";
+
+const hasCustomLegacyModel = (model: string): boolean => {
+  const trimmed = model.trim();
+  return trimmed.length > 0 && trimmed !== DEFAULT_CODEX_MODEL;
+};
+
 const workerToInput = (
   wp: WorkerProfile,
   legacyAgent: MigrationPlanInput["legacyAgent"],
@@ -51,11 +68,12 @@ const workerToInput = (
   description: "",
   category: "legacy",
   tags: ["legacy-worker", wp.role],
-  provider: wp.provider,
+  provider: "codex",
   role: wp.role,
   persona: "",
   tuning: {
-    model: wp.model,
+    model: codexMigrationModel(wp.model),
+    reasoningEffort: CODEX_MIGRATION_REASONING_EFFORT,
     timeoutMs: legacyAgent.timeoutMs,
     stallTimeoutMs: legacyAgent.stallTimeoutMs,
     contextDepth: legacyAgent.contextDepth,
@@ -84,11 +102,12 @@ const legacyAgentSeedInput = (
   description: "기존 글로벌 agent 설정에서 자동 생성",
   category: "legacy",
   tags: ["legacy-agent", "coder"],
-  provider: legacyAgent.provider ?? "auto",
+  provider: "codex",
   role: "coder",
   persona: "",
   tuning: {
-    model: legacyAgent.model,
+    model: codexMigrationModel(legacyAgent.model),
+    reasoningEffort: CODEX_MIGRATION_REASONING_EFFORT,
     timeoutMs: legacyAgent.timeoutMs,
     stallTimeoutMs: legacyAgent.stallTimeoutMs,
     contextDepth: legacyAgent.contextDepth,
@@ -141,7 +160,7 @@ export const planLegacyMigration = (
   // No worker rows; fall back to a single seed from the legacy global
   // agent block, but only when there's something non-default in it.
   const hasNonDefault =
-    input.legacyAgent.model.trim().length > 0 ||
+    hasCustomLegacyModel(input.legacyAgent.model) ||
     input.legacyAgent.timeoutMs !== DEFAULT_AGENT_TIMEOUT_MS ||
     input.legacyAgent.stallTimeoutMs !== DEFAULT_AGENT_STALL_TIMEOUT_MS ||
     input.legacyAgent.contextDepth !== 5;

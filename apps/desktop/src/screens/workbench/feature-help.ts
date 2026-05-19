@@ -111,7 +111,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "여러 Agent Profile을 순서 또는 의존 관계로 묶어 반복 가능한 작업 흐름을 만듭니다.",
     details: [
       "각 step은 Agent Profile, 한국어 instruction 프롬프트, output contract, 허용 action을 따로 가질 수 있습니다.",
-      "요청 유형 추천에 '빌드 에러', '리팩터링', '보안 리뷰' 같은 문구를 입력하면 role 구성을 기준으로 맞는 템플릿을 우선 표시합니다.",
+      "요청 유형 추천에 '새 프로젝트 생성', '빌드 에러', '리팩터링', '보안 리뷰' 같은 문구를 입력하면 role 구성을 기준으로 맞는 템플릿을 우선 표시합니다.",
       "TaskRun을 시작할 때 파이프라인을 선택하면 orchestration plan이 생성되고 승인 흐름을 탑니다.",
       "기본 템플릿은 저장된 선택지만 제공하며 자동 실행이나 기본 파이프라인 지정은 하지 않습니다.",
     ],

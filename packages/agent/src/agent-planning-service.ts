@@ -438,6 +438,9 @@ export class AgentPlanningService {
         modelConfig: {
           provider,
           model,
+          ...(resolved.tuning.reasoningEffort
+            ? { reasoningEffort: resolved.tuning.reasoningEffort }
+            : {}),
           // Priority: explicit input.timeout > active profile tuning > service defaults.
           // Resolver always provides a tuning block (legacy fallback synthesizes
           // one from HarnessSettings.agent), so `resolved.tuning.timeoutMs` is
@@ -1041,6 +1044,9 @@ export class AgentPlanningService {
         modelConfig: {
           provider,
           model,
+          ...(tuning.reasoningEffort
+            ? { reasoningEffort: tuning.reasoningEffort }
+            : {}),
           timeoutMs: tuning.timeoutMs ?? this.defaults.timeoutMs,
           stallTimeoutMs:
             tuning.stallTimeoutMs ?? this.defaults.stallTimeoutMs,
