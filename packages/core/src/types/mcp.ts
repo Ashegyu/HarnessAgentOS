@@ -8,6 +8,7 @@
  */
 
 import type {
+  AgentProfile,
   AgentProfileBindingPreview,
   CapabilityBindingProposal,
 } from "./agent-profile.ts";
@@ -111,6 +112,11 @@ export interface McpServerBindingProposalResult {
   profileName: string;
   proposal: CapabilityBindingProposal;
   preview: AgentProfileBindingPreview;
+}
+
+export interface McpServerBindingApplyResult
+  extends McpServerBindingProposalResult {
+  profile: AgentProfile;
 }
 
 const TRANSPORT_SET: ReadonlySet<string> = new Set(MCP_TRANSPORTS);

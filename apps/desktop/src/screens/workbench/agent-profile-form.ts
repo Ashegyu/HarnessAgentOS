@@ -7,7 +7,6 @@ import {
   APPROVAL_ACTION_TYPES,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
-  DEFAULT_AGENT_PERMISSIONS,
 } from "@harness/core";
 
 /**
@@ -43,6 +42,11 @@ export interface ProfileDraft {
   perInvocationUsdText: string;
   perTaskRunUsdText: string;
   perDayUsdText: string;
+  mcpServerIdsText: string;
+  skillSourceIdsText: string;
+  allowedSkillIdsText: string;
+  toolAllowlistText: string;
+  toolDenylistText: string;
   cliPathOverride: string;
   isDefault: boolean;
 }
@@ -57,6 +61,20 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
 
 const numToText = (n: number | undefined): string =>
   n === undefined ? "" : String(n);
+
+const listToText = (values: readonly string[]): string => values.join("\n");
+
+const parseList = (value: string): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value.split(/[\r\n,]+/)) {
+    const item = raw.trim();
+    if (item.length === 0 || seen.has(item)) continue;
+    seen.add(item);
+    out.push(item);
+  }
+  return out;
+};
 
 const textToNumOrUndefined = (s: string): number | undefined => {
   const trimmed = s.trim();
@@ -104,6 +122,11 @@ export const emptyDraft = (): ProfileDraft => ({
   perInvocationUsdText: "",
   perTaskRunUsdText: "",
   perDayUsdText: "",
+  mcpServerIdsText: "",
+  skillSourceIdsText: "",
+  allowedSkillIdsText: "",
+  toolAllowlistText: "",
+  toolDenylistText: "",
   cliPathOverride: "",
   isDefault: false,
 });
@@ -129,6 +152,11 @@ export const draftFromProfile = (p: AgentProfile): ProfileDraft => ({
   perInvocationUsdText: numToText(p.permissions.budget?.perInvocationUsd),
   perTaskRunUsdText: numToText(p.permissions.budget?.perTaskRunUsd),
   perDayUsdText: numToText(p.permissions.budget?.perDayUsd),
+  mcpServerIdsText: listToText(p.mcpServerIds),
+  skillSourceIdsText: listToText(p.skillSourceIds),
+  allowedSkillIdsText: listToText(p.permissions.allowedSkillIds),
+  toolAllowlistText: listToText(p.permissions.toolAllowlist),
+  toolDenylistText: listToText(p.permissions.toolDenylist),
   cliPathOverride: p.cli.cliPathOverride,
   isDefault: p.isDefault,
 });
@@ -239,9 +267,9 @@ export const serializeDraft = (
   const permissions: AgentPermissions = {
     autoApproveActions: auto,
     blockedActions: block,
-    allowedSkillIds: [...DEFAULT_AGENT_PERMISSIONS.allowedSkillIds],
-    toolAllowlist: [...DEFAULT_AGENT_PERMISSIONS.toolAllowlist],
-    toolDenylist: [...DEFAULT_AGENT_PERMISSIONS.toolDenylist],
+    allowedSkillIds: parseList(draft.allowedSkillIdsText),
+    toolAllowlist: parseList(draft.toolAllowlistText),
+    toolDenylist: parseList(draft.toolDenylistText),
     ...(budget ? { budget } : {}),
   };
   return {
@@ -262,8 +290,8 @@ export const serializeDraft = (
       envSecretRefs: {},
     },
     permissions,
-    mcpServerIds: [],
-    skillSourceIds: [],
+    mcpServerIds: parseList(draft.mcpServerIdsText),
+    skillSourceIds: parseList(draft.skillSourceIdsText),
     isDefault: draft.isDefault,
   };
 };

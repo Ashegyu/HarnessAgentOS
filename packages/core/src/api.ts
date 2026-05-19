@@ -43,6 +43,7 @@ import type {
   McpServerGenerationPreviewResult,
   McpServerBindingProposalRequest,
   McpServerBindingProposalResult,
+  McpServerBindingApplyResult,
   OrchestrationMode,
   OrchestrationPlan,
   OrchestrationRunResult,
@@ -373,6 +374,9 @@ export interface HarnessDesktopApi {
     generateProfileBindingProposal(input: {
       request: McpServerBindingProposalRequest;
     }): Promise<McpServerBindingProposalResult>;
+    applyProfileBindingProposal(input: {
+      request: McpServerBindingProposalRequest;
+    }): Promise<McpServerBindingApplyResult>;
     /** Create when input.server.id is empty/unknown; otherwise update in place. */
     upsert(input: { server: McpServerConfig }): Promise<McpServerConfig>;
     delete(input: { serverId: string }): Promise<void>;

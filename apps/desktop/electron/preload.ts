@@ -413,6 +413,8 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped(IPC_CHANNELS.mcp.generateServerDraft, input),
     generateProfileBindingProposal: (input) =>
       invokeUnwrapped(IPC_CHANNELS.mcp.generateProfileBindingProposal, input),
+    applyProfileBindingProposal: (input) =>
+      invokeUnwrapped(IPC_CHANNELS.mcp.applyProfileBindingProposal, input),
     upsert: (input) => invokeUnwrapped(IPC_CHANNELS.mcp.upsert, input),
     delete: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.mcp.delete, input);

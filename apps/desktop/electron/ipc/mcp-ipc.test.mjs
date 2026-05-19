@@ -206,6 +206,77 @@ test("mcp.generateProfileBindingProposal returns a no-op for global servers", as
   }
 });
 
+test("mcp.applyProfileBindingProposal updates only AgentProfile.mcpServerIds", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const server = (await h.upsert({
+      server: stdio({
+        name: "Repo MCP",
+        scope: "per-agent",
+        lastHealth: {
+          okAt: "2026-05-12T00:00:00.000Z",
+          checkedAt: "2026-05-12T00:00:00.000Z",
+        },
+      }),
+    })).value;
+    const profile = await ctx.profiles.create(
+      profileInput({
+        permissions: {
+          autoApproveActions: [],
+          blockedActions: [],
+          allowedSkillIds: ["skill_review"],
+          toolAllowlist: ["mcp__repo__read_*"],
+          toolDenylist: ["mcp__repo__delete_*"],
+        },
+        skillSourceIds: ["ss_project"],
+      }),
+    );
+
+    const r = await h.applyProfileBindingProposal({
+      request: { serverId: server.id, profileId: profile.id },
+    });
+
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.value.profile.mcpServerIds, [server.id]);
+    assert.deepEqual(r.value.profile.skillSourceIds, ["ss_project"]);
+    assert.deepEqual(r.value.profile.permissions.allowedSkillIds, [
+      "skill_review",
+    ]);
+    const persisted = await ctx.profiles.get(profile.id);
+    assert.deepEqual(persisted.mcpServerIds, [server.id]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.applyProfileBindingProposal keeps global server bindings as a no-op", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const server = (await h.upsert({
+      server: stdio({ name: "Global MCP", scope: "global" }),
+    })).value;
+    const profile = await ctx.profiles.create(profileInput());
+
+    const r = await h.applyProfileBindingProposal({
+      request: { serverId: server.id, profileId: profile.id },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.preview.alreadySatisfied, true);
+    assert.deepEqual(r.value.profile.mcpServerIds, []);
+    const persisted = await ctx.profiles.get(profile.id);
+    assert.deepEqual(persisted.mcpServerIds, []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("mcp.upsert creates then updates the same row", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);

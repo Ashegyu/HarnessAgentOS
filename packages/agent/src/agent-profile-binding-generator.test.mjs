@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildMcpServerBindingProposal } from "./agent-profile-binding-generator.ts";
+import {
+  applyMcpServerBindingProposal,
+  buildMcpServerBindingProposal,
+} from "./agent-profile-binding-generator.ts";
 
 const profile = (overrides = {}) => ({
   id: "ap_reviewer",
@@ -113,4 +116,38 @@ test("buildMcpServerBindingProposal warns when provider is not Claude or health 
   assert.match(warnings, /disabled/);
   assert.match(warnings, /health check has not succeeded/);
   assert.equal(result.proposal.risk, "medium");
+});
+
+test("applyMcpServerBindingProposal applies only the proposed mcpServerIds", () => {
+  const original = profile();
+  const result = buildMcpServerBindingProposal({
+    profile: original,
+    server: server(),
+  });
+
+  const updated = applyMcpServerBindingProposal(original, result);
+
+  assert.deepEqual(updated.mcpServerIds, ["mcp_existing", "mcp_repo"]);
+  assert.deepEqual(updated.skillSourceIds, original.skillSourceIds);
+  assert.deepEqual(
+    updated.permissions.allowedSkillIds,
+    original.permissions.allowedSkillIds,
+  );
+  assert.deepEqual(
+    updated.permissions.toolDenylist,
+    original.permissions.toolDenylist,
+  );
+  assert.deepEqual(original.mcpServerIds, ["mcp_existing"]);
+});
+
+test("applyMcpServerBindingProposal rejects mismatched profiles", () => {
+  const result = buildMcpServerBindingProposal({
+    profile: profile({ id: "ap_a" }),
+    server: server(),
+  });
+
+  assert.throws(
+    () => applyMcpServerBindingProposal(profile({ id: "ap_b" }), result),
+    /does not target AgentProfile/,
+  );
 });

@@ -644,6 +644,80 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
             </fieldset>
 
             <fieldset className="settings-fieldset">
+              <legend>MCP / Skill binding</legend>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  MCP server ids
+                </span>
+                <textarea
+                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                  rows={3}
+                  value={draft.mcpServerIdsText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("mcpServerIdsText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  Skill source ids
+                </span>
+                <textarea
+                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                  rows={3}
+                  value={draft.skillSourceIdsText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("skillSourceIdsText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  Allowed skill ids
+                </span>
+                <textarea
+                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                  rows={3}
+                  value={draft.allowedSkillIdsText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("allowedSkillIdsText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  Tool allow patterns
+                </span>
+                <textarea
+                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                  rows={3}
+                  value={draft.toolAllowlistText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("toolAllowlistText", e.target.value)
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  Tool deny patterns
+                </span>
+                <textarea
+                  className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                  rows={3}
+                  value={draft.toolDenylistText}
+                  disabled={saving}
+                  onChange={(e) =>
+                    updateDraft("toolDenylistText", e.target.value)
+                  }
+                />
+              </label>
+            </fieldset>
+
+            <fieldset className="settings-fieldset">
               <legend>비용 한도</legend>
               <label className="settings-field">
                 <span className="settings-field__label">

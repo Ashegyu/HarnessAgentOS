@@ -113,6 +113,7 @@ test("agents namespace exposes profile CRUD verbs", () => {
 
 test("mcp namespace exposes server management verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.mcp).sort(), [
+    "applyProfileBindingProposal",
     "delete",
     "generateProfileBindingProposal",
     "generateServerDraft",
@@ -123,6 +124,7 @@ test("mcp namespace exposes server management verbs", () => {
   ]);
   assert.equal(isAllowedChannel("mcp:generateServerDraft"), true);
   assert.equal(isAllowedChannel("mcp:generateProfileBindingProposal"), true);
+  assert.equal(isAllowedChannel("mcp:applyProfileBindingProposal"), true);
   assert.equal(isAllowedChannel("mcp:healthCheck"), true);
   assert.equal(isAllowedChannel("mcp:upsert"), true);
 });

@@ -9,6 +9,7 @@ import {
   ok,
   type HarnessResult,
   type GeneratedMcpServerDraft,
+  type McpServerBindingApplyResult,
   type McpServerBindingProposalRequest,
   type McpServerBindingProposalResult,
   type McpServerConfig,
@@ -20,6 +21,7 @@ import {
   type McpServerHealth,
 } from "@harness/core";
 import {
+  applyMcpServerBindingProposal,
   buildMcpServerBindingProposal,
   buildGeneratedMcpServerDraft,
   sanitizeServerName,
@@ -284,6 +286,38 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
         );
       }
       return ok(buildMcpServerBindingProposal({ profile, server }));
+    },
+
+    applyProfileBindingProposal: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<McpServerBindingApplyResult>> => {
+      const v = normalizeBindingProposalRequest(input?.request);
+      if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      const server = await mcp.get(v.value.serverId);
+      if (!server) {
+        return err(
+          harnessError(
+            MCP_SERVER_NOT_FOUND,
+            `unknown server: ${v.value.serverId}`,
+          ),
+        );
+      }
+      const profile = await profiles.get(v.value.profileId);
+      if (!profile) {
+        return err(
+          harnessError(
+            AGENT_PROFILE_NOT_FOUND,
+            `unknown profile: ${v.value.profileId}`,
+          ),
+        );
+      }
+      const proposal = buildMcpServerBindingProposal({ profile, server });
+      return wrap(async () => {
+        const updated = await profiles.update(
+          applyMcpServerBindingProposal(profile, proposal),
+        );
+        return { ...proposal, profile: updated };
+      });
     },
 
     upsert: async (input: {

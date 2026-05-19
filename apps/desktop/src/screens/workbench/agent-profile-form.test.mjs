@@ -34,17 +34,17 @@ const SAMPLE_PROFILE = {
   permissions: {
     autoApproveActions: ["file_write"],
     blockedActions: ["git_commit"],
-    allowedSkillIds: [],
-    toolAllowlist: [],
-    toolDenylist: [],
+    allowedSkillIds: ["skill_review"],
+    toolAllowlist: ["mcp__repo__read_*"],
+    toolDenylist: ["mcp__repo__delete_*"],
     budget: {
       perInvocationUsd: 0.05,
       perTaskRunUsd: 0.25,
       perDayUsd: 1,
     },
   },
-  mcpServerIds: [],
-  skillSourceIds: [],
+  mcpServerIds: ["mcp_repo"],
+  skillSourceIds: ["ss_project"],
   isDefault: true,
   createdAt: "2026-05-12T00:00:00.000Z",
   updatedAt: "2026-05-12T00:00:00.000Z",
@@ -106,6 +106,11 @@ test("draftFromProfile populates permissionMap from auto/block lists", () => {
   assert.equal(d.perInvocationUsdText, "0.05");
   assert.equal(d.perTaskRunUsdText, "0.25");
   assert.equal(d.perDayUsdText, "1");
+  assert.equal(d.mcpServerIdsText, "mcp_repo");
+  assert.equal(d.skillSourceIdsText, "ss_project");
+  assert.equal(d.allowedSkillIdsText, "skill_review");
+  assert.equal(d.toolAllowlistText, "mcp__repo__read_*");
+  assert.equal(d.toolDenylistText, "mcp__repo__delete_*");
 });
 
 test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
@@ -122,13 +127,41 @@ test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
   assert.equal(out.tuning.systemPromptPrefix, "PREFIX");
   assert.deepEqual(out.permissions.autoApproveActions, ["file_write"]);
   assert.deepEqual(out.permissions.blockedActions, ["git_commit"]);
+  assert.deepEqual(out.permissions.allowedSkillIds, ["skill_review"]);
+  assert.deepEqual(out.permissions.toolAllowlist, ["mcp__repo__read_*"]);
+  assert.deepEqual(out.permissions.toolDenylist, ["mcp__repo__delete_*"]);
   assert.deepEqual(out.permissions.budget, {
     perInvocationUsd: 0.05,
     perTaskRunUsd: 0.25,
     perDayUsd: 1,
   });
   assert.equal(out.cli.cliPathOverride, "/usr/local/bin/claude");
+  assert.deepEqual(out.mcpServerIds, ["mcp_repo"]);
+  assert.deepEqual(out.skillSourceIds, ["ss_project"]);
   assert.equal(out.isDefault, true);
+});
+
+test("serializeDraft normalizes capability binding lists without duplicates", () => {
+  const d = emptyDraft();
+  d.name = "Bound";
+  d.mcpServerIdsText = "mcp_a, mcp_b\nmcp_a";
+  d.skillSourceIdsText = "ss_project\nss_team";
+  d.allowedSkillIdsText = "skill_review, skill_review, skill_test";
+  d.toolAllowlistText = "mcp__repo__read_*\nmcp__repo__list_*";
+  d.toolDenylistText = "mcp__repo__delete_*";
+
+  const out = serializeDraft(d);
+  assert.deepEqual(out.mcpServerIds, ["mcp_a", "mcp_b"]);
+  assert.deepEqual(out.skillSourceIds, ["ss_project", "ss_team"]);
+  assert.deepEqual(out.permissions.allowedSkillIds, [
+    "skill_review",
+    "skill_test",
+  ]);
+  assert.deepEqual(out.permissions.toolAllowlist, [
+    "mcp__repo__read_*",
+    "mcp__repo__list_*",
+  ]);
+  assert.deepEqual(out.permissions.toolDenylist, ["mcp__repo__delete_*"]);
 });
 
 test("serializeDraft omits temperature/maxTokens when their text is empty", () => {

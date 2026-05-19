@@ -40,6 +40,7 @@ export const McpServersTab = (): JSX.Element => {
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [bindingGenerating, setBindingGenerating] = useState(false);
+  const [bindingApplying, setBindingApplying] = useState(false);
   const [generationIntent, setGenerationIntent] = useState("");
   const [generationResult, setGenerationResult] =
     useState<McpServerGenerationPreviewResult | null>(null);
@@ -224,6 +225,26 @@ export const McpServersTab = (): JSX.Element => {
       setError(errorMessage(e));
     } finally {
       setBindingGenerating(false);
+    }
+  };
+
+  const handleApplyBindingProposal = async (): Promise<void> => {
+    if (!draft || draft.id === null || !bindingResult) return;
+    setBindingApplying(true);
+    setError(null);
+    try {
+      const result = await window.harness.mcp.applyProfileBindingProposal({
+        request: {
+          serverId: bindingResult.serverId,
+          profileId: bindingResult.profileId,
+        },
+      });
+      await refresh();
+      setBindingResult(result);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBindingApplying(false);
     }
   };
 
@@ -578,7 +599,9 @@ export const McpServersTab = (): JSX.Element => {
                         <select
                           className="settings-field__input"
                           value={bindingProfileId}
-                          disabled={saving || bindingGenerating}
+                          disabled={
+                            saving || bindingGenerating || bindingApplying
+                          }
                           onChange={(e) => {
                             setBindingProfileId(e.target.value);
                             setBindingResult(null);
@@ -595,7 +618,9 @@ export const McpServersTab = (): JSX.Element => {
                         type="button"
                         className="btn btn--ghost"
                         onClick={() => void handleGenerateBindingProposal()}
-                        disabled={saving || bindingGenerating}
+                        disabled={
+                          saving || bindingGenerating || bindingApplying
+                        }
                       >
                         {bindingGenerating
                           ? "proposal 생성 중…"
@@ -615,6 +640,16 @@ export const McpServersTab = (): JSX.Element => {
                         {bindingResult.preview.alreadySatisfied &&
                           " · no profile-local change needed"}
                       </div>
+                      {bindingResult.proposal.addMcpServerIds.length > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--sm"
+                          onClick={() => void handleApplyBindingProposal()}
+                          disabled={saving || bindingApplying}
+                        >
+                          {bindingApplying ? "적용 중…" : "프로필에 적용"}
+                        </button>
+                      )}
                       <dl className="mcp-servers-tab__binding-diff">
                         <dt>before mcpServerIds</dt>
                         <dd>

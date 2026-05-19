@@ -53,6 +53,21 @@ export const buildMcpServerBindingProposal = (
   };
 };
 
+export const applyMcpServerBindingProposal = (
+  profile: AgentProfile,
+  result: McpServerBindingProposalResult,
+): AgentProfile => {
+  if (profile.id !== result.profileId) {
+    throw new Error(
+      `Binding proposal for "${result.profileId}" does not target AgentProfile "${profile.id}".`,
+    );
+  }
+  return {
+    ...profile,
+    mcpServerIds: [...result.preview.after.mcpServerIds],
+  };
+};
+
 const snapshotProfileBindings = (
   profile: AgentProfile,
 ): AgentProfileBindingSnapshot => ({
