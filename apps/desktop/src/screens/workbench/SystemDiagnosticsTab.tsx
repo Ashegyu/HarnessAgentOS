@@ -9,6 +9,7 @@ import {
   diagnosticsHasWarnings,
   diagnosticsTone,
   formatDiagnosticBytes,
+  providerAvailabilityDetail,
   providerAvailabilityLabel,
 } from "./system-diagnostics-model";
 
@@ -191,7 +192,7 @@ const ProviderMetric = ({
 }): JSX.Element => (
   <div>
     <dt>{provider}</dt>
-    <dd>
+    <dd title={providerAvailabilityDetail(probe)}>
       {providerAvailabilityLabel(probe.available, probe.version)}
       {!probe.available && probe.error ? (
         <span className="system-diagnostics__provider-error">{probe.error}</span>

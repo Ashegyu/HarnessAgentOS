@@ -4,6 +4,7 @@ import {
   diagnosticsHasWarnings,
   diagnosticsTone,
   formatDiagnosticBytes,
+  providerAvailabilityDetail,
   providerAvailabilityLabel,
 } from "./system-diagnostics-model.ts";
 
@@ -56,4 +57,31 @@ test("providerAvailabilityLabel prefers version when available", () => {
   assert.equal(providerAvailabilityLabel(true, "codex 1.2.3"), "codex 1.2.3");
   assert.equal(providerAvailabilityLabel(true), "available");
   assert.equal(providerAvailabilityLabel(false, "ignored"), "unavailable");
+});
+
+test("providerAvailabilityDetail includes command path for diagnostics", () => {
+  assert.equal(
+    providerAvailabilityDetail({
+      available: true,
+      version: "codex-cli 0.131.0",
+      command:
+        "C:\\Users\\GC\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+      queueDepth: 0,
+    }),
+    [
+      "codex-cli 0.131.0",
+      "command: C:\\Users\\GC\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\codex\\codex.exe",
+    ].join("\n"),
+  );
+  assert.equal(
+    providerAvailabilityDetail({
+      available: false,
+      error: "spawn ENOENT",
+      command: "C:\\missing\\codex.exe",
+      queueDepth: 0,
+    }),
+    ["unavailable", "error: spawn ENOENT", "command: C:\\missing\\codex.exe"].join(
+      "\n",
+    ),
+  );
 });

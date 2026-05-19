@@ -10,6 +10,7 @@ import type {
 } from "@harness/core";
 import {
   emptyServerDraft,
+  MCP_PROVIDER_BOUNDARY_TEXT,
   mcpGeneratedDraftToFormDraft,
   serializeServerDraft,
   serverDraftFromConfig,
@@ -308,12 +309,10 @@ export const McpServersTab = (): JSX.Element => {
   return (
     <div className="mcp-servers-tab">
       <div className="mcp-servers-tab__banner" role="note">
-        <strong>Claude CLI MCP 통합 활성화됨.</strong>{" "}
-        활성화된 서버는 다음 agent invocation에서 `--mcp-config` 인자를 통해
-        자동으로 연결됩니다. <em>per-agent</em> scope 서버는 현재 활성
-        AgentProfile의 <code>mcpServerIds</code>에 포함된 경우에만 연결됩니다.
-        Codex CLI MCP 인자 형식은 아직 검증되지 않아 claude provider에서만
-        동작합니다.
+        <strong>Agent invocation MCP 통합 활성화됨.</strong>{" "}
+        {MCP_PROVIDER_BOUNDARY_TEXT} <em>per-agent</em> scope 서버는 현재
+        활성 AgentProfile의 <code>mcpServerIds</code>에 포함된 경우에만
+        연결됩니다.
       </div>
 
       <div className="mcp-servers-tab__split">

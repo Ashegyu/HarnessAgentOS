@@ -1,4 +1,8 @@
-import type { DiagnosticsStatus, SystemDiagnostics } from "@harness/core";
+import type {
+  AgentProviderProbe,
+  DiagnosticsStatus,
+  SystemDiagnostics,
+} from "@harness/core";
 
 export type DiagnosticsTone = "passed" | "warning" | "failed";
 
@@ -33,4 +37,20 @@ export const providerAvailabilityLabel = (
 ): string => {
   if (!available) return "unavailable";
   return version && version.trim().length > 0 ? version : "available";
+};
+
+export const providerAvailabilityDetail = (
+  probe: Pick<
+    AgentProviderProbe,
+    "available" | "version" | "error" | "command"
+  >,
+): string => {
+  const lines = [providerAvailabilityLabel(probe.available, probe.version)];
+  if (!probe.available && probe.error?.trim()) {
+    lines.push(`error: ${probe.error.trim()}`);
+  }
+  if (probe.command?.trim()) {
+    lines.push(`command: ${probe.command.trim()}`);
+  }
+  return lines.join("\n");
 };

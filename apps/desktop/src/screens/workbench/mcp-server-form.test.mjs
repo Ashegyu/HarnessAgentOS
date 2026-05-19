@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   emptyServerDraft,
+  MCP_PROVIDER_BOUNDARY_TEXT,
   mcpGeneratedDraftToFormDraft,
   serializeServerDraft,
   serverDraftFromConfig,
@@ -142,4 +143,12 @@ test("mcpGeneratedDraftToFormDraft converts generated preview into a new unsaved
   assert.equal(d.argsText, "-y @modelcontextprotocol/server-github");
   assert.equal(d.envSecretRefsText, "GITHUB_PERSONAL_ACCESS_TOKEN=github_token");
   assert.equal(d.enabled, false);
+});
+
+test("MCP provider boundary copy separates Claude config files from limited Codex overrides", () => {
+  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /--mcp-config/);
+  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /mcp_servers\.\*/);
+  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /stdio\/no-secret/);
+  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /SecretVault refs/);
+  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /remote transport/);
 });

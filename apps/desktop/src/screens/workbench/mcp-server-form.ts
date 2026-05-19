@@ -4,6 +4,9 @@ import type {
   McpTransport,
 } from "@harness/core";
 
+export const MCP_PROVIDER_BOUNDARY_TEXT =
+  "Claude provider는 --mcp-config temp file을 사용하고, Codex provider는 stdio/no-secret 서버만 per-run -c mcp_servers.* override로 연결합니다. SecretVault refs 또는 http/sse remote transport는 Codex CLI 실행 전에 차단됩니다.";
+
 /**
  * Form state for the MCP server editor. Mirrors the runtime
  * McpServerConfig shape but uses string fields throughout so the user
