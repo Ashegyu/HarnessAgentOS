@@ -105,10 +105,7 @@ const extractCodexToolCall = (
 ): AgentToolCallEvent | null => {
   const type = stringValue(candidate["type"]) ?? "";
   if (!isCodexToolCallType(type)) return null;
-  const toolName =
-    stringValue(candidate["name"]) ??
-    stringValue(candidate["tool_name"]) ??
-    type;
+  const toolName = codexToolName(candidate, type);
   if (toolName.length === 0) return null;
   const toolCallId =
     stringValue(candidate["call_id"]) ??
@@ -134,6 +131,22 @@ const extractCodexToolCall = (
     ...(toolCallId ? { toolCallId } : {}),
     ...(input !== undefined ? { input } : {}),
   };
+};
+
+const codexToolName = (
+  candidate: Record<string, unknown>,
+  type: string,
+): string => {
+  if (type === "mcp_tool_call") {
+    const server = stringValue(candidate["server"]);
+    const tool = stringValue(candidate["tool"]);
+    if (server && tool) return `mcp__${server}__${tool}`;
+  }
+  return (
+    stringValue(candidate["name"]) ??
+    stringValue(candidate["tool_name"]) ??
+    type
+  );
 };
 
 const inferCodexToolCallPhase = (
