@@ -1,19 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   openDb,
   closeDb,
-  SqliteAgentProfileRepository,
-  SqliteMcpServerRepository,
+  LocalStateService,
 } from "@harness/storage";
 import { buildMcpHandlers } from "./mcp-ipc.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-mcp-ipc-"));
   return {
+    dir,
     file: join(dir, "test.db"),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
@@ -64,8 +64,9 @@ const profileInput = (overrides = {}) => ({
 
 const setupCtx = (file) => {
   const db = openDb({ filePath: file });
-  const mcp = new SqliteMcpServerRepository(db);
-  const profiles = new SqliteAgentProfileRepository(db);
+  const state = new LocalStateService(db);
+  const mcp = state.mcpServers;
+  const profiles = state.agentProfiles;
   const probe = async (server) => {
     // Echo a stub health record so tests can assert handler behavior
     // without spawning anything.
@@ -74,7 +75,7 @@ const setupCtx = (file) => {
     }
     return { okAt: "2026-05-12T00:00:00.000Z", checkedAt: "2026-05-12T00:00:00.000Z" };
   };
-  return { db, ctx: { mcp, profiles, probe } };
+  return { db, ctx: { state, mcp, profiles, probe } };
 };
 
 test("mcp.list returns ok([]) on a fresh DB", async () => {
@@ -141,6 +142,86 @@ test("mcp.generateServerDraft rejects invalid generation request", async () => {
   try {
     const h = buildMcpHandlers(ctx);
     const r = await h.generateServerDraft({ request: { userIntent: "" } });
+    assert.equal(r.ok, false);
+    assert.equal(r.error.code, "STATE_INVALID_INPUT");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateServerScaffoldDraft returns preview without writing files", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const r = await h.generateServerScaffoldDraft({
+      request: {
+        userIntent: "repository search MCP",
+        targetDir: t.dir,
+      },
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.preview.ok, true);
+    assert.equal(r.value.draft.files.length, 5);
+    assert.equal(
+      existsSync(join(t.dir, r.value.draft.files[0].path)),
+      false,
+    );
+    assert.match(r.value.preview.warnings.join("\n"), /stdout/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.proposeServerScaffold creates pending file_write approvals without writing files", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const generated = await h.generateServerScaffoldDraft({
+      request: {
+        userIntent: "repository search MCP",
+        targetDir: t.dir,
+      },
+    });
+
+    const r = await h.proposeServerScaffold({
+      draft: generated.value.draft,
+    });
+
+    assert.equal(r.ok, true);
+    assert.equal(r.value.approvals.length, generated.value.draft.files.length);
+    assert.equal(r.value.approvals[0].actionType, "file_write");
+    assert.equal(r.value.approvals[0].status, "pending");
+    assert.match(
+      r.value.approvals[0].proposedAction.filePatch.path,
+      /package\.json$/,
+    );
+    assert.equal(
+      existsSync(join(t.dir, generated.value.draft.files[0].path)),
+      false,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("mcp.generateServerScaffoldDraft rejects relative targetDir", async () => {
+  const t = tmp();
+  const { db, ctx } = setupCtx(t.file);
+  try {
+    const h = buildMcpHandlers(ctx);
+    const r = await h.generateServerScaffoldDraft({
+      request: {
+        userIntent: "repository search MCP",
+        targetDir: "relative/path",
+      },
+    });
+
     assert.equal(r.ok, false);
     assert.equal(r.error.code, "STATE_INVALID_INPUT");
   } finally {

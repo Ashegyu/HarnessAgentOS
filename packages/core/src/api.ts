@@ -44,6 +44,10 @@ import type {
   McpServerBindingProposalRequest,
   McpServerBindingProposalResult,
   McpServerBindingApplyResult,
+  McpServerScaffoldGenerationRequest,
+  McpServerScaffoldPreviewResult,
+  GeneratedMcpServerScaffoldDraft,
+  McpServerScaffoldProposalResult,
   OrchestrationMode,
   OrchestrationPlan,
   OrchestrationRunResult,
@@ -371,6 +375,12 @@ export interface HarnessDesktopApi {
     generateServerDraft(input: {
       request: McpServerGenerationRequest;
     }): Promise<McpServerGenerationPreviewResult>;
+    generateServerScaffoldDraft(input: {
+      request: McpServerScaffoldGenerationRequest;
+    }): Promise<McpServerScaffoldPreviewResult>;
+    proposeServerScaffold(input: {
+      draft: GeneratedMcpServerScaffoldDraft;
+    }): Promise<McpServerScaffoldProposalResult>;
     generateProfileBindingProposal(input: {
       request: McpServerBindingProposalRequest;
     }): Promise<McpServerBindingProposalResult>;

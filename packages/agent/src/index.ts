@@ -15,6 +15,7 @@ export * from "./agent-profile-resolver";
 export * from "./mcp-config-builder";
 export * from "./mcp-server-generator";
 export * from "./agent-profile-binding-generator";
+export * from "./mcp-scaffold-generator";
 export * from "./repo-index-service";
 export * from "./context-packer";
 export * from "./model-usage-estimator";

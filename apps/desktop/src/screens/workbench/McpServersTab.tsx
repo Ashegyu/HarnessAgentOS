@@ -5,6 +5,8 @@ import type {
   McpServerBindingProposalResult,
   McpServerGenerationPreviewResult,
   McpServerHealth,
+  McpServerScaffoldPreviewResult,
+  McpServerScaffoldProposalResult,
 } from "@harness/core";
 import {
   emptyServerDraft,
@@ -44,6 +46,14 @@ export const McpServersTab = (): JSX.Element => {
   const [generationIntent, setGenerationIntent] = useState("");
   const [generationResult, setGenerationResult] =
     useState<McpServerGenerationPreviewResult | null>(null);
+  const [scaffoldIntent, setScaffoldIntent] = useState("");
+  const [scaffoldTargetDir, setScaffoldTargetDir] = useState("");
+  const [scaffoldGenerating, setScaffoldGenerating] = useState(false);
+  const [scaffoldProposing, setScaffoldProposing] = useState(false);
+  const [scaffoldResult, setScaffoldResult] =
+    useState<McpServerScaffoldPreviewResult | null>(null);
+  const [scaffoldProposal, setScaffoldProposal] =
+    useState<McpServerScaffoldProposalResult | null>(null);
   const [bindingProfileId, setBindingProfileId] = useState("");
   const [bindingResult, setBindingResult] =
     useState<McpServerBindingProposalResult | null>(null);
@@ -202,6 +212,53 @@ export const McpServersTab = (): JSX.Element => {
       setError(errorMessage(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSelectScaffoldDir = async (): Promise<void> => {
+    const selected = await window.harness.app.selectDirectory();
+    if (selected) setScaffoldTargetDir(selected);
+  };
+
+  const handleGenerateScaffold = async (): Promise<void> => {
+    const userIntent = scaffoldIntent.trim();
+    const targetDir = scaffoldTargetDir.trim();
+    if (userIntent.length === 0) {
+      setError("MCP scaffold 용도를 먼저 입력하세요.");
+      return;
+    }
+    if (targetDir.length === 0) {
+      setError("MCP scaffold 대상 디렉터리를 선택하세요.");
+      return;
+    }
+    setScaffoldGenerating(true);
+    setScaffoldProposal(null);
+    setError(null);
+    try {
+      const result = await window.harness.mcp.generateServerScaffoldDraft({
+        request: { userIntent, targetDir },
+      });
+      setScaffoldResult(result);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setScaffoldGenerating(false);
+    }
+  };
+
+  const handleProposeScaffold = async (): Promise<void> => {
+    if (!scaffoldResult || !scaffoldResult.preview.ok) return;
+    setScaffoldProposing(true);
+    setError(null);
+    try {
+      const result = await window.harness.mcp.proposeServerScaffold({
+        draft: scaffoldResult.draft,
+      });
+      setScaffoldProposal(result);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setScaffoldProposing(false);
     }
   };
 
@@ -392,6 +449,116 @@ export const McpServersTab = (): JSX.Element => {
               )}
             </div>
           )}
+
+          <div className="mcp-servers-tab__preview" role="region">
+            <strong>MCP scaffold</strong>
+            <label className="settings-field">
+              <span className="settings-field__label">Scaffold intent</span>
+              <textarea
+                className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                value={scaffoldIntent}
+                disabled={saving || scaffoldGenerating || scaffoldProposing}
+                placeholder="예: 현재 repo 검색을 위한 로컬 stdio MCP 서버 scaffold"
+                onChange={(e) => {
+                  setScaffoldIntent(e.target.value);
+                  setScaffoldResult(null);
+                  setScaffoldProposal(null);
+                }}
+              />
+            </label>
+            <div className="mcp-servers-tab__generator">
+              <label className="settings-field">
+                <span className="settings-field__label">대상 디렉터리</span>
+                <input
+                  type="text"
+                  className="settings-field__input"
+                  value={scaffoldTargetDir}
+                  disabled={saving || scaffoldGenerating || scaffoldProposing}
+                  onChange={(e) => {
+                    setScaffoldTargetDir(e.target.value);
+                    setScaffoldResult(null);
+                    setScaffoldProposal(null);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => void handleSelectScaffoldDir()}
+                disabled={saving || scaffoldGenerating || scaffoldProposing}
+              >
+                선택
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => void handleGenerateScaffold()}
+                disabled={saving || scaffoldGenerating || scaffoldProposing}
+              >
+                {scaffoldGenerating ? "생성 중…" : "scaffold preview"}
+              </button>
+            </div>
+
+            {scaffoldResult && (
+              <div>
+                <div>{scaffoldResult.draft.rationale}</div>
+                <div>
+                  smoke: <code>{scaffoldResult.preview.smokeTestCommand}</code>
+                </div>
+                <ul>
+                  {scaffoldResult.preview.files.map((file) => (
+                    <li key={file.path}>
+                      <code>{file.path}</code> · {file.rationale}
+                    </li>
+                  ))}
+                </ul>
+                {scaffoldResult.preview.errors.length > 0 && (
+                  <div
+                    className="mcp-servers-tab__errors"
+                    style={{ color: "var(--status-failed)" }}
+                  >
+                    <strong>오류:</strong>
+                    <ul>
+                      {scaffoldResult.preview.errors.map((issue, i) => (
+                        <li key={i}>{issue.message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {scaffoldResult.preview.warnings.length > 0 && (
+                  <div className="mcp-servers-tab__warnings">
+                    <strong>확인:</strong>
+                    <ul>
+                      {scaffoldResult.preview.warnings.map((warning, i) => (
+                        <li key={i}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {scaffoldResult.preview.ok && (
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--sm"
+                    onClick={() => void handleProposeScaffold()}
+                    disabled={saving || scaffoldProposing}
+                  >
+                    {scaffoldProposing
+                      ? "proposal 생성 중…"
+                      : "file_write approvals 생성"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {scaffoldProposal && (
+              <div className="mcp-servers-tab__warnings">
+                <strong>Approval proposal:</strong>{" "}
+                <code>{scaffoldProposal.approvals.length}</code>개 file_write
+                approval 생성됨 · taskRun{" "}
+                <code>{scaffoldProposal.taskRunId}</code>
+              </div>
+            )}
+          </div>
 
           {error && draft === null && (
             <div style={{ color: "var(--status-failed)", marginBottom: 8 }}>

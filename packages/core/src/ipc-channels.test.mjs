@@ -117,12 +117,16 @@ test("mcp namespace exposes server management verbs", () => {
     "delete",
     "generateProfileBindingProposal",
     "generateServerDraft",
+    "generateServerScaffoldDraft",
     "healthCheck",
     "list",
+    "proposeServerScaffold",
     "toggle",
     "upsert",
   ]);
   assert.equal(isAllowedChannel("mcp:generateServerDraft"), true);
+  assert.equal(isAllowedChannel("mcp:generateServerScaffoldDraft"), true);
+  assert.equal(isAllowedChannel("mcp:proposeServerScaffold"), true);
   assert.equal(isAllowedChannel("mcp:generateProfileBindingProposal"), true);
   assert.equal(isAllowedChannel("mcp:applyProfileBindingProposal"), true);
   assert.equal(isAllowedChannel("mcp:healthCheck"), true);

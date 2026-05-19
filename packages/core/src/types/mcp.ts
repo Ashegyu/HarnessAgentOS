@@ -12,6 +12,7 @@ import type {
   AgentProfileBindingPreview,
   CapabilityBindingProposal,
 } from "./agent-profile.ts";
+import type { Approval } from "./approval.ts";
 
 export type McpTransport = "stdio" | "http" | "sse";
 
@@ -117,6 +118,54 @@ export interface McpServerBindingProposalResult {
 export interface McpServerBindingApplyResult
   extends McpServerBindingProposalResult {
   profile: AgentProfile;
+}
+
+export interface GeneratedFileProposal {
+  path: string;
+  content: string;
+  rationale: string;
+  riskLevel: "low" | "medium" | "high";
+}
+
+export interface McpServerScaffoldGenerationRequest {
+  userIntent: string;
+  targetDir: string;
+  slug?: string;
+}
+
+export interface GeneratedMcpServerScaffoldDraft {
+  name: string;
+  slug: string;
+  targetDir: string;
+  files: GeneratedFileProposal[];
+  recommendedCommand: string;
+  rationale: string;
+  warnings: string[];
+}
+
+export interface McpServerScaffoldPreviewIssue {
+  field: "targetDir" | "slug" | "files" | "content";
+  message: string;
+}
+
+export interface McpServerScaffoldPreview {
+  ok: boolean;
+  errors: McpServerScaffoldPreviewIssue[];
+  warnings: string[];
+  files: GeneratedFileProposal[];
+  smokeTestCommand: string;
+}
+
+export interface McpServerScaffoldPreviewResult {
+  draft: GeneratedMcpServerScaffoldDraft;
+  preview: McpServerScaffoldPreview;
+}
+
+export interface McpServerScaffoldProposalResult {
+  threadId: string;
+  taskRunId: string;
+  approvals: Approval[];
+  preview: McpServerScaffoldPreview;
 }
 
 const TRANSPORT_SET: ReadonlySet<string> = new Set(MCP_TRANSPORTS);

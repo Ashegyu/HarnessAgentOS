@@ -8,6 +8,12 @@ export const registerMcpIpc = (ctx: McpIpcContext): void => {
   ipcMain.handle(IPC_CHANNELS.mcp.generateServerDraft, async (_e, input) =>
     h.generateServerDraft(input),
   );
+  ipcMain.handle(IPC_CHANNELS.mcp.generateServerScaffoldDraft, async (_e, input) =>
+    h.generateServerScaffoldDraft(input),
+  );
+  ipcMain.handle(IPC_CHANNELS.mcp.proposeServerScaffold, async (_e, input) =>
+    h.proposeServerScaffold(input),
+  );
   ipcMain.handle(
     IPC_CHANNELS.mcp.generateProfileBindingProposal,
     async (_e, input) => h.generateProfileBindingProposal(input),

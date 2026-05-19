@@ -144,6 +144,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     agentInvocations: ctx.state.agentInvocations,
   });
   registerMcpIpc({
+    state: ctx.state,
     mcp: ctx.state.mcpServers,
     profiles: ctx.state.agentProfiles,
     probe: ctx.mcpProbe,

@@ -8,7 +8,9 @@ import {
   isMcpTransport,
   ok,
   type HarnessResult,
+  type GeneratedFileProposal,
   type GeneratedMcpServerDraft,
+  type GeneratedMcpServerScaffoldDraft,
   type McpServerBindingApplyResult,
   type McpServerBindingProposalRequest,
   type McpServerBindingProposalResult,
@@ -19,17 +21,25 @@ import {
   type McpServerGenerationPreviewResult,
   type McpServerGenerationRequest,
   type McpServerHealth,
+  type McpServerScaffoldGenerationRequest,
+  type McpServerScaffoldPreview,
+  type McpServerScaffoldPreviewIssue,
+  type McpServerScaffoldPreviewResult,
+  type McpServerScaffoldProposalResult,
 } from "@harness/core";
 import {
   applyMcpServerBindingProposal,
+  buildGeneratedMcpServerScaffoldDraft,
   buildMcpServerBindingProposal,
   buildGeneratedMcpServerDraft,
   sanitizeServerName,
 } from "@harness/agent";
 import type {
   AgentProfileRepository,
+  LocalStateService,
   McpServerRepository,
 } from "@harness/storage";
+import { isAbsolute } from "node:path";
 
 /**
  * Probe contract — the IPC layer asks the host to actually contact the
@@ -40,6 +50,7 @@ import type {
 export type McpProbe = (server: McpServerConfig) => Promise<McpServerHealth>;
 
 export interface McpIpcContext {
+  state: LocalStateService;
   mcp: McpServerRepository;
   profiles: AgentProfileRepository;
   probe: McpProbe;
@@ -138,6 +149,107 @@ const normalizeBindingProposalRequest = (
   };
 };
 
+const normalizeScaffoldRequest = (
+  raw: unknown,
+):
+  | { ok: true; value: McpServerScaffoldGenerationRequest }
+  | { ok: false; reason: string } => {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, reason: "request must be an object" };
+  }
+  const request = raw as Record<string, unknown>;
+  if (
+    typeof request.userIntent !== "string" ||
+    request.userIntent.trim().length === 0
+  ) {
+    return { ok: false, reason: "request.userIntent is required" };
+  }
+  if (
+    typeof request.targetDir !== "string" ||
+    request.targetDir.trim().length === 0
+  ) {
+    return { ok: false, reason: "request.targetDir is required" };
+  }
+  if (!isAbsolute(request.targetDir)) {
+    return { ok: false, reason: "request.targetDir must be absolute" };
+  }
+  if (request.slug !== undefined && typeof request.slug !== "string") {
+    return { ok: false, reason: "request.slug must be a string" };
+  }
+  return {
+    ok: true,
+    value: {
+      userIntent: request.userIntent.trim(),
+      targetDir: request.targetDir.trim(),
+      ...(request.slug ? { slug: request.slug.trim() } : {}),
+    },
+  };
+};
+
+const normalizeScaffoldDraft = (
+  raw: unknown,
+):
+  | { ok: true; value: GeneratedMcpServerScaffoldDraft }
+  | { ok: false; reason: string } => {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, reason: "draft must be an object" };
+  }
+  const draft = raw as Record<string, unknown>;
+  if (typeof draft.name !== "string" || draft.name.trim().length === 0) {
+    return { ok: false, reason: "draft.name is required" };
+  }
+  if (typeof draft.slug !== "string" || draft.slug.trim().length === 0) {
+    return { ok: false, reason: "draft.slug is required" };
+  }
+  if (
+    typeof draft.targetDir !== "string" ||
+    draft.targetDir.trim().length === 0 ||
+    !isAbsolute(draft.targetDir)
+  ) {
+    return { ok: false, reason: "draft.targetDir must be absolute" };
+  }
+  if (!Array.isArray(draft.files) || draft.files.length === 0) {
+    return { ok: false, reason: "draft.files must be a non-empty array" };
+  }
+  const files: GeneratedFileProposal[] = [];
+  for (const file of draft.files) {
+    if (typeof file !== "object" || file === null) {
+      return { ok: false, reason: "draft.files entries must be objects" };
+    }
+    const f = file as Record<string, unknown>;
+    if (typeof f.path !== "string" || typeof f.content !== "string") {
+      return { ok: false, reason: "draft.files path/content are required" };
+    }
+    const riskLevel: GeneratedFileProposal["riskLevel"] =
+      f.riskLevel === "medium" || f.riskLevel === "high"
+        ? f.riskLevel
+        : "low";
+    files.push({
+      path: f.path,
+      content: f.content,
+      rationale: typeof f.rationale === "string" ? f.rationale : "",
+      riskLevel,
+    });
+  }
+  return {
+    ok: true,
+    value: {
+      name: draft.name.trim(),
+      slug: draft.slug.trim(),
+      targetDir: draft.targetDir.trim(),
+      files,
+      recommendedCommand:
+        typeof draft.recommendedCommand === "string"
+          ? draft.recommendedCommand
+          : "",
+      rationale: typeof draft.rationale === "string" ? draft.rationale : "",
+      warnings: Array.isArray(draft.warnings)
+        ? draft.warnings.filter((item): item is string => typeof item === "string")
+        : [],
+    },
+  };
+};
+
 const draftServerOnly = (
   draft: GeneratedMcpServerDraft,
 ): McpServerConfigDraft => {
@@ -232,6 +344,55 @@ const buildPreview = (
   };
 };
 
+const isSafeRelativeFilePath = (value: string): boolean => {
+  if (value.length === 0 || isAbsolute(value)) return false;
+  if (value.includes("\\") || value.split("/").includes("..")) return false;
+  return /^([a-zA-Z0-9._-]+\/)*[a-zA-Z0-9._-]+$/.test(value);
+};
+
+const buildScaffoldPreview = (
+  draft: GeneratedMcpServerScaffoldDraft,
+): McpServerScaffoldPreview => {
+  const errors: McpServerScaffoldPreviewIssue[] = [];
+  const warnings = [...draft.warnings];
+  if (!isAbsolute(draft.targetDir)) {
+    errors.push({
+      field: "targetDir",
+      message: "targetDir must be absolute",
+    });
+  }
+  if (draft.files.length === 0) {
+    errors.push({ field: "files", message: "at least one file is required" });
+  }
+  for (const file of draft.files) {
+    if (!isSafeRelativeFilePath(file.path)) {
+      errors.push({
+        field: "files",
+        message: `unsafe relative file path: ${file.path}`,
+      });
+    }
+    if (file.content.length === 0) {
+      errors.push({
+        field: "content",
+        message: `empty generated file content: ${file.path}`,
+      });
+    }
+    if (file.path.endsWith("src/index.ts") && /console\.log/.test(file.content)) {
+      errors.push({
+        field: "content",
+        message: "stdio MCP server source must not write normal logs to stdout",
+      });
+    }
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    files: draft.files,
+    smokeTestCommand: `cd ${draft.slug} && npm test && npm run build`,
+  };
+};
+
 const wrap = async <T>(fn: () => Promise<T>): Promise<HarnessResult<T>> => {
   try {
     return ok(await fn());
@@ -242,7 +403,7 @@ const wrap = async <T>(fn: () => Promise<T>): Promise<HarnessResult<T>> => {
 };
 
 export const buildMcpHandlers = (ctx: McpIpcContext) => {
-  const { mcp, probe, profiles } = ctx;
+  const { state, mcp, probe, profiles } = ctx;
   return {
     list: async (): Promise<HarnessResult<McpServerConfig[]>> =>
       wrap(() => mcp.list()),
@@ -258,6 +419,88 @@ export const buildMcpHandlers = (ctx: McpIpcContext) => {
         return {
           draft,
           preview: buildPreview(draft, existing),
+        };
+      });
+    },
+
+    generateServerScaffoldDraft: async (input: {
+      request: unknown;
+    }): Promise<HarnessResult<McpServerScaffoldPreviewResult>> => {
+      const v = normalizeScaffoldRequest(input?.request);
+      if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      return wrap(async () => {
+        const draft = buildGeneratedMcpServerScaffoldDraft(v.value);
+        return {
+          draft,
+          preview: buildScaffoldPreview(draft),
+        };
+      });
+    },
+
+    proposeServerScaffold: async (input: {
+      draft: unknown;
+    }): Promise<HarnessResult<McpServerScaffoldProposalResult>> => {
+      const v = normalizeScaffoldDraft(input?.draft);
+      if (!v.ok) return err(harnessError(STATE_INVALID_INPUT, v.reason));
+      return wrap(async () => {
+        const preview = buildScaffoldPreview(v.value);
+        if (!preview.ok) {
+          throw new Error("generated MCP scaffold failed validation");
+        }
+        const thread = await state.createThread({
+          title: `MCP scaffold: ${v.value.name}`,
+          targetDir: v.value.targetDir,
+        });
+        const taskRun = await state.createTaskRun({
+          threadId: thread.id,
+          userRequest: `Create generated MCP scaffold: ${v.value.slug}`,
+          targetDir: v.value.targetDir,
+          status: "waiting_for_approval",
+        });
+        const step = await state.createStep({
+          taskRunId: taskRun.id,
+          index: 0,
+          kind: "approval",
+          title: "MCP scaffold 파일 작성 승인 대기",
+          status: "pending",
+          inputSummary: v.value.slug,
+        });
+        await state.setTaskRunCurrentStep(taskRun.id, step.id);
+        const checkpoint = await state.createCheckpoint({
+          taskRunId: taskRun.id,
+          stepId: step.id,
+          reason: "before_edit",
+          stateRef: JSON.stringify({
+            targetDir: v.value.targetDir,
+            slug: v.value.slug,
+            fileCount: v.value.files.length,
+          }),
+          summary: "before generated MCP scaffold file_write approvals",
+        });
+        const approvals = [];
+        for (const file of v.value.files) {
+          approvals.push(
+            await state.createApproval({
+              taskRunId: taskRun.id,
+              checkpointId: checkpoint.id,
+              actionType: "file_write",
+              actionSummary: `Create MCP scaffold file: ${file.path}`,
+              status: "pending",
+              proposedAction: {
+                type: "file_write",
+                filePatch: {
+                  path: file.path,
+                  after: file.content,
+                },
+              },
+            }),
+          );
+        }
+        return {
+          threadId: thread.id,
+          taskRunId: taskRun.id,
+          approvals,
+          preview,
         };
       });
     },

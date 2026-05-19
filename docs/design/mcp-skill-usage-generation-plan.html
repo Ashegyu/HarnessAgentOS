@@ -952,7 +952,7 @@ Step 5. Approval
     <tr>
       <td>MCP scaffold file 생성</td>
       <td><code>file_write</code> approval 필요</td>
-      <td>생성 파일이 여러 개여도 하나의 proposal bundle로 표시</td>
+      <td>현재 MVP는 Runner의 단일 filePatch 계약을 보존해 파일별 approval을 생성하고, 추후 bundle proposal로 확장</td>
     </tr>
     <tr>
       <td>MCP health check</td>
@@ -1039,8 +1039,8 @@ Step 5. Approval
       <td>secret 없이 저장 불가/disabled 처리, health 실패 표시</td>
     </tr>
     <tr>
-      <td><span class="pill pill--orange">P4</span> MCP scaffold 생성</td>
-      <td>local stdio TypeScript MCP scaffold proposal 생성</td>
+      <td><span class="pill pill--green">P4</span> MCP scaffold 생성</td>
+      <td>local stdio TypeScript MCP scaffold preview와 파일별 file_write approval proposal 생성</td>
       <td>
         <code>packages/agent</code> 또는 신규 <code>packages/capability-authoring</code><br />
         <code>scripts/templates/mcp-stdio-ts/</code>
