@@ -119,14 +119,20 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
     const all = await pipelines.list();
     const names = all.map((p) => p.name).sort();
     assert.deepEqual(names, [
+      "A2A Federation Safety Review",
       "Architecture RFC",
       "Build Recovery",
+      "Cross-Harness Agent Baseline",
+      "Docs-First Contract Reconciliation",
+      "Eval-Driven Release Verification",
+      "Evidence-First Bug Investigation",
       "Frontend Product Delivery",
       "Image Asset Prompt Flow",
       "New Project Delivery",
       "Parallel Review Hardening",
       "Product PRD Discovery",
       "Refactor Safety",
+      "Runtime Approval Hardening",
       "Skill and Agent Expansion",
       "Supervised Delivery",
       "Visual Design Delivery",
@@ -230,6 +236,35 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       [],
       "image generation planning remains read-only until a concrete image runner exists",
     );
+
+    const investigation = all.find((p) => p.id === "pipe_template_evidence_bug_investigation");
+    assert.ok(investigation, "Evidence-First Bug Investigation template should exist");
+    assert.deepEqual(
+      investigation.steps.map((step) => step.id),
+      ["trace", "hypothesis", "patch", "verify", "review"],
+    );
+    assert.deepEqual(
+      investigation.steps.map((step) => profileRoles.get(step.agentProfileId)),
+      ["planner", "planner", "coder", "tester", "reviewer"],
+    );
+
+    const contract = all.find((p) => p.id === "pipe_template_docs_contract_reconciliation");
+    assert.ok(contract, "Docs-First Contract Reconciliation template should exist");
+    assert.deepEqual(
+      contract.steps.map((step) => step.id),
+      ["source-check", "contract-audit", "runtime-design", "implement", "verify", "review"],
+    );
+    assert.deepEqual(
+      contract.steps.find((step) => step.id === "contract-audit")?.allowedActions,
+      [],
+    );
+
+    const baseline = all.find((p) => p.id === "pipe_template_cross_harness_agent_baseline");
+    assert.ok(baseline, "Cross-Harness Agent Baseline template should exist");
+    assert.deepEqual(
+      baseline.steps.map((step) => step.id),
+      ["sources", "skill-memory", "topology", "implement", "verify", "security", "review"],
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -244,7 +279,7 @@ test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
     await pipelines.ensureSeed();
 
     const all = await pipelines.list();
-    assert.equal(all.length, 11);
+    assert.equal(all.length, 17);
     assert.equal(
       all.filter((p) => p.id === "pipe_template_refactor_safety").length,
       1,

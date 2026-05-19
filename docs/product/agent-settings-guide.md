@@ -103,6 +103,8 @@ profile.permissions.autoApproveActions
 
 > ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX`. Claude provider는 `--system-prompt` 인자로 전달하고, Codex provider는 stdin의 `SYSTEM INSTRUCTIONS` 블록에 접어 넣습니다.
 
+기본 seed 프로필은 이제 빈 prefix/suffix가 아니라 HarnessAgentOS 공통 계약을 포함합니다. 공통 계약은 Electron IPC 경계, SQLite WAL source of truth, approval-gated side effect, targetDir 경계, evidence-first 보고 규칙을 고정합니다. 기존 seed 프로필의 prefix/suffix가 비어 있으면 앱 시작 시 이 richer contract가 backfill되고, 사용자가 직접 작성한 prefix/suffix는 보존됩니다.
+
 #### Tuning 섹션
 - **Temperature** — 0.0~1.0
 - **Max tokens** — 응답 최대 길이
@@ -202,6 +204,12 @@ mcpServerIds: [mcp_fs, mcp_github]
 | 템플릿 | 용도 |
 |------|------|
 | Product PRD Discovery | PRD, 사용자 시나리오, 성공 지표, scope/non-scope를 구현 전 정리 |
+| Evidence-First Bug Investigation | 증상 보고를 code path 추적, 원인 후보, 최소 수정, 검증, 리뷰로 연결 |
+| Docs-First Contract Reconciliation | 공식/GitHub/docs 확인 후 IPC/API/state contract drift를 구현과 맞춤 |
+| Runtime Approval Hardening | approval policy, runner 권한, 보안 경계, 테스트를 함께 강화 |
+| A2A Federation Safety Review | remote agent/A2A/federation 작업을 trust, delegation, trace, eval 관점으로 검토 |
+| Eval-Driven Release Verification | eval fixture, build/test/smoke, 보안/성능 리뷰로 release readiness 판단 |
+| Cross-Harness Agent Baseline | ECC/Hermes/Ruflo/Agno 참조를 Harness AgentProfile/pipeline seed 개선으로 변환 |
 | Architecture RFC | 시스템 설계, API/IPC 계약, migration 영향, 보안/성능 리뷰를 연결 |
 | Visual Design Delivery | PRD → UX flow → image prompt → frontend 구현 → 디자인 QA 흐름 |
 | Image Asset Prompt Flow | 실제 이미지 호출 없이 image 생성 프롬프트, style guide, QA 기준을 handoff |
@@ -215,7 +223,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 
 기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
 
-Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `리팩터링`은 `refactor-cleaner` 중심의 Refactor Safety를 우선 표시합니다. `보안 리뷰`나 `성능 검토`는 read-only reviewer role 조합을 가진 Parallel Review Hardening을 우선합니다. `새 프로젝트 생성`은 New Project Delivery를, `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
+Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `원인 분석`/`왜 안됨`은 Evidence-First Bug Investigation을 우선합니다. `문서`, `GitHub 원본`, `IPC/API 계약`은 Docs-First Contract Reconciliation을, `approval`, `자동 승인`, `권한 우회`는 Runtime Approval Hardening을, `A2A`/`remote agent`는 A2A Federation Safety Review를, `eval`/`smoke`/`release`는 Eval-Driven Release Verification을, `에이전트 설정`/`pipeline 개선`/`ECC`/`Hermes`/`Ruflo`/`Agno`는 Cross-Harness Agent Baseline을 우선합니다. `리팩터링`은 Refactor Safety, `보안 리뷰`나 `성능 검토`는 Parallel Review Hardening, `새 프로젝트 생성`은 New Project Delivery, `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
 
 ---
 

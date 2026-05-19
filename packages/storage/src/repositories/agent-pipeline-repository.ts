@@ -496,11 +496,48 @@ const profileRef = (
 
 const PROFILE_REFS = {
   orchestrator: profileRef("orchestrator", [
+    "Hermes Delegation Coordinator",
     "Ruflo Orchestrator",
+    "Agno Runtime Service Architect",
     "Agno Trace Planner",
+  ]),
+  explorer: profileRef("planner", ["ECC Codebase Explorer", "Planner"]),
+  docsResearcher: profileRef("planner", ["ECC Docs Researcher", "Planner"]),
+  runtimeArchitect: profileRef("orchestrator", [
+    "Agno Runtime Service Architect",
+    "Agno Trace Planner",
+    "Ruflo Orchestrator",
+  ]),
+  approvalPolicy: profileRef("security-reviewer", [
+    "Agno Approval Policy Designer",
+    "ECC Security Reviewer",
+  ]),
+  federation: profileRef("security-reviewer", [
+    "Ruflo Federation Auditor",
+    "ECC Security Reviewer",
+  ]),
+  delegation: profileRef("orchestrator", [
+    "Hermes Delegation Coordinator",
+    "Ruflo Orchestrator",
+  ]),
+  memoryCurator: profileRef("planner", [
+    "Hermes Memory Lifecycle Curator",
+    "Hermes Skill Curator",
+    "Planner",
+  ]),
+  evalHarness: profileRef("tester", ["ECC Eval Harness Designer", "ECC TDD Guide", "Tester"]),
+  ipcGuardian: profileRef("reviewer", [
+    "Harness IPC Contract Guardian",
+    "Reviewer",
+  ]),
+  storageSteward: profileRef("planner", [
+    "Harness Storage Migration Steward",
+    "ECC Data Migration Planner",
+    "Planner",
   ]),
   product: profileRef("planner", ["Agno Product PRD Strategist", "Planner"]),
   architecture: profileRef("orchestrator", [
+    "Agno Runtime Service Architect",
     "Ruflo Architecture Designer",
     "Ruflo Orchestrator",
   ]),
@@ -522,6 +559,7 @@ const PROFILE_REFS = {
     "Planner",
   ]),
   migration: profileRef("planner", [
+    "Harness Storage Migration Steward",
     "ECC Data Migration Planner",
     "Planner",
   ]),
@@ -529,7 +567,7 @@ const PROFILE_REFS = {
   coder: profileRef("coder", ["Codex Bulk Coder", "Coder"]),
   refactor: profileRef("refactor-cleaner", ["ECC Refactor Cleaner"]),
   build: profileRef("build-error-resolver", ["ECC Build Error Resolver"]),
-  tester: profileRef("tester", ["ECC TDD Guide", "Tester"]),
+  tester: profileRef("tester", ["ECC Eval Harness Designer", "ECC TDD Guide", "Tester"]),
   security: profileRef("security-reviewer", ["ECC Security Reviewer"]),
   performance: profileRef("performance-reviewer", ["C# Performance Reviewer"]),
   reviewer: profileRef("reviewer", ["Reviewer"]),
@@ -583,6 +621,417 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
           "PRD가 구현 가능한 수준인지, 모호한 범위나 빠진 검증 기준이 있는지 검토하고 우선순위별 보완점을 한국어로 보고하세요.",
         expectedArtifactKinds: ["quality_report", "log"],
         dependsOn: ["requirements", "architecture-preview"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_evidence_bug_investigation",
+    name: "Evidence-First Bug Investigation",
+    description:
+      "증상 보고를 코드 추적, 실패 원인 후보, 최소 수정, 검증, 리뷰로 이어가는 evidence-first debugging 흐름입니다.",
+    steps: [
+      {
+        id: "trace",
+        profile: PROFILE_REFS.explorer,
+        title: "실제 실행 경로 추적",
+        instruction:
+          "사용자가 보고한 증상을 기준으로 실제 코드 경로, IPC/service/repository 호출, 상태 전이, 관련 테스트를 read-only로 추적하고 사실/추론/미확인을 분리해 한국어로 보고하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "hypothesis",
+        profile: PROFILE_REFS.planner,
+        title: "원인 후보와 수정 범위 계획",
+        instruction:
+          "추적 결과를 바탕으로 가능성 높은 원인 후보, 배제된 후보, 최소 수정 범위, 검증 명령을 계획하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["trace"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "patch",
+        profile: PROFILE_REFS.coder,
+        title: "최소 수정 제안",
+        instruction:
+          "승인된 원인 후보와 범위만 바탕으로 최소 diff를 제안하세요. 파일 쓰기는 Harness approval을 통해서만 제안하고, unrelated cleanup은 피하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["hypothesis"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "증상 회귀 검증",
+        instruction:
+          "보고된 증상이 해결되었음을 보여주는 가장 좁은 test/check/smoke를 실행하거나 설계하고 증거를 한국어로 정리하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["patch"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "원인-수정 일치성 리뷰",
+        instruction:
+          "수정이 실제 원인을 해결하는지, 새 회귀나 누락된 검증이 있는지 read-only로 검토하고 남은 위험을 한국어로 보고하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_docs_contract_reconciliation",
+    name: "Docs-First Contract Reconciliation",
+    description:
+      "외부/내부 문서 확인 후 IPC/API/state 계약과 실제 구현 drift를 맞추는 docs-first 흐름입니다.",
+    steps: [
+      {
+        id: "source-check",
+        profile: PROFILE_REFS.docsResearcher,
+        title: "primary source와 기존 문서 확인",
+        instruction:
+          "요청과 관련된 공식 문서, GitHub 원본, repo docs/contracts를 확인하고 변경에 필요한 사실과 불확실성을 출처별로 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "contract-audit",
+        profile: PROFILE_REFS.ipcGuardian,
+        title: "IPC/API 계약 drift 감사",
+        instruction:
+          "core api/types, Electron IPC, preload, renderer types, docs/contracts가 같은 계약을 유지하는지 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["source-check"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "runtime-design",
+        profile: PROFILE_REFS.runtimeArchitect,
+        title: "runtime/service 경계 설계",
+        instruction:
+          "문서와 계약 감사 결과를 바탕으로 service, repository, runner, approval, diagnostics 경계를 설계하고 구현 순서를 제안하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["source-check", "contract-audit"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implement",
+        profile: PROFILE_REFS.coder,
+        title: "계약 정렬 diff 제안",
+        instruction:
+          "승인된 계약 정렬 범위만 최소 diff로 제안하세요. docs/code/test가 서로 같은 계약을 말하도록 유지하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["runtime-design"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "계약 회귀 검증",
+        instruction:
+          "IPC/API/state 계약 변경이 round-trip, typecheck, repository/service tests를 통과하는지 검증하거나 필요한 테스트를 제안하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["implement"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "문서-구현 정합성 최종 리뷰",
+        instruction:
+          "문서, 구현, 테스트가 같은 계약을 유지하는지 최종 검토하고 남은 drift나 follow-up을 한국어로 보고하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_runtime_approval_hardening",
+    name: "Runtime Approval Hardening",
+    description:
+      "approval policy, runner 권한, 보안 경계, 테스트를 함께 강화하는 runtime hardening 흐름입니다.",
+    steps: [
+      {
+        id: "policy",
+        profile: PROFILE_REFS.approvalPolicy,
+        title: "승인 정책과 권한 경계 검토",
+        instruction:
+          "action type, auto approval, profile blockedActions, pipeline-pick consent, runner proposal validation이 우회 없이 적용되는지 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "security",
+        profile: PROFILE_REFS.security,
+        title: "runtime 보안 리뷰",
+        instruction:
+          "secret, path traversal, unsafe shell, network/dependency install, prompt injection, error leakage 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["policy"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "patch",
+        profile: PROFILE_REFS.coder,
+        title: "hardening 변경 제안",
+        instruction:
+          "승인된 hardening 범위만 최소 diff로 제안하고, user-supervised workflow를 자동 실행/자동 저장으로 바꾸지 마세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["policy", "security"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.tester,
+        title: "policy 회귀 검증",
+        instruction:
+          "승인 우회 차단, blocklist 우선순위, 위험 action rejection을 검증하는 focused test를 실행하거나 제안하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["patch"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.security,
+        title: "hardening 최종 보안 리뷰",
+        instruction:
+          "변경이 새로운 권한 상승이나 운영 차단을 만들지 않는지 보안 우선으로 최종 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_a2a_federation_safety",
+    name: "A2A Federation Safety Review",
+    description:
+      "remote agent/A2A/federation 작업을 trust, delegation, trace, security, eval 관점으로 검토하는 흐름입니다.",
+    steps: [
+      {
+        id: "federation-risk",
+        profile: PROFILE_REFS.federation,
+        title: "remote trust와 federation risk 검토",
+        instruction:
+          "A2A endpoint, remote worker, MCP server, shared workspace의 trust/enablement/PII/prompt-injection/audit 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "delegation-plan",
+        profile: PROFILE_REFS.delegation,
+        title: "delegation/toolset 경계 설계",
+        instruction:
+          "local vs remote worker, toolset, handoff payload, timeout, retry, heartbeat, fallback 정책을 설계하세요.",
+        expectedArtifactKinds: ["orchestration_plan", "plan", "log"],
+        dependsOn: ["federation-risk"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "trace-plan",
+        profile: PROFILE_REFS.runtimeArchitect,
+        title: "trace/audit 저장 설계",
+        instruction:
+          "remote invocation trace, policy evaluation, endpoint status, failure recovery, operator-visible diagnostics 저장 지점을 설계하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["delegation-plan"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.evalHarness,
+        title: "remote safety eval 설계",
+        instruction:
+          "remote endpoint disabled/untrusted/missing, prompt injection, approval blocklist, timeout/failure fallback을 검증하는 테스트/eval 시나리오를 제안하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["trace-plan"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "A2A safety 최종 리뷰",
+        instruction:
+          "federation risk, delegation design, trace/eval 계획이 user-supervised Harness 원칙을 지키는지 최종 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_eval_release_verification",
+    name: "Eval-Driven Release Verification",
+    description:
+      "릴리스 전 eval fixture, build/test/smoke, 보안/성능 리뷰를 묶어 실행 가능성을 검증하는 흐름입니다.",
+    steps: [
+      {
+        id: "eval-plan",
+        profile: PROFILE_REFS.evalHarness,
+        title: "eval과 smoke 검증 계획",
+        instruction:
+          "변경된 기능에 필요한 regression fixture, grader, threshold, real CLI smoke, 비용/시간 위험을 설계하세요.",
+        expectedArtifactKinds: ["plan", "test_result", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "test_result",
+      },
+      {
+        id: "build",
+        profile: PROFILE_REFS.build,
+        title: "release check 실행/복구",
+        instruction:
+          "승인된 범위에서 check/test/build/smoke를 실행하고 첫 실제 실패가 있으면 최소 수정안을 제안하세요.",
+        expectedArtifactKinds: ["test_result", "diff", "log"],
+        dependsOn: ["eval-plan"],
+        allowedActions: ["shell", "file_write"],
+        outputContract: "test_result",
+      },
+      {
+        id: "security",
+        profile: PROFILE_REFS.security,
+        title: "release 보안 리뷰",
+        instruction:
+          "릴리스 후보에서 secret, dependency, unsafe runner, approval bypass, remote tool 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["build"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "performance",
+        profile: PROFILE_REFS.performance,
+        title: "release 성능 리뷰",
+        instruction:
+          "hot path, DB contention, UI responsiveness, allocation, repeated work, missing benchmark 위험을 read-only로 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["build"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "final",
+        profile: PROFILE_REFS.reviewer,
+        title: "release readiness 판단",
+        instruction:
+          "eval/build/test/smoke와 보안/성능 리뷰 결과를 종합해 release 가능한지, 막는 이슈가 무엇인지 한국어로 판단하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["security", "performance"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_cross_harness_agent_baseline",
+    name: "Cross-Harness Agent Baseline",
+    description:
+      "ECC/Hermes/Ruflo/Agno 참조를 Harness AgentProfile, skill source, pipeline seed 개선으로 변환하는 agent-baseline 흐름입니다.",
+    steps: [
+      {
+        id: "sources",
+        profile: PROFILE_REFS.docsResearcher,
+        title: "참조 프로젝트 source 확인",
+        instruction:
+          "ECC, Hermes, Ruflo, Agno 또는 사용자가 지정한 참조의 GitHub/공식 문서를 확인하고 Harness에 적용 가능한 agent 설정 패턴만 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "skill-memory",
+        profile: PROFILE_REFS.memoryCurator,
+        title: "skill/memory 후보 정리",
+        instruction:
+          "반복 사용될 skill, memory, docs 승격 후보와 trigger/context budget/금지 행동을 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: ["sources"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "topology",
+        profile: PROFILE_REFS.delegation,
+        title: "agent topology와 pipeline 설계",
+        instruction:
+          "참조 패턴을 Harness AgentProfile, role, dependency, allowedActions, outputContract, fallback pipeline으로 변환하세요.",
+        expectedArtifactKinds: ["orchestration_plan", "plan", "log"],
+        dependsOn: ["sources", "skill-memory"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "implement",
+        profile: PROFILE_REFS.coder,
+        title: "baseline seed 구현 제안",
+        instruction:
+          "승인된 topology만 바탕으로 profile/pipeline seed, 추천 키워드, docs 변경을 최소 diff로 제안하세요.",
+        expectedArtifactKinds: ["diff", "log"],
+        dependsOn: ["topology"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "verify",
+        profile: PROFILE_REFS.evalHarness,
+        title: "agent baseline 회귀 검증",
+        instruction:
+          "seed idempotency, role mapping, pipeline validation, recommendation ranking, prompt contract를 검증하는 test/eval을 실행하거나 제안하세요.",
+        expectedArtifactKinds: ["test_result", "log"],
+        dependsOn: ["implement"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "security",
+        profile: PROFILE_REFS.approvalPolicy,
+        title: "baseline 권한 리뷰",
+        instruction:
+          "새 agent/pipeline이 과도한 권한, auto approval bypass, tool overload, context pollution, remote trust risk를 만들지 않는지 검토하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["implement"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.reviewer,
+        title: "agent baseline 최종 리뷰",
+        instruction:
+          "검증과 보안 리뷰 결과를 종합해 HarnessAgentOS에 맞는 curated baseline인지 한국어로 판단하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["verify", "security"],
         allowedActions: [],
         outputContract: "review",
       },

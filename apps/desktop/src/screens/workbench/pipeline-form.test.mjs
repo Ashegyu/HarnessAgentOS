@@ -69,6 +69,42 @@ const seededPipelines = [
     "아키텍처 RFC API 계약 설계",
   ),
   pipeline(
+    "pipe_template_evidence_bug_investigation",
+    "Evidence-First Bug Investigation",
+    ["ap_plan", "ap_plan", "ap_code", "ap_test", "ap_review"],
+    "증상 추적 원인 분석 실제 실행 경로 최소 수정",
+  ),
+  pipeline(
+    "pipe_template_docs_contract_reconciliation",
+    "Docs-First Contract Reconciliation",
+    ["ap_plan", "ap_review", "ap_orch", "ap_code", "ap_test", "ap_review"],
+    "문서 contract IPC API drift 정합성",
+  ),
+  pipeline(
+    "pipe_template_runtime_approval_hardening",
+    "Runtime Approval Hardening",
+    ["ap_security", "ap_security", "ap_code", "ap_test", "ap_security"],
+    "approval policy 권한 runner hardening 보안 강화",
+  ),
+  pipeline(
+    "pipe_template_a2a_federation_safety",
+    "A2A Federation Safety Review",
+    ["ap_security", "ap_orch", "ap_orch", "ap_test", "ap_review"],
+    "A2A federation remote agent delegation trust safety",
+  ),
+  pipeline(
+    "pipe_template_eval_release_verification",
+    "Eval-Driven Release Verification",
+    ["ap_test", "ap_build", "ap_security", "ap_perf", "ap_review"],
+    "eval release smoke regression fixture 검증",
+  ),
+  pipeline(
+    "pipe_template_cross_harness_agent_baseline",
+    "Cross-Harness Agent Baseline",
+    ["ap_plan", "ap_plan", "ap_orch", "ap_code", "ap_test", "ap_security", "ap_review"],
+    "agent profile pipeline skill ECC Hermes Ruflo Agno cross-harness baseline",
+  ),
+  pipeline(
     "pipe_template_image_asset_prompt",
     "Image Asset Prompt Flow",
     ["ap_plan", "ap_plan", "ap_review", "ap_plan"],
@@ -145,6 +181,17 @@ test("rankPipelinesForRequest prioritizes Build Recovery for build errors", () =
   assert.ok(ranked[0].matchedRoles.includes("build-error-resolver"));
 });
 
+test("rankPipelinesForRequest prioritizes evidence-first investigation for unclear failures", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "현재 실행이 안되고 실패하는데 이유와 원인을 먼저 추적해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Evidence-First Bug Investigation");
+  assert.equal(ranked[0].intent, "bug_investigation");
+  assert.ok(ranked[0].matchedRoles.includes("planner"));
+});
+
 test("rankPipelinesForRequest prioritizes Refactor Safety for refactoring", () => {
   const ranked = rankPipelinesForRequest(
     seededPipelines,
@@ -165,6 +212,57 @@ test("rankPipelinesForRequest prioritizes review hardening for security review",
   assert.equal(ranked[0].pipeline.name, "Parallel Review Hardening");
   assert.equal(ranked[0].intent, "review_hardening");
   assert.ok(ranked[0].matchedRoles.includes("security-reviewer"));
+});
+
+test("rankPipelinesForRequest prioritizes docs contract reconciliation for IPC/document drift", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "문서와 IPC 계약이 실제 구현과 맞는지 web search와 GitHub 원본을 확인해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Docs-First Contract Reconciliation");
+  assert.equal(ranked[0].intent, "docs_contract");
+});
+
+test("rankPipelinesForRequest prioritizes runtime approval hardening for policy work", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "approval policy와 자동 승인 우회 위험을 보안 강화해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Runtime Approval Hardening");
+  assert.equal(ranked[0].intent, "runtime_hardening");
+  assert.ok(ranked[0].matchedRoles.includes("security-reviewer"));
+});
+
+test("rankPipelinesForRequest prioritizes A2A federation safety for remote agents", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "A2A remote agent delegation과 trusted endpoint 안전성을 검토해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "A2A Federation Safety Review");
+  assert.equal(ranked[0].intent, "a2a_federation");
+});
+
+test("rankPipelinesForRequest prioritizes eval release verification for smoke requests", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "release 전에 eval fixture와 smoke regression 전체 검증을 해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Eval-Driven Release Verification");
+  assert.equal(ranked[0].intent, "eval_release");
+});
+
+test("rankPipelinesForRequest prioritizes agent baseline for agent setting improvements", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "ECC Ruflo Agno Hermes를 보고 에이전트 설정과 pipeline 개선을 해줘",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "Cross-Harness Agent Baseline");
+  assert.equal(ranked[0].intent, "agent_baseline");
 });
 
 test("rankPipelinesForRequest prioritizes PRD discovery for product requirements", () => {

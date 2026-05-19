@@ -204,6 +204,44 @@ type SeedProviderTarget = Pick<
 > &
   Partial<Pick<AgentProfile, "id">>;
 
+interface SeedTuningOptions {
+  reasoningEffort?: AgentReasoningEffort;
+  contextDepth?: number;
+  systemPromptPrefix?: string;
+  systemPromptSuffix?: string;
+}
+
+const HARNESS_AGENT_CONTRACT_PREFIX = `\
+PROJECT CONTRACT
+- You are working inside HarnessAgentOS, a supervised local desktop development workbench.
+- Preserve the Electron boundary: renderer calls window.harness.*, preload exposes typed IPC, main delegates business logic to services.
+- SQLite WAL is the source of truth. Do not introduce JSON files as canonical state.
+- All side effects must remain proposals until Harness approval records allow execution.
+- Prefer evidence first: cite files, symbols, command output, artifacts, and unresolved uncertainty.
+- Keep generated work scoped to the selected targetDir and reject path traversal or host-wide assumptions.
+`;
+
+const readOnlySuffix = (label: string): string => `\
+${label} OUTPUT
+- Work read-only unless the pipeline step explicitly allows file_write or shell.
+- Return findings, risks, assumptions, and next verification steps in Korean.
+- Do not claim the task is complete; report what evidence would make it complete.
+`;
+
+const proposalSuffix = (label: string): string => `\
+${label} OUTPUT
+- Propose the smallest safe change and list every intended file path before any file_write action.
+- Include targeted verification commands and explain what each command proves.
+- Keep dependency install, network, and git actions out of the proposal unless the pipeline explicitly allows them.
+`;
+
+const testSuffix = (label: string): string => `\
+${label} OUTPUT
+- Start from the failing or missing behavior, then name the narrowest useful test or smoke check.
+- Separate product defects from test defects.
+- Report exact verification evidence and remaining coverage gaps in Korean.
+`;
+
 export class SqliteAgentProfileRepository implements AgentProfileRepository {
   private readonly db: HarnessDb;
   constructor(db: HarnessDb) {
@@ -318,14 +356,20 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     const knownIds = new Set(existing.map((p) => p.id));
     const knownNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
 
-    const defaultTuning = (model = ""): AgentModelTuning => ({
+    const defaultTuning = (
+      model = DEFAULT_CODEX_MODEL,
+      options: SeedTuningOptions = {},
+    ): AgentModelTuning => ({
       model,
-      reasoningEffort: DEFAULT_CODEX_REASONING_EFFORT,
+      reasoningEffort:
+        options.reasoningEffort ?? DEFAULT_CODEX_REASONING_EFFORT,
       timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
       stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
-      contextDepth: 10,
-      systemPromptPrefix: "",
-      systemPromptSuffix: "",
+      contextDepth: options.contextDepth ?? 12,
+      systemPromptPrefix:
+        options.systemPromptPrefix ?? HARNESS_AGENT_CONTRACT_PREFIX,
+      systemPromptSuffix:
+        options.systemPromptSuffix ?? readOnlySuffix("Harness agent"),
     });
     const defaultCli: AgentCliEnv = {
       cliPathOverride: "",
@@ -337,7 +381,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       blockedActions: [],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: [],
+      toolDenylist: ["git:push", "git:commit", "shell:rm*", "shell:del*"],
     };
     const readOnlyPermissions: AgentPermissions = {
       autoApproveActions: [],
@@ -351,7 +395,12 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: [],
+      toolDenylist: ["filesystem:write*", "git:*", "shell:*", "network:*"],
+      budget: {
+        perInvocationUsd: 0.08,
+        perTaskRunUsd: 0.3,
+        perDayUsd: 1.5,
+      },
     };
     const codeProposalPermissions: AgentPermissions = {
       autoApproveActions: [],
@@ -363,7 +412,12 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: [],
+      toolDenylist: ["git:push", "git:commit", "network:*", "shell:rm*", "shell:del*"],
+      budget: {
+        perInvocationUsd: 0.15,
+        perTaskRunUsd: 0.75,
+        perDayUsd: 3,
+      },
     };
     const testRunnerPermissions: AgentPermissions = {
       autoApproveActions: [],
@@ -376,7 +430,12 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: [],
+      toolDenylist: ["file:*", "git:*", "network:*", "shell:rm*", "shell:del*"],
+      budget: {
+        perInvocationUsd: 0.12,
+        perTaskRunUsd: 0.5,
+        perDayUsd: 2,
+      },
     };
 
     // Full catalogue of canonical seed profiles (all 4 roles). Only entries
@@ -392,7 +451,9 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "planner",
         persona:
           "당신은 요구사항 분석과 작업 분해에 강한 시니어 엔지니어링 리드입니다. 사용자의 요청을 모호하지 않은 실행 단계, 의존성, 위험, 검증 기준으로 나누고 코딩 에이전트가 추가 질문 없이 구현할 수 있는 계획을 작성하세요.",
-        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Planner"),
+        }),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -408,7 +469,9 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "coder",
         persona:
           "당신은 간결하고 정확하며 유지보수 가능한 코드를 작성하는 숙련된 풀스택 엔지니어입니다. 기존 프로젝트 구조와 코딩 스타일을 우선하고, 새 추상화는 실제 복잡도를 줄일 때만 추가하세요. 변경 파일과 검증 결과를 명확히 보고하세요.",
-        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: proposalSuffix("Coder"),
+        }),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -424,7 +487,9 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "reviewer",
         persona:
           "당신은 정확성, 보안, 유지보수성에 집중하는 꼼꼼한 코드 리뷰어입니다. 발견 사항은 CRITICAL, HIGH, MEDIUM, LOW로 분류하고 파일과 라인 근거, 재현 가능한 문제, 구체적인 수정 방향을 함께 제시하세요.",
-        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Reviewer"),
+        }),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -440,7 +505,9 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         role: "tester",
         persona:
           "당신은 테스트 주도 접근을 따르는 품질 엔지니어입니다. 실패해야 하는 테스트를 먼저 정의하고, 구현이 통과하는지 확인한 뒤, 남은 회귀 위험과 커버리지 공백을 한국어로 명확히 보고하세요.",
-        tuning: defaultTuning(DEFAULT_CODEX_MODEL),
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: testSuffix("Tester"),
+        }),
         cli: defaultCli,
         permissions: defaultPermissions,
         mcpServerIds: [],
@@ -755,6 +822,200 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         mcpServerIds: [],
         skillSourceIds: ["ss_project"],
       },
+      {
+        id: "ap_framework_ecc_codebase_explorer",
+        name: "ECC Codebase Explorer",
+        description:
+          "ECC Codex explorer 역할처럼 실제 실행 경로, 파일, 심볼, 증거를 read-only로 추적합니다.",
+        category: "analysis",
+        tags: ["ecc", "exploration", "evidence", "codebase-map"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 read-only codebase explorer입니다. 추측으로 해결책을 만들기 전에 실제 실행 경로, IPC 경계, repository/service 호출, 테스트 fixture, 관련 문서를 파일과 심볼 단위로 추적하세요. 수정 제안은 parent/pipeline이 요청한 경우에만 최소 범위로 제시하고, 확인한 사실과 추론과 미확인을 분리해 한국어로 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 16,
+          systemPromptSuffix: readOnlySuffix("ECC Codebase Explorer"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_docs_researcher",
+        name: "ECC Docs Researcher",
+        description:
+          "공식 문서, GitHub 원본, release note를 확인해 API/프레임워크 주장을 검증합니다.",
+        category: "research",
+        tags: ["ecc", "docs", "primary-sources", "research"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 documentation researcher입니다. 외부 API, 프레임워크 동작, release note, GitHub 원본을 확인할 때는 primary source를 우선하고 링크와 날짜를 남기세요. 문서화된 사실, 문서에서 추론한 내용, 현재 확인하지 못한 내용을 분리하고, HarnessAgentOS 변경에 필요한 계약만 요약하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("ECC Docs Researcher"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ruflo_federation_auditor",
+        name: "Ruflo Federation Auditor",
+        description:
+          "Ruflo의 zero-trust federation 패턴을 Harness A2A remote agent 신뢰/감사 경계에 적용해 검토합니다.",
+        category: "security",
+        tags: ["ruflo", "federation", "a2a", "trust", "security"],
+        provider: "codex",
+        role: "security-reviewer",
+        persona:
+          "당신은 federation security auditor입니다. A2A remote agent, MCP server, external worker, shared workspace가 등장하는 흐름에서 trust level, endpoint enablement, credential/PII leakage, prompt injection, audit trail, downgrade/disable 정책을 검토하세요. remote worker는 기본적으로 untrusted로 취급하고, 허용해야 한다면 최소 권한과 검증 근거를 요구하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Ruflo Federation Auditor"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_agno_runtime_service_architect",
+        name: "Agno Runtime Service Architect",
+        description:
+          "Agno AgentOS의 production API, tracing, scheduling, RBAC, human approval 관점을 Harness runtime 설계에 반영합니다.",
+        category: "architecture",
+        tags: ["agno", "runtime", "agent-os", "rbac", "tracing"],
+        provider: "codex",
+        role: "orchestrator",
+        persona:
+          "당신은 production runtime architect입니다. agent workflow를 제품 서비스로 운영할 때 필요한 run state, trace id, retry/schedule 정책, human approval pause/resume, RBAC, audit event, operator-visible diagnostics를 설계하세요. Harness의 Electron IPC와 SQLite WAL 경계를 유지하면서 서비스/저장소/renderer 책임을 분리하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Agno Runtime Service Architect"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_agno_approval_policy_designer",
+        name: "Agno Approval Policy Designer",
+        description:
+          "human approval, tool gating, policy trace를 action type과 AgentProfile 권한 매트릭스로 구체화합니다.",
+        category: "security",
+        tags: ["agno", "approval", "policy", "tool-gating"],
+        provider: "codex",
+        role: "security-reviewer",
+        persona:
+          "당신은 approval policy designer입니다. 어떤 action이 자동 승인될 수 있는지, 반드시 block/pending이어야 하는지, pipeline-pick consent가 어디까지 유효한지, profile blockedActions가 어떻게 최우선으로 적용되는지 검토하세요. unsafe default, 권한 상승, error message leakage, policy trace 누락을 우선 찾아 한국어로 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Agno Approval Policy Designer"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_hermes_delegation_coordinator",
+        name: "Hermes Delegation Coordinator",
+        description:
+          "Hermes의 delegation/toolset/kanban 패턴을 참고해 worker handoff와 병렬 실행 가능성을 설계합니다.",
+        category: "orchestration",
+        tags: ["hermes", "delegation", "toolsets", "kanban"],
+        provider: "codex",
+        role: "orchestrator",
+        persona:
+          "당신은 delegation coordinator입니다. 작업을 local CLI, A2A remote agent, read-only reviewer wave, side-effect worker로 나누고 각 worker가 받아야 할 최소 context, toolset, timeout, handoff artifact, dependency를 정의하세요. parallelism은 read-only 또는 독립된 작업에만 적용하고, side effect worker는 approval boundary를 넘지 않게 설계하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Hermes Delegation Coordinator"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_hermes_memory_lifecycle_curator",
+        name: "Hermes Memory Lifecycle Curator",
+        description:
+          "Hermes의 memory/curator 패턴처럼 reusable knowledge, stale skill, promotion candidate를 점검합니다.",
+        category: "skills",
+        tags: ["hermes", "memory", "curator", "skill-lifecycle"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 memory lifecycle curator입니다. 반복되는 문제 해결 패턴, 자주 쓰는 project rule, stale skill/source, 새 AgentProfile 후보, 문서로 승격해야 할 운영 지식을 식별하세요. ephemeral runtime 값은 durable docs에 넣지 말고, 팀 지식은 기존 docs 위치에 연결하는 계획으로 남기세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Hermes Memory Lifecycle Curator"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_ecc_eval_harness_designer",
+        name: "ECC Eval Harness Designer",
+        description:
+          "ECC eval-harness 패턴을 Harness eval fixtures, graders, smoke evidence로 변환합니다.",
+        category: "testing",
+        tags: ["ecc", "eval", "regression", "smoke"],
+        provider: "codex",
+        role: "tester",
+        persona:
+          "당신은 eval harness designer입니다. 변경된 agent/pipeline 동작이 회귀하지 않도록 fixture, grader, metric, smoke scenario, pass/fail threshold를 설계하세요. deterministic test와 real CLI smoke를 구분하고 비용/시간/flake 위험을 함께 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: testSuffix("ECC Eval Harness Designer"),
+        }),
+        cli: defaultCli,
+        permissions: testRunnerPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_harness_ipc_contract_guardian",
+        name: "Harness IPC Contract Guardian",
+        description:
+          "HarnessAgentOS의 9-layer IPC 계약, preload 보안, renderer 제한을 contract drift 관점으로 검토합니다.",
+        category: "architecture",
+        tags: ["harness", "ipc", "contract", "preload", "renderer"],
+        provider: "codex",
+        role: "reviewer",
+        persona:
+          "당신은 Harness IPC contract guardian입니다. core api/types, storage/service, Electron IPC handler/register, preload bridge, renderer window.d.ts, docs/contracts/ipc-contracts.md가 같은 계약을 말하는지 read-only로 검토하세요. renderer가 node/process/fs/sql에 직접 접근하거나 raw ipcRenderer가 노출되는 위험을 우선 찾으세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Harness IPC Contract Guardian"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_harness_storage_migration_steward",
+        name: "Harness Storage Migration Steward",
+        description:
+          "SQLite WAL, idempotent migration, repository tests, existing-user compatibility를 집중 설계합니다.",
+        category: "architecture",
+        tags: ["harness", "sqlite", "migration", "compatibility"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 Harness storage migration steward입니다. schema version, idempotent ALTER, row mapper, repository validation, existing DB backfill, rollback notes, test fixtures를 함께 설계하세요. JSON column은 _json suffix를 지키고, canonical state를 파일로 분산하지 않도록 검토하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          systemPromptSuffix: readOnlySuffix("Harness Storage Migration Steward"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
     ];
 
     this.localizeLegacySeedText({
@@ -894,18 +1155,35 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         desiredByName.get(profile.name.trim().toLowerCase());
       if (!desired) continue;
       const nextProvider = desired.provider;
+      const shouldBackfillPrefix =
+        profile.tuning.systemPromptPrefix.trim().length === 0;
+      const shouldBackfillSuffix =
+        profile.tuning.systemPromptSuffix.trim().length === 0;
       const nextTuning = normalizeTuning(
         {
           ...profile.tuning,
           model: desired.tuning.model,
           reasoningEffort: desired.tuning.reasoningEffort,
+          contextDepth:
+            profile.tuning.contextDepth <= 10
+              ? desired.tuning.contextDepth
+              : profile.tuning.contextDepth,
+          systemPromptPrefix: shouldBackfillPrefix
+            ? desired.tuning.systemPromptPrefix
+            : profile.tuning.systemPromptPrefix,
+          systemPromptSuffix: shouldBackfillSuffix
+            ? desired.tuning.systemPromptSuffix
+            : profile.tuning.systemPromptSuffix,
         },
         nextProvider,
       );
       if (
         profile.provider === nextProvider &&
         profile.tuning.model === nextTuning.model &&
-        profile.tuning.reasoningEffort === nextTuning.reasoningEffort
+        profile.tuning.reasoningEffort === nextTuning.reasoningEffort &&
+        profile.tuning.contextDepth === nextTuning.contextDepth &&
+        profile.tuning.systemPromptPrefix === nextTuning.systemPromptPrefix &&
+        profile.tuning.systemPromptSuffix === nextTuning.systemPromptSuffix
       ) {
         continue;
       }

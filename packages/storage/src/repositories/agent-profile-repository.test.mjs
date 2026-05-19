@@ -30,6 +30,16 @@ const FRAMEWORK_PROFILE_NAMES = [
   "ECC Design QA Reviewer",
   "ECC Documentation Writer",
   "ECC Data Migration Planner",
+  "ECC Codebase Explorer",
+  "ECC Docs Researcher",
+  "Ruflo Federation Auditor",
+  "Agno Runtime Service Architect",
+  "Agno Approval Policy Designer",
+  "Hermes Delegation Coordinator",
+  "Hermes Memory Lifecycle Curator",
+  "ECC Eval Harness Designer",
+  "Harness IPC Contract Guardian",
+  "Harness Storage Migration Steward",
 ];
 
 const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
@@ -63,6 +73,16 @@ const FRAMEWORK_PROFILE_ROLES = new Map([
   ["ECC Design QA Reviewer", "reviewer"],
   ["ECC Documentation Writer", "planner"],
   ["ECC Data Migration Planner", "planner"],
+  ["ECC Codebase Explorer", "planner"],
+  ["ECC Docs Researcher", "planner"],
+  ["Ruflo Federation Auditor", "security-reviewer"],
+  ["Agno Runtime Service Architect", "orchestrator"],
+  ["Agno Approval Policy Designer", "security-reviewer"],
+  ["Hermes Delegation Coordinator", "orchestrator"],
+  ["Hermes Memory Lifecycle Curator", "planner"],
+  ["ECC Eval Harness Designer", "tester"],
+  ["Harness IPC Contract Guardian", "reviewer"],
+  ["Harness Storage Migration Steward", "planner"],
 ]);
 
 const assertFrameworkProfilesPresent = (profiles) => {
@@ -222,11 +242,22 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       all.every((p) => p.tuning.reasoningEffort === "xhigh"),
       "all seed profiles default to explicit Codex xhigh effort",
     );
+    assert.ok(
+      all.every((p) => p.tuning.systemPromptPrefix.includes("HarnessAgentOS")),
+      "all seed profiles carry the Harness project contract in the prompt prefix",
+    );
+    assert.ok(
+      all.every((p) => p.tuning.systemPromptSuffix.includes("보고")),
+      "all seed profiles carry a concrete reporting contract in the prompt suffix",
+    );
     assert.ok(all.some((p) => p.name === "ECC Security Reviewer" && p.tags.includes("security")));
     assert.ok(all.some((p) => p.name === "Agno Product PRD Strategist" && p.tags.includes("prd")));
     assert.ok(all.some((p) => p.name === "Ruflo Architecture Designer" && p.tags.includes("architecture")));
     assert.ok(all.some((p) => p.name === "Hermes Image Prompt Designer" && p.tags.includes("image")));
     assert.ok(all.some((p) => p.name === "ECC UX Flow Designer" && p.tags.includes("design")));
+    assert.ok(all.some((p) => p.name === "ECC Codebase Explorer" && p.tags.includes("evidence")));
+    assert.ok(all.some((p) => p.name === "Hermes Delegation Coordinator" && p.tags.includes("delegation")));
+    assert.ok(all.some((p) => p.name === "Agno Approval Policy Designer" && p.tags.includes("approval")));
     assert.match(
       all.find((p) => p.name === "Planner")?.persona ?? "",
       /한국어|요구사항/,
@@ -293,6 +324,74 @@ test("AgentProfileRepository.ensureSeed upgrades existing seed profiles to Codex
     assert.equal(refreshedTdd.tuning.model, DEFAULT_CODEX_MODEL);
     assert.equal(refreshedTdd.tuning.reasoningEffort, "xhigh");
     assert.equal(refreshedTdd.tuning.systemPromptPrefix, "keep-tdd-prefix");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed backfills empty rich prompt contracts on seed profiles", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const planner = await repo.create(
+      makeProfileInput({
+        name: "Planner",
+        role: "planner",
+        provider: "codex",
+        tuning: {
+          model: DEFAULT_CODEX_MODEL,
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+          stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+          contextDepth: 10,
+          systemPromptPrefix: "",
+          systemPromptSuffix: "",
+        },
+        isDefault: true,
+      }),
+    );
+
+    await repo.ensureSeed();
+    const refreshed = await repo.get(planner.id);
+
+    assert.match(refreshed.tuning.systemPromptPrefix, /HarnessAgentOS/);
+    assert.match(refreshed.tuning.systemPromptPrefix, /SQLite WAL/);
+    assert.match(refreshed.tuning.systemPromptSuffix, /Planner/);
+    assert.match(refreshed.tuning.systemPromptSuffix, /보고/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed preserves custom rich prompt contracts", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const planner = await repo.create(
+      makeProfileInput({
+        name: "Planner",
+        role: "planner",
+        provider: "codex",
+        tuning: {
+          model: DEFAULT_CODEX_MODEL,
+          timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+          stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+          contextDepth: 10,
+          systemPromptPrefix: "CUSTOM PREFIX",
+          systemPromptSuffix: "CUSTOM SUFFIX",
+        },
+        isDefault: true,
+      }),
+    );
+
+    await repo.ensureSeed();
+    const refreshed = await repo.get(planner.id);
+
+    assert.equal(refreshed.tuning.systemPromptPrefix, "CUSTOM PREFIX");
+    assert.equal(refreshed.tuning.systemPromptSuffix, "CUSTOM SUFFIX");
   } finally {
     closeDb(db);
     t.cleanup();
