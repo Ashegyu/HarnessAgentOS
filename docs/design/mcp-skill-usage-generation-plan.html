@@ -1048,13 +1048,14 @@ Step 5. Approval
       <td>stdout logging lint, probe smoke, build test</td>
     </tr>
     <tr>
-      <td><span class="pill pill--orange">P5</span> 정책 enforcement 강화</td>
-      <td>tool allow/deny와 Skill whitelist를 suggestion/invocation 경로에 일관 적용</td>
+      <td><span class="pill pill--green">P5</span> 정책 enforcement 강화</td>
+      <td>Skill whitelist는 suggestion/proposal/prompt context에 적용하고, MCP tool allow/deny는 Claude MCP config server namespace 후보에 적용</td>
       <td>
         <code>packages/agent/src/agent-planning-service.ts</code><br />
+        <code>packages/agent/src/mcp-config-builder.ts</code><br />
         <code>packages/skillify-adapter/src/capability-service.ts</code>
       </td>
-      <td>차단된 Skill/MCP tool이 prompt/config 후보에 들어가지 않는 테스트</td>
+      <td>차단된 Skill이 prompt 후보에 들어가지 않고, 허용되지 않은 MCP namespace가 config 후보에 들어가지 않는 테스트. 실제 tool-call event 차단은 provider event 노출 확인 뒤 후속 단계</td>
     </tr>
   </table>
 

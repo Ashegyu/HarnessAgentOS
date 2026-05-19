@@ -106,6 +106,7 @@ export interface AgentPlanningServiceDeps {
    */
   getApprovedCapabilityContexts?: (input: {
     taskRunId: string;
+    profileId?: string | null;
   }) => Promise<CapabilityPromptContext[]>;
   /**
    * Main-process hook: returns a Learner model recommendation that
@@ -286,6 +287,7 @@ export class AgentPlanningService {
     );
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
+      resolved.profile?.id ?? null,
     );
     const repoContext = await this.loadRepoContext(
       taskRun,
@@ -921,6 +923,7 @@ export class AgentPlanningService {
 
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
+      input.profile.id,
     );
     const repoContext = await this.loadRepoContext(taskRun, input.userRequest);
     const prompt = buildSplitAgentPrompt({
@@ -1209,10 +1212,14 @@ export class AgentPlanningService {
 
   private async loadApprovedCapabilityContexts(
     taskRunId: string,
+    profileId?: string | null,
   ): Promise<CapabilityPromptContext[]> {
     if (!this.deps.getApprovedCapabilityContexts) return [];
     try {
-      return await this.deps.getApprovedCapabilityContexts({ taskRunId });
+      return await this.deps.getApprovedCapabilityContexts({
+        taskRunId,
+        profileId,
+      });
     } catch {
       return [];
     }

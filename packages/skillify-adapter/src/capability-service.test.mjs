@@ -25,6 +25,7 @@ const seedSkill = (rootDir, skillName, opts = {}) => {
   mkdirSync(skillDir, { recursive: true });
   const lines = [
     "---",
+    ...(opts.id ? [`id: ${opts.id}`] : []),
     `name: ${opts.name ?? skillName}`,
     `description: ${opts.description ?? "desc"}`,
     `risk: ${opts.risk ?? "low"}`,
@@ -41,6 +42,44 @@ const seedSkill = (rootDir, skillName, opts = {}) => {
     writeFileSync(join(scriptDir, opts.script), "#!/bin/sh\necho hi\n");
   }
   return skillDir;
+};
+
+const profileInput = (overrides = {}) => ({
+  name: "Policy Reviewer",
+  description: "",
+  category: "review",
+  tags: ["review"],
+  provider: "claude",
+  role: "reviewer",
+  persona: "",
+  tuning: {
+    model: "claude-sonnet-4-6",
+    timeoutMs: 300_000,
+    stallTimeoutMs: 60_000,
+    contextDepth: 5,
+    systemPromptPrefix: "",
+    systemPromptSuffix: "",
+  },
+  cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+  permissions: {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+  },
+  mcpServerIds: [],
+  skillSourceIds: [],
+  isDefault: false,
+  ...overrides,
+});
+
+const activateProfile = async (state, profile) => {
+  const settings = await state.getSettings();
+  await state.updateSettings({
+    ...settings,
+    activeAgentProfileId: profile.id,
+  });
 };
 
 const seedTaskRun = async (state) => {
@@ -107,6 +146,46 @@ test("suggest returns ranked capabilities for a TaskRun prompt", async () => {
     assert.equal(suggestions.length, 1);
     assert.equal(suggestions[0].capability.name, "refactor");
     assert.ok(suggestions[0].matchedTerms.length > 0);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("suggest filters capabilities by active AgentProfile allowedSkillIds", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "allowed", { id: "skill_allowed" });
+    seedSkill(skillsRoot, "blocked", { id: "skill_blocked" });
+    const registry = new CapabilityRegistry({ state });
+    await registry.refresh([
+      { source: "skillify:test", rootDir: skillsRoot, trusted: true },
+    ]);
+    const profile = await state.agentProfiles.create(
+      profileInput({
+        permissions: {
+          ...profileInput().permissions,
+          allowedSkillIds: ["skill_allowed"],
+        },
+      }),
+    );
+    await activateProfile(state, profile);
+    const service = new CapabilityService({ state, registry });
+    const taskRun = await seedTaskRun(state);
+
+    const suggestions = await service.suggest({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+
+    assert.deepEqual(
+      suggestions.map((s) => s.capability.id),
+      ["skill_allowed"],
+    );
   } finally {
     closeDb(db);
     t.cleanup();
@@ -212,6 +291,51 @@ test("proposeCandidateApprovals creates pending capability_use approvals without
   }
 });
 
+test("proposeCandidateApprovals does not create approvals outside active AgentProfile allowedSkillIds", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "allowed", { id: "skill_allowed" });
+    seedSkill(skillsRoot, "blocked", { id: "skill_blocked" });
+    const registry = new CapabilityRegistry({ state });
+    await registry.refresh([
+      { source: "skillify:test", rootDir: skillsRoot, trusted: true },
+    ]);
+    const profile = await state.agentProfiles.create(
+      profileInput({
+        permissions: {
+          ...profileInput().permissions,
+          allowedSkillIds: ["skill_allowed"],
+        },
+      }),
+    );
+    await activateProfile(state, profile);
+    const service = new CapabilityService({ state, registry });
+    const taskRun = await seedTaskRun(state);
+
+    const proposed = await service.proposeCandidateApprovals({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+
+    assert.deepEqual(
+      proposed.suggestions.map((s) => s.capability.id),
+      ["skill_allowed"],
+    );
+    assert.equal(proposed.approvals.length, 1);
+    assert.equal(
+      proposed.approvals[0].proposedAction.capabilityUse.capabilityId,
+      "skill_allowed",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("approvedPromptContexts returns instructions only after capability approval", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -241,6 +365,52 @@ test("approvedPromptContexts returns instructions only after capability approval
     assert.equal(contexts[0].capability.name, "refactor");
     assert.match(contexts[0].instructions, /Body/);
     assert.match(contexts[0].reason, /Matched trigger terms/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("approvedPromptContexts filters approved skills by explicit AgentProfile allowedSkillIds", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "allowed", { id: "skill_allowed" });
+    seedSkill(skillsRoot, "blocked", { id: "skill_blocked" });
+    const registry = new CapabilityRegistry({ state });
+    await registry.refresh([
+      { source: "skillify:test", rootDir: skillsRoot, trusted: true },
+    ]);
+    const service = new CapabilityService({ state, registry });
+    const taskRun = await seedTaskRun(state);
+    const proposed = await service.proposeCandidateApprovals({
+      taskRunId: taskRun.id,
+      prompt: "rename helper",
+    });
+    for (const approval of proposed.approvals) {
+      await state.decideApproval(approval.id, "approved", "use it");
+    }
+    const profile = await state.agentProfiles.create(
+      profileInput({
+        permissions: {
+          ...profileInput().permissions,
+          allowedSkillIds: ["skill_allowed"],
+        },
+      }),
+    );
+
+    const contexts = await service.approvedPromptContexts({
+      taskRunId: taskRun.id,
+      profileId: profile.id,
+    });
+
+    assert.deepEqual(
+      contexts.map((ctx) => ctx.capability.id),
+      ["skill_allowed"],
+    );
   } finally {
     closeDb(db);
     t.cleanup();

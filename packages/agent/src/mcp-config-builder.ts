@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@harness/core";
+import type { AgentPermissions, McpServerConfig } from "@harness/core";
 
 /**
  * Phase 4b — Compose the `.mcp.json` payload that Claude CLI receives
@@ -32,6 +32,11 @@ export type ClaudeMcpServerBlock = ClaudeMcpStdioBlock | ClaudeMcpHttpBlock;
 export interface ClaudeMcpConfigFile {
   mcpServers: Record<string, ClaudeMcpServerBlock>;
 }
+
+export type McpToolPolicy = Pick<
+  AgentPermissions,
+  "toolAllowlist" | "toolDenylist"
+>;
 
 /**
  * Resolves a SecretVault key to its plaintext. Returns null when the key
@@ -67,12 +72,15 @@ const allocateKey = (
 export const buildClaudeMcpConfig = async (
   servers: readonly McpServerConfig[],
   resolveSecret: SecretLookup,
+  toolPolicy?: McpToolPolicy,
 ): Promise<ClaudeMcpConfigFile> => {
   const out: Record<string, ClaudeMcpServerBlock> = {};
   const taken = new Set<string>();
 
   for (const server of servers) {
     if (!server.enabled) continue;
+    const baseKey = sanitizeServerName(server.name);
+    if (!isMcpServerAllowedByToolPolicy(baseKey, toolPolicy)) continue;
 
     const resolvedSecrets: Record<string, string> = {};
     for (const [envName, vaultKey] of Object.entries(server.envSecretRefs)) {
@@ -85,7 +93,7 @@ export const buildClaudeMcpConfig = async (
       resolvedSecrets[envName] = plain;
     }
 
-    const key = allocateKey(taken, sanitizeServerName(server.name));
+    const key = allocateKey(taken, baseKey);
 
     if (server.transport === "stdio") {
       const env: Record<string, string> = { ...server.env, ...resolvedSecrets };
@@ -120,4 +128,68 @@ export const buildClaudeMcpConfig = async (
   }
 
   return { mcpServers: out };
+};
+
+export const isMcpToolAllowed = (
+  toolName: string,
+  policy: McpToolPolicy | undefined,
+): boolean => {
+  const normalized = toolName.trim();
+  if (normalized.length === 0) return false;
+  const deny = normalizePatterns(policy?.toolDenylist);
+  if (deny.some((pattern) => globMatches(pattern, normalized))) {
+    return false;
+  }
+  const allow = normalizePatterns(policy?.toolAllowlist);
+  return (
+    allow.length === 0 ||
+    allow.some((pattern) => globMatches(pattern, normalized))
+  );
+};
+
+const isMcpServerAllowedByToolPolicy = (
+  serverKey: string,
+  policy: McpToolPolicy | undefined,
+): boolean => {
+  const samples = toolNamespaceSamples(serverKey);
+  const deny = normalizePatterns(policy?.toolDenylist);
+  if (
+    deny.some((pattern) =>
+      samples.every((toolName) => globMatches(pattern, toolName)),
+    )
+  ) {
+    return false;
+  }
+  const allow = normalizePatterns(policy?.toolAllowlist);
+  return (
+    allow.length === 0 ||
+    allow.some((pattern) =>
+      samples.some((toolName) => globMatches(pattern, toolName)),
+    )
+  );
+};
+
+const toolNamespaceSamples = (serverKey: string): string[] => {
+  const prefix = `mcp__${serverKey}__`;
+  return [
+    `${prefix}list`,
+    `${prefix}read_file`,
+    `${prefix}write_file`,
+    `${prefix}delete_file`,
+  ];
+};
+
+const normalizePatterns = (
+  patterns: readonly string[] | undefined,
+): string[] => {
+  if (!patterns) return [];
+  return patterns.map((p) => p.trim()).filter((p) => p.length > 0);
+};
+
+const globMatches = (pattern: string, value: string): boolean =>
+  globToRegExp(pattern).test(value);
+
+const globToRegExp = (pattern: string): RegExp => {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped.replace(/\*/g, ".*").replace(/\?/g, ".")}$`);
 };

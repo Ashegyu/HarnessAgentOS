@@ -18,6 +18,7 @@ import {
   type HarnessDb,
 } from "@harness/storage";
 import type {
+  AgentProfile,
   AgentProvider,
   McpServerConfig,
   McpServerHealth,
@@ -214,9 +215,11 @@ const initServices = (): {
     }
     const all = await state.mcpServers.list();
     let active = all.filter((s) => s.enabled && s.scope === "global");
+    let profileForPolicy: AgentProfile | null = null;
     if (profileId !== null) {
       const profile = await state.agentProfiles.get(profileId).catch(() => null);
       if (profile) {
+        profileForPolicy = profile;
         const perAgent = all.filter(
           (s) =>
             s.enabled &&
@@ -236,9 +239,14 @@ const initServices = (): {
           : server,
       ),
     );
-    const config = await buildClaudeMcpConfig(activeForConfig, async (k) =>
-      secretVault.read(k),
+    const config = await buildClaudeMcpConfig(
+      activeForConfig,
+      async (k) => secretVault.read(k),
+      profileForPolicy?.permissions,
     );
+    if (Object.keys(config.mcpServers).length === 0) {
+      return { mcpConfigPath: null, cleanup: async () => {} };
+    }
     await mkdir(mcpTmpDir, { recursive: true });
     const file = join(mcpTmpDir, `mcp-${randomUUID()}.json`);
     await writeFile(file, JSON.stringify(config), {
@@ -263,8 +271,8 @@ const initServices = (): {
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
     prepareMcpInvocation,
-    getApprovedCapabilityContexts: ({ taskRunId }) =>
-      capabilityService.approvedPromptContexts({ taskRunId }),
+    getApprovedCapabilityContexts: ({ taskRunId, profileId }) =>
+      capabilityService.approvedPromptContexts({ taskRunId, profileId }),
     getApprovedLearnerModel: ({ taskRunId }) =>
       learnerAdvisor.approvedModelContext({ taskRunId }),
     getRepoContext: async ({ taskRun, prompt }) => {

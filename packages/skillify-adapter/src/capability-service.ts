@@ -4,6 +4,7 @@ import {
   CAPABILITY_SCRIPT_TRAVERSAL,
   CAPABILITY_UNTRUSTED_SKILL,
   type Approval,
+  type AgentProfile,
   type Capability,
   type CapabilityCandidateApprovalResult,
   type CapabilityPromptContext,
@@ -55,6 +56,7 @@ export class CapabilityService {
   async suggest(input: {
     taskRunId: string;
     prompt: string;
+    profileId?: string | null;
   }): Promise<CapabilitySuggestion[]> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
@@ -64,10 +66,12 @@ export class CapabilityService {
       );
     }
     const capabilities = await this.deps.state.listCapabilities();
-    return suggestCapabilities({
+    const suggestions = suggestCapabilities({
       prompt: `${taskRun.userRequest}\n${input.prompt}`,
       capabilities,
     });
+    const profile = await this.resolvePolicyProfile(input.profileId);
+    return filterSuggestionsForProfile(suggestions, profile);
   }
 
   /**
@@ -79,6 +83,7 @@ export class CapabilityService {
   async proposeCandidateApprovals(input: {
     taskRunId: string;
     prompt: string;
+    profileId?: string | null;
   }): Promise<CapabilityCandidateApprovalResult> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
@@ -177,6 +182,7 @@ export class CapabilityService {
 
   async approvedPromptContexts(input: {
     taskRunId: string;
+    profileId?: string | null;
   }): Promise<CapabilityPromptContext[]> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
@@ -186,6 +192,7 @@ export class CapabilityService {
       );
     }
     const approvals = await this.deps.state.listApprovalsByTaskRun(taskRun.id);
+    const profile = await this.resolvePolicyProfile(input.profileId);
     const seen = new Set<string>();
     const contexts: CapabilityPromptContext[] = [];
     for (const approval of approvals) {
@@ -199,6 +206,7 @@ export class CapabilityService {
       }
       const capabilityId = approval.proposedAction?.capabilityUse?.capabilityId;
       if (!capabilityId || seen.has(capabilityId)) continue;
+      if (!isCapabilityAllowedByProfile(capabilityId, profile)) continue;
       const metadata = this.deps.registry.getMetadata(capabilityId);
       if (!metadata?.trusted) continue;
       const capability = await this.requireCapability(capabilityId);
@@ -335,7 +343,42 @@ export class CapabilityService {
     }
     return cap;
   }
+
+  private async resolvePolicyProfile(
+    profileId: string | null | undefined,
+  ): Promise<AgentProfile | null> {
+    if (profileId === null) return null;
+    if (profileId !== undefined) {
+      return this.deps.state.agentProfiles.get(profileId);
+    }
+
+    const settings = await this.deps.state.getSettings();
+    const profiles = await this.deps.state.listAgentProfiles();
+    if (settings.activeAgentProfileId) {
+      const active = profiles.find(
+        (p) => p.id === settings.activeAgentProfileId,
+      );
+      if (active) return active;
+    }
+    return profiles.find((p) => p.isDefault) ?? null;
+  }
 }
+
+const isCapabilityAllowedByProfile = (
+  capabilityId: string,
+  profile: AgentProfile | null,
+): boolean => {
+  const allowed = profile?.permissions.allowedSkillIds ?? [];
+  return allowed.length === 0 || allowed.includes(capabilityId);
+};
+
+const filterSuggestionsForProfile = (
+  suggestions: readonly CapabilitySuggestion[],
+  profile: AgentProfile | null,
+): CapabilitySuggestion[] =>
+  suggestions.filter((s) =>
+    isCapabilityAllowedByProfile(s.capability.id, profile),
+  );
 
 const resolveSkillScript = (sourceDir: string, scriptName: string): string => {
   const candidate = resolve(normalize(join(sourceDir, "scripts", scriptName)));

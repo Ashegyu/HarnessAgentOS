@@ -415,6 +415,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
   const createStepInputs = [];
   const events = [];
   const artifacts = [];
+  let capabilityContextInput = null;
   const activeProfile = {
     id: "ap-progress",
     name: "LocalPlanner",
@@ -533,6 +534,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    getApprovedCapabilityContexts: async (input) => {
+      capabilityContextInput = input;
+      return [];
+    },
     emitStreamEvent: (event) => events.push(event),
     adapter: {
       invoke: async (request, onEvent, signal) => {
@@ -559,6 +564,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
 
   await svc.generatePlan({ taskRunId: "tr-progress", provider: "claude" });
 
+  assert.deepEqual(capabilityContextInput, {
+    taskRunId: "tr-progress",
+    profileId: activeProfile.id,
+  });
   assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
     createStepInputs[0]?.title,
@@ -770,6 +779,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   };
   let lastRequest = null;
   let createAgentInvocationInput = null;
+  let workerCapabilityContextInput = null;
   let artifactSeq = 0;
   const artifacts = [];
   const rawProviderOutput =
@@ -821,6 +831,10 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    getApprovedCapabilityContexts: async (input) => {
+      workerCapabilityContextInput = input;
+      return [];
+    },
     adapter: {
       invoke: async (request) => {
         lastRequest = request;
@@ -856,6 +870,10 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   });
 
   assert.equal(result.proposedActions?.length, 1);
+  assert.deepEqual(workerCapabilityContextInput, {
+    taskRunId: taskRun.id,
+    profileId: profile.id,
+  });
   assert.equal(createAgentInvocationInput?.stepId, "step-worker");
   assert.equal(result.proposedActions?.[0].type, "file_write");
   assert.equal(result.proposedActions?.[0].path, "created.txt");

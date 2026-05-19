@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   buildClaudeMcpConfig,
+  isMcpToolAllowed,
   sanitizeServerName,
 } from "./mcp-config-builder.ts";
 
@@ -119,4 +120,38 @@ test("buildClaudeMcpConfig handles two servers with name collisions by sanitizin
   assert.equal(keys.length, 2);
   assert.equal(keys[0], "same_name");
   assert.equal(keys[1], "same_name_2");
+});
+
+test("isMcpToolAllowed gives deny patterns priority over allow patterns", () => {
+  const policy = {
+    toolAllowlist: ["mcp__filesystem_mcp__*"],
+    toolDenylist: ["mcp__filesystem_mcp__delete_*"],
+  };
+  assert.equal(isMcpToolAllowed("mcp__filesystem_mcp__read_file", policy), true);
+  assert.equal(isMcpToolAllowed("mcp__filesystem_mcp__delete_file", policy), false);
+  assert.equal(isMcpToolAllowed("mcp__remote__read_file", policy), false);
+});
+
+test("buildClaudeMcpConfig filters servers outside the profile tool allowlist", async () => {
+  const cfg = await buildClaudeMcpConfig(
+    [STDIO, HTTP],
+    fakeVault({ fs_token_key: "PLAINTEXT_TOKEN", remote_bearer: "abc123" }),
+    {
+      toolAllowlist: ["mcp__filesystem_mcp__read_*"],
+      toolDenylist: [],
+    },
+  );
+  assert.deepEqual(Object.keys(cfg.mcpServers), ["filesystem_mcp"]);
+});
+
+test("buildClaudeMcpConfig skips a server namespace denied by profile policy even when allowed", async () => {
+  const cfg = await buildClaudeMcpConfig(
+    [STDIO],
+    fakeVault({ fs_token_key: "PLAINTEXT_TOKEN" }),
+    {
+      toolAllowlist: ["mcp__filesystem_mcp__*"],
+      toolDenylist: ["mcp__filesystem_mcp__*"],
+    },
+  );
+  assert.deepEqual(cfg, { mcpServers: {} });
 });
