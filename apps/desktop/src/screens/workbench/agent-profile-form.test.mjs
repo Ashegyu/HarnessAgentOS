@@ -219,9 +219,42 @@ test("buildBindingPolicyHints warns when Codex profile has MCP bindings", () => 
   d.mcpServerIdsText = "mcp_repo";
 
   const hints = buildBindingPolicyHints(d);
+  const text = hints.map((hint) => hint.message).join("\n");
 
   assert.equal(hints.some((hint) => hint.tone === "warning"), true);
-  assert.match(hints.map((hint) => hint.message).join("\n"), /Codex/);
+  assert.match(text, /Codex provider cannot enforce AgentProfile MCP bindings/);
+  assert.match(text, /Claude/);
+});
+
+test("buildBindingPolicyHints warns when Codex profile has tool policy", () => {
+  const d = emptyDraft();
+  d.name = "Codex Tool Policy";
+  d.provider = "codex";
+  d.toolAllowlistText = "Read";
+  d.toolDenylistText = "Bash";
+
+  const hints = buildBindingPolicyHints(d);
+  const text = hints.map((hint) => hint.message).join("\n");
+
+  assert.equal(hints.some((hint) => hint.tone === "warning"), true);
+  assert.match(text, /Codex provider cannot enforce AgentProfile tool policy/);
+  assert.match(text, /profile boundary/);
+});
+
+test("buildBindingPolicyHints warns when auto provider may resolve to Codex with boundaries", () => {
+  const d = emptyDraft();
+  d.name = "Auto Boundaries";
+  d.provider = "auto";
+  d.mcpServerIdsText = "mcp_repo";
+  d.toolDenylistText = "Bash";
+
+  const hints = buildBindingPolicyHints(d);
+  const text = hints.map((hint) => hint.message).join("\n");
+
+  assert.match(text, /provider=auto/);
+  assert.match(text, /Codex/);
+  assert.match(text, /MCP binding/);
+  assert.match(text, /tool policy/);
 });
 
 test("buildBindingPolicyHints surfaces broad skill scope when allowedSkillIds is empty", () => {

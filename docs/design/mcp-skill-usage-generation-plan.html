@@ -1055,7 +1055,7 @@ Step 5. Approval
         <code>packages/agent/src/mcp-config-builder.ts</code><br />
         <code>packages/skillify-adapter/src/capability-service.ts</code>
       </td>
-      <td>차단된 Skill이 prompt 후보에 들어가지 않고, 허용되지 않은 MCP namespace가 config 후보에 들어가지 않는 테스트. Settings UI는 Codex/auto MCP 경계, 전체 Skill 후보 범위, deny 우선순위를 표시한다. 실제 tool-call event 차단은 provider event 노출 확인 뒤 후속 단계</td>
+      <td>차단된 Skill이 prompt 후보에 들어가지 않고, 허용되지 않은 MCP namespace가 config 후보에 들어가지 않는 테스트. Settings UI는 Codex/auto MCP/tool policy 경계, 전체 Skill 후보 범위, deny 우선순위를 표시한다. 실제 tool-call event 차단은 provider event 노출 확인 뒤 후속 단계</td>
     </tr>
     <tr>
       <td><span class="pill pill--green">P6</span> provider tool-call 관측 계약</td>
@@ -1082,9 +1082,11 @@ Step 5. Approval
       <td>Codex가 아직 강제할 수 없는 <code>AgentProfile</code> MCP binding 또는 tool policy가 있으면 CLI 실행 전에 차단</td>
       <td>
         <code>packages/agent/src/agent-planning-service.ts</code><br />
-        <code>packages/agent/src/agent-planning-service.test.mjs</code>
+        <code>packages/agent/src/agent-planning-service.test.mjs</code><br />
+        <code>apps/desktop/src/screens/workbench/agent-profile-form.ts</code><br />
+        <code>apps/desktop/src/screens/workbench/agent-profile-form.test.mjs</code>
       </td>
-      <td>Codex provider는 read-only planning path로만 유지한다. <code>mcpServerIds</code>, <code>toolAllowlist</code>, <code>toolDenylist</code>가 있는 Codex profile은 실제 지원이 검증될 때까지 <code>AGENT_PROVIDER_UNAVAILABLE</code>로 실패한다. 이는 미지원 기능을 지원하는 것처럼 우회하지 않고, 사용자에게 Claude 선택 또는 profile boundary 제거를 요구하는 안전 우회다.</td>
+      <td>Codex provider는 read-only planning path로만 유지한다. <code>mcpServerIds</code>, <code>toolAllowlist</code>, <code>toolDenylist</code>가 있는 Codex profile은 실제 지원이 검증될 때까지 <code>AGENT_PROVIDER_UNAVAILABLE</code>로 실패한다. Settings UI도 같은 경계를 저장 전 힌트로 표시한다. 이는 미지원 기능을 지원하는 것처럼 우회하지 않고, 사용자에게 Claude 선택 또는 profile boundary 제거를 요구하는 안전 우회다.</td>
     </tr>
   </table>
 

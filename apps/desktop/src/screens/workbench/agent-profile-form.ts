@@ -90,18 +90,25 @@ export const buildBindingPolicyHints = (
   const toolAllowlist = parseList(draft.toolAllowlistText);
   const toolDenylist = parseList(draft.toolDenylistText);
   const hints: BindingPolicyHint[] = [];
+  const hasMcpBindings = mcpServerIds.length > 0;
+  const hasToolPolicy =
+    toolAllowlist.length > 0 || toolDenylist.length > 0;
 
-  if (mcpServerIds.length > 0 && draft.provider === "codex") {
+  if (draft.provider === "codex" && (hasMcpBindings || hasToolPolicy)) {
+    const unsupported: string[] = [];
+    if (hasMcpBindings) unsupported.push("MCP bindings");
+    if (hasToolPolicy) unsupported.push("tool policy");
     hints.push({
       tone: "warning",
-      message:
-        "Codex MCP config 전달은 아직 검증되지 않았으므로 이 profile의 MCP binding은 Codex invocation에 적용되지 않습니다.",
+      message: `Codex provider cannot enforce AgentProfile ${unsupported.join(" and ")} yet; Claude를 선택하거나 unsupported profile boundary를 제거해야 실행 전 fail-fast를 피할 수 있습니다.`,
     });
-  } else if (mcpServerIds.length > 0 && draft.provider === "auto") {
+  } else if (draft.provider === "auto" && (hasMcpBindings || hasToolPolicy)) {
+    const unsupported: string[] = [];
+    if (hasMcpBindings) unsupported.push("MCP binding");
+    if (hasToolPolicy) unsupported.push("tool policy");
     hints.push({
       tone: "warning",
-      message:
-        "provider=auto는 Codex로 선택될 수 있어 MCP binding 적용이 보장되지 않습니다. Claude 선택 시에만 MCP config가 준비됩니다.",
+      message: `provider=auto는 Codex로 선택될 수 있어 ${unsupported.join(" 또는 ")} 적용이 보장되지 않습니다. enforced profile boundary가 필요하면 Claude로 고정하세요.`,
     });
   }
 
