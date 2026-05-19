@@ -184,11 +184,11 @@
     HarnessAgentOS에서 MCP 서버와 Agent Skill을 어떻게 구분해서 쓰고,
     각 AgentProfile에 어떤 MCP와 Skill을 선언하며,
     사용자가 승인한 범위 안에서 MCP/Skill을 자동 생성하도록 확장하는 설계다.
-    현재 문서는 구현 전 설계 산출물이며, 런타임 코드 변경은 포함하지 않는다.
+    초기에는 구현 전 설계 산출물로 작성됐고, 현재는 2026-05-19 기준 구현 상태와 검증 결과를 함께 추적한다.
   </p>
   <p class="meta">
     Path: <code>docs/design/mcp-skill-usage-generation-plan.html</code> · 작성일: 2026-05-18 ·
-    기준: 현재 HarnessAgentOS 코드와 공식 MCP/Skill 문서 조사
+    구현 상태 갱신: 2026-05-19 · 기준: 현재 HarnessAgentOS 코드와 공식 MCP/Skill 문서 조사
   </p>
 
   <div class="toc">
@@ -251,6 +251,16 @@
       <td>Codex는 per-run stdio/no-secret MCP 설정까지만 지원한다. SecretVault refs, remote transport, tool policy 강제는 아직 차단한다.</td>
     </tr>
   </table>
+
+  <h3>1.1 2026-05-19 구현 현황</h3>
+  <div class="ok">
+    <ul>
+      <li>P2 Skill 자동 생성, P3 MCP 등록 초안, P4 MCP scaffold proposal, P5-P8 provider 정책/관측/Codex MCP 제한 지원은 코드와 테스트로 반영됐다.</li>
+      <li>P1 Agent 선언 UI는 AgentProfile 화면에서 MCP server, Skill source, allowed Skill id, tool allow/deny 정책을 한곳에서 편집하도록 정리됐다.</li>
+      <li>Codex MCP는 stdio/no-secret 서버만 per-run <code>-c mcp_servers.*</code> override로 지원하며, SecretVault refs, remote transport, 강제 tool policy는 실행 전 fail-fast 경계로 남긴다.</li>
+      <li>2026-05-19 전체 검증은 <code>npm run check</code>, <code>npm run test</code> 1070개, <code>npm run build</code> 통과 상태다.</li>
+    </ul>
+  </div>
 
   <h2 id="research">2. 조사 요약</h2>
 
@@ -1015,9 +1025,10 @@ Step 5. Approval
       <td>
         <code>apps/desktop/src/screens/workbench/AgentProfilesTab.tsx</code><br />
         <code>apps/desktop/src/screens/workbench/McpServersTab.tsx</code><br />
-        <code>apps/desktop/src/screens/workbench/SkillSourcesTab.tsx</code>
+        <code>apps/desktop/src/screens/workbench/SkillSourcesTab.tsx</code><br />
+        <code>apps/desktop/src/screens/workbench/agent-profile-binding-ui.test.mjs</code>
       </td>
-      <td>profile update 후 다음 invocation에서 MCP config 선택 확인</td>
+      <td>AgentProfile 화면이 MCP/Skill binding picker를 소유하고, MCP/Skill 탭이 profile binding을 직접 적용하지 않는 정적 회귀 테스트. profile update 후 다음 invocation에서 MCP config 선택 확인</td>
     </tr>
     <tr>
       <td><span class="pill pill--green">P2</span> Skill 자동 생성</td>
@@ -1044,8 +1055,8 @@ Step 5. Approval
       <td><span class="pill pill--green">P4</span> MCP scaffold 생성</td>
       <td>local stdio TypeScript MCP scaffold preview와 파일별 file_write approval proposal 생성</td>
       <td>
-        <code>packages/agent</code> 또는 신규 <code>packages/capability-authoring</code><br />
-        <code>scripts/templates/mcp-stdio-ts/</code>
+        <code>packages/agent/src/mcp-scaffold-generator.ts</code><br />
+        <code>apps/desktop/electron/ipc/mcp-ipc.ts</code>
       </td>
       <td>stdout logging lint, probe smoke, build test</td>
     </tr>
@@ -1067,7 +1078,7 @@ Step 5. Approval
         <code>packages/agent/src/provider-tool-call-events.ts</code><br />
         <code>apps/desktop/src/screens/workbench/agent-stream-parser.ts</code>
       </td>
-      <td>provider raw stream에서 tool_call event가 emit되고 저장된 transcript hydration이 unknown 없이 tool section으로 복원되는 테스트. 2026-05-19 live smoke에서 synthetic fixture 기준 Claude <code>Read</code>, Codex <code>command_execution</code> 관측 확인. provider-managed MCP의 실제 실행 직전 차단은 아직 지원하지 않음</td>
+      <td>provider raw stream에서 tool_call event가 emit되고 저장된 transcript hydration이 unknown 없이 tool section으로 복원되는 테스트. 2026-05-19 live smoke에서 synthetic fixture 기준 Claude <code>Read</code>, Codex <code>command_execution</code> 관측 확인. Codex MCP smoke에서는 generic <code>mcp_tool_call</code>을 <code>mcp__server__tool</code> 이름으로 정규화한다. provider-managed MCP의 실제 실행 직전 차단은 아직 지원하지 않음</td>
     </tr>
     <tr>
       <td><span class="pill pill--green">P7</span> provider tool policy 전달</td>
@@ -1141,6 +1152,16 @@ npm --workspace=@harness/desktop run smoke:agent-tool-calls
 npm --workspace=@harness/desktop run smoke:agent-codex-mcp
 npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
 
+  <h3>11.5 2026-05-19 검증 결과</h3>
+  <ul>
+    <li><code>node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/agent-profile-binding-ui.test.mjs apps/desktop/src/screens/workbench/agent-profile-form.test.mjs apps/desktop/src/screens/workbench/settings-description-fields.test.mjs</code> 통과</li>
+    <li><code>node --import tsx --test --test-force-exit apps/desktop/electron/ipc/skill-source-ipc.test.mjs apps/desktop/electron/ipc/mcp-ipc.test.mjs</code> 통과</li>
+    <li><code>npm run check</code> 통과</li>
+    <li><code>npm run test</code> 통과: 1070개</li>
+    <li><code>npm run build</code> 통과</li>
+    <li><code>npm --workspace=@harness/desktop run smoke:agent-codex-mcp</code>는 인증된 로컬 Codex CLI 컨텍스트에서 통과했고, <code>mcp__harness_smoke__harness_smoke_echo</code> tool-call started/completed 이벤트와 결과 marker를 확인했다.</li>
+  </ul>
+
   <h2 id="review">12. 작성 전 자체 검토 결과</h2>
 
   <table>
@@ -1183,7 +1204,7 @@ npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
 
   <h3>12.1 남은 불확실성</h3>
   <ul>
-    <li>2026-05-19 로컬 검증 기준, <code>codex exec</code>에는 Claude의 <code>--mcp-config</code>처럼 per-invocation MCP config file을 전달하는 옵션이 보이지 않는다. 대신 <code>-c mcp_servers.&lt;key&gt;.*</code> override는 임시 stdio MCP 서버의 initialize/tools/list까지 확인됐다. Harness는 이 범위만 Codex MCP binding으로 지원하고, SecretVault refs, remote HTTP/SSE transport, 실제 tool call smoke는 아직 미검증 경계로 둔다.</li>
+    <li>2026-05-19 로컬 검증 기준, <code>codex exec</code>에는 Claude의 <code>--mcp-config</code>처럼 per-invocation MCP config file을 전달하는 옵션이 보이지 않는다. 대신 <code>-c mcp_servers.&lt;key&gt;.*</code> override는 임시 stdio MCP 서버의 initialize/tools/list와 실제 tool call smoke까지 확인됐다. Harness는 이 범위만 Codex MCP binding으로 지원하고, SecretVault refs와 remote HTTP/SSE transport는 아직 fail-fast 경계로 둔다.</li>
     <li>Claude는 로컬 CLI help에서 확인한 provider permission flag로 <code>toolAllowlist</code>/<code>toolDenylist</code>를 전달하고, live smoke로 <code>Read</code> allow/deny 동작을 확인한다. 단, <code>--allowedTools</code>는 strict exclusive allowlist가 아니므로 보안상 차단은 deny pattern 중심으로 해석한다. Claude provider-managed <code>Bash</code>/<code>Edit</code>/<code>Write</code> 계열 side effect 도구는 Harness Approval/Runner 우회를 막기 위해 기본 deny한다. Codex <code>exec</code>에는 동일한 tool-name allow/deny flag가 확인되지 않았으므로 pre-call enforcement는 아직 미지원이다.</li>
     <li>remote HTTP/SSE MCP의 auth 방식은 provider별 차이가 크므로 MVP에서는 config 등록과 healthCheck까지만 다룬다.</li>
     <li>Skill open format은 빠르게 확장 중이므로 Harness 내부 frontmatter는 portable 최소 필드와 Harness-specific 확장 필드를 분리해야 한다.</li>
@@ -1192,9 +1213,10 @@ npm --workspace=@harness/desktop run smoke:agent-tool-policy</code></pre>
   <h3>12.2 최종 설계 판정</h3>
   <div class="ok">
     <p>
-      현재 저장소 구조에서는 <strong>P2 Skill 자동 생성</strong>을 먼저 구현하는 것이 가장 작고 안전하다.
-      이미 preview/propose 경로가 있고, MCP처럼 외부 process spawn이나 credential 문제가 없다.
-      그 다음 <strong>P1 Agent 선언 UI</strong>를 정리하고, <strong>P3 MCP config 생성</strong>으로 확장하는 순서가 적합하다.
+      현재 저장소 구조에서는 <strong>P2 Skill 자동 생성</strong>에서 시작해,
+      <strong>P3 MCP config 생성</strong>, <strong>P4 MCP scaffold</strong>,
+      <strong>P5-P8 정책/관측/provider 경계</strong>, <strong>P1 Agent 선언 UI</strong> 순으로 구현이 반영됐다.
+      이후 확장은 이 문서의 review-first, approval/runner-first 경계를 유지하면서 진행해야 한다.
     </p>
   </div>
 </main>
