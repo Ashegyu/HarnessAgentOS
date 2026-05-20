@@ -187,6 +187,7 @@ test("agent namespace exposes Phase 8 verbs", () => {
     "cancelInvocation",
     "checkProviders",
     "generatePlan",
+    "requestRefinement",
     "retryInvocation",
     "useTemplateFallback",
   ]);

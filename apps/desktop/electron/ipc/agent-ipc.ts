@@ -15,6 +15,8 @@ import {
   type AgentInvocation,
   type AgentProvider,
   type AgentProviderStatusMap,
+  type A2ARefinementAttempt,
+  type A2ARefinementFeedbackSourceKind,
   type Approval,
   type Artifact,
   type HarnessResult,
@@ -22,6 +24,10 @@ import {
 import { AgentPlanningError, AgentPlanningService } from "@harness/agent";
 import type { LocalStateService } from "@harness/storage";
 import type { HarnessEventBus } from "../event-bus";
+import {
+  A2ARefinementRequestError,
+  requestA2ARefinement,
+} from "../a2a-refinement-request";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -32,8 +38,22 @@ const isNonEmptyString = (v: unknown): v is string =>
 const isProvider = (v: unknown): v is AgentProvider =>
   v === "claude" || v === "codex";
 
-const wrapErr = <T>(e: unknown, fallback = AGENT_PROVIDER_UNAVAILABLE): HarnessResult<T> => {
+const isFeedbackSourceKind = (
+  v: unknown,
+): v is A2ARefinementFeedbackSourceKind =>
+  v === "user" || v === "quality_gate" || v === "worker" || v === "system";
+
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((item) => typeof item === "string");
+
+const wrapErr = <T>(
+  e: unknown,
+  fallback: string = AGENT_PROVIDER_UNAVAILABLE,
+): HarnessResult<T> => {
   if (e instanceof AgentPlanningError) {
+    return err(harnessError(e.code, e.message));
+  }
+  if (e instanceof A2ARefinementRequestError) {
     return err(harnessError(e.code, e.message));
   }
   const msg = e instanceof Error ? e.message : String(e);
@@ -248,6 +268,86 @@ export const registerAgentIpc = (
         }
         const msg = e instanceof Error ? e.message : String(e);
         return err(harnessError(AGENT_PROVIDER_UNAVAILABLE, msg));
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.agent.requestRefinement,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<
+      HarnessResult<{ attempt: A2ARefinementAttempt; approval: Approval }>
+    > => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as {
+        taskRunId?: unknown;
+        targetInvocationId?: unknown;
+        feedbackSourceKind?: unknown;
+        feedbackSourceStepId?: unknown;
+        feedbackSourceInvocationId?: unknown;
+        feedbackArtifactId?: unknown;
+        qualityGateId?: unknown;
+        instruction?: unknown;
+        referencedArtifactIds?: unknown;
+      };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(harnessError(STATE_INVALID_INPUT, "taskRunId is required"));
+      }
+      if (!isNonEmptyString(cast.targetInvocationId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "targetInvocationId is required"),
+        );
+      }
+      if (!isFeedbackSourceKind(cast.feedbackSourceKind)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "feedbackSourceKind is invalid"),
+        );
+      }
+      if (!isNonEmptyString(cast.instruction)) {
+        return err(harnessError(STATE_INVALID_INPUT, "instruction is required"));
+      }
+      if (!isStringArray(cast.referencedArtifactIds)) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "referencedArtifactIds must be a string array",
+          ),
+        );
+      }
+      try {
+        const result = await requestA2ARefinement({
+          state: ctx.state,
+          input: {
+            taskRunId: cast.taskRunId,
+            targetInvocationId: cast.targetInvocationId,
+            feedbackSourceKind: cast.feedbackSourceKind,
+            instruction: cast.instruction,
+            referencedArtifactIds: cast.referencedArtifactIds,
+            ...(isNonEmptyString(cast.feedbackSourceStepId)
+              ? { feedbackSourceStepId: cast.feedbackSourceStepId }
+              : {}),
+            ...(isNonEmptyString(cast.feedbackSourceInvocationId)
+              ? { feedbackSourceInvocationId: cast.feedbackSourceInvocationId }
+              : {}),
+            ...(isNonEmptyString(cast.feedbackArtifactId)
+              ? { feedbackArtifactId: cast.feedbackArtifactId }
+              : {}),
+            ...(isNonEmptyString(cast.qualityGateId)
+              ? { qualityGateId: cast.qualityGateId }
+              : {}),
+          },
+        });
+        events.taskRunChanged(cast.taskRunId);
+        return ok(result);
+      } catch (e) {
+        return wrapErr<{ attempt: A2ARefinementAttempt; approval: Approval }>(
+          e,
+          STATE_INVALID_INPUT,
+        );
       }
     },
   );

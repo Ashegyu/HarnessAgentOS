@@ -23,6 +23,7 @@ const PREFIXES = {
   skillSource: "ss_",
   agentPipeline: "pipe_",
   a2aEndpoint: "a2a_",
+  a2aRefinement: "a2aref_",
   repairAttempt: "rpa_",
   evalRun: "evrun_",
 } as const;

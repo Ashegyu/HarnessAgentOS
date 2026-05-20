@@ -261,6 +261,59 @@ export interface RepairAttempt {
   createdAt: string;
   updatedAt: string;
 }
+
+export type A2ARefinementStatus =
+  | "pending_approval"
+  | "queued"
+  | "running"
+  | "input_required"
+  | "auth_required"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "cancelled";
+
+export type A2ARefinementFeedbackSourceKind =
+  | "user"
+  | "quality_gate"
+  | "worker"
+  | "system";
+
+export type A2ARefinementStopReason =
+  | "max_attempts_for_signature"
+  | "max_attempts_for_task_run"
+  | "repeated_feedback_signature"
+  | "endpoint_unavailable"
+  | "context_rejected_by_endpoint"
+  | "missing_remote_task_ref"
+  | "user_cancelled"
+  | "auth_required"
+  | "input_required";
+
+export interface A2ARefinementAttempt {
+  id: string;
+  taskRunId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  parentRemoteTaskId?: string;
+  parentRemoteContextId?: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  referenceTaskIds: readonly string[];
+  referenceArtifactIds: readonly string[];
+  feedbackSignature: string;
+  attemptIndex: number;
+  status: A2ARefinementStatus;
+  stopReason?: A2ARefinementStopReason;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
 ```
 
 `LocalStateService.createApproval` attaches a default `policyEvaluation` for every
@@ -445,6 +498,12 @@ interface TaskRunDetail {
    * fresh-detail pull so the renderer does not poll remote state separately.
    */
   a2aRemoteTaskRefs: A2ARemoteTaskRef[];
+  /**
+   * Harness-owned A2A refinement/backflow attempt ledger rows for this TaskRun.
+   * A refinement row is audit evidence; remote output is never promoted to a
+   * local side effect without the existing approval flow.
+   */
+  a2aRefinementAttempts: A2ARefinementAttempt[];
   /**
    * Persisted spend totals used by renderer-side auto-approve budget gates.
    * Empty or missing means callers should treat both totals as zero.
@@ -1015,7 +1074,27 @@ agent.useTemplateFallback(input: { taskRunId: string }): Promise<{
   planArtifact: Artifact;
   approvals: Approval[];
 }>;
+agent.requestRefinement(input: {
+  taskRunId: string;
+  targetInvocationId: string;
+  feedbackSourceKind: "user" | "quality_gate" | "worker" | "system";
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  instruction: string;
+  referencedArtifactIds: string[];
+}): Promise<{
+  attempt: A2ARefinementAttempt;
+  approval: Approval; // actionType="network", pending until the operator approves
+}>;
 ```
+
+`agent.requestRefinement`은 즉시 원격 네트워크 요청을 실행하지 않는다. 먼저
+`A2ARefinementAttempt(status="pending_approval")`와 `network` approval을 만들고,
+승인 후 `runner.executeApproved({ approvalId })`가 checkpoint `stateRef`의
+`a2aRefinementAttemptId`를 확인한 경우에만 전용 A2A refinement executor를
+실행한다. 일반 `network` approval은 기존 runner 정책대로 계속 차단된다.
 
 ```ts
 type AgentProvider = "claude" | "codex";

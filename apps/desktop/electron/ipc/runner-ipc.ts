@@ -24,6 +24,9 @@ const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
 export interface RunnerIpcHooks {
+  executeApprovedOverride?: (input: {
+    approvalId: string;
+  }) => Promise<RunnerResultPayload | null>;
   afterExecuteApproved?: (input: {
     approvalId: string;
     result: RunnerResultPayload;
@@ -67,7 +70,11 @@ export const registerRunnerIpc = (
         );
       }
       try {
-        const result = await runner.executeApproved(cast.approvalId);
+        const override = await hooks.executeApprovedOverride?.({
+          approvalId: cast.approvalId,
+        });
+        const result =
+          override ?? (await runner.executeApproved(cast.approvalId));
         await runAfterExecuteHook(hooks, cast.approvalId, result as RunnerResultPayload);
         events.taskRunChanged(result.taskRunId);
         return ok(result as RunnerResultPayload);

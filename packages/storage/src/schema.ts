@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -339,6 +339,48 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     FOREIGN KEY(invocation_id) REFERENCES agent_invocations(id) ON DELETE CASCADE,
     FOREIGN KEY(endpoint_id) REFERENCES a2a_endpoints(id) ON DELETE CASCADE
   )`,
+
+  // v28 — Harness-owned A2A refinement/backflow attempt ledger.
+  `CREATE TABLE IF NOT EXISTS a2a_refinement_attempts (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    target_invocation_id TEXT NOT NULL,
+    endpoint_id TEXT NOT NULL,
+    feedback_source_kind TEXT NOT NULL CHECK(feedback_source_kind IN ('user','quality_gate','worker','system')),
+    feedback_source_step_id TEXT,
+    feedback_source_invocation_id TEXT,
+    feedback_artifact_id TEXT,
+    quality_gate_id TEXT,
+    parent_remote_task_id TEXT,
+    parent_remote_context_id TEXT,
+    remote_task_id TEXT,
+    remote_context_id TEXT,
+    reference_task_ids_json TEXT NOT NULL,
+    reference_artifact_ids_json TEXT NOT NULL,
+    feedback_signature TEXT NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending_approval','queued','running','input_required','auth_required','succeeded','failed','stopped','cancelled')),
+    stop_reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(target_invocation_id) REFERENCES agent_invocations(id) ON DELETE CASCADE,
+    FOREIGN KEY(endpoint_id) REFERENCES a2a_endpoints(id) ON DELETE CASCADE,
+    FOREIGN KEY(feedback_source_step_id) REFERENCES steps(id) ON DELETE SET NULL,
+    FOREIGN KEY(feedback_source_invocation_id) REFERENCES agent_invocations(id) ON DELETE SET NULL,
+    FOREIGN KEY(feedback_artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
+    FOREIGN KEY(quality_gate_id) REFERENCES quality_gate_results(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_refinement_attempts_task_run
+    ON a2a_refinement_attempts(task_run_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_refinement_attempts_target
+    ON a2a_refinement_attempts(target_invocation_id, attempt_index)`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_refinement_attempts_signature
+    ON a2a_refinement_attempts(task_run_id, target_invocation_id, feedback_signature)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_refinement_attempts_active_signature
+    ON a2a_refinement_attempts(task_run_id, target_invocation_id, feedback_signature)
+    WHERE status IN ('pending_approval','queued','running','input_required','auth_required')`,
 
   // v18 — deterministic repository context index. SQLite remains the
   // canonical state; scan output is cached here and packed into agent prompts.

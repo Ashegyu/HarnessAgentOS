@@ -170,6 +170,55 @@ test("OfficialA2AClientPort maps http-json transport preference", async () => {
   assert.deepEqual(factoryCalls[0], { preferredTransports: ["HTTP+JSON"] });
 });
 
+test("OfficialA2AClientPort maps context, task, references, and metadata into SDK message", async () => {
+  const sendCalls = [];
+  const port = new OfficialA2AClientPort({
+    endpoint,
+    createClientFactory: () => ({
+      createFromUrl: async () => ({
+        sendMessageStream: (params) => {
+          sendCalls.push(params);
+          return (async function* () {})();
+        },
+      }),
+    }),
+    createMessageId: () => "message-refinement",
+  });
+
+  await collect(
+    await port.invoke({
+      ...request,
+      contextId: "remote-context-1",
+      taskId: "remote-task-1",
+      referenceTaskIds: ["remote-task-0"],
+      metadata: {
+        harness: {
+          refinementAttemptId: "a2aRefinement_1",
+          artifactIds: ["art-review"],
+        },
+      },
+    }),
+  );
+
+  assert.deepEqual(sendCalls[0], {
+    message: {
+      kind: "message",
+      messageId: "message-refinement",
+      role: "user",
+      contextId: "remote-context-1",
+      taskId: "remote-task-1",
+      referenceTaskIds: ["remote-task-0"],
+      metadata: {
+        harness: {
+          refinementAttemptId: "a2aRefinement_1",
+          artifactIds: ["art-review"],
+        },
+      },
+      parts: [{ kind: "text", text: "Review this change." }],
+    },
+  });
+});
+
 test("OfficialA2AClientPort propagates caller cancellation into SDK request options", async () => {
   let capturedSignal;
   const controller = new AbortController();

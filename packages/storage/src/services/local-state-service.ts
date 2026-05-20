@@ -63,6 +63,7 @@ import {
   SqliteSkillSourceRepository,
   SqliteAgentPipelineRepository,
   SqliteA2ARemoteAgentRepository,
+  SqliteA2ARefinementAttemptRepository,
   SqliteRepoIndexRepository,
   SqliteRepairAttemptRepository,
   SqliteEvalRunRepository,
@@ -70,6 +71,7 @@ import {
   type AgentPipelineRepository,
   type AgentProfileRepository,
   type A2ARemoteAgentRepository,
+  type A2ARefinementAttemptRepository,
   type ApprovalRepository,
   type ArtifactRepository,
   type CapabilityRepository,
@@ -125,6 +127,7 @@ export class LocalStateService implements ConversationStateGateway {
   readonly skillSources: SkillSourceRepository;
   readonly agentPipelines: AgentPipelineRepository;
   readonly a2aRemoteAgents: A2ARemoteAgentRepository;
+  readonly a2aRefinements: A2ARefinementAttemptRepository;
   readonly repoIndex: RepoIndexRepository;
   readonly repairAttempts: RepairAttemptRepository;
   readonly evalRuns: EvalRunRepository;
@@ -158,6 +161,7 @@ export class LocalStateService implements ConversationStateGateway {
       this.agentProfiles,
       this.a2aRemoteAgents,
     );
+    this.a2aRefinements = new SqliteA2ARefinementAttemptRepository(db);
   }
 
   getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {

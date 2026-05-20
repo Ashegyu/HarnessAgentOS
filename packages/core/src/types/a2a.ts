@@ -66,6 +66,79 @@ export interface A2ARemoteTaskRef {
   lastEventAt?: string;
 }
 
+export type A2ARefinementStatus =
+  | "pending_approval"
+  | "queued"
+  | "running"
+  | "input_required"
+  | "auth_required"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "cancelled";
+
+export type A2ARefinementFeedbackSourceKind =
+  | "user"
+  | "quality_gate"
+  | "worker"
+  | "system";
+
+export type A2ARefinementStopReason =
+  | "max_attempts_for_signature"
+  | "max_attempts_for_task_run"
+  | "repeated_feedback_signature"
+  | "endpoint_unavailable"
+  | "context_rejected_by_endpoint"
+  | "missing_remote_task_ref"
+  | "user_cancelled"
+  | "auth_required"
+  | "input_required";
+
+export interface A2ARefinementTarget {
+  invocationId: string;
+  endpointId: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  artifactIds: readonly string[];
+}
+
+export interface A2ARefinementRequest {
+  taskRunId: string;
+  targetInvocationId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  instruction: string;
+  referencedArtifactIds: readonly string[];
+}
+
+export interface A2ARefinementAttempt {
+  id: string;
+  taskRunId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  parentRemoteTaskId?: string;
+  parentRemoteContextId?: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  referenceTaskIds: readonly string[];
+  referenceArtifactIds: readonly string[];
+  feedbackSignature: string;
+  attemptIndex: number;
+  status: A2ARefinementStatus;
+  stopReason?: A2ARefinementStopReason;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
 export const A2A_TRANSPORTS: readonly A2ATransport[] = [
   "json-rpc",
   "http-json",
@@ -145,5 +218,40 @@ export const isA2AAgentCardSnapshot = (
     typeof v.fetchedAt === "string" &&
     hasOptionalString(v, "etag") &&
     typeof v.rawCardJson === "string"
+  );
+};
+
+export const A2A_REFINEMENT_STATUSES: readonly A2ARefinementStatus[] = [
+  "pending_approval",
+  "queued",
+  "running",
+  "input_required",
+  "auth_required",
+  "succeeded",
+  "failed",
+  "stopped",
+  "cancelled",
+];
+
+export const A2A_REFINEMENT_FEEDBACK_SOURCE_KINDS: readonly A2ARefinementFeedbackSourceKind[] =
+  ["user", "quality_gate", "worker", "system"];
+
+export const isA2ARefinementRequest = (
+  v: unknown,
+): v is A2ARefinementRequest => {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.taskRunId === "string" &&
+    typeof v.targetInvocationId === "string" &&
+    typeof v.feedbackSourceKind === "string" &&
+    A2A_REFINEMENT_FEEDBACK_SOURCE_KINDS.includes(
+      v.feedbackSourceKind as A2ARefinementFeedbackSourceKind,
+    ) &&
+    hasOptionalString(v, "feedbackSourceStepId") &&
+    hasOptionalString(v, "feedbackSourceInvocationId") &&
+    hasOptionalString(v, "feedbackArtifactId") &&
+    hasOptionalString(v, "qualityGateId") &&
+    typeof v.instruction === "string" &&
+    isStringArray(v.referencedArtifactIds)
   );
 };

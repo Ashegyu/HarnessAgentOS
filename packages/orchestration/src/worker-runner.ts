@@ -28,6 +28,7 @@ import {
   type InternalAgentMessage,
 } from "./internal-agent-bus.ts";
 import { planWorkerWaves } from "./worker-wave-planner.ts";
+import { buildEffectiveWorkerDependencyMap } from "./worker-step-dependencies.ts";
 
 /**
  * Minimal CLI invocation contract that the worker-runner depends on.
@@ -142,8 +143,8 @@ export class WorkerRunner {
     const handoffMessages: InternalAgentMessage[] = [];
     const handoffsByStepId = new Map<string, InternalAgentMessage>();
     for (const step of input.plan.workerSteps) validateWorkerStep(step);
-    const planStepsById = new Map(
-      input.plan.workerSteps.map((step) => [step.id, step] as const),
+    const handoffDependencyIdsByStepId = buildEffectiveWorkerDependencyMap(
+      input.plan.workerSteps,
     );
     orderWorkerStepsByDependencies(input.plan.workerSteps);
     const stepsById = new Map(
@@ -202,9 +203,8 @@ export class WorkerRunner {
           prepared,
           plan: input.plan,
           baseStepIndex,
-          planStepsById,
+          handoffDependencyIdsByStepId,
           handoffsByStepId,
-          handoffMessages,
         });
       const results = wave.parallelizable
         ? await runParallel(preparedWave, runOne, processWorkerResultSideEffects)
@@ -453,9 +453,8 @@ export class WorkerRunner {
     prepared: PreparedWorkerStep;
     plan: OrchestrationPlan;
     baseStepIndex: number;
-    planStepsById: ReadonlyMap<string, WorkerStep>;
+    handoffDependencyIdsByStepId: ReadonlyMap<string, readonly string[]>;
     handoffsByStepId: ReadonlyMap<string, InternalAgentMessage>;
-    handoffMessages: readonly InternalAgentMessage[];
   }): Promise<WorkerStepExecutionResult> {
     const { planStep, executionIndex, profile, remoteEndpoint } =
       input.prepared;
@@ -487,10 +486,8 @@ export class WorkerRunner {
         dbStep.id,
         remoteEndpoint,
         resolveHandoffsForStep(
-          planStep,
-          input.planStepsById,
+          input.handoffDependencyIdsByStepId.get(planStep.id) ?? [],
           input.handoffsByStepId,
-          input.handoffMessages,
         ),
       );
       body = outcome.body;
@@ -766,24 +763,10 @@ const toProposedActionDetails = (
 };
 
 const resolveHandoffsForStep = (
-  step: WorkerStep,
-  planStepsById: ReadonlyMap<string, WorkerStep>,
+  dependencyIds: readonly string[],
   handoffsByStepId: ReadonlyMap<string, InternalAgentMessage>,
-  legacyPriorHandoffs: readonly InternalAgentMessage[],
 ): InternalAgentMessage[] => {
-  if (step.dependsOn === undefined) return [...legacyPriorHandoffs];
-  const orderedDependencyIds: string[] = [];
-  const seen = new Set<string>();
-  const visit = (stepId: string): void => {
-    if (seen.has(stepId)) return;
-    const dependency = planStepsById.get(stepId);
-    if (!dependency) return;
-    for (const parentId of dependency.dependsOn ?? []) visit(parentId);
-    seen.add(stepId);
-    orderedDependencyIds.push(stepId);
-  };
-  for (const dependencyId of step.dependsOn) visit(dependencyId);
-  return orderedDependencyIds
+  return dependencyIds
     .map((stepId) => handoffsByStepId.get(stepId))
     .filter(
       (message): message is InternalAgentMessage => message !== undefined,

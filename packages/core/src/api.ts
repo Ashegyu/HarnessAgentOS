@@ -9,6 +9,8 @@ import type {
   AgentStreamEvent,
   A2AAgentCardSnapshot,
   A2AEndpoint,
+  A2ARefinementAttempt,
+  A2ARefinementFeedbackSourceKind,
   A2ARemoteTaskRef,
   A2ARegistryEntry,
   Artifact,
@@ -101,6 +103,8 @@ export interface TaskRunDetail {
   agentInvocations: AgentInvocation[];
   /** Remote A2A task refs keyed by AgentInvocation.id, newest detail pull. */
   a2aRemoteTaskRefs: A2ARemoteTaskRef[];
+  /** Harness-owned A2A refinement/backflow attempt ledger rows for this TaskRun. */
+  a2aRefinementAttempts: A2ARefinementAttempt[];
   /** Current persisted spend totals used by the renderer auto-approve gate. */
   budgetUsage?: BudgetUsageSnapshot;
 }
@@ -347,6 +351,17 @@ export interface HarnessDesktopApi {
       planArtifact: Artifact;
       approvals: Approval[];
     }>;
+    requestRefinement(input: {
+      taskRunId: string;
+      targetInvocationId: string;
+      feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+      feedbackSourceStepId?: string;
+      feedbackSourceInvocationId?: string;
+      feedbackArtifactId?: string;
+      qualityGateId?: string;
+      instruction: string;
+      referencedArtifactIds: string[];
+    }): Promise<{ attempt: A2ARefinementAttempt; approval: Approval }>;
   };
   settings: {
     get(): Promise<HarnessSettings>;

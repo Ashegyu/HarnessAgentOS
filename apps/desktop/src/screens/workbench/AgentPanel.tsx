@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type {
   A2ARemoteTaskRef,
+  A2ARefinementAttempt,
   AgentInvocation,
   Artifact,
   Step,
@@ -29,6 +30,7 @@ interface AgentPanelProps {
   steps: Step[];
   artifacts: Artifact[];
   remoteTaskRefs?: A2ARemoteTaskRef[];
+  refinementAttempts?: A2ARefinementAttempt[];
   onRetry: (invocationId: string) => Promise<void>;
   onCancel: (invocationId: string) => Promise<void>;
   onUseFallback: () => Promise<void>;
@@ -66,6 +68,7 @@ export const AgentPanel = ({
   steps,
   artifacts,
   remoteTaskRefs = [],
+  refinementAttempts = [],
   onRetry,
   onCancel,
   onUseFallback,
@@ -273,8 +276,41 @@ export const AgentPanel = ({
           </div>
         )}
         <InternalHandoffPanel handoffs={handoffs} />
+        <A2ARefinementAttemptPanel attempts={refinementAttempts} />
         <div className="agent-panel__actions">{renderControls()}</div>
         {error && <div className="agent-panel__error">{error}</div>}
+      </div>
+    </section>
+  );
+};
+
+const A2ARefinementAttemptPanel = ({
+  attempts,
+}: {
+  attempts: readonly A2ARefinementAttempt[];
+}): JSX.Element | null => {
+  if (attempts.length === 0) return null;
+  return (
+    <section className="internal-handoff-panel">
+      <header className="internal-handoff-panel__header">
+        <strong>A2A refinements</strong>
+        <span>{attempts.length}</span>
+      </header>
+      <div className="internal-handoff-panel__list">
+        {attempts.map((attempt) => (
+          <article key={attempt.id} className="internal-handoff-panel__item">
+            <div className="internal-handoff-panel__route">
+              <span>{attempt.feedbackSourceKind}</span>
+              <span>→</span>
+              <span>{attempt.targetInvocationId}</span>
+            </div>
+            <div className="internal-handoff-panel__meta">
+              attempt {attempt.attemptIndex} · {attempt.status}
+              {attempt.remoteTaskId ? ` · ${attempt.remoteTaskId}` : ""}
+              {attempt.stopReason ? ` · ${attempt.stopReason}` : ""}
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );

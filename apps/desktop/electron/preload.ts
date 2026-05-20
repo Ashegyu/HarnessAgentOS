@@ -8,6 +8,7 @@ import {
   type AgentStreamEvent,
   type A2AAgentCardSnapshot,
   type A2AEndpoint,
+  type A2ARefinementAttempt,
   type A2ARegistryEntry,
   type Approval,
   type Artifact,
@@ -364,6 +365,11 @@ const harnessApi: HarnessDesktopApi = {
     useTemplateFallback: (input) =>
       invokeUnwrapped<{ planArtifact: Artifact; approvals: Approval[] }>(
         IPC_CHANNELS.agent.useTemplateFallback,
+        input,
+      ),
+    requestRefinement: (input) =>
+      invokeUnwrapped<{ attempt: A2ARefinementAttempt; approval: Approval }>(
+        IPC_CHANNELS.agent.requestRefinement,
         input,
       ),
   },

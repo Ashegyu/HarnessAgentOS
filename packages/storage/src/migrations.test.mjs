@@ -245,6 +245,41 @@ test("v27 migration adds token usage columns to agent_invocations", () => {
   }
 });
 
+test("v28 migration creates A2A refinement attempt ledger", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasTable(db, "a2a_refinement_attempts"), true);
+    for (const col of [
+      "id",
+      "task_run_id",
+      "target_invocation_id",
+      "endpoint_id",
+      "feedback_source_kind",
+      "feedback_signature",
+      "attempt_index",
+      "status",
+      "reference_task_ids_json",
+      "reference_artifact_ids_json",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "a2a_refinement_attempts", col),
+        true,
+        `a2a_refinement_attempts is missing column ${col}`,
+      );
+    }
+    assert.equal(
+      hasIndex(db, "idx_a2a_refinement_attempts_active_signature"),
+      true,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

@@ -52,6 +52,7 @@ import {
   refreshGeneratedSkillSourceAfterRunner,
   refreshSkillSourceCapabilities,
 } from "./skill-source-refresh";
+import { executeA2ARefinementApproval } from "../a2a-refinement-approval-executor";
 import { eventBus } from "../event-bus";
 import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
 
@@ -97,6 +98,12 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     ctx.instinctService,
   );
   registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus, {
+    executeApprovedOverride: ({ approvalId }) =>
+      executeA2ARefinementApproval({
+        state: ctx.state,
+        approvalId,
+        emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
+      }),
     afterExecuteApproved: ({ approvalId }) =>
       refreshGeneratedSkillSourceAfterRunner(ctx, approvalId),
   });

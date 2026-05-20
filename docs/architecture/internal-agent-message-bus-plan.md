@@ -193,3 +193,163 @@ Expected outcome:
 - each route can be collapsed and expanded
 - source artifact id, created time, and bounded content preview are visible
 - no database, IPC, approval, or worker execution behavior changes
+
+## 10. Phase G-4 Bounded Handoff Context Policy
+
+### Evidence
+
+- `WorkerRunner` keeps two runtime handoff collections:
+  - `handoffMessages`: successful worker outputs accumulated during the run.
+  - `handoffsByStepId`: the latest successful handoff keyed by worker step id.
+- `resolveHandoffsForStep()` currently has two behaviors:
+  - if `WorkerStep.dependsOn` is missing, it returns all prior
+    `handoffMessages`
+  - if `WorkerStep.dependsOn` is present, it recursively visits every ancestor
+    dependency before returning handoffs
+- `worker-wave-planner.ts` treats missing `dependsOn` as a legacy linear
+  dependency on the previous step only.
+- `createInternalAgentMessage()` truncates each stored handoff body to 12,000
+  characters.
+- `formatInternalHandoffMessages()` renders the last six visible handoffs and
+  slices each rendered message body to 6,000 characters.
+- `buildSplitAgentPrompt()` applies an 80 KB combined prompt hard cap.
+
+### Problem
+
+The current implementation is bounded by character caps, but it can still carry
+too much context semantically.
+
+For a linear pipeline such as:
+
+```text
+planner -> coder -> reviewer -> tester
+```
+
+the last worker can receive multiple prior raw worker outputs. If the coder also
+summarizes the planner output, the reviewer/tester can see both the original
+planner handoff and the coder's repeated summary of it. The bytes are bounded,
+but the prompt can still accumulate stale assumptions, duplicated decisions, and
+irrelevant intermediate details.
+
+This is acceptable for short early pipelines, but it is not the right default for
+longer chains or future A2A refinement/backflow. Handoff must be explicit,
+bounded, and dependency-shaped rather than "everything seen so far".
+
+### Design Decision
+
+Use **direct dependency handoff by default**.
+
+Rules:
+
+1. A worker receives handoff messages only from its direct `dependsOn` step ids.
+2. `dependsOn: []` means no upstream handoff.
+3. Missing `dependsOn` preserves legacy linear ordering by resolving to the
+   immediately previous worker step only, matching `worker-wave-planner.ts`.
+4. Transitive context is allowed only when the plan explicitly lists every
+   needed upstream step in `dependsOn`.
+5. Raw handoff body remains bounded, but the preferred long-term handoff payload
+   is a summary contract, not full worker output.
+
+This keeps the plan graph as the source of truth. If the planner wants `tester`
+to see both `planner` and `coder`, it must write:
+
+```json
+{ "id": "tester", "dependsOn": ["planner", "coder"] }
+```
+
+It should not get `planner` implicitly through transitive recursion from
+`coder`.
+
+### Prompt Contract
+
+Handoff prompt content should move toward a compact structure:
+
+```text
+INTERNAL AGENT HANDOFF
+
+### planner: Plan
+- artifact: art_...
+- decision: ...
+- assumptions: ...
+- risks: ...
+- requested_next_action: ...
+```
+
+The first implementation can continue using existing worker output, but the
+prompt builder should label the section as context only and should prefer
+structured summaries when they become available.
+
+### Minimal Implementation Plan
+
+1. Add RED coverage in `worker-runner.test.mjs` for the handoff dependency
+   contract:
+   - four-step legacy chain `plan -> code -> review -> test`
+   - explicit `dependsOn: []` independent step
+   - explicit multi-dependency step such as `dependsOn: ["plan", "code"]`
+   - fan-out steps that both depend on `plan`
+2. Add or extract a pure helper that computes effective handoff dependency ids
+   from the immutable `OrchestrationPlan.workerSteps` order:
+   - if `dependsOn` is present, return that array as direct dependencies
+   - if `dependsOn` is missing, return only the immediately previous step id
+   - if the step is first, return `[]`
+3. Update `WorkerRunner` to use that helper before calling
+   `resolveHandoffsForStep()`. Do not infer "previous step" from accumulated
+   runtime `handoffMessages`; use the approved plan snapshot order.
+4. Update `resolveHandoffsForStep()` so it maps the computed direct dependency
+   ids to `handoffsByStepId` only. Remove recursive ancestor traversal from the
+   default path.
+5. Add prompt-builder coverage that the handoff section remains within the
+   existing prompt hard cap.
+6. Run focused tests, then `npm run check`, then the full verification set.
+
+No new DB table, IPC namespace, server, renderer network path, or approval path
+is required for this phase.
+
+### Verification
+
+Target commands:
+
+```bash
+node --import tsx --test --test-force-exit packages/orchestration/src/worker-runner.test.mjs packages/agent/src/agent-prompt-builder.test.mjs
+npm run check
+npm run test
+npm run build
+```
+
+Expected outcome:
+
+- direct dependencies still pass useful handoff context
+- explicitly independent workers receive no handoff
+- long linear chains do not implicitly accumulate all prior raw outputs
+- prompt size caps remain intact
+- approval gating and worker side-effect policy remain unchanged
+
+### Design Review and Corrections
+
+Review pass: 2026-05-20.
+
+Findings and applied corrections:
+
+1. The first handoff implementation optimized for context availability, but did
+   not define a default scope. This section now makes direct dependency handoff
+   the default.
+2. `worker-wave-planner.ts` already treats missing `dependsOn` as previous-step
+   linear dependency, while `resolveHandoffsForStep()` currently returns all
+   prior handoffs in that case. The design now requires those semantics to be
+   aligned.
+3. Recursive ancestor traversal makes prompt growth hard to reason about. The
+   design now requires transitive context to be explicit in `dependsOn`.
+4. The existing character caps prevent unbounded byte growth but not duplicated
+   meaning. The design now calls out structured handoff summaries as the next
+   improvement after direct-only delivery.
+5. Procedural review found an implementation-order issue: the original plan
+   jumped straight from tests to editing `resolveHandoffsForStep()`, but that
+   function does not receive enough ordered plan context to compute "immediate
+   previous step" safely. The plan now adds a pure effective-dependency helper
+   first and requires `WorkerRunner` to use the immutable approved plan snapshot
+   order.
+6. Procedural review also clarified compatibility risk: old plans without
+   `dependsOn` currently receive all prior runtime handoffs, but the corrected
+   behavior intentionally changes them to previous-step-only to align with
+   `worker-wave-planner.ts`. The regression tests must make that behavior change
+   explicit.

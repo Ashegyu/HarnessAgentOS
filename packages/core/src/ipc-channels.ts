@@ -92,6 +92,7 @@ export const IPC_CHANNELS = {
     cancelInvocation: "agent:cancelInvocation",
     retryInvocation: "agent:retryInvocation",
     useTemplateFallback: "agent:useTemplateFallback",
+    requestRefinement: "agent:requestRefinement",
   },
   settings: {
     get: "settings:get",

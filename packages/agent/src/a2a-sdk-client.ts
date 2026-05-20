@@ -172,14 +172,28 @@ const defaultCreateClientFactory = (
 const messageSendParams = (
   request: A2AInvocationRequest,
   messageId: string,
-): MessageSendParams => ({
-  message: {
+): MessageSendParams => {
+  const message: MessageSendParams["message"] & {
+    contextId?: string;
+    taskId?: string;
+    referenceTaskIds?: readonly string[];
+    metadata?: Record<string, unknown>;
+  } = {
     kind: "message",
     messageId,
     role: "user",
     parts: [{ kind: "text", text: request.message }],
-  },
-});
+  };
+  if (request.contextId) message.contextId = request.contextId;
+  if (request.taskId) message.taskId = request.taskId;
+  if (request.referenceTaskIds && request.referenceTaskIds.length > 0) {
+    message.referenceTaskIds = [...request.referenceTaskIds];
+  }
+  if (request.metadata && Object.keys(request.metadata).length > 0) {
+    message.metadata = request.metadata;
+  }
+  return { message };
+};
 
 const transportPreference = (
   transport: A2ATransport,

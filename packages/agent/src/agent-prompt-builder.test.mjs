@@ -172,6 +172,26 @@ test("buildSplitAgentPrompt truncates optional context when combined size overfl
   assert.ok(userPrompt.includes("USER REQUEST"), "USER REQUEST section must survive truncation");
 });
 
+test("buildSplitAgentPrompt keeps oversized handoff context within hard cap", () => {
+  const { systemPrompt, userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    handoffMessages: Array.from({ length: 8 }, (_, index) => ({
+      fromRole: "planner",
+      fromTitle: `Plan ${index}`,
+      content: `handoff-${index} ` + "x".repeat(16 * 1024),
+      artifactId: `art_handoff_${index}`,
+    })),
+  });
+  const combined = systemPrompt + "\n\n" + userPrompt;
+  assert.ok(
+    Buffer.byteLength(combined, "utf8") <= PROMPT_HARD_CAP_BYTES,
+    "combined prompt must stay within 80KB hard cap with handoff context",
+  );
+  assert.ok(userPrompt.includes("INTERNAL AGENT HANDOFF"));
+  assert.ok(userPrompt.includes("planner: Plan 7"));
+  assert.ok(!userPrompt.includes("planner: Plan 0"));
+});
+
 test("buildSplitAgentPrompt injects persona above SYSTEM block", () => {
   const { systemPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,

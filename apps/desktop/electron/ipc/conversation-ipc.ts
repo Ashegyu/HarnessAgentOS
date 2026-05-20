@@ -514,6 +514,8 @@ export const registerConversationIpc = (
             ),
           )
         ).filter((ref) => ref !== null);
+        const a2aRefinementAttempts =
+          await state.a2aRefinements.listByTaskRun(taskRun.id);
         return ok({
           taskRun,
           steps,
@@ -524,6 +526,7 @@ export const registerConversationIpc = (
           repairAttempts,
           agentInvocations,
           a2aRemoteTaskRefs,
+          a2aRefinementAttempts,
           budgetUsage: {
             accumulatedTaskRunCostUsd,
             accumulatedDailyCostUsd,

@@ -4,5 +4,6 @@ export * from "./orchestration-trace.ts";
 export * from "./internal-agent-bus.ts";
 export * from "./orchestration-planner.ts";
 export * from "./worker-runner.ts";
+export * from "./worker-step-dependencies.ts";
 export * from "./worker-wave-planner.ts";
 export * from "./orchestration-service.ts";

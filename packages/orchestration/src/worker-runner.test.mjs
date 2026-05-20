@@ -479,6 +479,185 @@ test("runApproved limits handoff messages to declared dependencies", async () =>
   }
 });
 
+test("runApproved treats missing dependsOn as previous-step-only handoff", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Legacy linear handoff",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code second.",
+          expectedArtifactKinds: ["log"],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review third.",
+          expectedArtifactKinds: ["log"],
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Test fourth.",
+          expectedArtifactKinds: ["log"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const legacyPlan = {
+      ...drafted.plan,
+      workerSteps: drafted.plan.workerSteps.map((step) => {
+        const { dependsOn, ...withoutDependsOn } = step;
+        return withoutDependsOn;
+      }),
+    };
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          handoffTitles: (input.handoffMessages ?? []).map(
+            (message) => message.fromTitle,
+          ),
+        });
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: legacyPlan });
+
+    assert.deepEqual(
+      calls.map((call) => [call.profileName, call.handoffTitles]),
+      [
+        ["Planner", []],
+        ["Coder", ["Plan"]],
+        ["Reviewer", ["Code"]],
+        ["Tester", ["Review"]],
+      ],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved does not include transitive ancestor handoffs unless explicitly declared", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Direct-only handoff",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review code only.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["code"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          handoffTitles: (input.handoffMessages ?? []).map(
+            (message) => message.fromTitle,
+          ),
+        });
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.deepEqual(
+      calls.map((call) => [call.profileName, call.handoffTitles]),
+      [
+        ["Planner", []],
+        ["Coder", ["Plan"]],
+        ["Reviewer", ["Code"]],
+      ],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved executes read-only dependency waves in parallel", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

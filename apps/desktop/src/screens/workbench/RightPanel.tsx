@@ -265,6 +265,7 @@ export const RightPanel = ({
                 steps={state.detail.steps}
                 artifacts={state.detail.artifacts}
                 remoteTaskRefs={state.detail.a2aRemoteTaskRefs}
+                refinementAttempts={state.detail.a2aRefinementAttempts}
                 agentAvailable={agentAvailable}
                 onGenerate={() => onAgentGenerate(state.detail.taskRun.id)}
                 onRetry={onAgentRetry}

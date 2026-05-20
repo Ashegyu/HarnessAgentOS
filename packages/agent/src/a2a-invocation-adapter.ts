@@ -15,6 +15,10 @@ export interface A2AInvocationRequest {
   taskRunId: string;
   endpointId: string;
   message: string;
+  contextId?: string;
+  taskId?: string;
+  referenceTaskIds?: readonly string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface A2AClientArtifact {

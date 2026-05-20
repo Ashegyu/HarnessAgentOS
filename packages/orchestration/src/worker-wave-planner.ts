@@ -4,6 +4,7 @@ import type {
   WorkerRole,
   WorkerStep,
 } from "@harness/core";
+import { effectiveWorkerDependencyIds } from "./worker-step-dependencies.ts";
 
 export type ReadOnlyParallelRole = WorkerRole | "documenter";
 
@@ -57,7 +58,8 @@ export const planWorkerWaves = (
   const stepIdSet = new Set(workerSteps.map((step) => step.id));
   const dependencyById = new Map(
     workerSteps.map(
-      (step, index) => [step.id, effectiveDependsOn(workerSteps, index)] as const,
+      (step, index) =>
+        [step.id, effectiveWorkerDependencyIds(workerSteps, index)] as const,
     ),
   );
   const previews = workerSteps.map((step, index): WorkerWaveStepPreview => {
@@ -178,7 +180,6 @@ const buildWavePlan = (
     warnings,
   };
 };
-
 const buildWave = (
   index: number,
   steps: readonly WorkerWaveStepPreview[],
@@ -207,14 +208,4 @@ const buildWave = (
     warnings,
     steps: [...steps],
   };
-};
-
-const effectiveDependsOn = (
-  steps: readonly WorkerStep[],
-  index: number,
-): string[] => {
-  const step = steps[index];
-  if (!step) return [];
-  if (step.dependsOn !== undefined) return [...step.dependsOn];
-  return index > 0 ? [steps[index - 1]!.id] : [];
 };
