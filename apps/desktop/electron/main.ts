@@ -60,6 +60,11 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+if (process.env.HARNESS_E2E_USER_DATA) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch("disable-gpu");
+}
+
 let mainDb: HarnessDb | null = null;
 let diagnosticsHeartbeat: DiagnosticsHeartbeatController | null = null;
 

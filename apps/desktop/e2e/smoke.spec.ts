@@ -13,7 +13,7 @@ const launchIsolatedApp = async () => {
   const userData = mkdtempSync(join(tmpdir(), "harness-e2e-"));
   const projectDir = mkdtempSync(join(tmpdir(), "harness-e2e-project-"));
   const app = await electron.launch({
-    args: [MAIN_ENTRY, `--user-data-dir=${userData}`],
+    args: ["--no-sandbox", MAIN_ENTRY, `--user-data-dir=${userData}`],
     env: {
       ...process.env,
       // Force a fresh, sandboxed state directory so the test never
