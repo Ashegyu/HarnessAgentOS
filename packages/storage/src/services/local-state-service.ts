@@ -62,6 +62,7 @@ import {
   SqliteMcpServerRepository,
   SqliteSkillSourceRepository,
   SqliteAgentPipelineRepository,
+  SqlitePipelineBackflowRepository,
   SqliteA2ARemoteAgentRepository,
   SqliteA2ARefinementAttemptRepository,
   SqliteRepoIndexRepository,
@@ -69,6 +70,7 @@ import {
   SqliteEvalRunRepository,
   type AgentInvocationRepository,
   type AgentPipelineRepository,
+  type PipelineBackflowRepository,
   type AgentProfileRepository,
   type A2ARemoteAgentRepository,
   type A2ARefinementAttemptRepository,
@@ -126,6 +128,7 @@ export class LocalStateService implements ConversationStateGateway {
   readonly mcpServers: McpServerRepository;
   readonly skillSources: SkillSourceRepository;
   readonly agentPipelines: AgentPipelineRepository;
+  readonly pipelineBackflows: PipelineBackflowRepository;
   readonly a2aRemoteAgents: A2ARemoteAgentRepository;
   readonly a2aRefinements: A2ARefinementAttemptRepository;
   readonly repoIndex: RepoIndexRepository;
@@ -161,6 +164,7 @@ export class LocalStateService implements ConversationStateGateway {
       this.agentProfiles,
       this.a2aRemoteAgents,
     );
+    this.pipelineBackflows = new SqlitePipelineBackflowRepository(db);
     this.a2aRefinements = new SqliteA2ARefinementAttemptRepository(db);
   }
 

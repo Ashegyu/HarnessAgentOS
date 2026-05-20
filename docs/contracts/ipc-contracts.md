@@ -191,6 +191,8 @@ export interface OrchestrationPlan {
   taskRunId: string;
   mode: "single_worker" | "planner_worker" | "multi_worker";
   workerSteps: WorkerStep[];
+  /** Conditional runtime edges. Not part of dependsOn DAG validation. */
+  backflowRules?: WorkerBackflowRule[];
   requiresApproval: true;
   sourcePipelineId?: string;
 }
@@ -217,6 +219,79 @@ export interface WorkerStep {
   dependsOn?: string[];
   allowedActions?: ApprovalActionType[];
   outputContract?: "plan" | "diff_proposal" | "review" | "test_result";
+}
+
+export type PipelineBackflowTrigger = "step_failed" | "quality_failed";
+
+export interface AgentPipelineBackflowRule {
+  id: string;
+  trigger: PipelineBackflowTrigger;
+  targetStepId: string;
+  retryStepId: string;
+  maxAttempts: number; // 1..5
+  instruction?: string;
+}
+
+export interface WorkerBackflowRule {
+  id: string;
+  trigger: PipelineBackflowTrigger;
+  targetStepId: string;
+  retryStepId: string;
+  maxAttempts: number; // 1..5
+  instruction?: string;
+}
+
+export type PipelineBackflowAttemptStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "max_attempts_reached";
+
+export type PipelineBackflowEventType =
+  | "triggered"
+  | "target_started"
+  | "target_succeeded"
+  | "retry_started"
+  | "retry_succeeded"
+  | "failed"
+  | "max_attempts_reached";
+
+export interface PipelineBackflowAttempt {
+  id: string;
+  taskRunId: string;
+  planId: string;
+  ruleId: string;
+  trigger: PipelineBackflowTrigger;
+  targetStepId: string;
+  retryStepId: string;
+  maxAttempts: number;
+  attemptIndex: number;
+  status: PipelineBackflowAttemptStatus;
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface PipelineBackflowEvent {
+  id: string;
+  taskRunId: string;
+  threadId: string;
+  threadTitle: string;
+  taskRunUserRequest: string;
+  taskRunStatus: TaskRunStatus;
+  attemptId: string;
+  ruleId: string;
+  trigger: PipelineBackflowTrigger;
+  targetStepId: string;
+  retryStepId: string;
+  attemptIndex: number;
+  eventType: PipelineBackflowEventType;
+  status: PipelineBackflowAttemptStatus;
+  summary: string;
+  reason?: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface AgentPipelineStep {
@@ -502,6 +577,7 @@ conversation.setProposedAction(input: { approvalId: string; details: ProposedAct
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
 conversation.listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
 conversation.listRefinementEvents(input: A2ARefinementActivityInput): Promise<A2ARefinementActivityPage>;
+conversation.listBackflowEvents(input: PipelineBackflowActivityInput): Promise<PipelineBackflowActivityPage>;
 conversation.pauseTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.resumeTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.cancelTask(input: { taskRunId: string; reason: string }): Promise<TaskRun>;
@@ -562,6 +638,11 @@ interface TaskRunDetail {
    * local side effect without the existing approval flow.
    */
   a2aRefinementAttempts: A2ARefinementAttempt[];
+  /**
+   * Pipeline conditional backflow attempt ledger rows for this TaskRun.
+   * These are pipeline-runtime reruns, not A2A remote refinement attempts.
+   */
+  pipelineBackflowAttempts: PipelineBackflowAttempt[];
   /**
    * Read-only targeted A2A refinement proposals derived from worker/quality
    * evidence. Creating one still goes through `agent.requestRefinement`.
@@ -651,6 +732,21 @@ interface A2ARefinementActivityInput {
 
 interface A2ARefinementActivityPage {
   items: A2ARefinementActivityEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
+}
+
+interface PipelineBackflowActivityInput {
+  limit: number; // 1..100, Activity Log uses 25 for backflow rows
+  offset: number;
+  sinceIso?: string;
+  untilIso?: string;
+}
+
+interface PipelineBackflowActivityPage {
+  items: PipelineBackflowEvent[];
   total: number;
   limit: number;
   offset: number;
@@ -1560,6 +1656,9 @@ pipeline.delete(input: { pipelineId: string }): Promise<void>;
 
 - pipeline step은 `agentProfileId`를 필수로 참조한다.
 - `remoteEndpointId`, `dependsOn`, `allowedActions`, `outputContract`는 orchestration planner가 immutable plan snapshot으로 확장할 때 사용한다.
+- pipeline template은 optional `backflowRules: AgentPipelineBackflowRule[]`을 저장할 수 있다. 저장소는 `backflow_rules_json`에 보관하고, planner는 pipeline step id를 worker step id로 remap해 `OrchestrationPlan.backflowRules`에 포함한다.
+- Backflow rule은 정상 `dependsOn` DAG에 포함하지 않는다. `targetStepId`는 `retryStepId`보다 앞선 step이어야 하며, `maxAttempts`는 1..5다.
+- `step_failed` rule은 실행 중 실패한 worker step과 `retryStepId`가 일치할 때만 자동 실행된다. `quality_failed` rule은 `QualityGateResult.status === "failed"`에서만 실행되며 `warning`은 기존 known-risk 승인 흐름을 유지한다.
 - 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Product PRD Discovery`, `Evidence-First Bug Investigation`, `Docs-First Contract Reconciliation`, `Runtime Approval Hardening`, `A2A Federation Safety Review`, `Eval-Driven Release Verification`, `Cross-Harness Agent Baseline`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `New Project Delivery`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
 - 기본 AgentProfile seed의 description/persona, rich system prompt prefix/suffix, 기본 pipeline step instruction은 한국어 UI 표시와 HarnessAgentOS approval/IPC/storage 계약을 기준으로 저장한다.
 - 기본 템플릿 seed는 저장된 선택지를 추가할 뿐이며, 기본 실행 pipeline 지정이나 자동 실행을 수행하지 않는다.

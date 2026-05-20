@@ -237,6 +237,9 @@ export class OrchestrationService {
       ...(plan.sourcePipelineId !== undefined
         ? { sourcePipelineId: plan.sourcePipelineId }
         : {}),
+      ...(plan.backflowRules !== undefined
+        ? { backflowRules: plan.backflowRules }
+        : {}),
     };
   }
 
@@ -285,6 +288,9 @@ export class OrchestrationService {
       ...(parsed.sourcePipelineId !== undefined
         ? { sourcePipelineId: parsed.sourcePipelineId }
         : {}),
+      ...(parsed.backflowRules !== undefined
+        ? { backflowRules: parsed.backflowRules }
+        : {}),
     };
   }
 
@@ -307,6 +313,7 @@ const parseEmbeddedPlanJson = (
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
       sourcePipelineId?: string;
+      backflowRules?: OrchestrationPlan["backflowRules"];
     }
   | null => {
   const match = planJsonRe.exec(summary);
@@ -317,6 +324,7 @@ const parseEmbeddedPlanJson = (
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
       sourcePipelineId?: unknown;
+      backflowRules?: unknown;
     };
     if (!parsed || !parsed.id || !parsed.mode || !Array.isArray(parsed.workerSteps))
       return null;
@@ -326,19 +334,27 @@ const parseEmbeddedPlanJson = (
     // they picked the pipeline at submit time. Drop it cleanly when
     // the persisted payload is missing or shaped wrong rather than
     // crashing the recovery flow.
-    return typeof parsed.sourcePipelineId === "string" &&
+    const out: {
+      id: string;
+      mode: OrchestrationPlan["mode"];
+      workerSteps: OrchestrationPlan["workerSteps"];
+      sourcePipelineId?: string;
+      backflowRules?: OrchestrationPlan["backflowRules"];
+    } = {
+      id: parsed.id,
+      mode: parsed.mode,
+      workerSteps: parsed.workerSteps,
+    };
+    if (
+      typeof parsed.sourcePipelineId === "string" &&
       parsed.sourcePipelineId.length > 0
-      ? {
-          id: parsed.id,
-          mode: parsed.mode,
-          workerSteps: parsed.workerSteps,
-          sourcePipelineId: parsed.sourcePipelineId,
-        }
-      : {
-          id: parsed.id,
-          mode: parsed.mode,
-          workerSteps: parsed.workerSteps,
-        };
+    ) {
+      out.sourcePipelineId = parsed.sourcePipelineId;
+    }
+    if (Array.isArray(parsed.backflowRules)) {
+      out.backflowRules = parsed.backflowRules as OrchestrationPlan["backflowRules"];
+    }
+    return out;
   } catch {
     return null;
   }

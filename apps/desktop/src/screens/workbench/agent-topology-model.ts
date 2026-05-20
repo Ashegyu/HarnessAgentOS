@@ -5,6 +5,7 @@ import type {
   Artifact,
   Step,
   TaskRun,
+  WorkerBackflowRule,
   WorkerStep,
 } from "@harness/core";
 import {
@@ -33,7 +34,8 @@ export type AgentTopologyEdgeKind =
   | "runs"
   | "handoff"
   | "remote"
-  | "approval";
+  | "approval"
+  | "backflow";
 
 export interface AgentTopologyNode {
   id: string;
@@ -123,6 +125,7 @@ export const buildAgentTopology = ({
       steps,
       orderedInvocations,
       workerSteps: planContext.workerSteps,
+      backflowRules: planContext.backflowRules,
       workerStepIdByDbStepId: planContext.workerStepIdByDbStepId,
       dbStepIdsByWorkerStepId: planContext.dbStepIdsByWorkerStepId,
     });
@@ -268,6 +271,7 @@ export const buildAgentTopology = ({
 
 interface PlanContext {
   workerSteps: WorkerStep[];
+  backflowRules: WorkerBackflowRule[];
   workerStepIdByDbStepId: Map<string, string>;
   dbStepIdsByWorkerStepId: Map<string, string[]>;
 }
@@ -279,6 +283,7 @@ interface BuildPlannedWorkflowInput {
   steps: readonly Step[];
   orderedInvocations: readonly AgentInvocation[];
   workerSteps: readonly WorkerStep[];
+  backflowRules: readonly WorkerBackflowRule[];
   workerStepIdByDbStepId: ReadonlyMap<string, string>;
   dbStepIdsByWorkerStepId: ReadonlyMap<string, readonly string[]>;
 }
@@ -303,8 +308,11 @@ const buildPlanContext = ({
   steps: readonly Step[];
   workerSteps: readonly WorkerStep[] | null;
 }): PlanContext => {
+  const planFromArtifacts = extractLatestPlanContext(artifacts);
   const planWorkerSteps =
-    workerSteps !== null ? [...workerSteps] : extractLatestWorkerSteps(artifacts);
+    workerSteps !== null ? [...workerSteps] : planFromArtifacts.workerSteps;
+  const backflowRules =
+    workerSteps !== null ? [] : planFromArtifacts.backflowRules;
   const workerStepIds = new Set(planWorkerSteps.map((step) => step.id));
   const workerStepIdByDbStepId = new Map<string, string>();
   const dbStepIdsByWorkerStepId = new Map<string, string[]>();
@@ -335,6 +343,7 @@ const buildPlanContext = ({
 
   return {
     workerSteps: planWorkerSteps,
+    backflowRules,
     workerStepIdByDbStepId,
     dbStepIdsByWorkerStepId,
   };
@@ -347,6 +356,7 @@ const buildPlannedWorkflow = ({
   steps,
   orderedInvocations,
   workerSteps,
+  backflowRules,
   workerStepIdByDbStepId,
   dbStepIdsByWorkerStepId,
 }: BuildPlannedWorkflowInput): PlannedWorkflowResult => {
@@ -552,6 +562,24 @@ const buildPlannedWorkflow = ({
     });
   });
 
+  backflowRules.forEach((rule) => {
+    const sourceIds = nodeIdsByWorkerStepId.get(rule.retryStepId) ?? [];
+    const targetIds = nodeIdsByWorkerStepId.get(rule.targetStepId) ?? [];
+    sourceIds.forEach((source) => {
+      targetIds.forEach((target) => {
+        addTopologyEdge({
+          edges,
+          nodes,
+          source,
+          target,
+          kind: "backflow",
+          label: rule.trigger,
+          status: "waiting",
+        });
+      });
+    });
+  });
+
   const leafNodeIds = activeWorkerSteps
     .filter((step) => (childrenByWorkerStepId.get(step.id) ?? []).length === 0)
     .flatMap((step) => nodeIdsByWorkerStepId.get(step.id) ?? []);
@@ -686,9 +714,9 @@ const recordDbStepWorkerMapping = ({
   dbStepIdsByWorkerStepId.set(workerStepId, dbStepIds);
 };
 
-const extractLatestWorkerSteps = (
+const extractLatestPlanContext = (
   artifacts: readonly Artifact[],
-): WorkerStep[] => {
+): { workerSteps: WorkerStep[]; backflowRules: WorkerBackflowRule[] } => {
   const planArtifacts = artifacts
     .map((artifact, index) => ({ artifact, index }))
     .filter(({ artifact }) => artifact.kind === "orchestration_plan")
@@ -700,10 +728,10 @@ const extractLatestWorkerSteps = (
     });
 
   for (const { artifact } of planArtifacts.reverse()) {
-    const workerSteps = parseWorkerStepsFromPlanSummary(artifact.summary ?? "");
-    if (workerSteps.length > 0) return workerSteps;
+    const context = parsePlanContextFromPlanSummary(artifact.summary ?? "");
+    if (context.workerSteps.length > 0) return context;
   }
-  return [];
+  return { workerSteps: [], backflowRules: [] };
 };
 
 const artifactTime = (value: string): number => {
@@ -713,15 +741,27 @@ const artifactTime = (value: string): number => {
 
 const planJsonRe = /```json\s*([\s\S]+?)\s*```/;
 
-const parseWorkerStepsFromPlanSummary = (summary: string): WorkerStep[] => {
+const parsePlanContextFromPlanSummary = (
+  summary: string,
+): { workerSteps: WorkerStep[]; backflowRules: WorkerBackflowRule[] } => {
   const match = planJsonRe.exec(summary);
-  if (!match) return [];
+  if (!match) return { workerSteps: [], backflowRules: [] };
   try {
-    const parsed = JSON.parse(match[1] ?? "") as { workerSteps?: unknown };
-    if (!Array.isArray(parsed.workerSteps)) return [];
-    return parsed.workerSteps as WorkerStep[];
+    const parsed = JSON.parse(match[1] ?? "") as {
+      workerSteps?: unknown;
+      backflowRules?: unknown;
+    };
+    if (!Array.isArray(parsed.workerSteps)) {
+      return { workerSteps: [], backflowRules: [] };
+    }
+    return {
+      workerSteps: parsed.workerSteps as WorkerStep[],
+      backflowRules: Array.isArray(parsed.backflowRules)
+        ? (parsed.backflowRules as WorkerBackflowRule[])
+        : [],
+    };
   } catch {
-    return [];
+    return { workerSteps: [], backflowRules: [] };
   }
 };
 

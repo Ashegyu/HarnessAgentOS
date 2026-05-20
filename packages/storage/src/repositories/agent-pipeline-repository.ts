@@ -1,7 +1,9 @@
 import {
   type AgentProfile,
   MAX_PIPELINE_STEPS,
+  isAgentPipelineBackflowRule,
   isAgentPipelineStep,
+  type AgentPipelineBackflowRule,
   type AgentPipeline,
   type AgentPipelineStep,
   type CreateAgentPipelineInput,
@@ -35,6 +37,7 @@ interface PipelineRow {
   name: string;
   description: string;
   steps_json: string;
+  backflow_rules_json: string;
   created_at: string;
   updated_at: string;
 }
@@ -44,11 +47,14 @@ const rowToPipeline = (row: PipelineRow): AgentPipeline => ({
   name: row.name,
   description: row.description,
   steps: JSON.parse(row.steps_json) as AgentPipelineStep[],
+  backflowRules: JSON.parse(row.backflow_rules_json) as AgentPipelineBackflowRule[],
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
 
-const SELECT = `SELECT id, name, description, steps_json, created_at, updated_at
+const SELECT = `SELECT id, name, description, steps_json,
+    COALESCE(backflow_rules_json, '[]') AS backflow_rules_json,
+    created_at, updated_at
   FROM agent_pipelines`;
 
 export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
@@ -81,11 +87,12 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
   }
 
   async create(input: CreateAgentPipelineInput): Promise<AgentPipeline> {
-    await this.validate(input.name, input.steps);
+    await this.validate(input.name, input.steps, input.backflowRules ?? []);
     const id = newId("agentPipeline");
     const now = nowIso();
     const pipeline: AgentPipeline = {
       ...input,
+      backflowRules: input.backflowRules ?? [],
       id,
       createdAt: now,
       updatedAt: now,
@@ -93,14 +100,15 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     this.db
       .prepare(
         `INSERT INTO agent_pipelines
-          (id, name, description, steps_json, created_at, updated_at)
-         VALUES (?,?,?,?,?,?)`,
+          (id, name, description, steps_json, backflow_rules_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?)`,
       )
       .run(
         pipeline.id,
         pipeline.name,
         pipeline.description,
         JSON.stringify(pipeline.steps),
+        JSON.stringify(pipeline.backflowRules ?? []),
         pipeline.createdAt,
         pipeline.updatedAt,
       );
@@ -140,10 +148,11 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         name: template.name,
         description: template.description,
         steps,
+        backflowRules: [],
         createdAt: now,
         updatedAt: now,
       };
-      await this.validate(pipeline.name, pipeline.steps);
+      await this.validate(pipeline.name, pipeline.steps, pipeline.backflowRules ?? []);
       this.insertRow(pipeline);
       existingIds.add(pipeline.id);
       existingNames.add(nameKey);
@@ -151,18 +160,23 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
   }
 
   async update(pipeline: AgentPipeline): Promise<AgentPipeline> {
-    await this.validate(pipeline.name, pipeline.steps);
-    const updated: AgentPipeline = { ...pipeline, updatedAt: nowIso() };
+    await this.validate(pipeline.name, pipeline.steps, pipeline.backflowRules ?? []);
+    const updated: AgentPipeline = {
+      ...pipeline,
+      backflowRules: pipeline.backflowRules ?? [],
+      updatedAt: nowIso(),
+    };
     this.db
       .prepare(
         `UPDATE agent_pipelines
-           SET name = ?, description = ?, steps_json = ?, updated_at = ?
+           SET name = ?, description = ?, steps_json = ?, backflow_rules_json = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
         updated.name,
         updated.description,
         JSON.stringify(updated.steps),
+        JSON.stringify(updated.backflowRules ?? []),
         updated.updatedAt,
         updated.id,
       );
@@ -194,6 +208,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
   private async validate(
     name: string,
     steps: readonly AgentPipelineStep[],
+    backflowRules: readonly AgentPipelineBackflowRule[] = [],
   ): Promise<void> {
     if (name.trim().length === 0) {
       throw new Error("AgentPipeline.name must be non-empty");
@@ -212,6 +227,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
       }
     }
     validateStepTopology(steps);
+    validateBackflowRules(steps, backflowRules);
     for (const [i, step] of steps.entries()) {
       const profile = await this.profiles.get(step.agentProfileId);
       if (!profile) {
@@ -241,14 +257,15 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     this.db
       .prepare(
         `INSERT INTO agent_pipelines
-          (id, name, description, steps_json, created_at, updated_at)
-         VALUES (?,?,?,?,?,?)`,
+          (id, name, description, steps_json, backflow_rules_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?)`,
       )
       .run(
         pipeline.id,
         pipeline.name,
         pipeline.description,
         JSON.stringify(pipeline.steps),
+        JSON.stringify(pipeline.backflowRules ?? []),
         pipeline.createdAt,
         pipeline.updatedAt,
       );
@@ -297,12 +314,13 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
       this.db
         .prepare(
           `UPDATE agent_pipelines
-              SET description = ?, steps_json = ?, updated_at = ?
+              SET description = ?, steps_json = ?, backflow_rules_json = ?, updated_at = ?
             WHERE id = ?`,
         )
         .run(
           description,
           JSON.stringify(steps),
+          JSON.stringify(pipeline.backflowRules ?? []),
           input.updatedAt,
           pipeline.id,
         );
@@ -1869,4 +1887,74 @@ const validateStepTopology = (steps: readonly AgentPipelineStep[]): void => {
     visited.add(step.id);
   };
   for (const step of steps) visit(step);
+};
+
+const validateBackflowRules = (
+  steps: readonly AgentPipelineStep[],
+  rules: readonly AgentPipelineBackflowRule[],
+): void => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const ruleIds = new Set<string>();
+  for (const [i, rule] of rules.entries()) {
+    if (!isAgentPipelineBackflowRule(rule)) {
+      if (hasInvalidBackflowMaxAttempts(rule)) {
+        throw new Error(
+          `AgentPipeline.backflowRules[${i}].maxAttempts must be an integer from 1 to 5`,
+        );
+      }
+      throw new Error(`AgentPipeline.backflowRules[${i}] is malformed`);
+    }
+    if (ruleIds.has(rule.id)) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].id duplicates another rule: ${rule.id}`,
+      );
+    }
+    ruleIds.add(rule.id);
+    const targetIndex = stepIndexById.get(rule.targetStepId);
+    const retryIndex = stepIndexById.get(rule.retryStepId);
+    if (targetIndex === undefined) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].targetStepId references unknown step: ${rule.targetStepId}`,
+      );
+    }
+    if (retryIndex === undefined) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].retryStepId references unknown step: ${rule.retryStepId}`,
+      );
+    }
+    if (rule.targetStepId === rule.retryStepId) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}] targetStepId cannot equal retryStepId: ${rule.targetStepId}`,
+      );
+    }
+    if (targetIndex >= retryIndex) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].targetStepId must be earlier than retryStepId`,
+      );
+    }
+    if (
+      !Number.isInteger(rule.maxAttempts) ||
+      rule.maxAttempts < 1 ||
+      rule.maxAttempts > 5
+    ) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].maxAttempts must be an integer from 1 to 5`,
+      );
+    }
+  }
+};
+
+const hasInvalidBackflowMaxAttempts = (rule: unknown): boolean => {
+  if (typeof rule !== "object" || rule === null || Array.isArray(rule)) {
+    return false;
+  }
+  const value = (rule as { maxAttempts?: unknown }).maxAttempts;
+  return (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > 5
+  );
 };

@@ -19,6 +19,7 @@
 | `internal-agent-message-bus-plan.md` | 내부 에이전트 이벤트/메시지 버스 설계와 IPC push 경계 |
 | `a2a-integration-plan.md` | A2A remote registry/client/worker routing과 서버리스 gateway 경계 |
 | `a2a-refinement-backflow-plan.md` | A2A 수정 요청을 이전 remote worker로 되돌려 보내는 bounded refinement 설계 |
+| `pipeline-backflow-routing-plan.md` | Pipeline template에 조건부 backflow rule을 저장하고 실패 시 target/retry worker를 자동 실행하는 설계 |
 | `architecture-decisions.md` | 핵심 아키텍처 결정 기록 |
 
 ## 관련 설계 문서

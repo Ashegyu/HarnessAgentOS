@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -296,9 +296,52 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     steps_json TEXT NOT NULL CHECK(json_array_length(steps_json) >= 1),
+    backflow_rules_json TEXT NOT NULL DEFAULT '[]',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`,
+
+  // v30 — Pipeline-level conditional backflow ledger. This is separate
+  // from A2A refinement attempts: backflow is runtime routing inside an
+  // approved pipeline, not remote result feedback.
+  `CREATE TABLE IF NOT EXISTS pipeline_backflow_attempts (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    trigger TEXT NOT NULL CHECK(trigger IN ('step_failed','quality_failed')),
+    target_step_id TEXT NOT NULL,
+    retry_step_id TEXT NOT NULL,
+    max_attempts INTEGER NOT NULL,
+    attempt_index INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','max_attempts_reached')),
+    reason TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pipeline_backflow_attempts_task_run
+    ON pipeline_backflow_attempts(task_run_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_pipeline_backflow_attempts_rule
+    ON pipeline_backflow_attempts(task_run_id, plan_id, rule_id, trigger, attempt_index)`,
+  `CREATE TABLE IF NOT EXISTS pipeline_backflow_events (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('triggered','target_started','target_succeeded','retry_started','retry_succeeded','failed','max_attempts_reached')),
+    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','max_attempts_reached')),
+    summary TEXT NOT NULL,
+    reason TEXT,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(attempt_id) REFERENCES pipeline_backflow_attempts(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pipeline_backflow_events_created
+    ON pipeline_backflow_events(created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_pipeline_backflow_events_attempt
+    ON pipeline_backflow_events(attempt_id, created_at)`,
 
   // v15 — remote A2A agent registry. This is registry-only state; actual
   // remote invocation stays behind an adapter and is not part of Phase B.

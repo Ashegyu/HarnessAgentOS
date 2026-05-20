@@ -137,7 +137,7 @@ const TopologyEdge = ({
   return (
     <g className="agent-topology__edge-group">
       <path
-        className={`agent-topology__edge agent-topology__edge--${edge.status}${
+        className={`agent-topology__edge agent-topology__edge--${edge.kind} agent-topology__edge--${edge.status}${
           edge.animated ? " agent-topology__edge--animated" : ""
         }`}
         d={d}

@@ -4,6 +4,7 @@ import type {
   AgentPipeline,
   AgentProfile,
   ApprovalActionType,
+  PipelineBackflowTrigger,
   TopologyRecommendation,
   WorkerOutputContract,
 } from "@harness/core";
@@ -72,6 +73,9 @@ const newStep = (
   allowedActions: null,
   outputContract: "",
 });
+
+const newBackflowRuleId = (): string =>
+  `bf_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
 export const PipelinesTab = ({
   initialTopologyTaskRunId = null,
@@ -229,6 +233,51 @@ export const PipelinesTab = ({
 
   const handleMoveStep = (i: number, delta: number): void => {
     setDraft((d) => (d ? { ...d, steps: moveStep(d.steps, i, delta) } : d));
+  };
+
+  const handleAddBackflowRule = (): void => {
+    if (!draft || draft.steps.length < 2) return;
+    const target = draft.steps[0]!;
+    const retry = draft.steps[draft.steps.length - 1]!;
+    updateDraft({
+      backflowRules: [
+        ...(draft.backflowRules ?? []),
+        {
+          id: newBackflowRuleId(),
+          trigger: "step_failed",
+          targetStepId: target.id,
+          retryStepId: retry.id,
+          maxAttempts: 2,
+        },
+      ],
+    });
+  };
+
+  const updateBackflowRule = (
+    i: number,
+    patch: Partial<PipelineDraft["backflowRules"][number]>,
+  ): void => {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            backflowRules: (d.backflowRules ?? []).map((rule, idx) =>
+              idx === i ? { ...rule, ...patch } : rule,
+            ),
+          }
+        : d,
+    );
+  };
+
+  const handleRemoveBackflowRule = (i: number): void => {
+    setDraft((d) =>
+      d
+        ? {
+            ...d,
+            backflowRules: (d.backflowRules ?? []).filter((_, idx) => idx !== i),
+          }
+        : d,
+    );
   };
 
   const handleSave = async (): Promise<void> => {
@@ -976,6 +1025,154 @@ export const PipelinesTab = ({
                   onClick={handleAddStep}
                 >
                   + step 추가
+                </button>
+              </fieldset>
+
+              <fieldset className="settings-fieldset">
+                <legend>Backflow Rules</legend>
+                <p className="settings-field__hint">
+                  실패 시에만 실행되는 조건부 edge입니다. 정상 dependsOn
+                  흐름에는 포함되지 않습니다.
+                </p>
+                {(draft.backflowRules ?? []).length === 0 && (
+                  <p className="settings-field__hint">
+                    Backflow가 없으면 실패 시 기존처럼 TaskRun이 blocked 상태가 됩니다.
+                  </p>
+                )}
+                <ol className="pipeline-steps">
+                  {(draft.backflowRules ?? []).map((rule, i) => (
+                    <li key={rule.id} className="pipeline-step">
+                      <div className="pipeline-step__header">
+                        <span className="pipeline-step__index">
+                          {i + 1}
+                        </span>
+                        <input
+                          type="text"
+                          className="settings-field__input"
+                          value={rule.id}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateBackflowRule(i, { id: e.target.value })
+                          }
+                        />
+                        <div className="pipeline-step__controls">
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm btn--danger"
+                            disabled={saving}
+                            onClick={() => handleRemoveBackflowRule(i)}
+                            aria-label={`${i + 1}번 backflow rule 삭제`}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                      <div className="pipeline-step__option-grid">
+                        <label className="settings-field">
+                          <span className="settings-field__label">
+                            Trigger
+                          </span>
+                          <select
+                            className="settings-field__input"
+                            value={rule.trigger}
+                            disabled={saving}
+                            onChange={(e) =>
+                              updateBackflowRule(i, {
+                                trigger: e.target
+                                  .value as PipelineBackflowTrigger,
+                              })
+                            }
+                          >
+                            <option value="step_failed">step_failed</option>
+                            <option value="quality_failed">quality_failed</option>
+                          </select>
+                        </label>
+                        <label className="settings-field">
+                          <span className="settings-field__label">
+                            Target Step
+                          </span>
+                          <select
+                            className="settings-field__input"
+                            value={rule.targetStepId}
+                            disabled={saving}
+                            onChange={(e) =>
+                              updateBackflowRule(i, {
+                                targetStepId: e.target.value,
+                              })
+                            }
+                          >
+                            {draft.steps.map((step) => (
+                              <option key={step.id} value={step.id}>
+                                {step.title.trim() || step.id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="settings-field">
+                          <span className="settings-field__label">
+                            Retry Step
+                          </span>
+                          <select
+                            className="settings-field__input"
+                            value={rule.retryStepId}
+                            disabled={saving}
+                            onChange={(e) =>
+                              updateBackflowRule(i, {
+                                retryStepId: e.target.value,
+                              })
+                            }
+                          >
+                            {draft.steps.map((step) => (
+                              <option key={step.id} value={step.id}>
+                                {step.title.trim() || step.id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="settings-field">
+                          <span className="settings-field__label">
+                            Max Attempts
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={5}
+                            className="settings-field__input"
+                            value={rule.maxAttempts}
+                            disabled={saving}
+                            onChange={(e) =>
+                              updateBackflowRule(i, {
+                                maxAttempts: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                      <label className="settings-field">
+                        <span className="settings-field__label">
+                          Instruction
+                        </span>
+                        <textarea
+                          className="settings-field__input settings-field__textarea settings-field__textarea--compact"
+                          value={rule.instruction ?? ""}
+                          disabled={saving}
+                          onChange={(e) =>
+                            updateBackflowRule(i, {
+                              instruction: e.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    </li>
+                  ))}
+                </ol>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  disabled={saving || draft.steps.length < 2}
+                  onClick={handleAddBackflowRule}
+                >
+                  + backflow rule 추가
                 </button>
               </fieldset>
 

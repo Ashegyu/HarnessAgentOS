@@ -29,6 +29,7 @@ export const IPC_CHANNELS = {
     getTaskRunDetail: "conversation:getTaskRunDetail",
     listDecisions: "conversation:listDecisions",
     listRefinementEvents: "conversation:listRefinementEvents",
+    listBackflowEvents: "conversation:listBackflowEvents",
     setProposedAction: "conversation:setProposedAction",
     pauseTask: "conversation:pauseTask",
     resumeTask: "conversation:resumeTask",

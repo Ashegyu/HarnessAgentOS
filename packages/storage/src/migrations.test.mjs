@@ -309,6 +309,66 @@ test("v29 migration creates A2A refinement activity events", () => {
   }
 });
 
+test("v30 migration creates pipeline backflow rule column and event ledger", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "agent_pipelines", "backflow_rules_json"),
+      true,
+      "agent_pipelines.backflow_rules_json must exist",
+    );
+    assert.equal(hasTable(db, "pipeline_backflow_attempts"), true);
+    for (const col of [
+      "id",
+      "task_run_id",
+      "plan_id",
+      "rule_id",
+      "trigger",
+      "target_step_id",
+      "retry_step_id",
+      "max_attempts",
+      "attempt_index",
+      "status",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "pipeline_backflow_attempts", col),
+        true,
+        `pipeline_backflow_attempts is missing column ${col}`,
+      );
+    }
+    assert.equal(hasTable(db, "pipeline_backflow_events"), true);
+    for (const col of [
+      "id",
+      "task_run_id",
+      "attempt_id",
+      "event_type",
+      "status",
+      "summary",
+      "payload_json",
+      "created_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "pipeline_backflow_events", col),
+        true,
+        `pipeline_backflow_events is missing column ${col}`,
+      );
+    }
+    assert.equal(hasIndex(db, "idx_pipeline_backflow_attempts_task_run"), true);
+    assert.equal(hasIndex(db, "idx_pipeline_backflow_attempts_rule"), true);
+    assert.equal(hasIndex(db, "idx_pipeline_backflow_events_created"), true);
+    assert.equal(hasIndex(db, "idx_pipeline_backflow_events_attempt"), true);
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "agent_pipelines", "backflow_rules_json"), true);
+    assert.equal(hasTable(db, "pipeline_backflow_events"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

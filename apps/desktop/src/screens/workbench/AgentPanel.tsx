@@ -4,6 +4,7 @@ import type {
   A2ARefinementAttempt,
   AgentInvocation,
   Artifact,
+  PipelineBackflowAttempt,
   Step,
   TaskRun,
 } from "@harness/core";
@@ -31,6 +32,7 @@ interface AgentPanelProps {
   artifacts: Artifact[];
   remoteTaskRefs?: A2ARemoteTaskRef[];
   refinementAttempts?: A2ARefinementAttempt[];
+  pipelineBackflowAttempts?: PipelineBackflowAttempt[];
   onRetry: (invocationId: string) => Promise<void>;
   onCancel: (invocationId: string) => Promise<void>;
   onUseFallback: () => Promise<void>;
@@ -69,6 +71,7 @@ export const AgentPanel = ({
   artifacts,
   remoteTaskRefs = [],
   refinementAttempts = [],
+  pipelineBackflowAttempts = [],
   onRetry,
   onCancel,
   onUseFallback,
@@ -277,8 +280,43 @@ export const AgentPanel = ({
         )}
         <InternalHandoffPanel handoffs={handoffs} />
         <A2ARefinementAttemptPanel attempts={refinementAttempts} />
+        <PipelineBackflowAttemptPanel attempts={pipelineBackflowAttempts} />
         <div className="agent-panel__actions">{renderControls()}</div>
         {error && <div className="agent-panel__error">{error}</div>}
+      </div>
+    </section>
+  );
+};
+
+const PipelineBackflowAttemptPanel = ({
+  attempts,
+}: {
+  attempts: readonly PipelineBackflowAttempt[];
+}): JSX.Element | null => {
+  if (attempts.length === 0) return null;
+  return (
+    <section className="internal-handoff-panel" aria-label="Pipeline backflow attempts">
+      <header className="internal-handoff-panel__header">
+        <strong>Pipeline backflow</strong>
+        <span>{attempts.length}</span>
+      </header>
+      <div className="internal-handoff-panel__list">
+        {attempts.map((attempt) => (
+          <article key={attempt.id} className="internal-handoff-panel__item">
+            <div className="internal-handoff-panel__route">
+              <span>{attempt.ruleId}</span>
+              <span>{attempt.trigger}</span>
+              <span>
+                {attempt.targetStepId} → {attempt.retryStepId}
+              </span>
+            </div>
+            <div className="internal-handoff-panel__meta">
+              attempt {attempt.attemptIndex + 1}/{attempt.maxAttempts} ·{" "}
+              {attempt.status}
+              {attempt.reason ? ` · ${attempt.reason}` : ""}
+            </div>
+          </article>
+        ))}
       </div>
     </section>
   );

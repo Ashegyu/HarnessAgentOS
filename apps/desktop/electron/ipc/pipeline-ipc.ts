@@ -3,6 +3,7 @@ import {
   STATE_INVALID_INPUT,
   err,
   harnessError,
+  isAgentPipelineBackflowRule,
   isAgentPipelineStep,
   ok,
   type AgentPipeline,
@@ -48,6 +49,16 @@ const validateCreateInput = (
   for (const [i, step] of p.steps.entries()) {
     if (!isAgentPipelineStep(step)) {
       return { ok: false, reason: `steps[${i}] is malformed` };
+    }
+  }
+  if (p.backflowRules !== undefined) {
+    if (!Array.isArray(p.backflowRules)) {
+      return { ok: false, reason: "backflowRules must be an array" };
+    }
+    for (const [i, rule] of p.backflowRules.entries()) {
+      if (!isAgentPipelineBackflowRule(rule)) {
+        return { ok: false, reason: `backflowRules[${i}] is malformed` };
+      }
     }
   }
   return { ok: true, value: raw as CreateAgentPipelineInput };

@@ -114,6 +114,24 @@ new attempt that references:
 This preserves the current topology rules while allowing a previous remote agent
 to produce a revised answer.
 
+### 5.1 Boundary With Pipeline Backflow
+
+This A2A refinement feature is separate from pipeline backflow routing.
+
+Pipeline backflow is configured on an `AgentPipeline` and reruns earlier local
+worker steps inside the approved orchestration plan when a step or quality gate
+fails. It uses `AgentPipelineBackflowRule`, `OrchestrationPlan.backflowRules`,
+`pipeline_backflow_attempts`, and `pipeline_backflow_events`.
+
+A2A refinement is execution-history based: it targets a previous remote A2A
+invocation and sends a bounded follow-up message to that endpoint with remote
+task/context references. It continues to use `A2ARefinementAttempt` and its own
+approval/event ledger.
+
+Do not merge these models. Pipeline backflow must not create remote A2A
+refinement attempts automatically, and A2A refinement must not mutate pipeline
+`dependsOn` or conditional backflow rules.
+
 ## 6. State Model
 
 ### 6.1 Core Types

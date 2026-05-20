@@ -6,6 +6,7 @@ import {
   type ApprovalActionType,
   type AutoApproveStep,
   type DecisionLogPage,
+  type PipelineBackflowActivityPage,
 } from "@harness/core";
 import { AUTO_APPROVE_STEP_LABELS } from "./ApprovalDecisionTrace";
 import {
@@ -24,6 +25,7 @@ const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 const A2A_REFINEMENT_ACTIVITY_PAGE_SIZE = 25;
+const PIPELINE_BACKFLOW_ACTIVITY_PAGE_SIZE = 25;
 
 export const ActivityLogTab = (): JSX.Element => {
   const [selectedSteps, setSelectedSteps] = useState<ReadonlySet<AutoApproveStep>>(
@@ -42,6 +44,11 @@ export const ActivityLogTab = (): JSX.Element => {
     | { kind: "ready"; page: A2ARefinementActivityPage }
     | { kind: "error"; message: string }
     | { kind: "skipped" }
+  >({ kind: "loading" });
+  const [backflowState, setBackflowState] = useState<
+    | { kind: "loading" }
+    | { kind: "ready"; page: PipelineBackflowActivityPage }
+    | { kind: "error"; message: string }
   >({ kind: "loading" });
 
   const filter = useMemo(
@@ -106,6 +113,29 @@ export const ActivityLogTab = (): JSX.Element => {
     };
   }, [actionType, filter?.sinceIso, filter?.untilIso, refreshTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setBackflowState({ kind: "loading" });
+    window.harness.conversation
+      .listBackflowEvents({
+        limit: PIPELINE_BACKFLOW_ACTIVITY_PAGE_SIZE,
+        offset: 0,
+        ...(filter?.sinceIso ? { sinceIso: filter.sinceIso } : {}),
+        ...(filter?.untilIso ? { untilIso: filter.untilIso } : {}),
+      })
+      .then((page) => {
+        if (!cancelled) setBackflowState({ kind: "ready", page });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBackflowState({ kind: "error", message: errorMessage(error) });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [filter?.sinceIso, filter?.untilIso, refreshTick]);
+
   const resetPage = (): void => setOffset(0);
 
   const toggleStep = (step: AutoApproveStep): void => {
@@ -120,6 +150,8 @@ export const ActivityLogTab = (): JSX.Element => {
 
   const page = state.kind === "ready" ? state.page : null;
   const a2aPage = a2aState.kind === "ready" ? a2aState.page : null;
+  const backflowPage =
+    backflowState.kind === "ready" ? backflowState.page : null;
   const pageNumber = Math.floor(offset / ACTIVITY_LOG_PAGE_SIZE) + 1;
 
   return (
@@ -130,6 +162,7 @@ export const ActivityLogTab = (): JSX.Element => {
           <span>
             {page ? `${page.total} decisions` : "decision audit"}
             {a2aPage ? ` · ${a2aPage.total} A2A events` : ""}
+            {backflowPage ? ` · ${backflowPage.total} backflow events` : ""}
           </span>
         </div>
         <button
@@ -214,6 +247,17 @@ export const ActivityLogTab = (): JSX.Element => {
       ) : null}
       {a2aPage && a2aPage.items.length > 0 ? (
         <A2ARefinementEventsTable page={a2aPage} />
+      ) : null}
+      {backflowState.kind === "loading" ? (
+        <div className="empty-state">Pipeline backflow events 불러오는 중...</div>
+      ) : null}
+      {backflowState.kind === "error" ? (
+        <div className="empty-state" style={{ color: "var(--status-failed)" }}>
+          {backflowState.message}
+        </div>
+      ) : null}
+      {backflowPage && backflowPage.items.length > 0 ? (
+        <PipelineBackflowEventsTable page={backflowPage} />
       ) : null}
 
       {state.kind === "loading" ? (
@@ -354,6 +398,60 @@ export const A2ARefinementEventsTable = ({
                 <td>
                   <strong>{event.feedbackSourceKind}</strong>
                   <span>{event.stopReason ?? ""}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+};
+
+export const PipelineBackflowEventsTable = ({
+  page,
+}: {
+  page: PipelineBackflowActivityPage;
+}): JSX.Element | null => {
+  if (page.items.length === 0) return null;
+  return (
+    <section
+      className="activity-log__a2a-events"
+      aria-label="Pipeline Backflow Events"
+    >
+      <header className="activity-log__section-header">
+        <h4>Pipeline Backflow Events</h4>
+        <span>{page.total} events</span>
+      </header>
+      <div className="activity-log__table-wrap">
+        <table className="activity-log__table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Event</th>
+              <th>Rule</th>
+              <th>Target</th>
+              <th>Retry</th>
+              <th>Attempt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.items.map((event) => (
+              <tr key={event.id}>
+                <td>{formatTimestamp(event.createdAt)}</td>
+                <td>
+                  <strong>{event.eventType}</strong>
+                  <span>{event.summary}</span>
+                </td>
+                <td>
+                  <strong>{event.ruleId}</strong>
+                  <span>{event.trigger}</span>
+                </td>
+                <td>{event.targetStepId}</td>
+                <td>{event.retryStepId}</td>
+                <td>
+                  <strong>attempt {event.attemptIndex + 1}</strong>
+                  <span>{event.status}</span>
                 </td>
               </tr>
             ))}

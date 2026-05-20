@@ -221,6 +221,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
     "createTask",
     "deleteTask",
     "getTaskRunDetail",
+    "listBackflowEvents",
     "listDecisions",
     "listRefinementEvents",
     "pauseTask",

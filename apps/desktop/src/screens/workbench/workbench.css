@@ -5243,6 +5243,11 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   stroke-linecap: round;
 }
 
+.agent-topology__edge--backflow {
+  stroke: rgba(245, 158, 11, 0.78);
+  stroke-dasharray: 7 5;
+}
+
 .agent-topology__edge--running {
   stroke: rgba(96, 165, 250, 0.88);
 }

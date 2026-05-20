@@ -37,6 +37,7 @@ import {
   type LearningTrace,
   type OrchestrationPlan,
   type OrchestrationRunResult,
+  type PipelineBackflowActivityPage,
   type QualityGateResult,
   type RepairPlanDraft,
   type RunnerCancelExecutionResult,
@@ -153,6 +154,11 @@ const harnessApi: HarnessDesktopApi = {
     listRefinementEvents: (input) =>
       invokeUnwrapped<A2ARefinementActivityPage>(
         IPC_CHANNELS.conversation.listRefinementEvents,
+        input,
+      ),
+    listBackflowEvents: (input) =>
+      invokeUnwrapped<PipelineBackflowActivityPage>(
+        IPC_CHANNELS.conversation.listBackflowEvents,
         input,
       ),
     setProposedAction: (input) =>

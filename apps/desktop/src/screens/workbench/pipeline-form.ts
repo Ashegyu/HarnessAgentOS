@@ -1,6 +1,7 @@
 import { APPROVAL_ACTION_TYPES, WORKER_OUTPUT_CONTRACTS } from "@harness/core";
 import type {
   AgentPipeline,
+  AgentPipelineBackflowRule,
   AgentPipelineStep,
   A2ARegistryEntry,
   ArtifactKind,
@@ -10,6 +11,7 @@ import type {
   ThreadDetail,
   WorkerRole,
   WorkerOutputContract,
+  PipelineBackflowTrigger,
 } from "@harness/core";
 
 /**
@@ -37,6 +39,7 @@ export interface PipelineDraft {
   name: string;
   description: string;
   steps: PipelineStepDraft[];
+  backflowRules: AgentPipelineBackflowRule[];
 }
 
 export interface PipelineDraftError {
@@ -665,12 +668,17 @@ const ACTION_SET: ReadonlySet<string> = new Set(APPROVAL_ACTION_TYPES);
 const OUTPUT_CONTRACT_SET: ReadonlySet<string> = new Set(
   WORKER_OUTPUT_CONTRACTS,
 );
+const BACKFLOW_TRIGGER_SET: ReadonlySet<string> = new Set([
+  "step_failed",
+  "quality_failed",
+] satisfies PipelineBackflowTrigger[]);
 
 export const emptyPipelineDraft = (): PipelineDraft => ({
   id: null,
   name: "",
   description: "",
   steps: [],
+  backflowRules: [],
 });
 
 export const pipelineToDraft = (p: AgentPipeline): PipelineDraft => ({
@@ -689,6 +697,7 @@ export const pipelineToDraft = (p: AgentPipeline): PipelineDraft => ({
       s.allowedActions !== undefined ? [...s.allowedActions] : null,
     outputContract: s.outputContract ?? "",
   })),
+  backflowRules: (p.backflowRules ?? []).map((rule) => ({ ...rule })),
 });
 
 export const pipelineInputToDraft = (
@@ -709,6 +718,7 @@ export const pipelineInputToDraft = (
       s.allowedActions !== undefined ? [...s.allowedActions] : null,
     outputContract: s.outputContract ?? "",
   })),
+  backflowRules: (input.backflowRules ?? []).map((rule) => ({ ...rule })),
 });
 
 export const topologyTaskRunOptionsFromThreadDetails = (
@@ -949,6 +959,7 @@ export const validatePipelineDraft = (
       message: `dependency cycle detected at ${cycleAt}`,
     });
   }
+  errors.push(...validateBackflowRules(draft));
   return errors;
 };
 
@@ -1141,6 +1152,12 @@ export const serializePipelineDraft = (
     name: draft.name.trim(),
     description: draft.description,
     steps,
+    backflowRules: (draft.backflowRules ?? []).map((rule) => ({
+      ...rule,
+      ...(rule.instruction !== undefined
+        ? { instruction: rule.instruction }
+        : {}),
+    })),
   };
   if (draft.id !== null) {
     // Update — caller layers `createdAt/updatedAt` on top before sending.
@@ -1178,6 +1195,71 @@ const effectiveDependsOn = (
     return [...step.dependsOn];
   }
   return index > 0 ? [steps[index - 1]!.id] : [];
+};
+
+const validateBackflowRules = (
+  draft: PipelineDraft,
+): PipelineDraftError[] => {
+  const errors: PipelineDraftError[] = [];
+  const stepIndexById = new Map(
+    draft.steps.map((step, index) => [step.id, index] as const),
+  );
+  const ruleIds = new Set<string>();
+  for (const [i, rule] of (draft.backflowRules ?? []).entries()) {
+    const label = `backflow rule ${i + 1}`;
+    if (typeof rule.id !== "string" || rule.id.trim().length === 0) {
+      errors.push({ field: "steps", message: `${label}: id가 비어있습니다` });
+      continue;
+    }
+    if (ruleIds.has(rule.id)) {
+      errors.push({
+        field: "steps",
+        message: `${label}: 중복된 backflow id (${rule.id})`,
+      });
+    }
+    ruleIds.add(rule.id);
+    if (!BACKFLOW_TRIGGER_SET.has(rule.trigger)) {
+      errors.push({
+        field: "steps",
+        message: `${label}: unknown backflow trigger (${rule.trigger})`,
+      });
+    }
+    const targetIndex = stepIndexById.get(rule.targetStepId);
+    const retryIndex = stepIndexById.get(rule.retryStepId);
+    if (targetIndex === undefined) {
+      errors.push({
+        field: "steps",
+        message: `${label}: backflow target step을 찾을 수 없습니다 (${rule.targetStepId})`,
+      });
+    }
+    if (retryIndex === undefined) {
+      errors.push({
+        field: "steps",
+        message: `${label}: backflow retry step을 찾을 수 없습니다 (${rule.retryStepId})`,
+      });
+    }
+    if (
+      targetIndex !== undefined &&
+      retryIndex !== undefined &&
+      targetIndex >= retryIndex
+    ) {
+      errors.push({
+        field: "steps",
+        message: `${label}: backflow target은 retry step보다 앞서야 합니다`,
+      });
+    }
+    if (
+      !Number.isInteger(rule.maxAttempts) ||
+      rule.maxAttempts < 1 ||
+      rule.maxAttempts > 5
+    ) {
+      errors.push({
+        field: "steps",
+        message: `${label}: maxAttempts는 1에서 5 사이여야 합니다`,
+      });
+    }
+  }
+  return errors;
 };
 
 const firstCycleStepId = (steps: readonly PipelineStepDraft[]): string | null => {

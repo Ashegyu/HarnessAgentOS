@@ -26,6 +26,7 @@ const detail = (patch = {}) => ({
   agentInvocations: patch.agentInvocations ?? [],
   a2aRemoteTaskRefs: [],
   a2aRefinementAttempts: patch.a2aRefinementAttempts ?? [],
+  pipelineBackflowAttempts: patch.pipelineBackflowAttempts ?? [],
   a2aRefinementProposals: patch.a2aRefinementProposals ?? [],
 });
 

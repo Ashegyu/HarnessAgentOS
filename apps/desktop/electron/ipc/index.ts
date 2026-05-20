@@ -54,6 +54,7 @@ import {
 } from "./skill-source-refresh";
 import { executeA2ARefinementApproval } from "../a2a-refinement-approval-executor";
 import { eventBus } from "../event-bus";
+import { PipelineBackflowService } from "../pipeline-backflow-service";
 import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
 
 export interface IpcContext {
@@ -89,6 +90,12 @@ export interface IpcContext {
  * Single registration entry point.
  */
 export const registerAllIpc = (ctx: IpcContext): void => {
+  const pipelineBackflow = new PipelineBackflowService({
+    state: ctx.state,
+    orchestration: ctx.orchestrationService,
+    agentPlanning: ctx.agentPlanning,
+    onTaskRunChanged: (taskRunId) => eventBus.taskRunChanged(taskRunId),
+  });
   registerAppIpc({ diagnostics: ctx.diagnosticsService });
   registerStateIpc(ctx.state, eventBus);
   registerConversationIpc(
@@ -115,6 +122,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     ctx.repairLoop,
     eventBus,
     ctx.instinctService,
+    pipelineBackflow,
   );
   registerCapabilityIpc(
     ctx.capabilityService,

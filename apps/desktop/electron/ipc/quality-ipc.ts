@@ -18,6 +18,7 @@ import type { LocalStateService } from "@harness/storage";
 import type { InstinctService } from "@harness/learner";
 import { QualityEvaluator, type RepairLoopService } from "@harness/quality";
 import type { HarnessEventBus } from "../event-bus";
+import type { PipelineBackflowService } from "../pipeline-backflow-service";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -52,6 +53,7 @@ export const registerQualityIpc = (
   repairLoop: RepairLoopService,
   events: HarnessEventBus,
   instinctService?: InstinctService,
+  pipelineBackflow?: PipelineBackflowService,
 ): void => {
   ipcMain.handle(
     IPC_CHANNELS.quality.evaluate,
@@ -83,6 +85,9 @@ export const registerQualityIpc = (
         // Reflect the result into TaskRun status (passed/warning -> ready_for_review,
         // failed -> quality_failed). not_run is a no-op.
         await completion.applyQualityGateResult(result);
+        if (result.status === "failed") {
+          await pipelineBackflow?.runForQualityFailure(result);
+        }
         await observeQualityGate(instinctService, result);
         events.taskRunChanged(result.taskRunId);
         return ok(result);

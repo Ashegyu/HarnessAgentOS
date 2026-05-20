@@ -402,6 +402,174 @@ test("AgentPipelineRepository.create preserves topology metadata", async () => {
   }
 });
 
+test("AgentPipelineRepository.create round-trips backflow rules", async () => {
+  const { t, db, pipelines, profiles, profile } = await setupRepos();
+  try {
+    const reviewer = await profiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const created = await pipelines.create(
+      makePipelineInput(profile.id, {
+        steps: [
+          {
+            id: "plan",
+            agentProfileId: profile.id,
+            title: "Plan",
+            instruction: "Plan.",
+            expectedArtifactKinds: ["plan"],
+            dependsOn: [],
+          },
+          {
+            id: "review",
+            agentProfileId: reviewer.id,
+            title: "Review",
+            instruction: "Review.",
+            expectedArtifactKinds: ["quality_report"],
+            dependsOn: ["plan"],
+          },
+        ],
+        backflowRules: [
+          {
+            id: "bf_review",
+            trigger: "step_failed",
+            targetStepId: "plan",
+            retryStepId: "review",
+            maxAttempts: 2,
+            instruction: "Refresh the plan before retrying review.",
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(created.backflowRules, [
+      {
+        id: "bf_review",
+        trigger: "step_failed",
+        targetStepId: "plan",
+        retryStepId: "review",
+        maxAttempts: 2,
+        instruction: "Refresh the plan before retrying review.",
+      },
+    ]);
+    assert.deepEqual((await pipelines.get(created.id)).backflowRules, created.backflowRules);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.create rejects invalid backflow topology", async () => {
+  const { t, db, pipelines, profiles, profile } = await setupRepos();
+  try {
+    const reviewer = await profiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const base = {
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: profile.id,
+          title: "Plan",
+          instruction: "Plan.",
+          expectedArtifactKinds: ["plan"],
+          dependsOn: [],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewer.id,
+          title: "Review",
+          instruction: "Review.",
+          expectedArtifactKinds: ["quality_report"],
+          dependsOn: ["plan"],
+        },
+      ],
+    };
+
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            ...base,
+            backflowRules: [
+              {
+                id: "bf_missing",
+                trigger: "step_failed",
+                targetStepId: "missing",
+                retryStepId: "review",
+                maxAttempts: 2,
+              },
+            ],
+          }),
+        ),
+      /backflow.*unknown/i,
+    );
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            ...base,
+            backflowRules: [
+              {
+                id: "bf_forward",
+                trigger: "step_failed",
+                targetStepId: "review",
+                retryStepId: "plan",
+                maxAttempts: 2,
+              },
+            ],
+          }),
+        ),
+      /backflow.*earlier/i,
+    );
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            ...base,
+            backflowRules: [
+              {
+                id: "bf_invalid_attempts",
+                trigger: "quality_failed",
+                targetStepId: "plan",
+                retryStepId: "review",
+                maxAttempts: 6,
+              },
+            ],
+          }),
+        ),
+      /maxAttempts/i,
+    );
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            ...base,
+            backflowRules: [
+              {
+                id: "bf_dup",
+                trigger: "quality_failed",
+                targetStepId: "plan",
+                retryStepId: "review",
+                maxAttempts: 1,
+              },
+              {
+                id: "bf_dup",
+                trigger: "step_failed",
+                targetStepId: "plan",
+                retryStepId: "review",
+                maxAttempts: 1,
+              },
+            ],
+          }),
+        ),
+      /duplicates/i,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentPipelineRepository.create rejects empty steps", async () => {
   const { t, db, pipelines, profile } = await setupRepos();
   try {

@@ -4,7 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 globalThis.React = React;
-const { A2ARefinementEventsTable } = await import("./ActivityLogTab.tsx");
+const { A2ARefinementEventsTable, PipelineBackflowEventsTable } = await import("./ActivityLogTab.tsx");
 
 test("A2ARefinementEventsTable renders dedicated refinement lifecycle rows", () => {
   const html = renderToStaticMarkup(
@@ -45,4 +45,44 @@ test("A2ARefinementEventsTable renders dedicated refinement lifecycle rows", () 
   assert.match(html, /a2a_1/);
   assert.match(html, /remote-context-1/);
   assert.match(html, /attempt 2/);
+});
+
+test("PipelineBackflowEventsTable renders dedicated backflow lifecycle rows", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(PipelineBackflowEventsTable, {
+      page: {
+        total: 1,
+        limit: 25,
+        offset: 0,
+        hasNext: false,
+        items: [
+          {
+            id: "pbfe_1",
+            taskRunId: "tsk_1",
+            threadId: "thr_1",
+            threadTitle: "Thread",
+            taskRunUserRequest: "ship feature",
+            taskRunStatus: "running",
+            attemptId: "pbf_1",
+            ruleId: "bf_code",
+            trigger: "step_failed",
+            targetStepId: "worker_plan",
+            retryStepId: "worker_code",
+            attemptIndex: 0,
+            eventType: "retry_succeeded",
+            status: "succeeded",
+            summary: "Retry succeeded",
+            payload: { artifactId: "art_1" },
+            createdAt: "2026-05-20T00:00:00.000Z",
+          },
+        ],
+      },
+    }),
+  );
+
+  assert.match(html, /Pipeline Backflow Events/);
+  assert.match(html, /retry_succeeded/);
+  assert.match(html, /bf_code/);
+  assert.match(html, /worker_plan/);
+  assert.match(html, /worker_code/);
 });

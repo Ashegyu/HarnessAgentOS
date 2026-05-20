@@ -1,4 +1,5 @@
 import type { ApprovalActionType } from "./approval.ts";
+import type { WorkerBackflowRule } from "./pipeline-backflow.ts";
 
 export type OrchestrationMode =
   | "single_worker"
@@ -119,6 +120,12 @@ export interface OrchestrationPlan {
    * NOT affect already-synthesized plans.
    */
   sourcePipelineId?: string;
+  /**
+   * Conditional runtime edges. These do not participate in the normal
+   * dependsOn DAG cycle check; the runner uses them only after a failure
+   * trigger.
+   */
+  backflowRules?: WorkerBackflowRule[];
 }
 
 export interface OrchestrationRunResult {

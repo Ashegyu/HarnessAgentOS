@@ -1,4 +1,8 @@
-import type { OrchestrationMode, WorkerStep } from "./orchestration-types";
+import type {
+  OrchestrationMode,
+  WorkerBackflowRule,
+  WorkerStep,
+} from "@harness/core";
 
 /**
  * Phase 7 trace summary helpers. Pure functions producing the
@@ -8,6 +12,7 @@ import type { OrchestrationMode, WorkerStep } from "./orchestration-types";
 export const formatPlanSummary = (input: {
   mode: OrchestrationMode;
   workerSteps: WorkerStep[];
+  backflowRules?: WorkerBackflowRule[];
   instruction?: string;
 }): string => {
   const lines: string[] = [
@@ -44,6 +49,19 @@ export const formatPlanSummary = (input: {
       lines.push(`   - output contract: ${step.outputContract}`);
     }
   });
+  if (input.backflowRules && input.backflowRules.length > 0) {
+    lines.push("", "## Backflow Rules", "");
+    input.backflowRules.forEach((rule, idx) => {
+      lines.push(
+        `${idx + 1}. **${rule.trigger}** — ${rule.retryStepId} -> ${rule.targetStepId}`,
+        `   - retry: ${rule.retryStepId}`,
+        `   - max attempts: ${rule.maxAttempts}`,
+      );
+      if (rule.instruction) {
+        lines.push(`   - instruction: ${rule.instruction}`);
+      }
+    });
+  }
   return lines.join("\n");
 };
 

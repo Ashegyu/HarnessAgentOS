@@ -227,6 +227,75 @@ test("draftPlan translates explicit pipeline dependencies to WorkerStep ids", as
   }
 });
 
+test("draftPlan remaps pipeline backflow rule step ids to WorkerStep ids", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Backflow",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan.",
+          expectedArtifactKinds: ["plan"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code.",
+          expectedArtifactKinds: ["diff"],
+          dependsOn: ["plan"],
+        },
+      ],
+      backflowRules: [
+        {
+          id: "bf_code",
+          trigger: "step_failed",
+          targetStepId: "plan",
+          retryStepId: "code",
+          maxAttempts: 2,
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+
+    const [plan, code] = drafted.plan.workerSteps;
+    assert.deepEqual(drafted.plan.backflowRules, [
+      {
+        id: "bf_code",
+        trigger: "step_failed",
+        targetStepId: plan.id,
+        retryStepId: code.id,
+        maxAttempts: 2,
+      },
+    ]);
+    assert.match(drafted.artifact.summary, /backflow rules/i);
+    assert.match(drafted.artifact.summary, new RegExp(plan.id));
+    assert.match(drafted.artifact.summary, new RegExp(code.id));
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("draftPlan preserves remoteEndpointId for A2A pipeline steps", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

@@ -4,6 +4,7 @@ import type {
   AgentProfile,
   Approval,
   Artifact,
+  WorkerBackflowRule,
   WorkerOutputContract,
   WorkerRole,
 } from "@harness/core";
@@ -61,8 +62,11 @@ export class OrchestrationPlanner {
     // mode-vs-step-count constraints don't apply (the pipeline author
     // chose the step count); each step's shape is still validated.
     let workerSteps: WorkerStep[];
+    let backflowRules: WorkerBackflowRule[] = [];
     if (input.pipelineId) {
-      workerSteps = await this.synthesizeFromPipeline(input.pipelineId);
+      const synthesized = await this.synthesizeFromPipeline(input.pipelineId);
+      workerSteps = synthesized.workerSteps;
+      backflowRules = synthesized.backflowRules;
       for (const step of workerSteps) validateWorkerStep(step);
       validateWorkerTopology(workerSteps);
     } else {
@@ -85,6 +89,7 @@ export class OrchestrationPlanner {
     const markdown = formatPlanSummary({
       mode: input.mode,
       workerSteps,
+      ...(backflowRules.length > 0 ? { backflowRules } : {}),
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
         : {}),
@@ -93,6 +98,7 @@ export class OrchestrationPlanner {
       id: planId,
       mode: input.mode,
       workerSteps,
+      ...(backflowRules.length > 0 ? { backflowRules } : {}),
       ...(input.pipelineId !== undefined
         ? { sourcePipelineId: input.pipelineId }
         : {}),
@@ -151,6 +157,7 @@ export class OrchestrationPlanner {
       ...(input.pipelineId !== undefined
         ? { sourcePipelineId: input.pipelineId }
         : {}),
+      ...(backflowRules.length > 0 ? { backflowRules } : {}),
     };
     return { plan, artifact, approval };
   }
@@ -164,7 +171,10 @@ export class OrchestrationPlanner {
    */
   private async synthesizeFromPipeline(
     pipelineId: string,
-  ): Promise<WorkerStep[]> {
+  ): Promise<{
+    workerSteps: WorkerStep[];
+    backflowRules: WorkerBackflowRule[];
+  }> {
     const pipeline: AgentPipeline | null =
       await this.deps.state.agentPipelines.get(pipelineId);
     if (!pipeline) {
@@ -237,7 +247,12 @@ export class OrchestrationPlanner {
         outputContract,
       });
     }
-    return out;
+    const backflowRules = (pipeline.backflowRules ?? []).map((rule) => ({
+      ...rule,
+      targetStepId: workerIdByPipelineStepId.get(rule.targetStepId)!,
+      retryStepId: workerIdByPipelineStepId.get(rule.retryStepId)!,
+    }));
+    return { workerSteps: out, backflowRules };
   }
 }
 

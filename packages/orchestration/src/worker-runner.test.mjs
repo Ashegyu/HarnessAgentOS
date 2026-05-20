@@ -1337,6 +1337,191 @@ test("runApproved marks the step failed when the CLI invoker throws", async () =
   }
 });
 
+test("runApproved routes a failed step through configured pipeline backflow and retries it", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Backflow delivery",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Test after code.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["code"],
+        },
+      ],
+      backflowRules: [
+        {
+          id: "bf_code",
+          trigger: "step_failed",
+          targetStepId: "plan",
+          retryStepId: "code",
+          maxAttempts: 2,
+          instruction: "Revise the plan before retrying code.",
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push(input.profile.name);
+        if (
+          input.profile.name === "Coder" &&
+          calls.filter((name) => name === "Coder").length === 1
+        ) {
+          throw new Error("code failed first");
+        }
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.deepEqual(calls, ["Planner", "Coder", "Planner", "Coder", "Tester"]);
+    assert.equal(result.workerSteps.at(-1).title, "Test");
+    assert.equal(result.workerSteps.at(-1).status, "succeeded");
+    assert.equal((await state.getTaskRun(taskRun.id)).status, "ready_for_review");
+    const attempts = await state.pipelineBackflows.listByTaskRun(taskRun.id);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].ruleId, "bf_code");
+    assert.equal(attempts[0].status, "succeeded");
+    const events = await state.pipelineBackflows.listActivityEvents({
+      limit: 25,
+      offset: 0,
+    });
+    assert.deepEqual(
+      events.items.map((event) => event.eventType).reverse(),
+      ["triggered", "target_started", "target_succeeded", "retry_started", "retry_succeeded"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved blocks when backflow maxAttempts is already exhausted", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Backflow max",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+      ],
+      backflowRules: [
+        {
+          id: "bf_code",
+          trigger: "step_failed",
+          targetStepId: "plan",
+          retryStepId: "code",
+          maxAttempts: 1,
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    await state.pipelineBackflows.createAttempt({
+      taskRunId: taskRun.id,
+      planId: drafted.plan.id,
+      ruleId: "bf_code",
+      trigger: "step_failed",
+      targetStepId: drafted.plan.backflowRules[0].targetStepId,
+      retryStepId: drafted.plan.backflowRules[0].retryStepId,
+      maxAttempts: 1,
+      status: "failed",
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        if (input.profile.name === "Coder") {
+          throw new Error("still failing");
+        }
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.equal((await state.getTaskRun(taskRun.id)).status, "blocked");
+    const events = await state.pipelineBackflows.listActivityEvents({
+      limit: 25,
+      offset: 0,
+    });
+    assert.equal(events.items[0].eventType, "max_attempts_reached");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 // Without an invoker injected, the legacy deterministic stub remains
 // the source of truth — important for backward compatibility with
 // existing tests and for legacy mode-driven plans where no profile

@@ -4,6 +4,13 @@ import {
   WORKER_OUTPUT_CONTRACTS,
   type WorkerOutputContract,
 } from "./orchestration.ts";
+import {
+  isAgentPipelineBackflowRule,
+  type AgentPipelineBackflowRule,
+} from "./pipeline-backflow.ts";
+
+export { isAgentPipelineBackflowRule } from "./pipeline-backflow.ts";
+export type { AgentPipelineBackflowRule } from "./pipeline-backflow.ts";
 
 /**
  * Linear pipeline of AgentProfile invocations — see
@@ -48,6 +55,7 @@ export interface AgentPipeline {
   name: string;
   description: string;
   steps: readonly AgentPipelineStep[];
+  backflowRules?: readonly AgentPipelineBackflowRule[];
   createdAt: string;
   updatedAt: string;
 }
@@ -117,6 +125,13 @@ export const isAgentPipeline = (v: unknown): v is AgentPipeline => {
   if (!Array.isArray(p.steps)) return false;
   if (p.steps.length < 1 || p.steps.length > MAX_PIPELINE_STEPS) return false;
   if (!p.steps.every(isAgentPipelineStep)) return false;
+  if (
+    p.backflowRules !== undefined &&
+    (!Array.isArray(p.backflowRules) ||
+      !p.backflowRules.every(isAgentPipelineBackflowRule))
+  ) {
+    return false;
+  }
   return true;
 };
 

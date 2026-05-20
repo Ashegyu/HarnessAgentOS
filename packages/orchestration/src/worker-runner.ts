@@ -13,6 +13,10 @@ import {
   OrchestrationError,
   type OrchestrationPlan,
   type OrchestrationRunResult,
+  type PipelineBackflowAttempt,
+  type PipelineBackflowEventType,
+  type PipelineBackflowTrigger,
+  type WorkerBackflowRule,
   type WorkerRole,
   type WorkerStep,
 } from "./orchestration-types.ts";
@@ -110,6 +114,29 @@ interface WorkerStepExecutionResult {
   lifecycleInterruption: WorkerLifecycleInterruption | null;
 }
 
+interface BackflowExecutionContext {
+  plan: OrchestrationPlan;
+  baseStepIndex: number;
+  handoffDependencyIdsByStepId: ReadonlyMap<string, readonly string[]>;
+  handoffsByStepId: Map<string, InternalAgentMessage>;
+  stepArtifactIds: string[];
+  updatedSteps: WorkerStep[];
+  latestStatusByStepId: Map<string, WorkerStep["status"]>;
+  proposedApprovalIds: string[];
+  processWorkerResultSideEffects: (
+    result: WorkerStepExecutionResult,
+  ) => Promise<void>;
+  nextApprovalStepIndex: () => number;
+}
+
+interface BackflowExecutionOutcome {
+  handled: boolean;
+  succeeded: boolean;
+  lifecycleInterruption: WorkerLifecycleInterruption | null;
+  policyReport: string[];
+  lastDbStepId: string | null;
+}
+
 export class WorkerRunner {
   private readonly deps: WorkerRunnerDeps;
 
@@ -172,6 +199,8 @@ export class WorkerRunner {
     let lastDbStepId: string | null = null;
     const proposedApprovalIds: string[] = [];
     let approvalStepOffset = 0;
+    let unresolvedFailure = false;
+    const latestStatusByStepId = new Map<string, WorkerStep["status"]>();
 
     const processWorkerResultSideEffects = async (
       result: WorkerStepExecutionResult,
@@ -187,6 +216,50 @@ export class WorkerRunner {
         proposedApprovalIds.push(...createdApprovalIds);
       }
       await this.notifyTaskRunChanged(input.plan.taskRunId);
+    };
+
+    const recordResult = (result: WorkerStepExecutionResult): void => {
+      stepArtifactIds.push(result.artifactId);
+      updatedSteps.push({ ...result.planStep, status: result.status });
+      latestStatusByStepId.set(result.planStep.id, result.status);
+      lastDbStepId = result.dbStepId;
+      if (result.lifecycleInterruption) {
+        lifecycleInterruption = result.lifecycleInterruption;
+      }
+      if (result.handoff) {
+        handoffMessages.push(result.handoff);
+        handoffsByStepId.set(result.planStep.id, result.handoff);
+      }
+      policyReport.push(...result.policyReport);
+    };
+
+    const handleResult = async (
+      result: WorkerStepExecutionResult,
+    ): Promise<boolean> => {
+      recordResult(result);
+      if (result.status !== "failed") return false;
+      const backflow = await this.executeBackflowForFailedStep({
+        failedResult: result,
+        context: {
+          plan: input.plan,
+          baseStepIndex,
+          handoffDependencyIdsByStepId,
+          handoffsByStepId,
+          stepArtifactIds,
+          updatedSteps,
+          latestStatusByStepId,
+          proposedApprovalIds,
+          processWorkerResultSideEffects,
+          nextApprovalStepIndex: () =>
+            baseStepIndex + input.plan.workerSteps.length + approvalStepOffset,
+        },
+      });
+      policyReport.push(...backflow.policyReport);
+      if (backflow.lastDbStepId !== null) lastDbStepId = backflow.lastDbStepId;
+      if (backflow.lifecycleInterruption) {
+        lifecycleInterruption = backflow.lifecycleInterruption;
+      }
+      return !backflow.handled || !backflow.succeeded;
     };
 
     for (const wave of executionWaves) {
@@ -206,23 +279,26 @@ export class WorkerRunner {
           handoffDependencyIdsByStepId,
           handoffsByStepId,
         });
-      const results = wave.parallelizable
-        ? await runParallel(preparedWave, runOne, processWorkerResultSideEffects)
-        : await runSerial(preparedWave, runOne, processWorkerResultSideEffects);
-      for (const result of results) {
-        stepArtifactIds.push(result.artifactId);
-        updatedSteps.push({ ...result.planStep, status: result.status });
-        lastDbStepId = result.dbStepId;
-        if (result.lifecycleInterruption) {
-          lifecycleInterruption = result.lifecycleInterruption;
+      if (wave.parallelizable) {
+        const results = await runParallel(
+          preparedWave,
+          runOne,
+          processWorkerResultSideEffects,
+        );
+        for (const result of results) {
+          if (await handleResult(result)) unresolvedFailure = true;
         }
-        if (result.handoff) {
-          handoffMessages.push(result.handoff);
-          handoffsByStepId.set(result.planStep.id, result.handoff);
+      } else {
+        for (const prepared of preparedWave) {
+          const result = await runOne(prepared);
+          await processWorkerResultSideEffects(result);
+          if (await handleResult(result)) {
+            unresolvedFailure = true;
+            break;
+          }
         }
-        policyReport.push(...result.policyReport);
       }
-      if (results.some((result) => result.status === "failed")) break;
+      if (unresolvedFailure) break;
     }
     if (policyReport.length > 0 && lastDbStepId !== null) {
       const policyArtifact = await this.deps.state.createArtifact({
@@ -249,7 +325,10 @@ export class WorkerRunner {
       input.plan.taskRunId,
       lifecycleInterruption !== null
         ? "paused"
-        : updatedSteps.some((s) => s.status === "failed")
+        : unresolvedFailure ||
+            input.plan.workerSteps.some(
+              (step) => latestStatusByStepId.get(step.id) === "failed",
+            )
           ? "blocked"
           : hasUnresolvedWorkerApprovals
             ? "waiting_for_approval"
@@ -263,6 +342,417 @@ export class WorkerRunner {
       workerSteps: updatedSteps,
       proposedApprovalIds,
     };
+  }
+
+  async runQualityBackflow(input: {
+    plan: OrchestrationPlan;
+    reason: string;
+  }): Promise<OrchestrationRunResult | null> {
+    const rule = input.plan.backflowRules?.find(
+      (candidate) => candidate.trigger === "quality_failed",
+    );
+    if (!rule) return null;
+
+    const stepArtifactIds: string[] = [];
+    const updatedSteps: WorkerStep[] = [];
+    const policyReport: string[] = [];
+    const proposedApprovalIds: string[] = [];
+    const handoffsByStepId = new Map<string, InternalAgentMessage>();
+    const latestStatusByStepId = new Map<string, WorkerStep["status"]>();
+    const handoffDependencyIdsByStepId = buildEffectiveWorkerDependencyMap(
+      input.plan.workerSteps,
+    );
+    const baseStepIndex = (
+      await this.deps.state.listStepsByTaskRun(input.plan.taskRunId)
+    ).length;
+    let approvalStepOffset = 0;
+    let lastDbStepId: string | null = null;
+    let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
+
+    for (const step of input.plan.workerSteps) validateWorkerStep(step);
+    orderWorkerStepsByDependencies(input.plan.workerSteps);
+    await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
+
+    const processWorkerResultSideEffects = async (
+      result: WorkerStepExecutionResult,
+    ): Promise<void> => {
+      if (result.acceptedActions.length > 0 && result.status === "succeeded") {
+        const createdApprovalIds = await this.createWorkerActionApprovals({
+          plan: input.plan,
+          result,
+          approvalStepIndex:
+            baseStepIndex + input.plan.workerSteps.length + approvalStepOffset,
+        });
+        approvalStepOffset += 1;
+        proposedApprovalIds.push(...createdApprovalIds);
+      }
+      await this.notifyTaskRunChanged(input.plan.taskRunId);
+    };
+
+    const outcome = await this.executeBackflowRule({
+      rule,
+      trigger: "quality_failed",
+      reason: input.reason,
+      context: {
+        plan: input.plan,
+        baseStepIndex,
+        handoffDependencyIdsByStepId,
+        handoffsByStepId,
+        stepArtifactIds,
+        updatedSteps,
+        latestStatusByStepId,
+        proposedApprovalIds,
+        processWorkerResultSideEffects,
+        nextApprovalStepIndex: () =>
+          baseStepIndex + input.plan.workerSteps.length + approvalStepOffset,
+      },
+      runDownstreamAfterRetry: true,
+    });
+
+    policyReport.push(...outcome.policyReport);
+    lastDbStepId = outcome.lastDbStepId;
+    lifecycleInterruption = outcome.lifecycleInterruption;
+    if (policyReport.length > 0 && lastDbStepId !== null) {
+      const policyArtifact = await this.deps.state.createArtifact({
+        taskRunId: input.plan.taskRunId,
+        stepId: lastDbStepId,
+        kind: "quality_report",
+        title: "Worker action policy report",
+        uri: `harness:orchestration-policy/${input.plan.id}/${Date.now()}`,
+        summary: [
+          "# Worker proposed-action policy rejections",
+          "",
+          `Total rejected: ${policyReport.length}`,
+          "",
+          ...policyReport,
+        ].join("\n"),
+      });
+      stepArtifactIds.push(policyArtifact.id);
+    }
+    const hasUnresolvedWorkerApprovals = await this.hasUnresolvedApprovals({
+      taskRunId: input.plan.taskRunId,
+      approvalIds: proposedApprovalIds,
+    });
+    await this.deps.state.setTaskRunStatus(
+      input.plan.taskRunId,
+      lifecycleInterruption !== null
+        ? "paused"
+        : !outcome.succeeded
+          ? "blocked"
+          : hasUnresolvedWorkerApprovals
+            ? "waiting_for_approval"
+            : "ready_for_review",
+    );
+    await this.notifyTaskRunChanged(input.plan.taskRunId);
+
+    return {
+      planId: input.plan.id,
+      taskRunId: input.plan.taskRunId,
+      workerStepArtifactIds: stepArtifactIds,
+      workerSteps: updatedSteps,
+      proposedApprovalIds,
+    };
+  }
+
+  private async executeBackflowForFailedStep(input: {
+    failedResult: WorkerStepExecutionResult;
+    context: BackflowExecutionContext;
+  }): Promise<BackflowExecutionOutcome> {
+    const rule = input.context.plan.backflowRules?.find(
+      (candidate) =>
+        candidate.trigger === "step_failed" &&
+        candidate.retryStepId === input.failedResult.planStep.id,
+    );
+    if (!rule) {
+      return emptyBackflowOutcome(false);
+    }
+    return this.executeBackflowRule({
+      rule,
+      trigger: "step_failed",
+      reason: `Worker step failed: ${input.failedResult.planStep.title}`,
+      context: input.context,
+      failedStepId: input.failedResult.planStep.id,
+      runDownstreamAfterRetry: false,
+    });
+  }
+
+  private async executeBackflowRule(input: {
+    rule: WorkerBackflowRule;
+    trigger: PipelineBackflowTrigger;
+    reason: string;
+    context: BackflowExecutionContext;
+    failedStepId?: string;
+    runDownstreamAfterRetry: boolean;
+  }): Promise<BackflowExecutionOutcome> {
+    const { context, rule } = input;
+    const currentAttemptCount = await this.deps.state.pipelineBackflows.countAttempts({
+      taskRunId: context.plan.taskRunId,
+      planId: context.plan.id,
+      ruleId: rule.id,
+      trigger: input.trigger,
+    });
+    if (currentAttemptCount >= rule.maxAttempts) {
+      const attempt = await this.deps.state.pipelineBackflows.createAttempt({
+        taskRunId: context.plan.taskRunId,
+        planId: context.plan.id,
+        ruleId: rule.id,
+        trigger: input.trigger,
+        targetStepId: rule.targetStepId,
+        retryStepId: rule.retryStepId,
+        maxAttempts: rule.maxAttempts,
+        status: "max_attempts_reached",
+        reason: input.reason,
+      });
+      await this.deps.state.pipelineBackflows.updateAttempt(attempt.id, {
+        completedAt: new Date().toISOString(),
+      });
+      await this.recordBackflowEvent({
+        attempt,
+        eventType: "max_attempts_reached",
+        status: "max_attempts_reached",
+        summary: `Backflow max attempts reached for ${rule.id}`,
+        reason: input.reason,
+        payload: { failedStepId: input.failedStepId },
+      });
+      return {
+        handled: true,
+        succeeded: false,
+        lifecycleInterruption: null,
+        policyReport: [],
+        lastDbStepId: null,
+      };
+    }
+
+    const attempt = await this.deps.state.pipelineBackflows.createAttempt({
+      taskRunId: context.plan.taskRunId,
+      planId: context.plan.id,
+      ruleId: rule.id,
+      trigger: input.trigger,
+      targetStepId: rule.targetStepId,
+      retryStepId: rule.retryStepId,
+      maxAttempts: rule.maxAttempts,
+      reason: input.reason,
+    });
+    await this.recordBackflowEvent({
+      attempt,
+      eventType: "triggered",
+      status: "running",
+      summary: `Backflow triggered by ${input.trigger}`,
+      reason: input.reason,
+      payload: { failedStepId: input.failedStepId },
+    });
+
+    const targetStep = this.requirePlanStep(context.plan, rule.targetStepId);
+    const retryStep = this.requirePlanStep(context.plan, rule.retryStepId);
+    const policyReport: string[] = [];
+    let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
+    let lastDbStepId: string | null = null;
+
+    await this.recordBackflowEvent({
+      attempt,
+      eventType: "target_started",
+      status: "running",
+      summary: `Backflow target started: ${targetStep.title}`,
+      payload: { targetStepId: targetStep.id },
+    });
+    const targetResult = await this.runBackflowStep({
+      context,
+      planStep: targetStep,
+    });
+    await context.processWorkerResultSideEffects(targetResult);
+    this.appendBackflowResult(context, targetResult);
+    policyReport.push(...targetResult.policyReport);
+    lastDbStepId = targetResult.dbStepId;
+    if (targetResult.lifecycleInterruption) {
+      lifecycleInterruption = targetResult.lifecycleInterruption;
+    }
+    if (targetResult.status === "failed") {
+      await this.failBackflowAttempt({
+        attempt,
+        reason: `Backflow target failed: ${targetStep.title}`,
+        eventPayload: { targetStepId: targetStep.id },
+      });
+      return {
+        handled: true,
+        succeeded: false,
+        lifecycleInterruption,
+        policyReport,
+        lastDbStepId,
+      };
+    }
+    await this.recordBackflowEvent({
+      attempt,
+      eventType: "target_succeeded",
+      status: "running",
+      summary: `Backflow target succeeded: ${targetStep.title}`,
+      payload: { targetStepId: targetStep.id, artifactId: targetResult.artifactId },
+    });
+
+    await this.recordBackflowEvent({
+      attempt,
+      eventType: "retry_started",
+      status: "running",
+      summary: `Backflow retry started: ${retryStep.title}`,
+      payload: { retryStepId: retryStep.id },
+    });
+    const retryResult = await this.runBackflowStep({
+      context,
+      planStep: retryStep,
+      additionalHandoffMessages: targetResult.handoff ? [targetResult.handoff] : [],
+    });
+    await context.processWorkerResultSideEffects(retryResult);
+    this.appendBackflowResult(context, retryResult);
+    policyReport.push(...retryResult.policyReport);
+    lastDbStepId = retryResult.dbStepId;
+    if (retryResult.lifecycleInterruption) {
+      lifecycleInterruption = retryResult.lifecycleInterruption;
+    }
+    if (retryResult.status === "failed") {
+      await this.failBackflowAttempt({
+        attempt,
+        reason: `Backflow retry failed: ${retryStep.title}`,
+        eventPayload: { retryStepId: retryStep.id },
+      });
+      return {
+        handled: true,
+        succeeded: false,
+        lifecycleInterruption,
+        policyReport,
+        lastDbStepId,
+      };
+    }
+    await this.recordBackflowEvent({
+      attempt,
+      eventType: "retry_succeeded",
+      status: "succeeded",
+      summary: `Backflow retry succeeded: ${retryStep.title}`,
+      payload: { retryStepId: retryStep.id, artifactId: retryResult.artifactId },
+    });
+
+    if (input.runDownstreamAfterRetry) {
+      const downstream = downstreamStepsAfter(context.plan.workerSteps, retryStep.id);
+      for (const downstreamStep of downstream) {
+        const result = await this.runBackflowStep({
+          context,
+          planStep: downstreamStep,
+        });
+        await context.processWorkerResultSideEffects(result);
+        this.appendBackflowResult(context, result);
+        policyReport.push(...result.policyReport);
+        lastDbStepId = result.dbStepId;
+        if (result.lifecycleInterruption) {
+          lifecycleInterruption = result.lifecycleInterruption;
+        }
+        if (result.status === "failed") {
+          await this.failBackflowAttempt({
+            attempt,
+            reason: `Downstream step failed after backflow retry: ${downstreamStep.title}`,
+            eventPayload: { downstreamStepId: downstreamStep.id },
+          });
+          return {
+            handled: true,
+            succeeded: false,
+            lifecycleInterruption,
+            policyReport,
+            lastDbStepId,
+          };
+        }
+      }
+    }
+
+    await this.deps.state.pipelineBackflows.updateAttempt(attempt.id, {
+      status: "succeeded",
+      completedAt: new Date().toISOString(),
+    });
+    return {
+      handled: true,
+      succeeded: true,
+      lifecycleInterruption,
+      policyReport,
+      lastDbStepId,
+    };
+  }
+
+  private async runBackflowStep(input: {
+    context: BackflowExecutionContext;
+    planStep: WorkerStep;
+    additionalHandoffMessages?: readonly InternalAgentMessage[];
+  }): Promise<WorkerStepExecutionResult> {
+    const prepared = await this.prepareWorkerStep(input.planStep, 0);
+    const stepIndex = (
+      await this.deps.state.listStepsByTaskRun(input.context.plan.taskRunId)
+    ).length;
+    return this.runPreparedWorkerStep({
+      prepared,
+      plan: input.context.plan,
+      baseStepIndex: input.context.baseStepIndex,
+      stepIndexOverride: stepIndex,
+      handoffDependencyIdsByStepId: input.context.handoffDependencyIdsByStepId,
+      handoffsByStepId: input.context.handoffsByStepId,
+      additionalHandoffMessages: input.additionalHandoffMessages ?? [],
+    });
+  }
+
+  private appendBackflowResult(
+    context: BackflowExecutionContext,
+    result: WorkerStepExecutionResult,
+  ): void {
+    context.stepArtifactIds.push(result.artifactId);
+    context.updatedSteps.push({ ...result.planStep, status: result.status });
+    context.latestStatusByStepId.set(result.planStep.id, result.status);
+    if (result.handoff) {
+      context.handoffsByStepId.set(result.planStep.id, result.handoff);
+    }
+  }
+
+  private async recordBackflowEvent(input: {
+    attempt: PipelineBackflowAttempt;
+    eventType: PipelineBackflowEventType;
+    status: PipelineBackflowAttempt["status"];
+    summary: string;
+    reason?: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void> {
+    await this.deps.state.pipelineBackflows.createEvent({
+      taskRunId: input.attempt.taskRunId,
+      attemptId: input.attempt.id,
+      eventType: input.eventType,
+      status: input.status,
+      summary: input.summary,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      ...(input.payload !== undefined ? { payload: input.payload } : {}),
+    });
+  }
+
+  private async failBackflowAttempt(input: {
+    attempt: PipelineBackflowAttempt;
+    reason: string;
+    eventPayload: Record<string, unknown>;
+  }): Promise<void> {
+    await this.deps.state.pipelineBackflows.updateAttempt(input.attempt.id, {
+      status: "failed",
+      reason: input.reason,
+      completedAt: new Date().toISOString(),
+    });
+    await this.recordBackflowEvent({
+      attempt: input.attempt,
+      eventType: "failed",
+      status: "failed",
+      summary: input.reason,
+      reason: input.reason,
+      payload: input.eventPayload,
+    });
+  }
+
+  private requirePlanStep(plan: OrchestrationPlan, stepId: string): WorkerStep {
+    const step = plan.workerSteps.find((candidate) => candidate.id === stepId);
+    if (!step) {
+      throw new OrchestrationError(
+        "PIPELINE_BACKFLOW_STEP_NOT_FOUND",
+        `Backflow rule references unknown worker step ${stepId}`,
+      );
+    }
+    return step;
   }
 
   private async createWorkerActionApprovals(input: {
@@ -453,14 +943,16 @@ export class WorkerRunner {
     prepared: PreparedWorkerStep;
     plan: OrchestrationPlan;
     baseStepIndex: number;
+    stepIndexOverride?: number;
     handoffDependencyIdsByStepId: ReadonlyMap<string, readonly string[]>;
     handoffsByStepId: ReadonlyMap<string, InternalAgentMessage>;
+    additionalHandoffMessages?: readonly InternalAgentMessage[];
   }): Promise<WorkerStepExecutionResult> {
     const { planStep, executionIndex, profile, remoteEndpoint } =
       input.prepared;
     const dbStep = await this.deps.state.createStep({
       taskRunId: input.plan.taskRunId,
-      index: input.baseStepIndex + executionIndex,
+      index: input.stepIndexOverride ?? input.baseStepIndex + executionIndex,
       kind: "summarize",
       title:
         profile && remoteEndpoint
@@ -488,7 +980,7 @@ export class WorkerRunner {
         resolveHandoffsForStep(
           input.handoffDependencyIdsByStepId.get(planStep.id) ?? [],
           input.handoffsByStepId,
-        ),
+        ).concat(input.additionalHandoffMessages ?? []),
       );
       body = outcome.body;
       proposedActions = outcome.proposedActions;
@@ -585,26 +1077,42 @@ export class WorkerRunner {
   }
 }
 
-const runSerial = async <T, R>(
-  items: readonly T[],
-  runOne: (item: T) => Promise<R>,
-  onResult?: (result: R) => Promise<void>,
-): Promise<R[]> => {
-  const results: R[] = [];
-  for (const item of items) {
-    const result = await runOne(item);
-    await onResult?.(result);
-    results.push(result);
-    if (
-      typeof result === "object" &&
-      result !== null &&
-      "status" in result &&
-      result.status === "failed"
-    ) {
-      break;
-    }
-  }
-  return results;
+const emptyBackflowOutcome = (handled: boolean): BackflowExecutionOutcome => ({
+  handled,
+  succeeded: false,
+  lifecycleInterruption: null,
+  policyReport: [],
+  lastDbStepId: null,
+});
+
+const downstreamStepsAfter = (
+  steps: readonly WorkerStep[],
+  retryStepId: string,
+): WorkerStep[] => {
+  const stepIds = new Set(steps.map((step) => step.id));
+  const depsByStepId = new Map(
+    steps.map((step, index) => [
+      step.id,
+      step.dependsOn !== undefined
+        ? [...step.dependsOn]
+        : index > 0
+          ? [steps[index - 1]!.id]
+          : [],
+    ] as const),
+  );
+  const hasRetryAncestor = (stepId: string, visiting = new Set<string>()): boolean => {
+    if (stepId === retryStepId) return true;
+    if (visiting.has(stepId)) return false;
+    visiting.add(stepId);
+    const deps = depsByStepId.get(stepId) ?? [];
+    return deps.some((depId) =>
+      stepIds.has(depId) ? hasRetryAncestor(depId, visiting) : false,
+    );
+  };
+  const order = orderWorkerStepsByDependencies([...steps]);
+  return order.filter(
+    (step) => step.id !== retryStepId && hasRetryAncestor(step.id),
+  );
 };
 
 const runParallel = async <T, R>(

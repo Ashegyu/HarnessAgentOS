@@ -399,6 +399,86 @@ test("validatePipelineDraft accepts explicit dependencies and metadata", () => {
   );
 });
 
+test("validatePipelineDraft accepts and serializes backflow rules", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Backflow Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+      },
+      {
+        id: "code",
+        agentProfileId: "ap_b",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["plan"],
+      },
+    ],
+    backflowRules: [
+      {
+        id: "bf_code",
+        trigger: "step_failed",
+        targetStepId: "plan",
+        retryStepId: "code",
+        maxAttempts: 2,
+        instruction: "Revise plan before retry.",
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]),
+    [],
+  );
+  const out = serializePipelineDraft(d);
+  assert.deepEqual(out.backflowRules, d.backflowRules);
+});
+
+test("validatePipelineDraft flags invalid backflow rules without treating them as dependency cycles", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Backflow Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+      },
+      {
+        id: "code",
+        agentProfileId: "ap_b",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["plan"],
+      },
+    ],
+    backflowRules: [
+      {
+        id: "bf_forward",
+        trigger: "quality_failed",
+        targetStepId: "code",
+        retryStepId: "plan",
+        maxAttempts: 2,
+      },
+    ],
+  };
+
+  const errs = validatePipelineDraft(d, [profile("ap_a"), profile("ap_b")]);
+  assert.ok(errs.some((e) => /backflow/i.test(e.message)));
+  assert.equal(errs.some((e) => /cycle/i.test(e.message)), false);
+});
+
 test("validatePipelineDraft flags dependency cycles", () => {
   const d = {
     ...emptyPipelineDraft(),

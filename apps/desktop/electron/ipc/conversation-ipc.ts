@@ -28,6 +28,8 @@ import {
   type DecisionLogInput,
   type DecisionLogPage,
   type HarnessResult,
+  type PipelineBackflowActivityInput,
+  type PipelineBackflowActivityPage,
   type RedirectTaskInput,
   type RejectApprovalInput,
   type TaskRun,
@@ -197,6 +199,54 @@ const parseA2ARefinementActivityInput = (
     return { ok: false, reason: "offset must be a non-negative integer" };
   }
   const value: A2ARefinementActivityInput = {
+    limit: cast.limit,
+    offset: cast.offset,
+  };
+  if (cast.sinceIso !== undefined) {
+    if (!isNonEmptyString(cast.sinceIso)) {
+      return { ok: false, reason: "sinceIso must be a non-empty string" };
+    }
+    value.sinceIso = cast.sinceIso;
+  }
+  if (cast.untilIso !== undefined) {
+    if (!isNonEmptyString(cast.untilIso)) {
+      return { ok: false, reason: "untilIso must be a non-empty string" };
+    }
+    value.untilIso = cast.untilIso;
+  }
+  return { ok: true, value };
+};
+
+const parsePipelineBackflowActivityInput = (
+  input: unknown,
+):
+  | { ok: true; value: PipelineBackflowActivityInput }
+  | { ok: false; reason: string } => {
+  if (!isObject(input)) {
+    return { ok: false, reason: "input must be an object" };
+  }
+  const cast = input as {
+    limit?: unknown;
+    offset?: unknown;
+    sinceIso?: unknown;
+    untilIso?: unknown;
+  };
+  if (
+    typeof cast.limit !== "number" ||
+    !Number.isInteger(cast.limit) ||
+    cast.limit < 1 ||
+    cast.limit > 100
+  ) {
+    return { ok: false, reason: "limit must be an integer from 1 to 100" };
+  }
+  if (
+    typeof cast.offset !== "number" ||
+    !Number.isInteger(cast.offset) ||
+    cast.offset < 0
+  ) {
+    return { ok: false, reason: "offset must be a non-negative integer" };
+  }
+  const value: PipelineBackflowActivityInput = {
     limit: cast.limit,
     offset: cast.offset,
   };
@@ -507,6 +557,7 @@ export const registerConversationIpc = (
           qualityGates,
           repairAttempts,
           agentInvocations,
+          pipelineBackflowAttempts,
           accumulatedTaskRunCostUsd,
           dailyAgentInvocationCostRows,
         ] =
@@ -518,6 +569,7 @@ export const registerConversationIpc = (
             state.listQualityGateResults(cast.taskRunId),
             state.repairAttempts.listByTaskRun(cast.taskRunId),
             state.listAgentInvocationsByTaskRun(cast.taskRunId),
+            state.pipelineBackflows.listByTaskRun(cast.taskRunId),
             state.sumAgentInvocationCostByTaskRun(cast.taskRunId),
             state.aggregateAgentInvocationCostByProfileAndDay({
               sinceIso: `${usageIsoDate}T00:00:00.000Z`,
@@ -588,6 +640,7 @@ export const registerConversationIpc = (
           agentInvocations,
           a2aRemoteTaskRefs,
           a2aRefinementAttempts,
+          pipelineBackflowAttempts,
           a2aRefinementProposals,
           budgetUsage: {
             accumulatedTaskRunCostUsd,
@@ -644,6 +697,24 @@ export const registerConversationIpc = (
         return ok(await state.a2aRefinements.listActivityEvents(parsed.value));
       } catch (e) {
         return mapServiceError<A2ARefinementActivityPage>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.conversation.listBackflowEvents,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<PipelineBackflowActivityPage>> => {
+      const parsed = parsePipelineBackflowActivityInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      try {
+        return ok(await state.pipelineBackflows.listActivityEvents(parsed.value));
+      } catch (e) {
+        return mapServiceError<PipelineBackflowActivityPage>(e);
       }
     },
   );

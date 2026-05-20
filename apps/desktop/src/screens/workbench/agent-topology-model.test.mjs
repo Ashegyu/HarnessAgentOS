@@ -47,7 +47,7 @@ const approval = (overrides = {}) => ({
   ...overrides,
 });
 
-const orchestrationPlanArtifact = (workerSteps) => ({
+const orchestrationPlanArtifact = (workerSteps, overrides = {}) => ({
   id: "art_plan",
   taskRunId: "task_1",
   kind: "orchestration_plan",
@@ -62,6 +62,7 @@ const orchestrationPlanArtifact = (workerSteps) => ({
       mode: "planner_worker",
       workerSteps,
       sourcePipelineId: "pipe_1",
+      ...overrides,
     }),
     "```",
   ].join("\n"),
@@ -273,6 +274,89 @@ test("uses concrete agent names as visible graph labels", () => {
   assert.equal(
     graph.nodes.find((node) => node.id === "agent:inv_coder")?.displayLabel,
     "Coder",
+  );
+});
+
+test("renders pipeline backflow edges separately from normal dependency handoffs", () => {
+  const workerSteps = [
+    {
+      id: "plan",
+      title: "Plan",
+      role: "planner",
+      inputSummary: "plan",
+      instruction: "plan",
+      expectedArtifactKinds: ["log"],
+      status: "succeeded",
+      dependsOn: [],
+      allowedActions: [],
+    },
+    {
+      id: "code",
+      title: "Code",
+      role: "coder",
+      inputSummary: "code",
+      instruction: "code",
+      expectedArtifactKinds: ["log"],
+      status: "failed",
+      dependsOn: ["plan"],
+      allowedActions: [],
+    },
+  ];
+  const graph = buildAgentTopology({
+    taskRun: taskRun({ status: "blocked" }),
+    steps: [
+      step({ id: "db_plan", title: "Worker[Planner] Plan" }),
+      step({
+        id: "db_code",
+        index: 1,
+        title: "Worker[Coder] Code",
+        status: "failed",
+      }),
+    ],
+    invocations: [],
+    approvals: [],
+    remoteTaskRefs: [],
+    artifacts: [
+      orchestrationPlanArtifact(workerSteps, {
+        backflowRules: [
+          {
+            id: "bf_code",
+            trigger: "step_failed",
+            targetStepId: "plan",
+            retryStepId: "code",
+            maxAttempts: 2,
+          },
+        ],
+      }),
+      workerOutputArtifact({
+        id: "art_plan_out",
+        dbStepId: "db_plan",
+        workerStepId: "plan",
+      }),
+      workerOutputArtifact({
+        id: "art_code_out",
+        dbStepId: "db_code",
+        workerStepId: "code",
+      }),
+    ],
+  });
+
+  assert.ok(
+    graph.edges.some(
+      (edge) =>
+        edge.kind === "handoff" &&
+        edge.source === "step:db_plan" &&
+        edge.target === "step:db_code",
+    ),
+  );
+  assert.ok(
+    graph.edges.some(
+      (edge) =>
+        edge.kind === "backflow" &&
+        edge.source === "step:db_code" &&
+        edge.target === "step:db_plan" &&
+        edge.label === "step_failed",
+    ),
   );
 });
 

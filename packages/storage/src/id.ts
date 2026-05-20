@@ -22,6 +22,8 @@ const PREFIXES = {
   mcpServer: "mcp_",
   skillSource: "ss_",
   agentPipeline: "pipe_",
+  pipelineBackflow: "pbf_",
+  pipelineBackflowEvent: "pbfe_",
   a2aEndpoint: "a2a_",
   a2aRefinement: "a2aref_",
   a2aRefinementEvent: "a2are_",

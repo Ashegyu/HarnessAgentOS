@@ -90,6 +90,14 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE threads ADD COLUMN pipeline_id TEXT`);
     }
 
+    // v30 — pipeline-level conditional backflow rules. Existing pipeline
+    // templates default to no backflow edges.
+    if (!hasColumn(db, "agent_pipelines", "backflow_rules_json")) {
+      db.exec(
+        `ALTER TABLE agent_pipelines ADD COLUMN backflow_rules_json TEXT NOT NULL DEFAULT '[]'`,
+      );
+    }
+
     // v20 — profile taxonomy for framework-derived agents. `role` stays
     // the execution-stage contract; category/tags express specialisation.
     if (!hasColumn(db, "agent_profiles", "category")) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   MAX_PIPELINE_STEPS,
   isAgentPipeline,
+  isAgentPipelineBackflowRule,
   isAgentPipelineStep,
 } from "./agent-pipeline.ts";
 
@@ -92,6 +93,69 @@ test("isAgentPipelineStep rejects malformed topology metadata", () => {
 
 test("isAgentPipeline accepts a well-formed pipeline", () => {
   assert.equal(isAgentPipeline(VALID_PIPELINE), true);
+});
+
+test("isAgentPipelineBackflowRule accepts a bounded conditional rule", () => {
+  assert.equal(
+    isAgentPipelineBackflowRule({
+      id: "bf_1",
+      trigger: "step_failed",
+      targetStepId: "step_01",
+      retryStepId: "step_02",
+      maxAttempts: 2,
+      instruction: "Use the target step to correct the failed output.",
+    }),
+    true,
+  );
+});
+
+test("isAgentPipelineBackflowRule rejects malformed trigger and attempt bounds", () => {
+  assert.equal(
+    isAgentPipelineBackflowRule({
+      id: "bf_1",
+      trigger: "done",
+      targetStepId: "step_01",
+      retryStepId: "step_02",
+      maxAttempts: 2,
+    }),
+    false,
+  );
+  assert.equal(
+    isAgentPipelineBackflowRule({
+      id: "bf_1",
+      trigger: "quality_failed",
+      targetStepId: "step_01",
+      retryStepId: "step_02",
+      maxAttempts: 0,
+    }),
+    false,
+  );
+});
+
+test("isAgentPipeline accepts optional backflow rules on the template", () => {
+  assert.equal(
+    isAgentPipeline({
+      ...VALID_PIPELINE,
+      steps: [
+        VALID_STEP,
+        {
+          ...VALID_STEP,
+          id: "step_02",
+          title: "Retry",
+        },
+      ],
+      backflowRules: [
+        {
+          id: "bf_1",
+          trigger: "step_failed",
+          targetStepId: "step_01",
+          retryStepId: "step_02",
+          maxAttempts: 2,
+        },
+      ],
+    }),
+    true,
+  );
 });
 
 test("isAgentPipeline rejects empty steps array — pipelines must have ≥1 step", () => {
