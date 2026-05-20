@@ -33,7 +33,12 @@ const seedTaskRun = async (state, targetDir) => {
   });
 };
 
-const seedApproval = async (state, taskRun, actionType = "file_write") => {
+const seedApproval = async (
+  state,
+  taskRun,
+  actionType = "file_write",
+  decision = "rejected",
+) => {
   const step = await state.createStep({
     taskRunId: taskRun.id,
     index: 0,
@@ -54,7 +59,11 @@ const seedApproval = async (state, taskRun, actionType = "file_write") => {
     actionType,
     actionSummary: `Run ${actionType}`,
   });
-  return state.decideApproval(approval.id, "rejected", "no");
+  return state.decideApproval(
+    approval.id,
+    decision,
+    decision === "rejected" ? "no" : "ok",
+  );
 };
 
 test("InstinctService records repeated approval rejections as one pending candidate", async () => {
@@ -81,6 +90,35 @@ test("InstinctService records repeated approval rejections as one pending candid
 
     const again = await service.listCandidates({ projectKey: "proj_test" });
     assert.equal(again.length, 1);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("InstinctService does not create candidates from repeated approval approvals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const collector = new ObservationCollector({
+      state,
+      projectKeyForTask: async () => "proj_test",
+    });
+    const service = new InstinctService({ state, collector, minSignals: 3 });
+    for (let i = 0; i < 3; i += 1) {
+      const taskRun = await seedTaskRun(state, t.dir);
+      const approval = await seedApproval(
+        state,
+        taskRun,
+        "file_write",
+        "approved",
+      );
+      await service.recordApprovalDecision(approval);
+    }
+
+    const candidates = await service.listCandidates({ projectKey: "proj_test" });
+    assert.deepEqual(candidates, []);
   } finally {
     closeDb(db);
     t.cleanup();

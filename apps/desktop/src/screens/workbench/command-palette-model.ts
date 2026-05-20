@@ -1,4 +1,9 @@
-export type CommandPaletteGroup = "tab" | "thread" | "settings" | "taskrun";
+export type CommandPaletteGroup =
+  | "tab"
+  | "thread"
+  | "learning"
+  | "settings"
+  | "taskrun";
 
 export interface CommandPaletteItem {
   id: string;

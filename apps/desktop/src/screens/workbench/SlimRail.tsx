@@ -2,10 +2,12 @@ interface SlimRailProps {
   threadCount: number;
   threadDrawerOpen: boolean;
   contextDrawerOpen: boolean;
+  learningOpen: boolean;
   hasSelectedTaskRun: boolean;
   theme: "dark" | "light";
   onToggleThreadDrawer: () => void;
   onToggleContextDrawer: () => void;
+  onOpenLearning: () => void;
   onNewThread: () => void;
   onToggleTheme: () => void;
   onOpenSettings: () => void;
@@ -15,10 +17,12 @@ export const SlimRail = ({
   threadCount,
   threadDrawerOpen,
   contextDrawerOpen,
+  learningOpen,
   hasSelectedTaskRun,
   theme,
   onToggleThreadDrawer,
   onToggleContextDrawer,
+  onOpenLearning,
   onNewThread,
   onToggleTheme,
   onOpenSettings,
@@ -55,6 +59,17 @@ export const SlimRail = ({
         disabled={!hasSelectedTaskRun}
       >
         <span aria-hidden>▦</span>
+      </button>
+
+      <button
+        type="button"
+        className={`slim-rail__btn${learningOpen ? " slim-rail__btn--active" : ""}`}
+        onClick={onOpenLearning}
+        aria-pressed={learningOpen}
+        aria-label="Learning 열기"
+        title="Learning"
+      >
+        <span aria-hidden>※</span>
       </button>
 
       <div className="slim-rail__spacer" />

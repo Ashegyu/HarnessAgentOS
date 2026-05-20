@@ -16,6 +16,7 @@ export const scoreInstinctCandidates = (
   const groups = new Map<string, Observation[]>();
 
   for (const observation of input.observations) {
+    if (!isCandidateSignal(observation)) continue;
     const key = [
       observation.projectKey ?? "",
       observation.source,
@@ -59,6 +60,16 @@ const confidenceFor = (count: number): number =>
 
 const normalizeSummary = (summary: string): string =>
   summary.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
+
+const isCandidateSignal = (observation: Observation): boolean => {
+  if (observation.source === "approval") {
+    return observation.eventType === "rejected";
+  }
+  if (observation.source === "quality") {
+    return observation.eventType === "failed" || observation.signal === "failed";
+  }
+  return true;
+};
 
 const titleFor = (observation: Observation): string => {
   if (observation.source === "approval" && observation.eventType === "rejected") {

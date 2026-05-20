@@ -22,6 +22,7 @@ import type { ConversationMode } from "./ConversationInput";
 import { RightPanel, type RightPanelTab } from "./RightPanel";
 import { RuntimeStatusBar } from "./RuntimeStatusBar";
 import { SettingsPanel } from "./SettingsPanel";
+import { LearningPanel } from "./LearningPanel";
 import { CommandPalette } from "./CommandPalette";
 import { NotificationTray } from "./NotificationTray";
 import type { CommandPaletteItem } from "./command-palette-model";
@@ -69,7 +70,6 @@ const COMMAND_TAB_ITEMS: ReadonlyArray<{
   { id: "artifacts", title: "Files", keywords: ["artifacts"] },
   { id: "quality", title: "Quality", keywords: ["qa"] },
   { id: "capabilities", title: "Capabilities", keywords: ["caps"] },
-  { id: "instinct", title: "Instinct", keywords: ["inst"] },
   { id: "orchestration", title: "Orchestration", keywords: ["orch"] },
   { id: "cost", title: "Cost", keywords: ["budget", "latency"] },
   { id: "decisions", title: "Decisions", keywords: ["auto approve"] },
@@ -99,6 +99,7 @@ export const WorkbenchShell = (): JSX.Element => {
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [learningOpen, setLearningOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("plan");
   const [recentTaskRuns, setRecentTaskRuns] = useState<RecentTaskRunCommand[]>(
@@ -279,9 +280,13 @@ export const WorkbenchShell = (): JSX.Element => {
         }
       }
       if (e.key === "Escape") {
-        // Priority: command palette > settings modal > rightmost drawer
+        // Priority: command palette > learning/settings modals > rightmost drawer
         if (commandPaletteOpen) {
           setCommandPaletteOpen(false);
+          return;
+        }
+        if (learningOpen) {
+          setLearningOpen(false);
           return;
         }
         if (settingsOpen) {
@@ -300,7 +305,13 @@ export const WorkbenchShell = (): JSX.Element => {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [commandPaletteOpen, settingsOpen, contextDrawerOpen, threadDrawerOpen]);
+  }, [
+    commandPaletteOpen,
+    learningOpen,
+    settingsOpen,
+    contextDrawerOpen,
+    threadDrawerOpen,
+  ]);
 
   const dragRef = useRef<{
     type: "sidebar" | "right";
@@ -1176,6 +1187,15 @@ export const WorkbenchShell = (): JSX.Element => {
     }));
 
     items.push({
+      id: "learning:open",
+      group: "learning",
+      title: "Learning",
+      subtitle: "Open instincts and skills",
+      keywords: ["instinct", "skills", "skillify", "learner"],
+      run: () => setLearningOpen(true),
+    });
+
+    items.push({
       id: "settings:open",
       group: "settings",
       title: "Settings",
@@ -1236,10 +1256,12 @@ export const WorkbenchShell = (): JSX.Element => {
         threadCount={threadCount}
         threadDrawerOpen={threadDrawerOpen}
         contextDrawerOpen={contextDrawerOpen}
+        learningOpen={learningOpen}
         hasSelectedTaskRun={hasSelectedTaskRun}
         theme={theme}
         onToggleThreadDrawer={toggleThreadDrawer}
         onToggleContextDrawer={toggleContextDrawer}
+        onOpenLearning={() => setLearningOpen(true)}
         onNewThread={handleNewThreadFromRail}
         onToggleTheme={handleToggleTheme}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1361,6 +1383,9 @@ export const WorkbenchShell = (): JSX.Element => {
           items={commandPaletteItems}
           onClose={() => setCommandPaletteOpen(false)}
         />
+      )}
+      {learningOpen && (
+        <LearningPanel onClose={() => setLearningOpen(false)} />
       )}
       {settingsOpen && (
         <SettingsPanel

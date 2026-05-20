@@ -16,6 +16,14 @@ const items = [
     run: noop,
   },
   {
+    id: "learning:open",
+    group: "learning",
+    title: "Learning",
+    subtitle: "Open instincts and skills",
+    keywords: ["instinct", "skillify"],
+    run: noop,
+  },
+  {
     id: "settings:open",
     group: "settings",
     title: "Settings",
@@ -34,12 +42,13 @@ const items = [
 test("filterCommandPaletteItems keeps original order for an empty query", () => {
   assert.deepEqual(
     filterCommandPaletteItems(items, "").map((item) => item.id),
-    ["tab:quality", "settings:open", "thread:alpha"],
+    ["tab:quality", "learning:open", "settings:open", "thread:alpha"],
   );
 });
 
 test("filterCommandPaletteItems ranks exact matches first", () => {
   assert.equal(filterCommandPaletteItems(items, "settings")[0].id, "settings:open");
+  assert.equal(filterCommandPaletteItems(items, "learning")[0].id, "learning:open");
 });
 
 test("filterCommandPaletteItems matches partial and fuzzy queries", () => {

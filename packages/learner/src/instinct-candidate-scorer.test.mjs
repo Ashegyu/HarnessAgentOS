@@ -32,6 +32,61 @@ test("scoreInstinctCandidates does not propose below the minimum signal count", 
   assert.deepEqual(candidates, []);
 });
 
+test("scoreInstinctCandidates ignores repeated approval approvals", () => {
+  const candidates = scoreInstinctCandidates({
+    observations: [
+      observation({
+        id: "obs_a",
+        eventType: "approved",
+        signal: "file_write",
+        summary: "file_write approved",
+      }),
+      observation({
+        id: "obs_b",
+        eventType: "approved",
+        signal: "file_write",
+        summary: "file_write approved",
+      }),
+      observation({
+        id: "obs_c",
+        eventType: "approved",
+        signal: "file_write",
+        summary: "file_write approved",
+      }),
+    ],
+  });
+  assert.deepEqual(candidates, []);
+});
+
+test("scoreInstinctCandidates ignores non-failing quality gates", () => {
+  const candidates = scoreInstinctCandidates({
+    observations: [
+      observation({
+        id: "obs_a",
+        source: "quality",
+        eventType: "passed",
+        signal: "passed",
+        summary: "quality gate passed",
+      }),
+      observation({
+        id: "obs_b",
+        source: "quality",
+        eventType: "passed",
+        signal: "passed",
+        summary: "quality gate passed",
+      }),
+      observation({
+        id: "obs_c",
+        source: "quality",
+        eventType: "passed",
+        signal: "passed",
+        summary: "quality gate passed",
+      }),
+    ],
+  });
+  assert.deepEqual(candidates, []);
+});
+
 test("scoreInstinctCandidates keeps project scopes separate", () => {
   const candidates = scoreInstinctCandidates({
     observations: [

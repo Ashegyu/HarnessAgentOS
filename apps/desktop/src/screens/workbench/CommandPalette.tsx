@@ -14,6 +14,7 @@ interface CommandPaletteProps {
 const GROUP_LABELS: Record<CommandPaletteItem["group"], string> = {
   tab: "Tabs",
   thread: "Threads",
+  learning: "Learning",
   settings: "Settings",
   taskrun: "Recent TaskRuns",
 };
