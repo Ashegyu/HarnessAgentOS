@@ -1,7 +1,7 @@
 # A2A Refinement Backflow Plan
 
 Date: 2026-05-20
-Status: R1-R4 Implemented
+Status: R1-R5 Implemented
 
 ## 1. Purpose
 
@@ -420,6 +420,9 @@ completion.
    findings.
 2. Add optional targeted refinement proposal from failed quality gate evidence.
 3. Do not replace the existing repair loop.
+4. Expose proposals as read-only `TaskRunDetail.a2aRefinementProposals`; creating
+   one still uses `agent.requestRefinement` and creates a pending `network`
+   approval.
 
 ## 13. Verification Plan
 
@@ -516,6 +519,11 @@ Findings and applied corrections:
    implemented flow now stores the instruction in the approval checkpoint
    `stateRef` and runs only approvals containing an `a2aRefinementAttemptId`;
    all other `network` approvals remain blocked by the generic runner.
+7. R5 implementation review kept proposal generation read-only. Worker findings
+   only produce proposals when a reviewer/tester-style worker directly depends
+   on a remote A2A worker, and quality gates only produce proposals when failed
+   evidence maps directly to a remote A2A invocation. The user must still create
+   the refinement approval explicitly.
 
 ## 17. References
 

@@ -11,6 +11,7 @@ import type {
   A2AEndpoint,
   A2ARefinementAttempt,
   A2ARefinementFeedbackSourceKind,
+  A2ARefinementProposal,
   A2ARemoteTaskRef,
   A2ARegistryEntry,
   Artifact,
@@ -105,6 +106,8 @@ export interface TaskRunDetail {
   a2aRemoteTaskRefs: A2ARemoteTaskRef[];
   /** Harness-owned A2A refinement/backflow attempt ledger rows for this TaskRun. */
   a2aRefinementAttempts: A2ARefinementAttempt[];
+  /** Read-only targeted A2A refinement proposals derived from worker/quality evidence. */
+  a2aRefinementProposals: A2ARefinementProposal[];
   /** Current persisted spend totals used by the renderer auto-approve gate. */
   budgetUsage?: BudgetUsageSnapshot;
 }

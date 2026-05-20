@@ -34,6 +34,7 @@ import {
 import type { LocalStateService } from "@harness/storage";
 import type { InstinctService } from "@harness/learner";
 import type { HarnessEventBus } from "../event-bus";
+import { deriveA2ARefinementProposals } from "../a2a-refinement-proposals";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -516,6 +517,16 @@ export const registerConversationIpc = (
         ).filter((ref) => ref !== null);
         const a2aRefinementAttempts =
           await state.a2aRefinements.listByTaskRun(taskRun.id);
+        const a2aRefinementProposals = deriveA2ARefinementProposals({
+          taskRun,
+          steps,
+          artifacts,
+          qualityGates,
+          agentInvocations,
+          a2aRemoteTaskRefs,
+          a2aRefinementAttempts,
+          a2aEndpoints: await state.a2aRemoteAgents.listEndpoints(),
+        });
         return ok({
           taskRun,
           steps,
@@ -527,6 +538,7 @@ export const registerConversationIpc = (
           agentInvocations,
           a2aRemoteTaskRefs,
           a2aRefinementAttempts,
+          a2aRefinementProposals,
           budgetUsage: {
             accumulatedTaskRunCostUsd,
             accumulatedDailyCostUsd,

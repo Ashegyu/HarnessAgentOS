@@ -314,6 +314,28 @@ export interface A2ARefinementAttempt {
   updatedAt: string;
   completedAt?: string;
 }
+
+export type A2ARefinementProposalSourceKind =
+  | "worker_finding"
+  | "quality_gate";
+
+export interface A2ARefinementProposal {
+  id: string;
+  sourceKind: A2ARefinementProposalSourceKind;
+  taskRunId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  instruction: string;
+  referencedArtifactIds: readonly string[];
+  sourceLabel: string;
+  targetLabel: string;
+  reason: string;
+}
 ```
 
 `LocalStateService.createApproval` attaches a default `policyEvaluation` for every
@@ -504,6 +526,11 @@ interface TaskRunDetail {
    * local side effect without the existing approval flow.
    */
   a2aRefinementAttempts: A2ARefinementAttempt[];
+  /**
+   * Read-only targeted A2A refinement proposals derived from worker/quality
+   * evidence. Creating one still goes through `agent.requestRefinement`.
+   */
+  a2aRefinementProposals: A2ARefinementProposal[];
   /**
    * Persisted spend totals used by renderer-side auto-approve budget gates.
    * Empty or missing means callers should treat both totals as zero.
@@ -1095,6 +1122,9 @@ agent.requestRefinement(input: {
 승인 후 `runner.executeApproved({ approvalId })`가 checkpoint `stateRef`의
 `a2aRefinementAttemptId`를 확인한 경우에만 전용 A2A refinement executor를
 실행한다. 일반 `network` approval은 기존 runner 정책대로 계속 차단된다.
+`TaskRunDetail.a2aRefinementProposals`는 read-only 후보 목록이며, renderer가
+후보를 선택하면 같은 `agent.requestRefinement` 계약으로 pending approval을
+생성한다.
 
 ```ts
 type AgentProvider = "claude" | "codex";

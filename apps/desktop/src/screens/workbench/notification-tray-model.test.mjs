@@ -26,6 +26,7 @@ const detail = (patch = {}) => ({
   agentInvocations: patch.agentInvocations ?? [],
   a2aRemoteTaskRefs: [],
   a2aRefinementAttempts: patch.a2aRefinementAttempts ?? [],
+  a2aRefinementProposals: patch.a2aRefinementProposals ?? [],
 });
 
 class MemoryStorage {

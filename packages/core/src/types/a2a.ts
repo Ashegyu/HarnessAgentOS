@@ -139,6 +139,28 @@ export interface A2ARefinementAttempt {
   completedAt?: string;
 }
 
+export type A2ARefinementProposalSourceKind =
+  | "worker_finding"
+  | "quality_gate";
+
+export interface A2ARefinementProposal {
+  id: string;
+  sourceKind: A2ARefinementProposalSourceKind;
+  taskRunId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  feedbackSourceStepId?: string;
+  feedbackSourceInvocationId?: string;
+  feedbackArtifactId?: string;
+  qualityGateId?: string;
+  instruction: string;
+  referencedArtifactIds: readonly string[];
+  sourceLabel: string;
+  targetLabel: string;
+  reason: string;
+}
+
 export const A2A_TRANSPORTS: readonly A2ATransport[] = [
   "json-rpc",
   "http-json",

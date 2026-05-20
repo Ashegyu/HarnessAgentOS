@@ -354,6 +354,7 @@ export const RightPanel = ({
                 approvals={state.detail.approvals}
                 qualityGates={state.detail.qualityGates}
                 repairAttempts={state.detail.repairAttempts}
+                refinementProposals={state.detail.a2aRefinementProposals}
                 onTaskRunChanged={onQualityChanged}
               />
             </div>

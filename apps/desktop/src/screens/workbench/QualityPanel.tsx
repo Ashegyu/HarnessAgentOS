@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Approval,
+  A2ARefinementProposal,
   Artifact,
   QualityGateResult,
   RepairAttempt,
@@ -19,6 +20,7 @@ interface QualityPanelProps {
   approvals: Approval[];
   qualityGates: QualityGateResult[];
   repairAttempts: RepairAttempt[];
+  refinementProposals: A2ARefinementProposal[];
   /** Refresh callback after a status change. */
   onTaskRunChanged: () => Promise<void>;
 }
@@ -56,6 +58,7 @@ export const QualityPanel = ({
   approvals,
   qualityGates,
   repairAttempts,
+  refinementProposals,
   onTaskRunChanged,
 }: QualityPanelProps): JSX.Element => {
   const [gateState, setGateState] = useState<GateState>({ kind: "idle" });
@@ -118,6 +121,40 @@ export const QualityPanel = ({
       setBusy(false);
     }
   }, [taskRun.id, fetchLatest, onTaskRunChanged]);
+
+  const runRequestRefinement = useCallback(
+    async (proposal: A2ARefinementProposal) => {
+      setBusy(true);
+      setActionError(null);
+      try {
+        await window.harness.agent.requestRefinement({
+          taskRunId: proposal.taskRunId,
+          targetInvocationId: proposal.targetInvocationId,
+          feedbackSourceKind: proposal.feedbackSourceKind,
+          ...(proposal.feedbackSourceStepId
+            ? { feedbackSourceStepId: proposal.feedbackSourceStepId }
+            : {}),
+          ...(proposal.feedbackSourceInvocationId
+            ? { feedbackSourceInvocationId: proposal.feedbackSourceInvocationId }
+            : {}),
+          ...(proposal.feedbackArtifactId
+            ? { feedbackArtifactId: proposal.feedbackArtifactId }
+            : {}),
+          ...(proposal.qualityGateId
+            ? { qualityGateId: proposal.qualityGateId }
+            : {}),
+          instruction: proposal.instruction,
+          referencedArtifactIds: [...proposal.referencedArtifactIds],
+        });
+        await onTaskRunChanged();
+      } catch (e) {
+        setActionError(errorMessage(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [onTaskRunChanged],
+  );
 
   const runMarkReady = useCallback(async () => {
     setBusy(true);
@@ -301,6 +338,11 @@ export const QualityPanel = ({
       ) : null}
 
       <RepairAttemptsSection rows={repairRows} />
+      <A2ARefinementProposalsSection
+        proposals={refinementProposals}
+        busy={busy}
+        onRequest={runRequestRefinement}
+      />
 
       {actionError ? <div className="error-message">{actionError}</div> : null}
 
@@ -443,6 +485,58 @@ const RepairAttemptsSection = ({
     )}
   </details>
 );
+
+const A2ARefinementProposalsSection = ({
+  proposals,
+  busy,
+  onRequest,
+}: {
+  proposals: readonly A2ARefinementProposal[];
+  busy: boolean;
+  onRequest: (proposal: A2ARefinementProposal) => Promise<void>;
+}): JSX.Element | null => {
+  if (proposals.length === 0) return null;
+  return (
+    <details className="quality-panel__repair" open>
+      <summary>Targeted A2A refinements ({proposals.length})</summary>
+      <ol className="quality-panel__repair-list">
+        {proposals.map((proposal) => (
+          <li key={proposal.id} className="quality-panel__repair-item">
+            <div className="quality-panel__repair-head">
+              <strong>{proposal.sourceLabel}</strong>
+              <span className="status-pill status-pill--warning">
+                {proposal.sourceKind}
+              </span>
+            </div>
+            <dl className="quality-panel__repair-meta">
+              <div>
+                <dt>target</dt>
+                <dd>{proposal.targetLabel}</dd>
+              </div>
+              <div>
+                <dt>artifacts</dt>
+                <dd>{proposal.referencedArtifactIds.length}</dd>
+              </div>
+              <div>
+                <dt>source</dt>
+                <dd>{proposal.feedbackSourceKind}</dd>
+              </div>
+            </dl>
+            <p className="muted">{proposal.reason}</p>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => void onRequest(proposal)}
+            >
+              Request refinement
+            </button>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+};
 
 const repairStatusClass = (status: RepairAttempt["status"]): string => {
   if (status === "passed") return "status-pill status-pill--passed";
