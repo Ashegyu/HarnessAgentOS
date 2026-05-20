@@ -1,10 +1,22 @@
 import { useState } from "react";
-import type { Approval, ProposedActionDetails, ShadowPreview } from "@harness/core";
+import type {
+  Approval,
+  A2ARefinementAttempt,
+  Checkpoint,
+  ProposedActionDetails,
+  ShadowPreview,
+} from "@harness/core";
+import {
+  A2A_REFINEMENT_MAX_ATTEMPTS_PER_SIGNATURE,
+  A2A_REFINEMENT_MAX_ATTEMPTS_PER_TASK_RUN,
+} from "@harness/core";
 import { ConfigureActionDialog } from "./ConfigureActionDialog";
 import { ApprovalDecisionTrace } from "./ApprovalDecisionTrace";
 
 interface ApprovalPanelProps {
   approvals: Approval[];
+  checkpoints?: Checkpoint[];
+  refinementAttempts?: A2ARefinementAttempt[];
   taskRunTargetDir: string;
   onApprove: (input: {
     approvalId: string;
@@ -57,6 +69,8 @@ const EXECUTION_NOT_REQUIRED: ReadonlySet<string> = new Set([
 
 export const ApprovalPanel = ({
   approvals,
+  checkpoints = [],
+  refinementAttempts = [],
   taskRunTargetDir,
   onApprove,
   onReject,
@@ -183,6 +197,11 @@ export const ApprovalPanel = ({
     a: Approval,
     mode: "pending" | "approved" | "decided",
   ): JSX.Element => {
+    const refinementDetail = refinementDetailForApproval(
+      a,
+      checkpoints,
+      refinementAttempts,
+    );
     const policy = a.policyEvaluation;
     const risk =
       policy?.riskLevel === "blocked"
@@ -215,6 +234,9 @@ export const ApprovalPanel = ({
             {!policy.allowAutoApprove ? " · 수동 승인 필요" : ""}
           </p>
         )}
+        {refinementDetail ? (
+          <A2ARefinementApprovalDetails detail={refinementDetail} />
+        ) : null}
         {a.proposedAction && (
           <pre className="approval-card__details">
             {JSON.stringify(a.proposedAction, null, 2)}
@@ -501,3 +523,107 @@ export const ApprovalPanel = ({
 
 const riskKind = (risk: "low" | "medium" | "high"): string =>
   risk === "high" ? "failed" : risk === "medium" ? "pending" : "neutral";
+
+interface A2ARefinementApprovalDetail {
+  attempt: A2ARefinementAttempt;
+  signatureAttemptCount: number;
+  taskRunAttemptCount: number;
+}
+
+const A2ARefinementApprovalDetails = ({
+  detail,
+}: {
+  detail: A2ARefinementApprovalDetail;
+}): JSX.Element => {
+  const { attempt } = detail;
+  return (
+    <section className="approval-card__a2a" aria-label="A2A refinement approval">
+      <header className="approval-card__a2a-header">
+        <strong>A2A refinement approval</strong>
+        <span>attempt {attempt.attemptIndex + 1}</span>
+      </header>
+      <dl className="approval-card__a2a-grid">
+        <div>
+          <dt>endpoint</dt>
+          <dd>{attempt.endpointId}</dd>
+        </div>
+        <div>
+          <dt>target</dt>
+          <dd>{attempt.targetInvocationId}</dd>
+        </div>
+        <div>
+          <dt>parent task</dt>
+          <dd>{attempt.parentRemoteTaskId ?? "none"}</dd>
+        </div>
+        <div>
+          <dt>context</dt>
+          <dd>{attempt.parentRemoteContextId ?? "none"}</dd>
+        </div>
+        <div>
+          <dt>loop guard</dt>
+          <dd>
+            signature {detail.signatureAttemptCount}/
+            {A2A_REFINEMENT_MAX_ATTEMPTS_PER_SIGNATURE} · task run{" "}
+            {detail.taskRunAttemptCount}/{A2A_REFINEMENT_MAX_ATTEMPTS_PER_TASK_RUN}
+          </dd>
+        </div>
+        <div>
+          <dt>references</dt>
+          <dd>{attempt.referenceArtifactIds.length} artifact(s)</dd>
+        </div>
+      </dl>
+      {attempt.stopReason ? (
+        <p className="approval-card__auto-hint">stop reason: {attempt.stopReason}</p>
+      ) : null}
+    </section>
+  );
+};
+
+const refinementDetailForApproval = (
+  approval: Approval,
+  checkpoints: readonly Checkpoint[],
+  attempts: readonly A2ARefinementAttempt[],
+): A2ARefinementApprovalDetail | null => {
+  if (approval.actionType !== "network") return null;
+  const checkpoint = checkpoints.find((row) => row.id === approval.checkpointId);
+  const stateRef = parseRefinementStateRef(checkpoint?.stateRef);
+  if (!stateRef) return null;
+  const attempt = attempts.find((row) => row.id === stateRef.a2aRefinementAttemptId);
+  if (!attempt) return null;
+  return {
+    attempt,
+    signatureAttemptCount: attempts.filter(
+      (row) =>
+        row.taskRunId === attempt.taskRunId &&
+        row.targetInvocationId === attempt.targetInvocationId &&
+        row.feedbackSignature === attempt.feedbackSignature,
+    ).length,
+    taskRunAttemptCount: attempts.filter(
+      (row) => row.taskRunId === attempt.taskRunId,
+    ).length,
+  };
+};
+
+const parseRefinementStateRef = (
+  raw: string | undefined,
+): { a2aRefinementAttemptId: string } | null => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      typeof (parsed as { a2aRefinementAttemptId?: unknown })
+        .a2aRefinementAttemptId === "string"
+    ) {
+      return {
+        a2aRefinementAttemptId: (parsed as { a2aRefinementAttemptId: string })
+          .a2aRefinementAttemptId,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+};

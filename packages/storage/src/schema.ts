@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -381,6 +381,22 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_refinement_attempts_active_signature
     ON a2a_refinement_attempts(task_run_id, target_invocation_id, feedback_signature)
     WHERE status IN ('pending_approval','queued','running','input_required','auth_required')`,
+  `CREATE TABLE IF NOT EXISTS a2a_refinement_events (
+    id TEXT PRIMARY KEY,
+    task_run_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('created','started','succeeded','failed','stopped','cancelled','input_required','auth_required')),
+    status TEXT NOT NULL CHECK(status IN ('pending_approval','queued','running','input_required','auth_required','succeeded','failed','stopped','cancelled')),
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(attempt_id) REFERENCES a2a_refinement_attempts(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_refinement_events_created
+    ON a2a_refinement_events(created_at DESC, id DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_a2a_refinement_events_attempt
+    ON a2a_refinement_events(attempt_id, created_at)`,
 
   // v18 — deterministic repository context index. SQLite remains the
   // canonical state; scan output is cached here and packed into agent prompts.

@@ -126,6 +126,58 @@ test("executeA2ARefinementApproval runs only approved refinement network approva
       (candidate) => candidate.id === checkpoint.stepId,
     );
     assert.equal(step.status, "succeeded");
+    const events = await state.a2aRefinements.listActivityEvents({
+      limit: 10,
+      offset: 0,
+    });
+    assert.deepEqual(
+      events.items.map((event) => event.eventType).sort(),
+      ["created", "started", "succeeded"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("executeA2ARefinementApproval records stopped activity when the endpoint becomes unavailable", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const state = new LocalStateService(db);
+    const { taskRun, endpoint, invocation, evidence } = await seedTarget(state);
+    const request = await requestA2ARefinement({
+      state,
+      input: {
+        taskRunId: taskRun.id,
+        targetInvocationId: invocation.id,
+        instruction: "Please retry after endpoint review.",
+        referencedArtifactIds: [evidence.id],
+        feedbackSourceKind: "user",
+        feedbackArtifactId: evidence.id,
+      },
+    });
+    await state.decideApproval(request.approval.id, "approved", "ok");
+    await state.a2aRemoteAgents.toggleEndpoint(endpoint.id, false);
+
+    await assert.rejects(
+      () =>
+        executeA2ARefinementApproval({
+          state,
+          approvalId: request.approval.id,
+          now: () => "2026-05-20T00:00:00.000Z",
+        }),
+      /A2A remote endpoint unavailable/,
+    );
+
+    const events = await state.a2aRefinements.listActivityEvents({
+      limit: 10,
+      offset: 0,
+    });
+    const stopped = events.items.find((event) => event.eventType === "stopped");
+    assert.ok(stopped);
+    assert.equal(stopped.status, "stopped");
+    assert.match(stopped.summary, /stopped/);
   } finally {
     closeDb(db);
     t.cleanup();

@@ -1,4 +1,8 @@
 import type {
+  A2ARefinementActivityEvent,
+  A2ARefinementActivityInput,
+  A2ARefinementActivityPage,
+  CreateA2ARefinementActivityEventInput,
   A2ARefinementAttempt,
   A2ARefinementFeedbackSourceKind,
   A2ARefinementStatus,
@@ -48,6 +52,12 @@ export interface A2ARefinementAttemptRepository {
   listByTargetInvocation(
     targetInvocationId: string,
   ): Promise<A2ARefinementAttempt[]>;
+  createEvent(
+    input: CreateA2ARefinementActivityEventInput,
+  ): Promise<A2ARefinementActivityEvent>;
+  listActivityEvents(
+    input: A2ARefinementActivityInput,
+  ): Promise<A2ARefinementActivityPage>;
 }
 
 interface A2ARefinementAttemptRow {
@@ -75,6 +85,31 @@ interface A2ARefinementAttemptRow {
   completed_at: string | null;
 }
 
+interface A2ARefinementEventRow {
+  id: string;
+  task_run_id: string;
+  attempt_id: string;
+  event_type: A2ARefinementActivityEvent["eventType"];
+  event_status: A2ARefinementStatus;
+  summary: string;
+  payload_json: string;
+  event_created_at: string;
+  thread_id: string;
+  thread_title: string;
+  task_run_user_request: string;
+  task_run_status: A2ARefinementActivityEvent["taskRunStatus"];
+  target_invocation_id: string;
+  endpoint_id: string;
+  feedback_source_kind: A2ARefinementFeedbackSourceKind;
+  attempt_index: number;
+  parent_remote_task_id: string | null;
+  parent_remote_context_id: string | null;
+  remote_task_id: string | null;
+  remote_context_id: string | null;
+  stop_reason: A2ARefinementStopReason | null;
+  reference_artifact_ids_json: string;
+}
+
 const parseStringArray = (raw: string): string[] => {
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed)) {
@@ -84,6 +119,13 @@ const parseStringArray = (raw: string): string[] => {
     throw new Error("A2A refinement JSON column contains non-string values");
   }
   return parsed;
+};
+
+const parsePayload = (raw: string): Record<string, unknown> => {
+  const parsed = JSON.parse(raw) as unknown;
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
 };
 
 const rowToAttempt = (
@@ -126,6 +168,42 @@ const rowToAttempt = (
   if (row.stop_reason !== null) attempt.stopReason = row.stop_reason;
   if (row.completed_at !== null) attempt.completedAt = row.completed_at;
   return attempt;
+};
+
+const rowToEvent = (
+  row: A2ARefinementEventRow,
+): A2ARefinementActivityEvent => {
+  const event: A2ARefinementActivityEvent = {
+    id: row.id,
+    taskRunId: row.task_run_id,
+    threadId: row.thread_id,
+    threadTitle: row.thread_title,
+    taskRunUserRequest: row.task_run_user_request,
+    taskRunStatus: row.task_run_status,
+    attemptId: row.attempt_id,
+    targetInvocationId: row.target_invocation_id,
+    endpointId: row.endpoint_id,
+    feedbackSourceKind: row.feedback_source_kind,
+    attemptIndex: row.attempt_index,
+    eventType: row.event_type,
+    status: row.event_status,
+    summary: row.summary,
+    referenceArtifactIds: parseStringArray(row.reference_artifact_ids_json),
+    payload: parsePayload(row.payload_json),
+    createdAt: row.event_created_at,
+  };
+  if (row.parent_remote_task_id !== null) {
+    event.parentRemoteTaskId = row.parent_remote_task_id;
+  }
+  if (row.parent_remote_context_id !== null) {
+    event.parentRemoteContextId = row.parent_remote_context_id;
+  }
+  if (row.remote_task_id !== null) event.remoteTaskId = row.remote_task_id;
+  if (row.remote_context_id !== null) {
+    event.remoteContextId = row.remote_context_id;
+  }
+  if (row.stop_reason !== null) event.stopReason = row.stop_reason;
+  return event;
 };
 
 export class SqliteA2ARefinementAttemptRepository
@@ -289,6 +367,107 @@ export class SqliteA2ARefinementAttemptRepository
     return rows.map(rowToAttempt);
   }
 
+  async createEvent(
+    input: CreateA2ARefinementActivityEventInput,
+  ): Promise<A2ARefinementActivityEvent> {
+    const attempt = await this.get(input.attemptId);
+    if (!attempt) {
+      throw new Error(`A2ARefinementAttempt ${input.attemptId} not found`);
+    }
+    if (attempt.taskRunId !== input.taskRunId) {
+      throw new Error(
+        `A2ARefinementAttempt ${input.attemptId} does not belong to TaskRun ${input.taskRunId}`,
+      );
+    }
+    const id = newId("a2aRefinementEvent");
+    const createdAt = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO a2a_refinement_events(
+           id, task_run_id, attempt_id, event_type, status, summary,
+           payload_json, created_at
+         ) VALUES(
+           @id, @taskRunId, @attemptId, @eventType, @status, @summary,
+           @payloadJson, @createdAt
+         )`,
+      )
+      .run({
+        id,
+        taskRunId: input.taskRunId,
+        attemptId: input.attemptId,
+        eventType: input.eventType,
+        status: input.status,
+        summary: input.summary,
+        payloadJson: JSON.stringify(input.payload ?? {}),
+        createdAt,
+      });
+    const event = this.getActivityEventById(id);
+    if (!event) {
+      throw new Error(`A2ARefinementActivityEvent ${id} not found after insert`);
+    }
+    return event;
+  }
+
+  async listActivityEvents(
+    input: A2ARefinementActivityInput,
+  ): Promise<A2ARefinementActivityPage> {
+    const limit = clampPageSize(input.limit);
+    const offset = clampOffset(input.offset);
+    const where = buildActivityEventWhere(input);
+    const totalRow = this.db
+      .prepare(
+        `SELECT COUNT(*) AS total
+         FROM a2a_refinement_events e
+         INNER JOIN a2a_refinement_attempts a ON a.id = e.attempt_id
+         INNER JOIN task_runs tr ON tr.id = e.task_run_id
+         INNER JOIN threads th ON th.id = tr.thread_id
+         WHERE ${where.sql}`,
+      )
+      .get(...where.params) as { total: number };
+    const rows = this.db
+      .prepare(
+        `SELECT
+           e.id,
+           e.task_run_id,
+           e.attempt_id,
+           e.event_type,
+           e.status AS event_status,
+           e.summary,
+           e.payload_json,
+           e.created_at AS event_created_at,
+           th.id AS thread_id,
+           th.title AS thread_title,
+           tr.user_request AS task_run_user_request,
+           tr.status AS task_run_status,
+           a.target_invocation_id,
+           a.endpoint_id,
+           a.feedback_source_kind,
+           a.attempt_index,
+           a.parent_remote_task_id,
+           a.parent_remote_context_id,
+           a.remote_task_id,
+           a.remote_context_id,
+           a.stop_reason,
+           a.reference_artifact_ids_json
+         FROM a2a_refinement_events e
+         INNER JOIN a2a_refinement_attempts a ON a.id = e.attempt_id
+         INNER JOIN task_runs tr ON tr.id = e.task_run_id
+         INNER JOIN threads th ON th.id = tr.thread_id
+         WHERE ${where.sql}
+         ORDER BY datetime(e.created_at) DESC, e.id DESC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(...where.params, limit, offset) as A2ARefinementEventRow[];
+    const total = totalRow.total;
+    return {
+      items: rows.map(rowToEvent),
+      total,
+      limit,
+      offset,
+      hasNext: offset + limit < total,
+    };
+  }
+
   private nextAttemptIndex(
     taskRunId: string,
     targetInvocationId: string,
@@ -350,4 +529,68 @@ export class SqliteA2ARefinementAttemptRepository
         completedAt: attempt.completedAt ?? null,
       });
   }
+
+  private getActivityEventById(
+    id: string,
+  ): A2ARefinementActivityEvent | null {
+    const row = this.db
+      .prepare(
+        `SELECT
+           e.id,
+           e.task_run_id,
+           e.attempt_id,
+           e.event_type,
+           e.status AS event_status,
+           e.summary,
+           e.payload_json,
+           e.created_at AS event_created_at,
+           th.id AS thread_id,
+           th.title AS thread_title,
+           tr.user_request AS task_run_user_request,
+           tr.status AS task_run_status,
+           a.target_invocation_id,
+           a.endpoint_id,
+           a.feedback_source_kind,
+           a.attempt_index,
+           a.parent_remote_task_id,
+           a.parent_remote_context_id,
+           a.remote_task_id,
+           a.remote_context_id,
+           a.stop_reason,
+           a.reference_artifact_ids_json
+         FROM a2a_refinement_events e
+         INNER JOIN a2a_refinement_attempts a ON a.id = e.attempt_id
+         INNER JOIN task_runs tr ON tr.id = e.task_run_id
+         INNER JOIN threads th ON th.id = tr.thread_id
+         WHERE e.id = ?`,
+      )
+      .get(id) as A2ARefinementEventRow | undefined;
+    return row ? rowToEvent(row) : null;
+  }
 }
+
+const clampPageSize = (value: number): number => {
+  if (!Number.isInteger(value)) return 25;
+  return Math.max(1, Math.min(100, value));
+};
+
+const clampOffset = (value: number): number => {
+  if (!Number.isInteger(value)) return 0;
+  return Math.max(0, value);
+};
+
+const buildActivityEventWhere = (
+  input: A2ARefinementActivityInput,
+): { sql: string; params: unknown[] } => {
+  const clauses = ["1 = 1"];
+  const params: unknown[] = [];
+  if (input.sinceIso) {
+    clauses.push("e.created_at >= ?");
+    params.push(input.sinceIso);
+  }
+  if (input.untilIso) {
+    clauses.push("e.created_at < ?");
+    params.push(input.untilIso);
+  }
+  return { sql: clauses.join(" AND "), params };
+};

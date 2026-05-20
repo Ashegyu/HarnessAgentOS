@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   APPROVAL_ACTION_TYPES,
   AUTO_APPROVE_STEPS,
+  type A2ARefinementActivityPage,
   type ApprovalActionType,
   type AutoApproveStep,
   type DecisionLogPage,
@@ -22,6 +23,8 @@ type ActivityState =
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const A2A_REFINEMENT_ACTIVITY_PAGE_SIZE = 25;
+
 export const ActivityLogTab = (): JSX.Element => {
   const [selectedSteps, setSelectedSteps] = useState<ReadonlySet<AutoApproveStep>>(
     () => new Set(AUTO_APPROVE_STEPS),
@@ -34,6 +37,12 @@ export const ActivityLogTab = (): JSX.Element => {
   const [offset, setOffset] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
   const [state, setState] = useState<ActivityState>({ kind: "loading" });
+  const [a2aState, setA2AState] = useState<
+    | { kind: "loading" }
+    | { kind: "ready"; page: A2ARefinementActivityPage }
+    | { kind: "error"; message: string }
+    | { kind: "skipped" }
+  >({ kind: "loading" });
 
   const filter = useMemo(
     () =>
@@ -68,6 +77,35 @@ export const ActivityLogTab = (): JSX.Element => {
     };
   }, [filter, offset, refreshTick]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (actionType !== "all" && actionType !== "network") {
+      setA2AState({ kind: "skipped" });
+      return () => {
+        cancelled = true;
+      };
+    }
+    setA2AState({ kind: "loading" });
+    window.harness.conversation
+      .listRefinementEvents({
+        limit: A2A_REFINEMENT_ACTIVITY_PAGE_SIZE,
+        offset: 0,
+        ...(filter?.sinceIso ? { sinceIso: filter.sinceIso } : {}),
+        ...(filter?.untilIso ? { untilIso: filter.untilIso } : {}),
+      })
+      .then((page) => {
+        if (!cancelled) setA2AState({ kind: "ready", page });
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setA2AState({ kind: "error", message: errorMessage(error) });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [actionType, filter?.sinceIso, filter?.untilIso, refreshTick]);
+
   const resetPage = (): void => setOffset(0);
 
   const toggleStep = (step: AutoApproveStep): void => {
@@ -81,6 +119,7 @@ export const ActivityLogTab = (): JSX.Element => {
   };
 
   const page = state.kind === "ready" ? state.page : null;
+  const a2aPage = a2aState.kind === "ready" ? a2aState.page : null;
   const pageNumber = Math.floor(offset / ACTIVITY_LOG_PAGE_SIZE) + 1;
 
   return (
@@ -88,7 +127,10 @@ export const ActivityLogTab = (): JSX.Element => {
       <header className="activity-log__toolbar">
         <div>
           <h3>Activity Log</h3>
-          <span>{page ? `${page.total} decisions` : "decision audit"}</span>
+          <span>
+            {page ? `${page.total} decisions` : "decision audit"}
+            {a2aPage ? ` · ${a2aPage.total} A2A events` : ""}
+          </span>
         </div>
         <button
           type="button"
@@ -161,6 +203,18 @@ export const ActivityLogTab = (): JSX.Element => {
           />
         </label>
       </section>
+
+      {a2aState.kind === "loading" ? (
+        <div className="empty-state">A2A refinement events 불러오는 중...</div>
+      ) : null}
+      {a2aState.kind === "error" ? (
+        <div className="empty-state" style={{ color: "var(--status-failed)" }}>
+          {a2aState.message}
+        </div>
+      ) : null}
+      {a2aPage && a2aPage.items.length > 0 ? (
+        <A2ARefinementEventsTable page={a2aPage} />
+      ) : null}
 
       {state.kind === "loading" ? (
         <div className="empty-state">결정 로그를 불러오는 중...</div>
@@ -247,6 +301,66 @@ export const ActivityLogTab = (): JSX.Element => {
         </>
       ) : null}
     </div>
+  );
+};
+
+export const A2ARefinementEventsTable = ({
+  page,
+}: {
+  page: A2ARefinementActivityPage;
+}): JSX.Element | null => {
+  if (page.items.length === 0) return null;
+  return (
+    <section
+      className="activity-log__a2a-events"
+      aria-label="A2A Refinement Events"
+    >
+      <header className="activity-log__section-header">
+        <h4>A2A Refinement Events</h4>
+        <span>{page.total} events</span>
+      </header>
+      <div className="activity-log__table-wrap">
+        <table className="activity-log__table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Event</th>
+              <th>Endpoint</th>
+              <th>Context</th>
+              <th>Attempt</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.items.map((event) => (
+              <tr key={event.id}>
+                <td>{formatTimestamp(event.createdAt)}</td>
+                <td>
+                  <strong>{event.eventType}</strong>
+                  <span>{event.summary}</span>
+                </td>
+                <td>
+                  <strong>{event.endpointId}</strong>
+                  <span>{event.targetInvocationId}</span>
+                </td>
+                <td>
+                  <strong>{event.parentRemoteContextId ?? "none"}</strong>
+                  <span>{event.remoteContextId ?? event.parentRemoteTaskId ?? ""}</span>
+                </td>
+                <td>
+                  <strong>attempt {event.attemptIndex + 1}</strong>
+                  <span>{event.status}</span>
+                </td>
+                <td>
+                  <strong>{event.feedbackSourceKind}</strong>
+                  <span>{event.stopReason ?? ""}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 };
 

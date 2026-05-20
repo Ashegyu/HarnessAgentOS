@@ -8,6 +8,7 @@ import {
   type AgentStreamEvent,
   type A2AAgentCardSnapshot,
   type A2AEndpoint,
+  type A2ARefinementActivityPage,
   type A2ARefinementAttempt,
   type A2ARegistryEntry,
   type Approval,
@@ -147,6 +148,11 @@ const harnessApi: HarnessDesktopApi = {
     listDecisions: (input) =>
       invokeUnwrapped<DecisionLogPage>(
         IPC_CHANNELS.conversation.listDecisions,
+        input,
+      ),
+    listRefinementEvents: (input) =>
+      invokeUnwrapped<A2ARefinementActivityPage>(
+        IPC_CHANNELS.conversation.listRefinementEvents,
         input,
       ),
     setProposedAction: (input) =>

@@ -163,6 +163,19 @@ export const requestA2ARefinement = async (
       type: "network",
     },
   });
+  await options.state.a2aRefinements.createEvent({
+    taskRunId: input.taskRunId,
+    attemptId: attempt.id,
+    eventType: "created",
+    status: attempt.status,
+    summary: `A2A refinement approval requested for ${endpoint.name}`,
+    payload: {
+      approvalId: approval.id,
+      endpointId: endpoint.id,
+      targetInvocationId: input.targetInvocationId,
+      feedbackSourceKind: input.feedbackSourceKind,
+    },
+  });
   await options.state.setTaskRunCurrentStep(input.taskRunId, step.id);
   await options.state.setTaskRunStatus(input.taskRunId, "waiting_for_approval");
   return { attempt, approval };

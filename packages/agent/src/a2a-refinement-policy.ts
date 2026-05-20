@@ -4,6 +4,10 @@ import type {
   A2ARefinementRequest,
   A2ARefinementStopReason,
 } from "@harness/core";
+import {
+  A2A_REFINEMENT_MAX_ATTEMPTS_PER_SIGNATURE,
+  A2A_REFINEMENT_MAX_ATTEMPTS_PER_TASK_RUN,
+} from "@harness/core";
 
 export interface A2ARefinementPolicyInput {
   request: A2ARefinementRequest;
@@ -32,9 +36,6 @@ const ACTIVE_REFINEMENT_STATUSES = new Set<A2ARefinementAttempt["status"]>([
   "auth_required",
 ]);
 
-const DEFAULT_MAX_ATTEMPTS_PER_SIGNATURE = 2;
-const DEFAULT_MAX_ATTEMPTS_PER_TASK_RUN = 4;
-
 export const evaluateA2ARefinementPolicy = (
   input: A2ARefinementPolicyInput,
 ): A2ARefinementPolicyDecision => {
@@ -48,7 +49,7 @@ export const evaluateA2ARefinementPolicy = (
   }
 
   const maxAttemptsPerTaskRun =
-    input.maxAttemptsPerTaskRun ?? DEFAULT_MAX_ATTEMPTS_PER_TASK_RUN;
+    input.maxAttemptsPerTaskRun ?? A2A_REFINEMENT_MAX_ATTEMPTS_PER_TASK_RUN;
   const taskRunAttempts = input.existingAttempts.filter(
     (attempt) => attempt.taskRunId === input.request.taskRunId,
   );
@@ -78,7 +79,8 @@ export const evaluateA2ARefinementPolicy = (
   }
 
   const maxAttemptsPerSignature =
-    input.maxAttemptsPerSignature ?? DEFAULT_MAX_ATTEMPTS_PER_SIGNATURE;
+    input.maxAttemptsPerSignature ??
+    A2A_REFINEMENT_MAX_ATTEMPTS_PER_SIGNATURE;
   if (matchingSignatureAttempts.length >= maxAttemptsPerSignature) {
     return {
       ok: false,

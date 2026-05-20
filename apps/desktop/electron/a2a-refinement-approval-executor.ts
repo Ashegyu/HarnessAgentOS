@@ -1,5 +1,7 @@
 import type {
   A2AEndpoint,
+  A2ARefinementActivityEventType,
+  A2ARefinementStatus,
   AgentStreamEvent,
   Checkpoint,
   RunnerResultPayload,
@@ -104,6 +106,18 @@ export const executeA2ARefinementApproval = async (
     outputSummary: `A2A refinement running: ${endpoint.name}`,
   });
   await options.state.setTaskRunStatus(taskRun.id, "running");
+  await options.state.a2aRefinements.createEvent({
+    taskRunId: taskRun.id,
+    attemptId: attempt.id,
+    eventType: "started",
+    status: "running",
+    summary: `A2A refinement started for ${endpoint.name}`,
+    payload: {
+      approvalId: approval.id,
+      endpointId: endpoint.id,
+      targetInvocationId: attempt.targetInvocationId,
+    },
+  });
 
   try {
     const service = createA2ARefinementService({
@@ -146,6 +160,19 @@ export const executeA2ARefinementApproval = async (
       "executed",
       `Executed A2A refinement attempt ${attempt.id}`,
     );
+    await options.state.a2aRefinements.createEvent({
+      taskRunId: taskRun.id,
+      attemptId: attempt.id,
+      eventType: refinementEventType(refinement.attempt.status),
+      status: refinement.attempt.status,
+      summary: `A2A refinement ${refinement.attempt.status}: ${endpoint.name}`,
+      payload: {
+        approvalId: approval.id,
+        endpointId: endpoint.id,
+        invocationId: refinement.invocation.id,
+        artifactIds: [...result.artifactIds],
+      },
+    });
     await settleTaskRun(options.state, taskRun.id, {
       succeeded,
     });
@@ -171,6 +198,23 @@ export const executeA2ARefinementApproval = async (
       taskRun.id,
       isCancelled(error) ? "cancelled" : "blocked",
     );
+    const failedAttempt = await options.state.a2aRefinements.get(attempt.id);
+    const terminalEvent = terminalRefinementEvent(
+      failedAttempt?.status,
+      isCancelled(error),
+    );
+    await options.state.a2aRefinements.createEvent({
+      taskRunId: taskRun.id,
+      attemptId: attempt.id,
+      eventType: terminalEvent.eventType,
+      status: terminalEvent.status,
+      summary: `A2A refinement ${terminalEvent.status}: ${endpoint.name}`,
+      payload: {
+        approvalId: approval.id,
+        endpointId: endpoint.id,
+        error: result.stderr,
+      },
+    });
     if (error instanceof RunnerError) throw error;
     if (isCancelled(error)) throw new RunnerError(RUNNER_CANCELLED, result.stderr);
     throw new RunnerError("RUNNER_EXECUTION_FAILED", result.stderr);
@@ -233,6 +277,35 @@ const isUnresolvedApproval = (approval: { status: string }): boolean =>
   approval.status === "pending" ||
   approval.status === "approved" ||
   approval.status === "always_approved_for_run";
+
+const NON_TERMINAL_REFINEMENT_STATUSES: ReadonlySet<A2ARefinementStatus> =
+  new Set(["pending_approval", "queued", "running"]);
+
+const terminalRefinementEvent = (
+  status: A2ARefinementStatus | undefined,
+  cancelled: boolean,
+): {
+  eventType: A2ARefinementActivityEventType;
+  status: A2ARefinementStatus;
+} => {
+  if (status && !NON_TERMINAL_REFINEMENT_STATUSES.has(status)) {
+    return { eventType: refinementEventType(status), status };
+  }
+  const fallbackStatus: A2ARefinementStatus = cancelled ? "cancelled" : "failed";
+  return { eventType: fallbackStatus, status: fallbackStatus };
+};
+
+const refinementEventType = (
+  status: A2ARefinementStatus,
+): A2ARefinementActivityEventType => {
+  if (status === "succeeded") return "succeeded";
+  if (status === "stopped") return "stopped";
+  if (status === "cancelled") return "cancelled";
+  if (status === "input_required") return "input_required";
+  if (status === "auth_required") return "auth_required";
+  if (status === "running" || status === "queued") return "started";
+  return "failed";
+};
 
 const isCancelled = (error: unknown): boolean =>
   isRecord(error) && error.name === "AbortError";

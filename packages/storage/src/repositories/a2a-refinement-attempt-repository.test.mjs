@@ -135,3 +135,47 @@ test("A2ARefinementAttemptRepository rejects duplicate active signatures", async
     t.cleanup();
   }
 });
+
+test("A2ARefinementAttemptRepository records dedicated activity events", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const state = new LocalStateService(db);
+    const { taskRun, endpoint, invocation, evidence } = await seedTarget(state);
+    const attempt = await state.a2aRefinements.create({
+      taskRunId: taskRun.id,
+      targetInvocationId: invocation.id,
+      endpointId: endpoint.id,
+      feedbackSourceKind: "quality_gate",
+      feedbackArtifactId: evidence.id,
+      parentRemoteTaskId: "remote-task-1",
+      parentRemoteContextId: "remote-context-1",
+      referenceTaskIds: ["remote-task-1"],
+      referenceArtifactIds: [evidence.id],
+      feedbackSignature: "sig-event",
+    });
+
+    await state.a2aRefinements.createEvent({
+      taskRunId: taskRun.id,
+      attemptId: attempt.id,
+      eventType: "created",
+      status: attempt.status,
+      summary: "A2A refinement approval requested",
+      payload: { approvalId: "appr_1" },
+    });
+
+    const page = await state.a2aRefinements.listActivityEvents({
+      limit: 25,
+      offset: 0,
+    });
+
+    assert.equal(page.total, 1);
+    assert.equal(page.items[0].eventType, "created");
+    assert.equal(page.items[0].endpointId, endpoint.id);
+    assert.equal(page.items[0].parentRemoteContextId, "remote-context-1");
+    assert.deepEqual(page.items[0].payload, { approvalId: "appr_1" });
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});

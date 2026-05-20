@@ -241,6 +241,8 @@ export const RightPanel = ({
                   </header>
                   <ApprovalPanel
                     approvals={state.detail.approvals}
+                    checkpoints={state.detail.checkpoints}
+                    refinementAttempts={state.detail.a2aRefinementAttempts}
                     taskRunTargetDir={state.detail.taskRun.targetDir}
                     onApprove={onApprove}
                     onReject={onReject}

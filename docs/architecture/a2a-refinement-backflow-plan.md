@@ -423,6 +423,10 @@ completion.
 4. Expose proposals as read-only `TaskRunDetail.a2aRefinementProposals`; creating
    one still uses `agent.requestRefinement` and creates a pending `network`
    approval.
+5. Render refinement approvals with endpoint, parent remote task/context, target
+   invocation, referenced artifacts, and loop guard counts.
+6. Record dedicated A2A refinement activity events for created, started, and
+   terminal attempt states.
 
 ## 13. Verification Plan
 
@@ -524,6 +528,9 @@ Findings and applied corrections:
    on a remote A2A worker, and quality gates only produce proposals when failed
    evidence maps directly to a remote A2A invocation. The user must still create
    the refinement approval explicitly.
+8. R5 UI completion added a dedicated approval-card section for refinement
+   approvals and a separate `a2a_refinement_events` activity ledger. Activity
+   rows are audit records only; they do not trigger retries or remote calls.
 
 ## 17. References
 

@@ -1,3 +1,5 @@
+import type { TaskRunStatus } from "./task-run.ts";
+
 export type A2ATransport = "json-rpc" | "http-json" | "grpc";
 
 export type A2ARemoteTaskState =
@@ -94,6 +96,9 @@ export type A2ARefinementStopReason =
   | "auth_required"
   | "input_required";
 
+export const A2A_REFINEMENT_MAX_ATTEMPTS_PER_SIGNATURE = 2;
+export const A2A_REFINEMENT_MAX_ATTEMPTS_PER_TASK_RUN = 4;
+
 export interface A2ARefinementTarget {
   invocationId: string;
   endpointId: string;
@@ -159,6 +164,65 @@ export interface A2ARefinementProposal {
   sourceLabel: string;
   targetLabel: string;
   reason: string;
+}
+
+export type A2ARefinementActivityEventType =
+  | "created"
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "cancelled"
+  | "input_required"
+  | "auth_required";
+
+export interface A2ARefinementActivityEvent {
+  id: string;
+  taskRunId: string;
+  threadId: string;
+  threadTitle: string;
+  taskRunUserRequest: string;
+  taskRunStatus: TaskRunStatus;
+  attemptId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  attemptIndex: number;
+  eventType: A2ARefinementActivityEventType;
+  status: A2ARefinementStatus;
+  summary: string;
+  parentRemoteTaskId?: string;
+  parentRemoteContextId?: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  stopReason?: A2ARefinementStopReason;
+  referenceArtifactIds: readonly string[];
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreateA2ARefinementActivityEventInput {
+  taskRunId: string;
+  attemptId: string;
+  eventType: A2ARefinementActivityEventType;
+  status: A2ARefinementStatus;
+  summary: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface A2ARefinementActivityInput {
+  limit: number;
+  offset: number;
+  sinceIso?: string;
+  untilIso?: string;
+}
+
+export interface A2ARefinementActivityPage {
+  items: A2ARefinementActivityEvent[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
 }
 
 export const A2A_TRANSPORTS: readonly A2ATransport[] = [

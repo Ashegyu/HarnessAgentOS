@@ -93,6 +93,14 @@ test("requestA2ARefinement creates a pending attempt and network approval", asyn
     );
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun.status, "waiting_for_approval");
+    const events = await state.a2aRefinements.listActivityEvents({
+      limit: 10,
+      offset: 0,
+    });
+    assert.equal(events.items.length, 1);
+    assert.equal(events.items[0].eventType, "created");
+    assert.equal(events.items[0].attemptId, result.attempt.id);
+    assert.equal(events.items[0].endpointId, endpoint.id);
   } finally {
     closeDb(db);
     t.cleanup();

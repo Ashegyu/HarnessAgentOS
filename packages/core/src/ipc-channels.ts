@@ -28,6 +28,7 @@ export const IPC_CHANNELS = {
     rejectApproval: "conversation:rejectApproval",
     getTaskRunDetail: "conversation:getTaskRunDetail",
     listDecisions: "conversation:listDecisions",
+    listRefinementEvents: "conversation:listRefinementEvents",
     setProposedAction: "conversation:setProposedAction",
     pauseTask: "conversation:pauseTask",
     resumeTask: "conversation:resumeTask",

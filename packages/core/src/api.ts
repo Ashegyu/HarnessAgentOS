@@ -9,6 +9,8 @@ import type {
   AgentStreamEvent,
   A2AAgentCardSnapshot,
   A2AEndpoint,
+  A2ARefinementActivityInput,
+  A2ARefinementActivityPage,
   A2ARefinementAttempt,
   A2ARefinementFeedbackSourceKind,
   A2ARefinementProposal,
@@ -176,6 +178,9 @@ export interface HarnessDesktopApi {
     rejectApproval(input: RejectApprovalInput): Promise<Approval>;
     getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
     listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
+    listRefinementEvents(
+      input: A2ARefinementActivityInput,
+    ): Promise<A2ARefinementActivityPage>;
     setProposedAction(input: {
       approvalId: string;
       details: ProposedActionDetails;

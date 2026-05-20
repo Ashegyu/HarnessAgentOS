@@ -336,6 +336,41 @@ export interface A2ARefinementProposal {
   targetLabel: string;
   reason: string;
 }
+
+export type A2ARefinementActivityEventType =
+  | "created"
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "cancelled"
+  | "input_required"
+  | "auth_required";
+
+export interface A2ARefinementActivityEvent {
+  id: string;
+  taskRunId: string;
+  threadId: string;
+  threadTitle: string;
+  taskRunUserRequest: string;
+  taskRunStatus: TaskRunStatus;
+  attemptId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  attemptIndex: number;
+  eventType: A2ARefinementActivityEventType;
+  status: A2ARefinementStatus;
+  summary: string;
+  parentRemoteTaskId?: string;
+  parentRemoteContextId?: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  stopReason?: A2ARefinementStopReason;
+  referenceArtifactIds: readonly string[];
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
 ```
 
 `LocalStateService.createApproval` attaches a default `policyEvaluation` for every
@@ -466,6 +501,7 @@ conversation.rejectApproval(input: { approvalId: string; message: string }): Pro
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
 conversation.listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
+conversation.listRefinementEvents(input: A2ARefinementActivityInput): Promise<A2ARefinementActivityPage>;
 conversation.pauseTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.resumeTask(input: { taskRunId: string }): Promise<TaskRun>;
 conversation.cancelTask(input: { taskRunId: string; reason: string }): Promise<TaskRun>;
@@ -565,6 +601,56 @@ interface DecisionLogPage {
     taskRunUserRequest: string;
     taskRunStatus: TaskRunStatus;
   }>;
+  total: number;
+  limit: number;
+  offset: number;
+  hasNext: boolean;
+}
+
+type A2ARefinementActivityEventType =
+  | "created"
+  | "started"
+  | "succeeded"
+  | "failed"
+  | "stopped"
+  | "cancelled"
+  | "input_required"
+  | "auth_required";
+
+interface A2ARefinementActivityEvent {
+  id: string;
+  taskRunId: string;
+  threadId: string;
+  threadTitle: string;
+  taskRunUserRequest: string;
+  taskRunStatus: TaskRunStatus;
+  attemptId: string;
+  targetInvocationId: string;
+  endpointId: string;
+  feedbackSourceKind: A2ARefinementFeedbackSourceKind;
+  attemptIndex: number;
+  eventType: A2ARefinementActivityEventType;
+  status: A2ARefinementStatus;
+  summary: string;
+  parentRemoteTaskId?: string;
+  parentRemoteContextId?: string;
+  remoteTaskId?: string;
+  remoteContextId?: string;
+  stopReason?: A2ARefinementStopReason;
+  referenceArtifactIds: readonly string[];
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface A2ARefinementActivityInput {
+  limit: number; // 1..100, Activity Log uses 25 for A2A rows
+  offset: number;
+  sinceIso?: string;
+  untilIso?: string;
+}
+
+interface A2ARefinementActivityPage {
+  items: A2ARefinementActivityEvent[];
   total: number;
   limit: number;
   offset: number;
@@ -1125,6 +1211,9 @@ agent.requestRefinement(input: {
 `TaskRunDetail.a2aRefinementProposals`는 read-only 후보 목록이며, renderer가
 후보를 선택하면 같은 `agent.requestRefinement` 계약으로 pending approval을
 생성한다.
+`conversation.listRefinementEvents`는 refinement attempt의 Activity Log
+전용 감사 이벤트를 반환한다. `created`, `started`, terminal 상태 이벤트는
+관찰용이며 이벤트 조회 자체는 원격 호출이나 runner 실행을 유발하지 않는다.
 
 ```ts
 type AgentProvider = "claude" | "codex";

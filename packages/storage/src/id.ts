@@ -24,6 +24,7 @@ const PREFIXES = {
   agentPipeline: "pipe_",
   a2aEndpoint: "a2a_",
   a2aRefinement: "a2aref_",
+  a2aRefinementEvent: "a2are_",
   repairAttempt: "rpa_",
   evalRun: "evrun_",
 } as const;

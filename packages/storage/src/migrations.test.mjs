@@ -280,6 +280,35 @@ test("v28 migration creates A2A refinement attempt ledger", () => {
   }
 });
 
+test("v29 migration creates A2A refinement activity events", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasTable(db, "a2a_refinement_events"), true);
+    for (const col of [
+      "id",
+      "task_run_id",
+      "attempt_id",
+      "event_type",
+      "status",
+      "summary",
+      "payload_json",
+      "created_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "a2a_refinement_events", col),
+        true,
+        `a2a_refinement_events is missing column ${col}`,
+      );
+    }
+    assert.equal(hasIndex(db, "idx_a2a_refinement_events_created"), true);
+    assert.equal(hasIndex(db, "idx_a2a_refinement_events_attempt"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
