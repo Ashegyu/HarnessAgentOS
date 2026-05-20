@@ -183,6 +183,14 @@ const normalizePermissions = (
     : stripBudget(permissions);
 };
 
+const withoutProviderToolPolicy = (
+  permissions: AgentPermissions,
+): AgentPermissions => ({
+  ...permissions,
+  toolAllowlist: [],
+  toolDenylist: [],
+});
+
 const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
   ...profile,
   category: profile.category.trim().toLowerCase() || "core",
@@ -382,7 +390,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       blockedActions: [],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: ["git:push", "git:commit", "shell:rm*", "shell:del*"],
+      toolDenylist: [],
     };
     const readOnlyPermissions: AgentPermissions = {
       autoApproveActions: [],
@@ -396,7 +404,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: ["filesystem:write*", "git:*", "shell:*", "network:*"],
+      toolDenylist: [],
       budget: {
         perInvocationUsd: 0.08,
         perTaskRunUsd: 0.3,
@@ -413,7 +421,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: ["git:push", "git:commit", "network:*", "shell:rm*", "shell:del*"],
+      toolDenylist: [],
       budget: {
         perInvocationUsd: 0.15,
         perTaskRunUsd: 0.75,
@@ -431,7 +439,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       ],
       allowedSkillIds: [],
       toolAllowlist: [],
-      toolDenylist: ["file:*", "git:*", "network:*", "shell:rm*", "shell:del*"],
+      toolDenylist: [],
       budget: {
         perInvocationUsd: 0.12,
         perTaskRunUsd: 0.5,
@@ -640,13 +648,13 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         id: "ap_framework_codex_bulk_coder",
         name: "Codex Bulk Coder",
         description:
-          "승인된 계획을 바탕으로 multi-file 코드 변경을 구현하되 dependency, network, git 작업은 명시적 approval 아래에 둡니다.",
+          "승인된 계획을 바탕으로 multi-file 코드 변경 제안을 만들고 file_write 실행은 Harness approval 아래에 둡니다.",
         category: "implementation",
         tags: ["codex", "bulk-codegen", "multi-file", "approved-plan"],
         provider: "codex",
         role: "coder",
         persona:
-          "당신은 큰 코드 변경 묶음을 담당하는 Codex 구현 worker입니다. 승인된 계획을 정확히 따르고, 할당된 파일 범위 안에서만 수정하며, 기존 아키텍처 경계를 보존하세요. 변경 경로와 검증 증거를 반환하고, Harness approval flow가 명시적으로 허용하지 않는 한 dependency 설치나 commit은 수행하지 마세요.",
+          "당신은 큰 코드 변경 묶음을 담당하는 Codex 구현 제안 worker입니다. 승인된 계획을 정확히 따르고, 할당된 파일 범위 안에서만 file_write 제안을 만들며, 기존 아키텍처 경계를 보존하세요. 변경 경로와 검증 증거를 반환하고, Harness approval flow가 명시적으로 허용하지 않는 한 dependency 설치나 commit은 제안하지 마세요.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
         cli: defaultCli,
         permissions: codeProposalPermissions,
@@ -1029,6 +1037,11 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       desiredProfiles: [...catalogue, ...frameworkCatalogue],
       updatedAt: now,
     });
+    this.clearExistingCodexSeedToolPolicies({
+      existing,
+      desiredProfiles: [...catalogue, ...frameworkCatalogue],
+      updatedAt: now,
+    });
 
     // Insert only missing canonical roles. The very first inserted canonical
     // profile becomes the default when there is no existing default yet.
@@ -1202,6 +1215,52 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         );
     }
   }
+
+  private clearExistingCodexSeedToolPolicies(input: {
+    existing: readonly AgentProfile[];
+    desiredProfiles: readonly SeedProviderTarget[];
+    updatedAt: string;
+  }): void {
+    const desiredById = new Map(
+      input.desiredProfiles.flatMap((profile) =>
+        profile.id ? [[profile.id, profile] as const] : [],
+      ),
+    );
+    const desiredByName = new Map(
+      input.desiredProfiles.map((profile) => [
+        profile.name.trim().toLowerCase(),
+        profile,
+      ]),
+    );
+    for (const profile of input.existing) {
+      const desired =
+        desiredById.get(profile.id) ??
+        desiredByName.get(profile.name.trim().toLowerCase());
+      if (!desired || desired.provider !== "codex") continue;
+      if (
+        profile.permissions.toolAllowlist.length === 0 &&
+        profile.permissions.toolDenylist.length === 0
+      ) {
+        continue;
+      }
+      this.db
+        .prepare(
+          `UPDATE agent_profiles
+              SET permissions_json = ?, budget_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          JSON.stringify(
+            stripBudget(withoutProviderToolPolicy(profile.permissions)),
+          ),
+          profile.permissions.budget
+            ? JSON.stringify(profile.permissions.budget)
+            : null,
+          input.updatedAt,
+          profile.id,
+        );
+    }
+  }
 }
 
 const LEGACY_ENGLISH_SEED_TEXT: Record<
@@ -1246,9 +1305,9 @@ const LEGACY_ENGLISH_SEED_TEXT: Record<
   },
   "Codex Bulk Coder": {
     description:
-      "Implements multi-file code changes from a proven plan while keeping dependency, network, and git actions under explicit approval.",
+      "Proposes multi-file code changes from a proven plan while keeping file writes, dependency, network, and git actions under explicit approval.",
     persona:
-      "You are a Codex implementation worker for larger code batches. Follow the approved plan exactly, keep edits scoped to the assigned files, preserve existing architecture boundaries, and return changed paths plus verification evidence. Do not install dependencies or commit unless the Harness approval flow explicitly allows it.",
+      "You are a Codex implementation proposal worker for larger code batches. Follow the approved plan exactly, keep file_write proposals scoped to the assigned files, preserve existing architecture boundaries, and return changed paths plus verification evidence. Do not propose dependency installs or commits unless the Harness approval flow explicitly allows it.",
   },
   "ECC Refactor Cleaner": {
     description:

@@ -20,9 +20,9 @@ export const WORKER_ROLE_METADATA: Record<WorkerRole, WorkerRoleMetadata> = {
     label: "구현 담당자",
     shortLabel: "구현",
     description:
-      "승인된 계획을 코드 변경으로 옮기고, 변경 파일과 검증 근거를 남깁니다.",
+      "승인된 계획을 코드 변경 제안으로 옮기고, 변경 파일과 검증 근거를 남깁니다.",
     whenToUse:
-      "기능 추가, 버그 수정, multi-file 변경처럼 실제 코드 수정이 필요한 단계에 사용합니다.",
+      "기능 추가, 버그 수정, multi-file 변경처럼 file_write approval이 필요한 단계에 사용합니다.",
   },
   reviewer: {
     label: "정확성 리뷰어",

@@ -243,6 +243,14 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       "all seed profiles default to explicit Codex xhigh effort",
     );
     assert.ok(
+      all.every(
+        (p) =>
+          p.permissions.toolAllowlist.length === 0 &&
+          p.permissions.toolDenylist.length === 0,
+      ),
+      "Codex seed profiles must not carry unsupported provider tool policies",
+    );
+    assert.ok(
       all.every((p) => p.tuning.systemPromptPrefix.includes("HarnessAgentOS")),
       "all seed profiles carry the Harness project contract in the prompt prefix",
     );
@@ -269,6 +277,58 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       "framework seed persona should be Korean-facing",
     );
     assertFrameworkProfilesPresent(all);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed clears unsupported tool policies on existing Codex seed profiles", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const bulkCoder = await repo.create(
+      makeProfileInput({
+        name: "Codex Bulk Coder",
+        role: "coder",
+        provider: "claude",
+        permissions: {
+          autoApproveActions: [],
+          blockedActions: [
+            "dependency_install",
+            "git_commit",
+            "network",
+            "skill_script",
+          ],
+          allowedSkillIds: ["ss_keep"],
+          toolAllowlist: ["Read"],
+          toolDenylist: ["Bash(*)"],
+          budget: {
+            perInvocationUsd: 0.15,
+            perTaskRunUsd: 0.75,
+          },
+        },
+      }),
+    );
+
+    await repo.ensureSeed();
+
+    const refreshed = await repo.get(bulkCoder.id);
+    assert.equal(refreshed.provider, "codex");
+    assert.deepEqual(refreshed.permissions.toolAllowlist, []);
+    assert.deepEqual(refreshed.permissions.toolDenylist, []);
+    assert.deepEqual(refreshed.permissions.allowedSkillIds, ["ss_keep"]);
+    assert.deepEqual(refreshed.permissions.blockedActions, [
+      "dependency_install",
+      "git_commit",
+      "network",
+      "skill_script",
+    ]);
+    assert.deepEqual(refreshed.permissions.budget, {
+      perInvocationUsd: 0.15,
+      perTaskRunUsd: 0.75,
+    });
   } finally {
     closeDb(db);
     t.cleanup();
