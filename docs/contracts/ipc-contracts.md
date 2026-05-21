@@ -1658,7 +1658,8 @@ pipeline.delete(input: { pipelineId: string }): Promise<void>;
 - `remoteEndpointId`, `dependsOn`, `allowedActions`, `outputContract`는 orchestration planner가 immutable plan snapshot으로 확장할 때 사용한다.
 - pipeline template은 optional `backflowRules: AgentPipelineBackflowRule[]`을 저장할 수 있다. 저장소는 `backflow_rules_json`에 보관하고, planner는 pipeline step id를 worker step id로 remap해 `OrchestrationPlan.backflowRules`에 포함한다.
 - Backflow rule은 정상 `dependsOn` DAG에 포함하지 않는다. UI에서는 각 Agent step 안에서 backflow 연결을 편집하며, `retryStepId`는 해당 연결을 소유한 Agent step이고 `targetStepId`는 되돌아갈 이전 Agent step이다.
-- `targetStepId`는 `retryStepId`보다 앞선 step이어야 하며, `maxAttempts`는 1..5다.
+- `targetStepId`는 `retryStepId`보다 앞선 step이어야 하며, 정상 `dependsOn` 경로에서 `retryStepId`의 ancestor여야 한다. `maxAttempts`는 1..5다.
+- Backflow 실행은 `targetStepId`에서 `retryStepId`까지의 정상 dependency path를 새 Step/Artifact row로 재실행한다. 단순히 target 다음 retry만 직접 호출하지 않는다.
 - `step_failed` rule은 실행 중 실패한 worker step과 `retryStepId`가 일치할 때만 자동 실행된다. `quality_failed` rule은 `QualityGateResult.status === "failed"`에서만 실행되며 `warning`은 기존 known-risk 승인 흐름을 유지한다.
 - 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Product PRD Discovery`, `Evidence-First Bug Investigation`, `Docs-First Contract Reconciliation`, `Runtime Approval Hardening`, `A2A Federation Safety Review`, `Eval-Driven Release Verification`, `Cross-Harness Agent Baseline`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `New Project Delivery`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
 - 기본 AgentProfile seed의 description/persona, rich system prompt prefix/suffix, 기본 pipeline step instruction은 한국어 UI 표시와 HarnessAgentOS approval/IPC/storage 계약을 기준으로 저장한다.

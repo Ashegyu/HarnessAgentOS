@@ -544,90 +544,111 @@ export class WorkerRunner {
 
     const targetStep = this.requirePlanStep(context.plan, rule.targetStepId);
     const retryStep = this.requirePlanStep(context.plan, rule.retryStepId);
+    const replaySteps = backflowReplayStepsBetween(
+      context.plan.workerSteps,
+      targetStep.id,
+      retryStep.id,
+    );
     const policyReport: string[] = [];
     let lifecycleInterruption: WorkerLifecycleInterruption | null = null;
     let lastDbStepId: string | null = null;
 
-    await this.recordBackflowEvent({
-      attempt,
-      eventType: "target_started",
-      status: "running",
-      summary: `Backflow target started: ${targetStep.title}`,
-      payload: { targetStepId: targetStep.id },
-    });
-    const targetResult = await this.runBackflowStep({
-      context,
-      planStep: targetStep,
-    });
-    await context.processWorkerResultSideEffects(targetResult);
-    this.appendBackflowResult(context, targetResult);
-    policyReport.push(...targetResult.policyReport);
-    lastDbStepId = targetResult.dbStepId;
-    if (targetResult.lifecycleInterruption) {
-      lifecycleInterruption = targetResult.lifecycleInterruption;
-    }
-    if (targetResult.status === "failed") {
+    if (
+      replaySteps.length === 0 ||
+      replaySteps[0]?.id !== targetStep.id ||
+      replaySteps[replaySteps.length - 1]?.id !== retryStep.id
+    ) {
       await this.failBackflowAttempt({
         attempt,
-        reason: `Backflow target failed: ${targetStep.title}`,
-        eventPayload: { targetStepId: targetStep.id },
+        reason: `Backflow target is not on retry dependency path: ${targetStep.title} -> ${retryStep.title}`,
+        eventPayload: {
+          targetStepId: targetStep.id,
+          retryStepId: retryStep.id,
+        },
       });
       return {
         handled: true,
         succeeded: false,
-        lifecycleInterruption,
+        lifecycleInterruption: null,
         policyReport,
-        lastDbStepId,
+        lastDbStepId: null,
       };
     }
-    await this.recordBackflowEvent({
-      attempt,
-      eventType: "target_succeeded",
-      status: "running",
-      summary: `Backflow target succeeded: ${targetStep.title}`,
-      payload: { targetStepId: targetStep.id, artifactId: targetResult.artifactId },
-    });
 
-    await this.recordBackflowEvent({
-      attempt,
-      eventType: "retry_started",
-      status: "running",
-      summary: `Backflow retry started: ${retryStep.title}`,
-      payload: { retryStepId: retryStep.id },
-    });
-    const retryResult = await this.runBackflowStep({
-      context,
-      planStep: retryStep,
-      additionalHandoffMessages: targetResult.handoff ? [targetResult.handoff] : [],
-    });
-    await context.processWorkerResultSideEffects(retryResult);
-    this.appendBackflowResult(context, retryResult);
-    policyReport.push(...retryResult.policyReport);
-    lastDbStepId = retryResult.dbStepId;
-    if (retryResult.lifecycleInterruption) {
-      lifecycleInterruption = retryResult.lifecycleInterruption;
-    }
-    if (retryResult.status === "failed") {
-      await this.failBackflowAttempt({
-        attempt,
-        reason: `Backflow retry failed: ${retryStep.title}`,
-        eventPayload: { retryStepId: retryStep.id },
+    for (const replayStep of replaySteps) {
+      const isTargetStep = replayStep.id === targetStep.id;
+      const isRetryStep = replayStep.id === retryStep.id;
+      if (isTargetStep) {
+        await this.recordBackflowEvent({
+          attempt,
+          eventType: "target_started",
+          status: "running",
+          summary: `Backflow target started: ${targetStep.title}`,
+          payload: { targetStepId: targetStep.id },
+        });
+      }
+      if (isRetryStep) {
+        await this.recordBackflowEvent({
+          attempt,
+          eventType: "retry_started",
+          status: "running",
+          summary: `Backflow retry started: ${retryStep.title}`,
+          payload: { retryStepId: retryStep.id },
+        });
+      }
+      const result = await this.runBackflowStep({
+        context,
+        planStep: replayStep,
       });
-      return {
-        handled: true,
-        succeeded: false,
-        lifecycleInterruption,
-        policyReport,
-        lastDbStepId,
-      };
+      await context.processWorkerResultSideEffects(result);
+      this.appendBackflowResult(context, result);
+      policyReport.push(...result.policyReport);
+      lastDbStepId = result.dbStepId;
+      if (result.lifecycleInterruption) {
+        lifecycleInterruption = result.lifecycleInterruption;
+      }
+      if (result.status === "failed") {
+        const failureReason = isTargetStep
+          ? `Backflow target failed: ${targetStep.title}`
+          : isRetryStep
+            ? `Backflow retry failed: ${retryStep.title}`
+            : `Backflow replay step failed: ${replayStep.title}`;
+        await this.failBackflowAttempt({
+          attempt,
+          reason: failureReason,
+          eventPayload: {
+            stepId: replayStep.id,
+            targetStepId: isTargetStep ? targetStep.id : undefined,
+            retryStepId: isRetryStep ? retryStep.id : undefined,
+          },
+        });
+        return {
+          handled: true,
+          succeeded: false,
+          lifecycleInterruption,
+          policyReport,
+          lastDbStepId,
+        };
+      }
+      if (isTargetStep) {
+        await this.recordBackflowEvent({
+          attempt,
+          eventType: "target_succeeded",
+          status: "running",
+          summary: `Backflow target succeeded: ${targetStep.title}`,
+          payload: { targetStepId: targetStep.id, artifactId: result.artifactId },
+        });
+      }
+      if (isRetryStep) {
+        await this.recordBackflowEvent({
+          attempt,
+          eventType: "retry_succeeded",
+          status: "succeeded",
+          summary: `Backflow retry succeeded: ${retryStep.title}`,
+          payload: { retryStepId: retryStep.id, artifactId: result.artifactId },
+        });
+      }
     }
-    await this.recordBackflowEvent({
-      attempt,
-      eventType: "retry_succeeded",
-      status: "succeeded",
-      summary: `Backflow retry succeeded: ${retryStep.title}`,
-      payload: { retryStepId: retryStep.id, artifactId: retryResult.artifactId },
-    });
 
     if (input.runDownstreamAfterRetry) {
       const downstream = downstreamStepsAfter(context.plan.workerSteps, retryStep.id);
@@ -1085,21 +1106,56 @@ const emptyBackflowOutcome = (handled: boolean): BackflowExecutionOutcome => ({
   lastDbStepId: null,
 });
 
+const backflowReplayStepsBetween = (
+  steps: readonly WorkerStep[],
+  targetStepId: string,
+  retryStepId: string,
+): WorkerStep[] => {
+  const stepIds = new Set(steps.map((step) => step.id));
+  if (!stepIds.has(targetStepId) || !stepIds.has(retryStepId)) return [];
+  const dependencyIdsByStepId = buildEffectiveWorkerDependencyMap(steps);
+  const dependentIdsByStepId = new Map<string, string[]>();
+  for (const stepId of stepIds) dependentIdsByStepId.set(stepId, []);
+  for (const [stepId, dependencyIds] of dependencyIdsByStepId.entries()) {
+    for (const depId of dependencyIds) {
+      if (!stepIds.has(depId)) continue;
+      dependentIdsByStepId.get(depId)?.push(stepId);
+    }
+  }
+
+  const descendantsOfTarget = new Set<string>();
+  const collectDescendants = (stepId: string): void => {
+    if (descendantsOfTarget.has(stepId)) return;
+    descendantsOfTarget.add(stepId);
+    for (const dependentId of dependentIdsByStepId.get(stepId) ?? []) {
+      collectDescendants(dependentId);
+    }
+  };
+  collectDescendants(targetStepId);
+
+  const ancestorsOfRetry = new Set<string>();
+  const collectAncestors = (stepId: string): void => {
+    if (ancestorsOfRetry.has(stepId)) return;
+    ancestorsOfRetry.add(stepId);
+    for (const depId of dependencyIdsByStepId.get(stepId) ?? []) {
+      if (stepIds.has(depId)) collectAncestors(depId);
+    }
+  };
+  collectAncestors(retryStepId);
+
+  const orderedSteps = orderWorkerStepsByDependencies([...steps]);
+  return orderedSteps.filter(
+    (step) =>
+      descendantsOfTarget.has(step.id) && ancestorsOfRetry.has(step.id),
+  );
+};
+
 const downstreamStepsAfter = (
   steps: readonly WorkerStep[],
   retryStepId: string,
 ): WorkerStep[] => {
   const stepIds = new Set(steps.map((step) => step.id));
-  const depsByStepId = new Map(
-    steps.map((step, index) => [
-      step.id,
-      step.dependsOn !== undefined
-        ? [...step.dependsOn]
-        : index > 0
-          ? [steps[index - 1]!.id]
-          : [],
-    ] as const),
-  );
+  const depsByStepId = buildEffectiveWorkerDependencyMap(steps);
   const hasRetryAncestor = (stepId: string, visiting = new Set<string>()): boolean => {
     if (stepId === retryStepId) return true;
     if (visiting.has(stepId)) return false;

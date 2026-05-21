@@ -15,6 +15,7 @@ test("PipelinesTab edits backflow as an agent-owned connection", () => {
   assert.match(source, /handleAddBackflowRuleForStep/);
   assert.match(source, /retryStepId:\s*retry\.id/);
   assert.match(source, /retryStepId:\s*step\.id/);
-  assert.match(source, /const earlierSteps = draft\.steps\.slice\(0, i\)/);
+  assert.match(source, /backflowTargetCandidates/);
+  assert.doesNotMatch(source, /const earlierSteps = draft\.steps\.slice\(0, i\)/);
   assert.doesNotMatch(source, /<legend>Backflow Rules<\/legend>/);
 });

@@ -1438,6 +1438,113 @@ test("runApproved routes a failed step through configured pipeline backflow and 
   }
 });
 
+test("runApproved replays the dependency path from backflow target to retry step", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Planner", role: "planner" }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const reviewerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Backflow path replay",
+      description: "",
+      steps: [
+        {
+          id: "plan",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+        },
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Code from plan.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["plan"],
+        },
+        {
+          id: "review",
+          agentProfileId: reviewerProfile.id,
+          title: "Review",
+          instruction: "Review code.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["code"],
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Test after review.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["review"],
+        },
+      ],
+      backflowRules: [
+        {
+          id: "bf_test",
+          trigger: "step_failed",
+          targetStepId: "plan",
+          retryStepId: "test",
+          maxAttempts: 2,
+          instruction: "Refresh the whole path before retrying tests.",
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push(input.profile.name);
+        if (
+          input.profile.name === "Tester" &&
+          calls.filter((name) => name === "Tester").length === 1
+        ) {
+          throw new Error("test failed first");
+        }
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.deepEqual(calls, [
+      "Planner",
+      "Coder",
+      "Reviewer",
+      "Tester",
+      "Planner",
+      "Coder",
+      "Reviewer",
+      "Tester",
+    ]);
+    assert.equal((await state.getTaskRun(taskRun.id)).status, "ready_for_review");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved blocks when backflow maxAttempts is already exhausted", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

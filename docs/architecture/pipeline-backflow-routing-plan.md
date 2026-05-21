@@ -12,10 +12,11 @@ is not dependency graph reversal.
 The user defines a backflow connection on each agent step during pipeline
 editing:
 
-- when that worker step fails, rerun the connected earlier target agent and then
-  retry the owning agent
-- when a quality gate fails, rerun the connected earlier target agent, retry the
-  selected owning agent, then run the normal downstream steps after that retry
+- when that worker step fails, rerun the connected earlier target agent through
+  the normal dependency path up to the owning agent, then continue downstream
+- when a quality gate fails, rerun the connected earlier target agent through
+  the normal dependency path up to the selected owning agent, then run the
+  normal downstream steps after that retry
 
 Successful steps continue through the normal `dependsOn` flow. Backflow is not a
 separate final pipeline step. It runs only when a matching failure trigger occurs
@@ -62,7 +63,8 @@ interface AgentPipelineBackflowRule {
 `OrchestrationPlan.backflowRules` stores the immutable run snapshot after planner
 remap. `targetStepId` and `retryStepId` are worker step ids in this snapshot.
 `retryStepId` is the owning agent. `targetStepId` is the earlier agent to rerun
-before retrying the owner.
+before retrying the owner. The target must be a normal dependency ancestor of the
+retry step; being visually earlier in the pipeline is not sufficient.
 
 Runtime execution writes:
 
@@ -84,6 +86,8 @@ Pipeline repository validation rejects:
 - unknown `retryStepId`
 - `targetStepId === retryStepId`
 - target step positioned at or after retry step
+- target step that is not connected to retry step through the normal
+  `dependsOn` dependency path
 - `maxAttempts` outside 1..5
 
 `dependsOn` cycle validation stays normal-flow only. Backflow is a conditional
@@ -99,12 +103,13 @@ For `step_failed`:
 2. `WorkerRunner` finds a `step_failed` rule whose `retryStepId` equals the
    failed worker step id.
 3. The persisted attempt count is checked against `maxAttempts`.
-4. The target step runs as a new DB step and artifact.
-5. If the target succeeds, the retry step runs as another new DB step and
-   artifact.
-6. If retry succeeds, the original failure is considered resolved and the normal
-   downstream flow continues.
-7. If target/retry fails or attempts are exhausted, the TaskRun becomes
+4. The runner calculates the normal dependency subgraph from `targetStepId` to
+   `retryStepId`.
+5. The target step, any intermediate dependency-path steps, and the retry step
+   each run as new DB steps and artifacts in topological order.
+6. If the retry step succeeds, the original failure is considered resolved and
+   the normal downstream flow continues.
+7. If any replayed step fails or attempts are exhausted, the TaskRun becomes
    `blocked`.
 
 For `quality_failed`:
@@ -113,8 +118,8 @@ For `quality_failed`:
 2. Electron main calls `PipelineBackflowService` only when
    `QualityGateResult.status === "failed"`.
 3. The service loads the latest orchestration plan.
-4. If a `quality_failed` rule exists, `WorkerRunner.runQualityBackflow` runs
-   target, retry, then the normal downstream steps after retry.
+4. If a `quality_failed` rule exists, `WorkerRunner.runQualityBackflow` runs the
+   target-to-retry dependency path, then the normal downstream steps after retry.
 5. The TaskRun returns to `ready_for_review` when the backflow sequence succeeds.
 6. No automatic quality re-evaluation runs. The user must evaluate again.
 
@@ -155,11 +160,13 @@ Reviewed execution order:
 3. Normal execution uses only `dependsOn` waves.
 4. Failure handling checks trigger and persisted attempt count before rerunning
    anything.
-5. Backflow reruns always create new Step/Artifact/Event rows and do not
+5. Backflow validates target-to-retry reachability through the normal dependency
+   graph before executing any replay step.
+6. Backflow reruns always create new Step/Artifact/Event rows and do not
    overwrite prior artifacts.
-6. Retry success clears only the matching failed step condition, then normal
+7. Retry success clears only the matching failed step condition, then normal
    downstream execution resumes.
-7. Quality failure backflow returns to `ready_for_review` and waits for explicit
+8. Quality failure backflow returns to `ready_for_review` and waits for explicit
    user evaluation.
 
 No ordering issue remains in this procedure. The intentionally retained

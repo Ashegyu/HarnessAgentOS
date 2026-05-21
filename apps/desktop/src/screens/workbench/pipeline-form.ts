@@ -1249,6 +1249,17 @@ const validateBackflowRules = (
       });
     }
     if (
+      targetIndex !== undefined &&
+      retryIndex !== undefined &&
+      targetIndex < retryIndex &&
+      !hasBackflowDependencyPath(draft.steps, rule.targetStepId, rule.retryStepId)
+    ) {
+      errors.push({
+        field: "steps",
+        message: `${label}: backflow target은 retry step의 dependency path에 있어야 합니다`,
+      });
+    }
+    if (
       !Number.isInteger(rule.maxAttempts) ||
       rule.maxAttempts < 1 ||
       rule.maxAttempts > 5
@@ -1260,6 +1271,26 @@ const validateBackflowRules = (
     }
   }
   return errors;
+};
+
+const hasBackflowDependencyPath = (
+  steps: readonly PipelineStepDraft[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const visited = new Set<string>();
+  const visit = (stepId: string): boolean => {
+    if (stepId === targetStepId) return true;
+    if (visited.has(stepId)) return false;
+    visited.add(stepId);
+    const index = stepIndexById.get(stepId);
+    if (index === undefined) return false;
+    return effectiveDependsOn(steps, index).some((depId) => visit(depId));
+  };
+  return visit(retryStepId);
 };
 
 const firstCycleStepId = (steps: readonly PipelineStepDraft[]): string | null => {

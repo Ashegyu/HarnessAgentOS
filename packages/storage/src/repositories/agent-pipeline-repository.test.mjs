@@ -526,6 +526,36 @@ test("AgentPipelineRepository.create rejects invalid backflow topology", async (
         pipelines.create(
           makePipelineInput(profile.id, {
             ...base,
+            steps: [
+              base.steps[0],
+              {
+                id: "research",
+                agentProfileId: reviewer.id,
+                title: "Research",
+                instruction: "Research independently.",
+                expectedArtifactKinds: ["log"],
+                dependsOn: [],
+              },
+              base.steps[1],
+            ],
+            backflowRules: [
+              {
+                id: "bf_unconnected",
+                trigger: "step_failed",
+                targetStepId: "research",
+                retryStepId: "review",
+                maxAttempts: 2,
+              },
+            ],
+          }),
+        ),
+      /backflow.*dependency path/i,
+    );
+    await assert.rejects(
+      () =>
+        pipelines.create(
+          makePipelineInput(profile.id, {
+            ...base,
             backflowRules: [
               {
                 id: "bf_invalid_attempts",

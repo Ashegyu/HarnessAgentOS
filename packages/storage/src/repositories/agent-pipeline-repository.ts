@@ -1935,6 +1935,13 @@ const validateBackflowRules = (
       );
     }
     if (
+      !hasBackflowDependencyPath(steps, rule.targetStepId, rule.retryStepId)
+    ) {
+      throw new Error(
+        `AgentPipeline.backflowRules[${i}].targetStepId must be on the dependency path to retryStepId`,
+      );
+    }
+    if (
       !Number.isInteger(rule.maxAttempts) ||
       rule.maxAttempts < 1 ||
       rule.maxAttempts > 5
@@ -1944,6 +1951,33 @@ const validateBackflowRules = (
       );
     }
   }
+};
+
+const hasBackflowDependencyPath = (
+  steps: readonly AgentPipelineStep[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const visited = new Set<string>();
+  const visit = (stepId: string): boolean => {
+    if (stepId === targetStepId) return true;
+    if (visited.has(stepId)) return false;
+    visited.add(stepId);
+    const index = stepIndexById.get(stepId);
+    if (index === undefined) return false;
+    const step = steps[index]!;
+    const dependencyIds =
+      step.dependsOn !== undefined
+        ? step.dependsOn
+        : index > 0
+          ? [steps[index - 1]!.id]
+          : [];
+    return dependencyIds.some((depId) => visit(depId));
+  };
+  return visit(retryStepId);
 };
 
 const hasInvalidBackflowMaxAttempts = (rule: unknown): boolean => {

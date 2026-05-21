@@ -82,6 +82,46 @@ const stepTitle = (
   stepId: string,
 ): string => steps.find((step) => step.id === stepId)?.title.trim() || stepId;
 
+const effectiveStepDependsOn = (
+  steps: readonly PipelineStepDraft[],
+  index: number,
+): string[] => {
+  const step = steps[index];
+  if (!step) return [];
+  return step.dependsOn ?? (index > 0 ? [steps[index - 1]!.id] : []);
+};
+
+const hasStepDependencyPath = (
+  steps: readonly PipelineStepDraft[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const visited = new Set<string>();
+  const visit = (stepId: string): boolean => {
+    if (stepId === targetStepId) return true;
+    if (visited.has(stepId)) return false;
+    visited.add(stepId);
+    const index = stepIndexById.get(stepId);
+    if (index === undefined) return false;
+    return effectiveStepDependsOn(steps, index).some((depId) => visit(depId));
+  };
+  return visit(retryStepId);
+};
+
+const backflowTargetCandidates = (
+  steps: readonly PipelineStepDraft[],
+  retryStepId: string,
+): PipelineStepDraft[] => {
+  const retryIndex = steps.findIndex((step) => step.id === retryStepId);
+  if (retryIndex <= 0) return [];
+  return steps
+    .slice(0, retryIndex)
+    .filter((step) => hasStepDependencyPath(steps, step.id, retryStepId));
+};
+
 export const PipelinesTab = ({
   initialTopologyTaskRunId = null,
   onDefaultPipelineChanged,
@@ -242,8 +282,9 @@ export const PipelinesTab = ({
 
   const handleAddBackflowRuleForStep = (stepIndex: number): void => {
     if (!draft || stepIndex <= 0 || stepIndex >= draft.steps.length) return;
-    const target = draft.steps[stepIndex - 1]!;
     const retry = draft.steps[stepIndex]!;
+    const target = backflowTargetCandidates(draft.steps, retry.id).at(-1);
+    if (!target) return;
     updateDraft({
       backflowRules: [
         ...(draft.backflowRules ?? []),
@@ -773,7 +814,12 @@ export const PipelinesTab = ({
                   </p>
                 )}
                 <ol className="pipeline-steps">
-                  {draft.steps.map((step, i) => (
+                  {draft.steps.map((step, i) => {
+                    const backflowCandidates = backflowTargetCandidates(
+                      draft.steps,
+                      step.id,
+                    );
+                    return (
                     <li key={step.id} className="pipeline-step">
                       <div className="pipeline-step__header">
                         <span className="pipeline-step__index">
@@ -964,9 +1010,9 @@ export const PipelinesTab = ({
                           이 Agent가 실패하거나 품질 실패 후 재시도 대상이 될 때,
                           어느 이전 Agent로 되돌아가 보정할지 정합니다.
                         </span>
-                        {i === 0 ? (
+                        {backflowCandidates.length === 0 ? (
                           <span className="settings-field__hint">
-                            첫 Agent는 되돌아갈 이전 Agent가 없어 backflow를 설정할 수 없습니다.
+                            연결된 upstream Agent가 없어 backflow를 설정할 수 없습니다.
                           </span>
                         ) : null}
                         <div className="pipeline-step__option-grid">
@@ -974,8 +1020,7 @@ export const PipelinesTab = ({
                             .map((rule, ruleIndex) => ({ rule, ruleIndex }))
                             .filter(({ rule }) => rule.retryStepId === step.id)
                             .map(({ rule, ruleIndex }) => {
-                              const earlierSteps = draft.steps.slice(0, i);
-                              const targetIsVisible = earlierSteps.some(
+                              const targetIsVisible = backflowCandidates.some(
                                 (candidate) => candidate.id === rule.targetStepId,
                               );
                               return (
@@ -1021,7 +1066,7 @@ export const PipelinesTab = ({
                                         })
                                       }
                                     >
-                                      {earlierSteps.map((candidate) => (
+                                      {backflowCandidates.map((candidate) => (
                                         <option
                                           key={candidate.id}
                                           value={candidate.id}
@@ -1089,7 +1134,7 @@ export const PipelinesTab = ({
                         <button
                           type="button"
                           className="btn btn--ghost btn--sm"
-                          disabled={saving || i === 0}
+                          disabled={saving || backflowCandidates.length === 0}
                           onClick={() => handleAddBackflowRuleForStep(i)}
                         >
                           + 이 Agent에 backflow 연결
@@ -1160,7 +1205,8 @@ export const PipelinesTab = ({
                         </span>
                       </label>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ol>
                 <button
                   type="button"

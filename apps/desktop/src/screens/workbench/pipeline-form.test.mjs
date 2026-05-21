@@ -479,6 +479,55 @@ test("validatePipelineDraft flags invalid backflow rules without treating them a
   assert.equal(errs.some((e) => /cycle/i.test(e.message)), false);
 });
 
+test("validatePipelineDraft rejects backflow targets outside the retry dependency path", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Backflow Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+      },
+      {
+        id: "research",
+        agentProfileId: "ap_b",
+        title: "Research",
+        instruction: "",
+        expectedArtifactKinds: ["log"],
+        dependsOn: [],
+      },
+      {
+        id: "code",
+        agentProfileId: "ap_c",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["plan"],
+      },
+    ],
+    backflowRules: [
+      {
+        id: "bf_code",
+        trigger: "step_failed",
+        targetStepId: "research",
+        retryStepId: "code",
+        maxAttempts: 2,
+      },
+    ],
+  };
+
+  const errs = validatePipelineDraft(d, [
+    profile("ap_a"),
+    profile("ap_b"),
+    profile("ap_c"),
+  ]);
+  assert.ok(errs.some((e) => /dependency path|의존/i.test(e.message)));
+});
+
 test("validatePipelineDraft flags dependency cycles", () => {
   const d = {
     ...emptyPipelineDraft(),
