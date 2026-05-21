@@ -19,8 +19,8 @@ const items = [
     id: "learning:open",
     group: "learning",
     title: "Learning",
-    subtitle: "Open instincts and skills",
-    keywords: ["instinct", "skillify"],
+    subtitle: "Open instincts, capabilities, learner, and skills",
+    keywords: ["instinct", "capability", "skillify", "learner"],
     run: noop,
   },
   {
@@ -53,7 +53,8 @@ test("filterCommandPaletteItems ranks exact matches first", () => {
 
 test("filterCommandPaletteItems matches partial and fuzzy queries", () => {
   assert.equal(filterCommandPaletteItems(items, "qual")[0].id, "tab:quality");
-  assert.equal(filterCommandPaletteItems(items, "ap")[0].id, "thread:alpha");
+  assert.equal(filterCommandPaletteItems(items, "alph")[0].id, "thread:alpha");
+  assert.equal(filterCommandPaletteItems(items, "cap")[0].id, "learning:open");
 });
 
 test("movePaletteSelection wraps keyboard navigation", () => {

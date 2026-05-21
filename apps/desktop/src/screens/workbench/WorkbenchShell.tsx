@@ -69,7 +69,6 @@ const COMMAND_TAB_ITEMS: ReadonlyArray<{
   { id: "timeline", title: "Timeline", keywords: ["time"] },
   { id: "artifacts", title: "Files", keywords: ["artifacts"] },
   { id: "quality", title: "Quality", keywords: ["qa"] },
-  { id: "capabilities", title: "Capabilities", keywords: ["caps"] },
   { id: "orchestration", title: "Orchestration", keywords: ["orch"] },
   { id: "cost", title: "Cost", keywords: ["budget", "latency"] },
   { id: "decisions", title: "Decisions", keywords: ["auto approve"] },
@@ -1190,8 +1189,15 @@ export const WorkbenchShell = (): JSX.Element => {
       id: "learning:open",
       group: "learning",
       title: "Learning",
-      subtitle: "Open instincts and skills",
-      keywords: ["instinct", "skills", "skillify", "learner"],
+      subtitle: "Open instincts, capabilities, learner, and skills",
+      keywords: [
+        "instinct",
+        "capability",
+        "caps",
+        "skills",
+        "skillify",
+        "learner",
+      ],
       run: () => setLearningOpen(true),
     });
 
@@ -1361,7 +1367,6 @@ export const WorkbenchShell = (): JSX.Element => {
               onConfigure={handleConfigure}
               onExecute={handleExecute}
               onQualityChanged={handleQualityChanged}
-              onCapabilityApprovalCreated={handleQualityChanged}
               onAgentGenerate={handleAgentGenerate}
               onAgentRetry={handleAgentRetry}
               onAgentCancel={handleAgentCancel}
@@ -1385,7 +1390,18 @@ export const WorkbenchShell = (): JSX.Element => {
         />
       )}
       {learningOpen && (
-        <LearningPanel onClose={() => setLearningOpen(false)} />
+        <LearningPanel
+          taskRun={
+            taskRunDetail.kind === "ready"
+              ? taskRunDetail.detail.taskRun
+              : null
+          }
+          approvals={
+            taskRunDetail.kind === "ready" ? taskRunDetail.detail.approvals : []
+          }
+          onApprovalCreated={handleQualityChanged}
+          onClose={() => setLearningOpen(false)}
+        />
       )}
       {settingsOpen && (
         <SettingsPanel

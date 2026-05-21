@@ -148,7 +148,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "custom source는 trust 승격 전까지 script 실행 권한을 갖지 않습니다.",
       "Skill 후보는 capability recommendation으로 표시되며, 사용 여부는 승인 흐름을 통해 결정됩니다.",
     ],
-    location: "설정 > Skills 및 우측 Capabilities 패널",
+    location: "Learning > Skills, Learning > Capabilities, 설정 > Skills",
   },
   secrets: {
     id: "secrets",
@@ -273,7 +273,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "추천은 capability metadata, trigger terms, risk level을 바탕으로 만들어집니다.",
       "승인된 capability는 나중의 agent prompt/context에 반영됩니다.",
     ],
-    location: "우측 Caps 패널",
+    location: "Learning > Capabilities",
   },
   learner: {
     id: "learner",
@@ -285,7 +285,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "추천 결과는 approval과 agent prompt 구성에 반영될 수 있고, 모델 추천에는 추정 비용(estimatedCostUsd)이 함께 표시됩니다.",
       "LearningTrace는 reward, latency, success를 post-hoc 기록합니다. 비용 한도 enforcement는 Agent Profile의 Budget 설정과 결합해 사전(pre-execution) 단계에서 작동합니다.",
     ],
-    location: "우측 Caps > Learner",
+    location: "Learning > Learner",
   },
   instinct: {
     id: "instinct",
@@ -296,7 +296,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "후보 점수는 관찰된 project key, capability metadata, 최근 작업 맥락을 활용합니다.",
       "실행은 항상 별도 approval과 runner policy를 거칩니다.",
     ],
-    location: "우측 Inst 패널",
+    location: "Learning > Instincts",
   },
   orchestration: {
     id: "orchestration",

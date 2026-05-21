@@ -7,8 +7,6 @@ import { PlanArtifactView } from "./PlanArtifactView";
 import { TaskRunTimeline } from "./TaskRunTimeline";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { QualityPanel } from "./QualityPanel";
-import { CapabilityPanel } from "./CapabilityPanel";
-import { LearnerPanel } from "./LearnerPanel";
 import { CostPanel } from "./CostPanel";
 import { DecisionsPanel } from "./DecisionsPanel";
 import { OrchestrationPanel } from "./OrchestrationPanel";
@@ -28,7 +26,6 @@ export type RightPanelTab =
   | "timeline"
   | "artifacts"
   | "quality"
-  | "capabilities"
   | "orchestration"
   | "cost"
   | "decisions";
@@ -47,7 +44,6 @@ const TABS: ReadonlyArray<{
   { id: "timeline", label: "Time", tooltip: "Timeline", icon: "⌛" },
   { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "▤" },
   { id: "quality", label: "QA", tooltip: "Quality", icon: "✓" },
-  { id: "capabilities", label: "Caps", tooltip: "Capabilities", icon: "⚙" },
   { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "⌥" },
   { id: "cost", label: "Cost", tooltip: "Cost", icon: "$" },
   { id: "decisions", label: "Decs", tooltip: "Decisions", icon: "◇" },
@@ -68,7 +64,6 @@ interface RightPanelProps {
   }) => Promise<void>;
   onExecute: (input: { approvalId: string }) => Promise<void>;
   onQualityChanged: () => Promise<void>;
-  onCapabilityApprovalCreated: () => Promise<void>;
   onAgentGenerate: (taskRunId: string) => Promise<void>;
   onAgentRetry: (invocationId: string) => Promise<void>;
   onAgentCancel: (invocationId: string) => Promise<void>;
@@ -96,7 +91,6 @@ export const RightPanel = ({
   onConfigure,
   onExecute,
   onQualityChanged,
-  onCapabilityApprovalCreated,
   onAgentGenerate,
   onAgentRetry,
   onAgentCancel,
@@ -212,9 +206,9 @@ export const RightPanel = ({
               draft plan, scroll positions, fetch results) when the
               user switches tabs and comes back. Per-taskRun resets
               still work via the existing `key={taskRun.id}` props on
-              QualityPanel / CapabilityPanel / LearnerPanel /
-              OrchestrationPanel — they remount when the active
-              TaskRun changes, just not when the user switches tabs. */}
+              QualityPanel / OrchestrationPanel / CostPanel — they remount
+              when the active TaskRun changes, just not when the user switches
+              tabs. */}
           <div className="right-panel__tab-body">
             <div
               role="tabpanel"
@@ -360,45 +354,6 @@ export const RightPanel = ({
                 refinementProposals={state.detail.a2aRefinementProposals}
                 onTaskRunChanged={onQualityChanged}
               />
-            </div>
-
-            <div
-              role="tabpanel"
-              id="right-panel-panel-capabilities"
-              aria-labelledby="right-panel-tab-capabilities"
-              hidden={activeTab !== "capabilities"}
-            >
-              <div className="right-panel__stack">
-                <section aria-label="Capabilities">
-                  <header className="panel-header panel-header--inset">
-                    <span className="panel-header__title">
-                      Capabilities
-                      <FeatureHelpButton featureId="capabilities" />
-                    </span>
-                  </header>
-                  <CapabilityPanel
-                    key={state.detail.taskRun.id}
-                    taskRun={state.detail.taskRun}
-                    approvals={state.detail.approvals}
-                    prompt={state.detail.taskRun.userRequest}
-                    onApprovalCreated={onCapabilityApprovalCreated}
-                  />
-                </section>
-                <section aria-label="Learner">
-                  <header className="panel-header panel-header--inset">
-                    <span className="panel-header__title">
-                      Learner
-                      <FeatureHelpButton featureId="learner" />
-                    </span>
-                  </header>
-                  <LearnerPanel
-                    key={state.detail.taskRun.id}
-                    taskRun={state.detail.taskRun}
-                    approvals={state.detail.approvals}
-                    onApprovalCreated={onCapabilityApprovalCreated}
-                  />
-                </section>
-              </div>
             </div>
 
             <div
