@@ -118,9 +118,10 @@ to produce a revised answer.
 
 This A2A refinement feature is separate from pipeline backflow routing.
 
-Pipeline backflow is configured on an `AgentPipeline` and reruns earlier local
-worker steps inside the approved orchestration plan when a step or quality gate
-fails. It uses `AgentPipelineBackflowRule`, `OrchestrationPlan.backflowRules`,
+Pipeline backflow is configured per agent step on an `AgentPipeline` and reruns
+an earlier connected local worker step inside the approved orchestration plan
+when the owning step or quality gate fails. It uses
+`AgentPipelineBackflowRule`, `OrchestrationPlan.backflowRules`,
 `pipeline_backflow_attempts`, and `pipeline_backflow_events`.
 
 A2A refinement is execution-history based: it targets a previous remote A2A

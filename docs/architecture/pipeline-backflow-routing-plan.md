@@ -5,25 +5,27 @@ Status: Implemented
 
 ## 1. Purpose
 
-Pipeline backflow is a user-configured conditional runtime route inside an
-approved pipeline. It is not A2A remote refinement and it is not dependency graph
-reversal.
+Pipeline backflow is a user-configured conditional runtime route owned by an
+agent step inside an approved pipeline. It is not A2A remote refinement and it
+is not dependency graph reversal.
 
-The user defines a rule during pipeline editing:
+The user defines a backflow connection on each agent step during pipeline
+editing:
 
-- when a worker step fails, rerun an earlier target step and then retry the failed
-  step
-- when a quality gate fails, rerun an earlier target step, retry the selected
-  step, then run the normal downstream steps after that retry
+- when that worker step fails, rerun the connected earlier target agent and then
+  retry the owning agent
+- when a quality gate fails, rerun the connected earlier target agent, retry the
+  selected owning agent, then run the normal downstream steps after that retry
 
-Successful steps continue through the normal `dependsOn` flow. Backflow runs only
-when a matching failure trigger occurs.
+Successful steps continue through the normal `dependsOn` flow. Backflow is not a
+separate final pipeline step. It runs only when a matching failure trigger occurs
+for the agent that owns the connection.
 
 ## 2. Scope
 
 Included:
 
-- pipeline-level `backflowRules`
+- agent-owned pipeline `backflowRules` stored on the pipeline template
 - planner remap from pipeline step ids to worker step ids
 - runtime attempts and lifecycle events persisted in SQLite WAL
 - step failure backflow in `WorkerRunner.runApproved`
@@ -40,7 +42,9 @@ Excluded:
 
 ## 3. State Model
 
-`AgentPipeline.backflowRules` stores template-time rules:
+`AgentPipeline.backflowRules` stores template-time rules. The UI presents these
+rules inside the agent step whose id is `retryStepId`; that step owns the
+connection.
 
 ```ts
 type PipelineBackflowTrigger = "step_failed" | "quality_failed";
@@ -57,6 +61,8 @@ interface AgentPipelineBackflowRule {
 
 `OrchestrationPlan.backflowRules` stores the immutable run snapshot after planner
 remap. `targetStepId` and `retryStepId` are worker step ids in this snapshot.
+`retryStepId` is the owning agent. `targetStepId` is the earlier agent to rerun
+before retrying the owner.
 
 Runtime execution writes:
 
@@ -119,7 +125,7 @@ keeps the existing known-risk approval path.
 
 Renderer surfaces:
 
-- Pipeline form: create/edit/remove Backflow Rules
+- Pipeline form: create/edit/remove Backflow connections inside each agent step
 - Pipeline graph: dashed conditional backflow edges separate from normal
   dependency edges
 - Agent tab: TaskRun-level backflow attempt history with rule, trigger, target,
