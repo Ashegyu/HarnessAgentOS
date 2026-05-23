@@ -39,5 +39,6 @@ export interface AgentPlanOutput {
   steps: AgentPlanStep[];
   proposedActions: AgentProposedAction[];
   suggestedQualityChecks: AgentSuggestedQualityCheck[];
+  /** Compatibility field. Agent runs are non-interactive, so this is normalized to []. */
   questions: string[];
 }

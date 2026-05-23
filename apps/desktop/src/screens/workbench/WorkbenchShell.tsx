@@ -33,6 +33,10 @@ import {
   taskRunIdFromAgentStreamEvent,
   taskRunIdToRefreshForAgentEvent,
 } from "./agent-panel-visibility";
+import {
+  hasPipelineSourcePlanArtifact,
+  pipelineAutoApproveDecision,
+} from "./pipeline-auto-approval";
 import "./workbench.css";
 
 type ThreadsState =
@@ -563,18 +567,25 @@ export const WorkbenchShell = (): JSX.Element => {
   //      pipeline in ConversationInput — every approval it produces is
   //      pre-approved, including downstream worker actions).
   //
-  // The profile's BLOCK LIST is a hard floor across all three triggers
-  // — a "trust everything" pipeline pick must NOT bypass an explicit
-  // per-profile prohibition (e.g. a production profile that blocks
-  // `git_commit`). Pipeline-pick consent only bypasses the global
-  // toggle and the profile's per-action ALLOW list (those are
-  // opt-ins); the block list is opt-out and stays authoritative.
+  // The active profile's BLOCK LIST is a hard floor for non-pipeline
+  // auto-approve triggers. Pipeline-pick consent is scoped by the
+  // pipeline's own step allowedActions and service policy, not the
+  // currently selected UI profile; otherwise a read-only active
+  // profile can strand approved pipeline/backflow worker actions in
+  // waiting_for_approval.
   useEffect(() => {
     if (taskRunDetail.kind !== "ready") return;
     const inFlight = autoInFlightRef.current;
-    const isPipelineAutoTask = pipelineAutoTaskRunIdsRef.current.has(
-      taskRunDetail.detail.taskRun.id,
-    );
+    const taskRunId = taskRunDetail.detail.taskRun.id;
+    const isPipelineAutoTask =
+      pipelineAutoTaskRunIdsRef.current.has(taskRunId) ||
+      hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts);
+    if (
+      isPipelineAutoTask &&
+      !pipelineAutoTaskRunIdsRef.current.has(taskRunId)
+    ) {
+      markPipelineAutoTaskRun(taskRunId);
+    }
     const blockedActions =
       activeAgentProfile?.permissions.blockedActions ?? [];
     const budgetUsage = taskRunDetail.detail.budgetUsage;
@@ -607,17 +618,14 @@ export const WorkbenchShell = (): JSX.Element => {
       (a: Approval): boolean => {
         if (a.status !== "pending") return false;
         if (inFlight.has(a.id)) return false;
-        // Block list trumps every auto-approve trigger.
+        if (isPipelineAutoTask) {
+          const decision = pipelineAutoApproveDecision(a);
+          autoApproveDecisions.set(a.id, decision);
+          return decision.approved;
+        }
+        // Block list trumps non-pipeline auto-approve triggers.
         if (blockedActions.includes(a.actionType)) return false;
         if (isBudgetBlocked(a)) return false;
-        if (isPipelineAutoTask) {
-          autoApproveDecisions.set(a.id, {
-            approved: true,
-            decidedAt: "global_toggle",
-            reason: "Pipeline task was pre-approved by explicit pipeline selection.",
-          });
-          return true;
-        }
         const decision = shouldAutoApprove({
           approval: a,
           globalAutoApprove: autoApprove,
@@ -676,6 +684,7 @@ export const WorkbenchShell = (): JSX.Element => {
     autoExecuteWorkerFileActions,
     activeAgentProfile,
     taskRunDetail,
+    markPipelineAutoTaskRun,
     selectedTaskRunId,
     selectedThreadId,
     refreshTaskRunDetail,

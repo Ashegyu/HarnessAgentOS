@@ -359,7 +359,8 @@ test("persistent A2A worker pauses orchestration when remote input is required",
     assert.equal(remoteTask.state, "input-required");
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const workerArtifact = artifacts.find((a) => a.title === "Worker output: Remote review");
-    assert.match(workerArtifact?.summary ?? "", /requires user input/i);
+    assert.match(workerArtifact?.summary ?? "", /requested input/i);
+    assert.match(workerArtifact?.summary ?? "", /will not ask the user/i);
     assert.match(workerArtifact?.summary ?? "", /Which target branch/);
   } finally {
     closeDb(db);

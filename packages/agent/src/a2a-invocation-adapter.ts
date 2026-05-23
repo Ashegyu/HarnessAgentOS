@@ -79,7 +79,7 @@ export type A2AWorkerLifecycleInterruption =
   | {
       kind: "requires_input";
       remoteState: "input-required";
-      message: "Remote A2A worker requires user input";
+      message: "Remote A2A worker requested input; Harness will proceed only through assumptions or backflow";
     }
   | {
       kind: "requires_auth";
@@ -257,7 +257,7 @@ export const a2aInvocationToWorkerOutcome = (
       lifecycle: {
         kind: "requires_input",
         remoteState: "input-required",
-        message: "Remote A2A worker requires user input",
+        message: "Remote A2A worker requested input; Harness will proceed only through assumptions or backflow",
       },
     };
   }
@@ -294,7 +294,7 @@ const messageForState = (state: A2ARemoteTaskState): string => {
     case "working":
       return "A2A remote agent working";
     case "input-required":
-      return "A2A remote agent requires input";
+      return "A2A remote agent requested input; no user question will be issued";
     case "auth-required":
       return "A2A remote agent requires authentication";
     case "completed":

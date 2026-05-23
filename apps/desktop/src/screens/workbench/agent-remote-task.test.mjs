@@ -47,7 +47,7 @@ test("remoteTaskNeedsAttention flags input and auth requirements", () => {
 test("remoteTaskAttentionLabel explains operator action", () => {
   assert.equal(
     remoteTaskAttentionLabel({ ...remoteRef, state: "input-required" }),
-    "사용자 입력 필요",
+    "입력 요청 차단됨",
   );
   assert.equal(
     remoteTaskAttentionLabel({ ...remoteRef, state: "auth-required" }),

@@ -22,7 +22,7 @@ Automatically produce or refresh documentation for the specified code.
 
 1. Identify the target:
    - If the user named a file or function, use that.
-   - Otherwise, list recently changed files (`git diff --name-only HEAD`) and ask the user to confirm.
+   - Otherwise, infer the most relevant target from recently changed files (`git diff --name-only HEAD`), record that choice as an assumption, and proceed.
 2. Read the source file(s) in full.
 3. Determine the documentation style appropriate for the language:
    - TypeScript / JavaScript → JSDoc comments + optional README section
@@ -35,7 +35,7 @@ Automatically produce or refresh documentation for the specified code.
    - **Throws / Errors** — conditions under which errors are raised
    - **Example** — at least one usage example
 5. Insert the documentation into the source file or create/update the relevant Markdown file.
-6. Confirm with the user before writing if the target file is not a test or generated file.
+6. Use the normal Harness approval flow for any write; do not ask prose follow-up questions before proposing the action.
 
 ## Constraints
 

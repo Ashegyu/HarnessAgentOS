@@ -76,12 +76,13 @@ test("A2AWorkerInvoker wraps A2AInvocationAdapter as a WorkerCliInvoker", async 
     userRequest: "Review the implementation.",
   });
 
-  assert.deepEqual(requests[0].request, {
-    invocationId: "inv_a2a_worker_1",
-    taskRunId: "task_run_1",
-    endpointId: "endpoint_1",
-    message: "Review the implementation.",
-  });
+  assert.equal(requests[0].request.invocationId, "inv_a2a_worker_1");
+  assert.equal(requests[0].request.taskRunId, "task_run_1");
+  assert.equal(requests[0].request.endpointId, "endpoint_1");
+  assert.match(requests[0].request.message, /FINAL NON-INTERACTIVE POLICY/);
+  assert.match(requests[0].request.message, /Do not ask the user follow-up questions/);
+  assert.match(requests[0].request.message, /questions:\s*\[\]/);
+  assert.match(requests[0].request.message, /USER REQUEST\n\nReview the implementation\./);
   assert.equal(streamEvents[0].type, "progress");
   assert.deepEqual(remoteRefs, [
     {
@@ -138,7 +139,7 @@ test("A2AWorkerInvoker surfaces input-required as a lifecycle interruption", asy
   assert.deepEqual(outcome.lifecycle, {
     kind: "requires_input",
     remoteState: "input-required",
-    message: "Remote A2A worker requires user input",
+    message: "Remote A2A worker requested input; Harness will proceed only through assumptions or backflow",
   });
   assert.equal(outcome.proposedActions, undefined);
   assert.equal(remoteRefs[0].state, "input-required");

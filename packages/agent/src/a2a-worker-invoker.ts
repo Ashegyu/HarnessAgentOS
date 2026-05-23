@@ -8,6 +8,7 @@ import {
   type A2AInvocationAdapter,
   type A2AWorkerOutcome,
 } from "./a2a-invocation-adapter.ts";
+import { NON_INTERACTIVE_AGENT_POLICY } from "./agent-prompt-builder.ts";
 
 export interface A2AWorkerInvokeInput {
   taskRunId: string;
@@ -65,7 +66,7 @@ export class A2AWorkerInvoker {
         invocationId,
         taskRunId: input.taskRunId,
         endpointId: this.endpointId,
-        message: input.userRequest,
+        message: buildA2AWorkerMessage(input.userRequest),
       },
       (event) => this.onStreamEvent?.(event),
       signal,
@@ -77,3 +78,10 @@ export class A2AWorkerInvoker {
 
 const defaultCreateInvocationId: A2AWorkerInvocationIdFactory = (input) =>
   `a2a_${input.taskRunId}_${Date.now().toString(36)}`;
+
+const buildA2AWorkerMessage = (userRequest: string): string =>
+  [
+    NON_INTERACTIVE_AGENT_POLICY.trim(),
+    "USER REQUEST",
+    userRequest.trim(),
+  ].join("\n\n");

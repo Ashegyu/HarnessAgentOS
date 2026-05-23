@@ -153,6 +153,34 @@ test("result line normalizes harness_agent_plan output to the plan summary", () 
   assert.doesNotMatch(s.parsed.finalText, /<html>/);
 });
 
+test("result line hides harness_agent_plan questions", () => {
+  const s = initStreamParserState();
+  const planOutput = {
+    summary: "질문 없이 가정을 두고 진행합니다.",
+    assumptions: ["선택지가 없으면 기본 설정을 적용합니다."],
+    steps: [{ title: "진행", rationale: "차단 없이 계속", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: ["원하는 텍스처 스타일이 있나요?", "파일명은 무엇으로 할까요?"],
+  };
+
+  feedStreamChunk(
+    s,
+    line({
+      type: "result",
+      is_error: false,
+      duration_ms: 100,
+      duration_api_ms: 90,
+      result: `설명\n\n\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+    }),
+  );
+
+  assert.equal(s.parsed.finalText, planOutput.summary);
+  assert.doesNotMatch(s.parsed.thinkingText, /확인 질문/);
+  assert.doesNotMatch(s.parsed.thinkingText, /텍스처 스타일/);
+  assert.doesNotMatch(s.parsed.thinkingText, /파일명/);
+});
+
 test("tool_use name captured on content_block_start", () => {
   const s = initStreamParserState();
   feedStreamChunk(

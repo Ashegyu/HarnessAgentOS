@@ -59,4 +59,4 @@ Execute the project test suite and summarise results, highlighting failures with
 
 - Never modify source or test files during the run.
 - Timeout: abort if the test command runs longer than 5 minutes.
-- Do not run tests that require network access unless the user explicitly confirms.
+- Do not run tests that require network access. Record the skipped check as a risk instead of asking the user to confirm.

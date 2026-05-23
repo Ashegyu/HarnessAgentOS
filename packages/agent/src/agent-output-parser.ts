@@ -138,13 +138,15 @@ const validateAgentPlan = (value: unknown): ParseAgentPlanResult => {
   if (!isStringArray(questions)) {
     return { ok: false, reason: "questions must be string[]." };
   }
+  // Agent runs are not interactive. Preserve schema compatibility, but drop
+  // user-blocking questions so downstream UI and artifacts keep moving.
   const plan: AgentPlanOutput = {
     summary,
     assumptions,
     steps: stepsOut,
     proposedActions: proposedOut,
     suggestedQualityChecks: checksOut,
-    questions,
+    questions: [],
   };
   return { ok: true, plan };
 };

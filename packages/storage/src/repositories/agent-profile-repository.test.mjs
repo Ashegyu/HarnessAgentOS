@@ -40,6 +40,18 @@ const FRAMEWORK_PROFILE_NAMES = [
   "ECC Eval Harness Designer",
   "Harness IPC Contract Guardian",
   "Harness Storage Migration Steward",
+  "Project PRD Agent",
+  "Project Architecture Agent",
+  "Project Plan Agent",
+  "3D Texture Asset Generator",
+  "3D Model Builder",
+  "Project File Composer",
+  "Class Skeleton Builder",
+  "3D Integration Implementer",
+  "Project Review Agent",
+  "Execution Verification Agent",
+  "Project Explanation Agent",
+  "Completion Gate Reviewer",
 ];
 
 const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
@@ -83,6 +95,18 @@ const FRAMEWORK_PROFILE_ROLES = new Map([
   ["ECC Eval Harness Designer", "tester"],
   ["Harness IPC Contract Guardian", "reviewer"],
   ["Harness Storage Migration Steward", "planner"],
+  ["Project PRD Agent", "planner"],
+  ["Project Architecture Agent", "orchestrator"],
+  ["Project Plan Agent", "planner"],
+  ["3D Texture Asset Generator", "coder"],
+  ["3D Model Builder", "coder"],
+  ["Project File Composer", "coder"],
+  ["Class Skeleton Builder", "coder"],
+  ["3D Integration Implementer", "coder"],
+  ["Project Review Agent", "reviewer"],
+  ["Execution Verification Agent", "tester"],
+  ["Project Explanation Agent", "planner"],
+  ["Completion Gate Reviewer", "reviewer"],
 ]);
 
 const assertFrameworkProfilesPresent = (profiles) => {
@@ -255,6 +279,10 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       "all seed profiles carry the Harness project contract in the prompt prefix",
     );
     assert.ok(
+      all.every((p) => p.tuning.systemPromptPrefix.includes("questions field as []")),
+      "all seed profiles carry the no-questions contract in the prompt prefix",
+    );
+    assert.ok(
       all.every((p) => p.tuning.systemPromptSuffix.includes("보고")),
       "all seed profiles carry a concrete reporting contract in the prompt suffix",
     );
@@ -266,6 +294,14 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.ok(all.some((p) => p.name === "ECC Codebase Explorer" && p.tags.includes("evidence")));
     assert.ok(all.some((p) => p.name === "Hermes Delegation Coordinator" && p.tags.includes("delegation")));
     assert.ok(all.some((p) => p.name === "Agno Approval Policy Designer" && p.tags.includes("approval")));
+    assert.ok(all.some((p) => p.name === "Project PRD Agent" && p.tags.includes("prd")));
+    assert.ok(all.some((p) => p.name === "Project Architecture Agent" && p.tags.includes("architecture")));
+    assert.ok(all.some((p) => p.name === "Project Plan Agent" && p.tags.includes("project-plan")));
+    assert.ok(all.some((p) => p.name === "3D Texture Asset Generator" && p.tags.includes("texture")));
+    assert.ok(all.some((p) => p.name === "3D Model Builder" && p.tags.includes("3d-model")));
+    assert.ok(all.some((p) => p.name === "3D Integration Implementer" && p.tags.includes("3d-integration")));
+    assert.ok(all.some((p) => p.name === "Project Review Agent" && p.tags.includes("review")));
+    assert.ok(all.some((p) => p.name === "Project Explanation Agent" && p.tags.includes("documentation")));
     assert.match(
       all.find((p) => p.name === "Planner")?.persona ?? "",
       /한국어|요구사항/,

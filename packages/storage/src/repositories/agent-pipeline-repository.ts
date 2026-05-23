@@ -148,7 +148,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         name: template.name,
         description: template.description,
         steps,
-        backflowRules: [],
+        backflowRules: template.backflowRules ?? [],
         createdAt: now,
         updatedAt: now,
       };
@@ -502,6 +502,7 @@ interface SeedPipelineTemplate {
   name: string;
   description: string;
   steps: readonly SeedStepTemplate[];
+  backflowRules?: readonly AgentPipelineBackflowRule[];
 }
 
 const profileRef = (
@@ -554,6 +555,65 @@ const PROFILE_REFS = {
     "Planner",
   ]),
   product: profileRef("planner", ["Agno Product PRD Strategist", "Planner"]),
+  projectPrd: profileRef("planner", [
+    "Project PRD Agent",
+    "Agno Product PRD Strategist",
+    "Planner",
+  ]),
+  projectArchitecture: profileRef("orchestrator", [
+    "Project Architecture Agent",
+    "Ruflo Architecture Designer",
+    "Agno Runtime Service Architect",
+    "Ruflo Orchestrator",
+  ]),
+  projectPlan: profileRef("planner", [
+    "Project Plan Agent",
+    "Planner",
+  ]),
+  texture3d: profileRef("coder", [
+    "3D Texture Asset Generator",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  model3d: profileRef("coder", [
+    "3D Model Builder",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  fileComposer: profileRef("coder", [
+    "Project File Composer",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  classSkeleton: profileRef("coder", [
+    "Class Skeleton Builder",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  integration3d: profileRef("coder", [
+    "3D Integration Implementer",
+    "Codex Bulk Coder",
+    "Coder",
+  ]),
+  projectReview: profileRef("reviewer", [
+    "Project Review Agent",
+    "Reviewer",
+  ]),
+  executionVerification: profileRef("tester", [
+    "Execution Verification Agent",
+    "ECC Eval Harness Designer",
+    "ECC TDD Guide",
+    "Tester",
+  ]),
+  projectExplanation: profileRef("planner", [
+    "Project Explanation Agent",
+    "ECC Documentation Writer",
+    "Planner",
+  ]),
+  completionGate: profileRef("reviewer", [
+    "Completion Gate Reviewer",
+    "Reviewer",
+  ]),
   architecture: profileRef("orchestrator", [
     "Agno Runtime Service Architect",
     "Ruflo Architecture Designer",
@@ -603,7 +663,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.product,
         title: "제품 문제와 사용자 정의",
         instruction:
-          "사용자 요청을 목표 사용자, 문제 정의, 성공 지표, scope/non-scope, open question으로 정리한 PRD 초안을 한국어로 작성하세요.",
+          "사용자 요청을 목표 사용자, 문제 정의, 성공 지표, scope/non-scope, 가정과 미확정 위험으로 정리한 PRD 초안을 한국어로 작성하세요. 사용자에게 질문하지 말고 필요한 기본값을 정해 계속 진행하세요.",
         expectedArtifactKinds: ["plan", "log"],
         dependsOn: [],
         allowedActions: [],
@@ -1268,6 +1328,211 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         dependsOn: ["image-prompts", "design-review"],
         allowedActions: [],
         outputContract: "plan",
+      },
+    ],
+  },
+  {
+    id: "pipe_template_3d_new_project_delivery",
+    name: "3D New Project Delivery",
+    description:
+      "새 프로젝트 생성을 PRD, 아키텍처, 계획, 텍스처 생성, 3D 모델링, 파일 구성, 클래스 생성, 세부 구현, 검토, 실행 검증, 설명, 완료까지 연결하는 3D asset 중심 흐름입니다.",
+    steps: [
+      {
+        id: "prd",
+        profile: PROFILE_REFS.projectPrd,
+        title: "PRD 작성",
+        instruction:
+          "사용자 요청을 새 3D 프로젝트의 목표 사용자, 핵심 문제, 주요 기능, 3D 모델/텍스처 요구사항, 성공 기준, scope/non-scope, acceptance criteria로 정리하세요.",
+        expectedArtifactKinds: ["plan", "log"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "architecture",
+        profile: PROFILE_REFS.projectArchitecture,
+        title: "아키텍처 설계",
+        instruction:
+          "PRD를 바탕으로 프로젝트 모듈 경계, 렌더링 흐름, 3D asset pipeline, 텍스처와 모델 파일 계약, 클래스 책임, 검증 가능한 handoff를 설계하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["prd"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "plan",
+        profile: PROFILE_REFS.projectPlan,
+        title: "프로젝트 생성 플랜",
+        instruction:
+          "PRD와 아키텍처를 텍스처 생성, 3D 모델링, 파일 구성, 클래스 생성, 세부 구현, 검토, 실행 검증, 설명, 완료 단계로 나누고 각 단계의 입력/출력과 승인 필요한 파일 쓰기 범위를 정의하세요.",
+        expectedArtifactKinds: ["plan", "orchestration_plan", "log"],
+        dependsOn: ["architecture"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "texture-generation",
+        profile: PROFILE_REFS.texture3d,
+        title: "이미지 생성: 3D 텍스처",
+        instruction:
+          "3D 모델링에 씌울 텍스처를 생성하세요. 현재 runner는 텍스트 파일 쓰기만 지원하므로 SVG, CSS, JSON, procedural texture script 같은 텍스트 기반 산출물로 제안하고, material/UV/해상도/검수 기준을 함께 남기세요.",
+        expectedArtifactKinds: ["file", "snapshot", "log"],
+        dependsOn: ["plan"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "modeling",
+        profile: PROFILE_REFS.model3d,
+        title: "3D 모델링",
+        instruction:
+          "텍스처 산출물을 실제 material로 참조하는 3D 모델을 생성하세요. 가능한 경우 텍스트 기반 .gltf, .obj/.mtl, Three.js geometry/module 코드로 제안하고 scale, origin, asset path, fallback을 명확히 하세요.",
+        expectedArtifactKinds: ["file", "diff", "log"],
+        dependsOn: ["texture-generation"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "file-composition",
+        profile: PROFILE_REFS.fileComposer,
+        title: "파일 구성",
+        instruction:
+          "PRD, 아키텍처, 계획, 텍스처, 3D 모델 산출물을 바탕으로 새 프로젝트의 폴더와 초기 파일을 구성하세요. source/assets/tests/docs/config 경계를 분리하고 targetDir 밖으로 쓰지 마세요.",
+        expectedArtifactKinds: ["diff", "file", "log"],
+        dependsOn: ["modeling"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "class-generation",
+        profile: PROFILE_REFS.classSkeleton,
+        title: "클래스 생성",
+        instruction:
+          "파일 구성과 아키텍처를 바탕으로 핵심 class/component skeleton을 생성하세요. 3D asset loader, scene/controller, texture/model registry, UI 또는 runtime entry class의 책임과 public contract를 명확히 하세요.",
+        expectedArtifactKinds: ["diff", "file", "log"],
+        dependsOn: ["file-composition"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "implementation",
+        profile: PROFILE_REFS.integration3d,
+        title: "세부 구현",
+        instruction:
+          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함해 file_write 제안을 만드세요.",
+        expectedArtifactKinds: ["diff", "file", "log"],
+        dependsOn: ["class-generation"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+      {
+        id: "review",
+        profile: PROFILE_REFS.projectReview,
+        title: "검토",
+        instruction:
+          "PRD, 아키텍처, 계획, 텍스처, 3D 모델, 파일 구성, 클래스, 세부 구현 산출물이 서로 일관되는지 read-only로 검토하세요. 구현이 생성된 3D 모델을 실제로 사용하는지 우선 확인하세요.",
+        expectedArtifactKinds: ["quality_report", "snapshot", "log"],
+        dependsOn: ["implementation"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+      {
+        id: "execution-validation",
+        profile: PROFILE_REFS.executionVerification,
+        title: "실행 검증",
+        instruction:
+          "새 프로젝트가 실제로 실행 가능한지 build/test/smoke 또는 가장 좁은 검증 명령을 실행하거나 증거를 정리하세요. 3D 모델과 텍스처 로딩 경로 검증을 포함하고, 실행하지 못한 검증은 이유와 남은 위험을 분리하세요.",
+        expectedArtifactKinds: ["test_result", "snapshot", "log"],
+        dependsOn: ["review"],
+        allowedActions: ["shell"],
+        outputContract: "test_result",
+      },
+      {
+        id: "explanation",
+        profile: PROFILE_REFS.projectExplanation,
+        title: "설명",
+        instruction:
+          "생성된 프로젝트의 구조, 실행 방법, 주요 class/module, 3D 모델/텍스처 asset 흐름, 검증 결과, 알려진 제한 사항을 사용자 설명으로 한국어 정리하세요.",
+        expectedArtifactKinds: ["plan", "file", "log"],
+        dependsOn: ["execution-validation"],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "completion",
+        profile: PROFILE_REFS.completionGate,
+        title: "완료",
+        instruction:
+          "PRD부터 설명까지 모든 산출물과 실행 검증 증거를 종합해 완료 가능 여부를 판단하세요. 실행 가능한 상태가 아니면 완료로 판단하지 말고 막는 이슈와 되돌아갈 backflow 단계를 명확히 보고하세요.",
+        expectedArtifactKinds: ["quality_report", "log"],
+        dependsOn: ["explanation"],
+        allowedActions: [],
+        outputContract: "review",
+      },
+    ],
+    backflowRules: [
+      {
+        id: "bf_architecture_from_prd",
+        trigger: "step_failed",
+        targetStepId: "prd",
+        retryStepId: "architecture",
+        maxAttempts: 2,
+        instruction:
+          "아키텍처가 실패하면 PRD 산출물부터 요구사항/제약을 보강한 뒤 아키텍처를 다시 작성하세요.",
+      },
+      {
+        id: "bf_plan_from_architecture",
+        trigger: "step_failed",
+        targetStepId: "architecture",
+        retryStepId: "plan",
+        maxAttempts: 2,
+        instruction:
+          "계획이 실패하면 아키텍처 산출물을 먼저 보강하고 생성 순서와 검증 기준을 다시 정리하세요.",
+      },
+      {
+        id: "bf_texture_from_plan",
+        trigger: "step_failed",
+        targetStepId: "plan",
+        retryStepId: "texture-generation",
+        maxAttempts: 2,
+        instruction:
+          "텍스처 생성이 실패하면 계획 단계로 돌아가 텍스처 용도, 해상도, 파일 형식, 검수 기준을 보강하세요.",
+      },
+      {
+        id: "bf_model_from_texture",
+        trigger: "step_failed",
+        targetStepId: "texture-generation",
+        retryStepId: "modeling",
+        maxAttempts: 2,
+        instruction:
+          "3D 모델링이 실패하면 텍스처 산출물과 매핑 요구사항을 재작성한 뒤 모델을 다시 생성하세요.",
+      },
+      {
+        id: "bf_implementation_from_model",
+        trigger: "step_failed",
+        targetStepId: "modeling",
+        retryStepId: "implementation",
+        maxAttempts: 2,
+        instruction:
+          "세부 구현이 생성된 3D 모델을 사용하지 못하면 모델링 산출물부터 되돌아가 asset path와 import 계약을 보강하세요.",
+      },
+      {
+        id: "bf_validation_from_implementation",
+        trigger: "step_failed",
+        targetStepId: "implementation",
+        retryStepId: "execution-validation",
+        maxAttempts: 2,
+        instruction:
+          "실행 검증이 실패하면 구현 단계부터 재시도하고 검증 명령이 실제 산출물을 확인하도록 수정하세요.",
+      },
+      {
+        id: "bf_completion_quality_from_implementation",
+        trigger: "quality_failed",
+        targetStepId: "implementation",
+        retryStepId: "completion",
+        maxAttempts: 1,
+        instruction:
+          "최종 품질 게이트가 실패하면 구현 이후 리뷰, 실행 검증, 설명, 완료 판단을 다시 수행하세요.",
       },
     ],
   },

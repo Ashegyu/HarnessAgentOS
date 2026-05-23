@@ -1260,7 +1260,7 @@ const lifecycleBody = (
   const lines = [
     lifecycle.message,
     lifecycle.kind === "requires_input"
-      ? "Remote worker paused because it requires user input."
+      ? "Remote worker paused because it requested input. Harness will not ask the user; retry/backflow must continue from assumptions."
       : "Remote worker paused because it requires authentication setup.",
   ];
   if (output.trim().length > 0) {

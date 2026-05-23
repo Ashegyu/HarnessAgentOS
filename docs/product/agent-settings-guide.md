@@ -213,6 +213,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 | Architecture RFC | 시스템 설계, API/IPC 계약, migration 영향, 보안/성능 리뷰를 연결 |
 | Visual Design Delivery | PRD → UX flow → image prompt → frontend 구현 → 디자인 QA 흐름 |
 | Image Asset Prompt Flow | 실제 이미지 호출 없이 image 생성 프롬프트, style guide, QA 기준을 handoff |
+| 3D New Project Delivery | PRD → 아키텍처 → 플랜 → 텍스처 생성 → 3D 모델링 → 파일 구성 → 클래스 생성 → 세부 구현 → 검토 → 실행 검증 → 설명 → 완료 흐름 |
 | New Project Delivery | 새 프로젝트 생성을 PRD, 계획, 아키텍처, 이미지/에셋 사양, 구현, 검증, 리뷰까지 연결 |
 | Frontend Product Delivery | 제품 요구사항, UI 아키텍처, UX, 구현, 검증, 디자인 QA를 연결 |
 | Skill and Agent Expansion | Hermes/ECC 패턴으로 skill/agent 후보와 Harness profile/pipeline 개선안을 설계 |
@@ -223,7 +224,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 
 기본 템플릿은 자동 실행되거나 기본 실행 pipeline으로 지정되지 않습니다. 사용자가 thread나 메시지 실행 시 pipeline을 선택해야 실행되며, 실행 전후의 approval/quality gate 경계는 기존과 같습니다.
 
-Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `원인 분석`/`왜 안됨`은 Evidence-First Bug Investigation을 우선합니다. `문서`, `GitHub 원본`, `IPC/API 계약`은 Docs-First Contract Reconciliation을, `approval`, `자동 승인`, `권한 우회`는 Runtime Approval Hardening을, `A2A`/`remote agent`는 A2A Federation Safety Review를, `eval`/`smoke`/`release`는 Eval-Driven Release Verification을, `에이전트 설정`/`pipeline 개선`/`ECC`/`Hermes`/`Ruflo`/`Agno`는 Cross-Harness Agent Baseline을 우선합니다. `리팩터링`은 Refactor Safety, `보안 리뷰`나 `성능 검토`는 Parallel Review Hardening, `새 프로젝트 생성`은 New Project Delivery, `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
+Pipelines 탭의 `요청 유형 추천` 입력은 저장된 템플릿을 삭제하거나 숨기지 않고 우선순위만 바꿉니다. 예를 들어 `빌드 에러`는 `build-error-resolver`, `tester`, `reviewer` role이 포함된 Build Recovery를 맨 위로 올리고, `원인 분석`/`왜 안됨`은 Evidence-First Bug Investigation을 우선합니다. `문서`, `GitHub 원본`, `IPC/API 계약`은 Docs-First Contract Reconciliation을, `approval`, `자동 승인`, `권한 우회`는 Runtime Approval Hardening을, `A2A`/`remote agent`는 A2A Federation Safety Review를, `eval`/`smoke`/`release`는 Eval-Driven Release Verification을, `에이전트 설정`/`pipeline 개선`/`ECC`/`Hermes`/`Ruflo`/`Agno`는 Cross-Harness Agent Baseline을 우선합니다. `리팩터링`은 Refactor Safety, `보안 리뷰`나 `성능 검토`는 Parallel Review Hardening, `3D 모델링`, `텍스처`, `텍스쳐`, `gltf`, `파일 구성`, `클래스 생성`이 포함된 새 프로젝트 요청은 3D New Project Delivery를 우선합니다. 일반 `새 프로젝트 생성`은 New Project Delivery, `PRD`, `아키텍처`, `디자인`, `이미지` 요청은 각각 Product PRD Discovery, Architecture RFC, Image Asset Prompt Flow 계열을 우선합니다.
 
 ---
 

@@ -111,6 +111,25 @@ const seededPipelines = [
     "이미지 생성 프롬프트 비주얼 디자인 에셋",
   ),
   pipeline(
+    "pipe_template_3d_new_project_delivery",
+    "3D New Project Delivery",
+    [
+      "ap_plan",
+      "ap_orch",
+      "ap_plan",
+      "ap_code",
+      "ap_code",
+      "ap_code",
+      "ap_code",
+      "ap_code",
+      "ap_review",
+      "ap_test",
+      "ap_plan",
+      "ap_review",
+    ],
+    "3D 새 프로젝트 텍스처 texture 3D 모델링 gltf class 파일 구성 실행 검증 완료",
+  ),
+  pipeline(
     "pipe_template_new_project_delivery",
     "New Project Delivery",
     [
@@ -300,13 +319,25 @@ test("rankPipelinesForRequest prioritizes image asset flow for visual design", (
 test("rankPipelinesForRequest prioritizes new project delivery for project creation", () => {
   const ranked = rankPipelinesForRequest(
     seededPipelines,
-    "새로운 프로젝트를 생성해줘. 이미지 생성, PRD, 계획, 아키텍처, 구현, 리뷰, 검토까지 필요해",
+    "새로운 프로젝트를 생성해줘. PRD, 계획, 아키텍처, 구현, 리뷰, 검토까지 필요해",
     recommendationProfiles,
   );
   assert.equal(ranked[0].pipeline.name, "New Project Delivery");
   assert.equal(ranked[0].intent, "new_project_delivery");
   assert.ok(ranked[0].matchedRoles.includes("coder"));
   assert.ok(ranked[0].matchedRoles.includes("build-error-resolver"));
+});
+
+test("rankPipelinesForRequest prioritizes 3D new project delivery for texture/modeling projects", () => {
+  const ranked = rankPipelinesForRequest(
+    seededPipelines,
+    "새로운 프로젝트를 구성하는 파이프라인이야. 3D 모델링에 씌울 텍스쳐 생성, 모델링, 파일 구성, 클래스 생성, 실행 검증까지 필요해",
+    recommendationProfiles,
+  );
+  assert.equal(ranked[0].pipeline.name, "3D New Project Delivery");
+  assert.equal(ranked[0].intent, "new_project_3d_delivery");
+  assert.ok(ranked[0].matchedRoles.includes("coder"));
+  assert.ok(ranked[0].matchedRoles.includes("tester"));
 });
 
 test("rankPipelinesForRequest keeps seed order when request is empty", () => {

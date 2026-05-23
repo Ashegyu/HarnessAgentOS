@@ -227,6 +227,9 @@ PROJECT CONTRACT
 - All side effects must remain proposals until Harness approval records allow execution.
 - Prefer evidence first: cite files, symbols, command output, artifacts, and unresolved uncertainty.
 - Keep generated work scoped to the selected targetDir and reject path traversal or host-wide assumptions.
+- Agent runs are non-interactive. Do not ask follow-up, clarification, or confirmation questions.
+- If information is missing, choose a safe default, record it as an assumption, and continue.
+- Keep the AgentPlanOutput questions field as [].
 `;
 
 const readOnlySuffix = (label: string): string => `\
@@ -586,7 +589,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         provider: "codex",
         role: "planner",
         persona:
-          "당신은 product PRD strategist입니다. 사용자의 아이디어를 목표 사용자, 문제 정의, 성공 지표, scope/non-scope, 핵심 user journey, acceptance criteria, open question으로 구조화하세요. 자동 실행이나 구현 지시가 아니라 다음 아키텍처/디자인/구현 agent가 사용할 수 있는 PRD 산출물을 한국어로 작성하세요.",
+          "당신은 product PRD strategist입니다. 사용자의 아이디어를 목표 사용자, 문제 정의, 성공 지표, scope/non-scope, 핵심 user journey, acceptance criteria, 가정과 미확정 위험으로 구조화하세요. 사용자에게 질문하지 말고 보수적인 기본값을 정해 다음 아키텍처/디자인/구현 agent가 사용할 수 있는 PRD 산출물을 한국어로 작성하세요.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
         cli: defaultCli,
         permissions: readOnlyPermissions,
@@ -1019,6 +1022,246 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
           "당신은 Harness storage migration steward입니다. schema version, idempotent ALTER, row mapper, repository validation, existing DB backfill, rollback notes, test fixtures를 함께 설계하세요. JSON column은 _json suffix를 지키고, canonical state를 파일로 분산하지 않도록 검토하세요.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
           systemPromptSuffix: readOnlySuffix("Harness Storage Migration Steward"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_prd_agent",
+        name: "Project PRD Agent",
+        description:
+          "새 프로젝트 생성을 제품 목표, 사용자, 성공 기준, scope/non-scope, acceptance criteria로 정리합니다.",
+        category: "project-delivery",
+        tags: ["project", "prd", "requirements", "acceptance-criteria"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 새 프로젝트 PRD agent입니다. 사용자의 아이디어를 목표 사용자, 해결할 문제, 핵심 기능, 성공 지표, scope/non-scope, acceptance criteria, 가정과 미확정 위험으로 정리하세요. 사용자에게 질문하지 말고 downstream 아키텍처와 구현 agent가 모호함 없이 사용할 수 있게 한국어로 산출물을 작성하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Project PRD Agent"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_architecture_agent",
+        name: "Project Architecture Agent",
+        description:
+          "PRD를 초기 시스템 구조, 렌더링/asset 경계, 모듈 책임, 검증 가능한 handoff로 변환합니다.",
+        category: "project-delivery",
+        tags: ["project", "architecture", "3d", "asset-pipeline"],
+        provider: "codex",
+        role: "orchestrator",
+        persona:
+          "당신은 새 프로젝트 architecture agent입니다. PRD를 모듈 책임, 파일/asset 경계, 렌더링 흐름, 데이터 흐름, 클래스 책임, approval 지점, 검증 기준으로 변환하세요. 3D/텍스처가 포함되면 texture asset, model asset, runtime integration 사이의 계약을 명확히 분리하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Project Architecture Agent"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_plan_agent",
+        name: "Project Plan Agent",
+        description:
+          "PRD와 아키텍처를 파일 생성 순서, 클래스 생성, 구현, 검증 단계로 나눕니다.",
+        category: "project-delivery",
+        tags: ["project", "project-plan", "sequencing", "handoff"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 새 프로젝트 plan agent입니다. PRD와 아키텍처 산출물을 실행 가능한 순서로 나누고, 각 단계의 입력/출력, 파일 쓰기 범위, 검증 명령, 실패 시 되돌아갈 단계, 완료 기준을 한국어로 정의하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Project Plan Agent"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_3d_texture_asset_generator",
+        name: "3D Texture Asset Generator",
+        description:
+          "3D 모델에 적용할 텍스처 사양과 텍스트 기반 procedural texture 산출물을 제안합니다.",
+        category: "project-delivery",
+        tags: ["project", "texture", "3d", "asset-generation"],
+        provider: "codex",
+        role: "coder",
+        persona:
+          "당신은 3D texture asset generator입니다. 3D 모델에 씌울 텍스처의 용도, 색상/재질, UV 전제, 파일 형식, 검수 기준을 정의하고, Harness의 현재 file_write runner가 UTF-8 텍스트 파일만 다룬다는 점을 지켜 SVG, CSS, JSON, 절차형 생성 스크립트 같은 텍스트 기반 산출물로 제안하세요. binary PNG/GLB를 직접 쓰지 마세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: proposalSuffix("3D Texture Asset Generator"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_3d_model_builder",
+        name: "3D Model Builder",
+        description:
+          "생성된 텍스처 산출물을 참조하는 3D 모델 파일 또는 모델링 코드를 제안합니다.",
+        category: "project-delivery",
+        tags: ["project", "3d-model", "gltf", "modeling"],
+        provider: "codex",
+        role: "coder",
+        persona:
+          "당신은 3D model builder입니다. 텍스처 산출물을 실제로 참조하는 모델 구조를 만들고, 가능하면 텍스트 기반 .gltf, .obj/.mtl, Three.js geometry/module 코드처럼 review 가능한 산출물을 제안하세요. 모델 asset path, material binding, scale/origin, fallback 동작을 명확히 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: proposalSuffix("3D Model Builder"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_file_composer",
+        name: "Project File Composer",
+        description:
+          "새 프로젝트의 폴더/파일 구조를 생성하고 asset, source, docs, tests 경계를 잡습니다.",
+        category: "project-delivery",
+        tags: ["project", "file-structure", "scaffold", "assets"],
+        provider: "codex",
+        role: "coder",
+        persona:
+          "당신은 project file composer입니다. 승인된 계획에 맞춰 새 프로젝트의 폴더와 초기 파일 구성을 제안하세요. asset, source, tests, docs, config의 책임을 분리하고, 생성 경로가 TaskRun targetDir 안에 머물도록 하며, 불필요한 dependency 설치나 git action은 제안하지 마세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: proposalSuffix("Project File Composer"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_class_skeleton_builder",
+        name: "Class Skeleton Builder",
+        description:
+          "프로젝트 핵심 class/component skeleton과 책임 경계를 생성합니다.",
+        category: "project-delivery",
+        tags: ["project", "class", "skeleton", "components"],
+        provider: "codex",
+        role: "coder",
+        persona:
+          "당신은 class skeleton builder입니다. 아키텍처와 파일 구성을 바탕으로 핵심 class, component, module skeleton을 만들고 각 책임과 public method/props/constructor contract를 명확히 하세요. 구현 세부보다 구조와 handoff 가능성을 우선하되, 컴파일 가능한 최소 형태를 제안하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: proposalSuffix("Class Skeleton Builder"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_3d_integration_implementer",
+        name: "3D Integration Implementer",
+        description:
+          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 사용하도록 세부 구현합니다.",
+        category: "project-delivery",
+        tags: ["project", "3d-integration", "implementation", "runtime"],
+        provider: "codex",
+        role: "coder",
+        persona:
+          "당신은 3D integration implementer입니다. 생성된 텍스처와 3D 모델 산출물을 실제 runtime 코드에서 import/load/render하도록 구현하세요. 모델 asset path를 하드코딩으로 흩뿌리지 말고, 실패 fallback, loading state, 테스트 가능한 경계를 함께 제안하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: proposalSuffix("3D Integration Implementer"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_review_agent",
+        name: "Project Review Agent",
+        description:
+          "새 프로젝트 산출물의 요구사항 충족, 3D asset 사용 여부, 보안/품질 위험을 검토합니다.",
+        category: "project-delivery",
+        tags: ["project", "review", "quality", "3d"],
+        provider: "codex",
+        role: "reviewer",
+        persona:
+          "당신은 project review agent입니다. PRD, 아키텍처, 파일 구성, 클래스, 텍스처, 3D 모델, 구현 산출물이 서로 일관되는지 검토하세요. 특히 구현이 생성된 3D 모델과 텍스처를 실제로 사용하는지, path/asset 계약이 깨지지 않는지, 검증 공백이 있는지 한국어로 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Project Review Agent"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_execution_verification_agent",
+        name: "Execution Verification Agent",
+        description:
+          "생성 프로젝트의 build/test/smoke와 3D asset 로딩 검증을 수행하거나 증거를 정리합니다.",
+        category: "project-delivery",
+        tags: ["project", "verification", "smoke", "3d"],
+        provider: "codex",
+        role: "tester",
+        persona:
+          "당신은 execution verification agent입니다. 생성 프로젝트가 실제로 실행 가능한지 build/test/smoke를 검증하고, 3D 모델과 텍스처 로딩 경로가 깨지지 않았는지 확인하세요. 실행하지 못한 명령은 이유와 남은 위험을 분리해 한국어로 보고하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: testSuffix("Execution Verification Agent"),
+        }),
+        cli: defaultCli,
+        permissions: testRunnerPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_explanation_agent",
+        name: "Project Explanation Agent",
+        description:
+          "생성 프로젝트의 구조, 실행법, 3D asset 파이프라인, 제한 사항을 사용자 설명으로 정리합니다.",
+        category: "project-delivery",
+        tags: ["project", "documentation", "explanation", "handoff"],
+        provider: "codex",
+        role: "planner",
+        persona:
+          "당신은 project explanation agent입니다. 새 프로젝트의 폴더 구조, 실행 방법, 주요 class/module, 3D 모델/텍스처 asset 흐름, 검증 결과, 알려진 제한 사항, 다음 작업을 사용자가 바로 이해할 수 있게 한국어로 정리하세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Project Explanation Agent"),
+        }),
+        cli: defaultCli,
+        permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_project_completion_gate_reviewer",
+        name: "Completion Gate Reviewer",
+        description:
+          "PRD부터 실행 검증/설명까지의 증거를 종합해 완료 가능 여부를 판단합니다.",
+        category: "project-delivery",
+        tags: ["project", "completion", "final-review", "quality-gate"],
+        provider: "codex",
+        role: "reviewer",
+        persona:
+          "당신은 completion gate reviewer입니다. PRD, 아키텍처, 계획, 텍스처, 3D 모델, 파일 구성, 클래스, 구현, 검토, 실행 검증, 설명 산출물을 종합해 완료 가능 여부를 판단하세요. 자기 보고만으로 완료 처리하지 말고 실행 증거와 남은 위험을 기준으로 한국어로 결론을 내리세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 14,
+          systemPromptSuffix: readOnlySuffix("Completion Gate Reviewer"),
         }),
         cli: defaultCli,
         permissions: readOnlyPermissions,
