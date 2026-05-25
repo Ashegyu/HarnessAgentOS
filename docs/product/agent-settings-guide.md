@@ -99,11 +99,11 @@ profile.permissions.autoApproveActions
 - **ROLE 프롬프트** — 에이전트 정체성. 시스템 프롬프트 앞쪽의 `ROLE` 블록으로 합성됩니다.
 - **기본 제공 프롬프트** — seed AgentProfile의 description/persona는 한국어로 저장되고 UI에서도 한국어로 표시됩니다.
 - **System Prompt Prefix** — ROLE 프롬프트 위에 더해지는 조직/프로젝트 정책
-- **System Prompt Suffix** — output contract 뒤에 추가되는 마무리 지시
+- **System Prompt Suffix** — output contract 뒤에 추가되는 프로필별 마무리 지시. Harness의 최종 공통 정책이 그 뒤에 다시 붙어 `questions: []`와 `file_write.after` 전체-파일 본문 계약을 고정합니다.
 
-> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX`. Claude provider는 `--system-prompt` 인자로 전달하고, Codex provider는 stdin의 `SYSTEM INSTRUCTIONS` 블록에 접어 넣습니다.
+> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX → FINAL POLICY`. Claude provider는 `--system-prompt` 인자로 전달하고, Codex provider는 stdin의 `SYSTEM INSTRUCTIONS` 블록에 접어 넣습니다.
 
-기본 seed 프로필은 이제 빈 prefix/suffix가 아니라 HarnessAgentOS 공통 계약을 포함합니다. 공통 계약은 Electron IPC 경계, SQLite WAL source of truth, approval-gated side effect, targetDir 경계, evidence-first 보고 규칙을 고정합니다. 기존 seed 프로필의 prefix/suffix가 비어 있으면 앱 시작 시 이 richer contract가 backfill되고, 사용자가 직접 작성한 prefix/suffix는 보존됩니다.
+기본 seed 프로필은 이제 빈 prefix/suffix가 아니라 HarnessAgentOS 공통 계약을 포함합니다. 공통 계약은 Electron IPC 경계, SQLite WAL source of truth, approval-gated side effect, targetDir 경계, evidence-first 보고 규칙, `file_write.after`는 완전한 파일 대체 본문이라는 규칙을 고정합니다. 기존 seed 프로필의 prefix/suffix가 비어 있으면 앱 시작 시 이 richer contract가 backfill되고, 사용자가 직접 작성한 prefix/suffix는 보존됩니다.
 
 #### Tuning 섹션
 - **Temperature** — 0.0~1.0

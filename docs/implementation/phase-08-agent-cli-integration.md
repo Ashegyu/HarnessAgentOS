@@ -673,6 +673,9 @@ OUTPUT CONTRACT
 - Return a short explanation.
 - Return a fenced json block named harness_agent_plan.
 - JSON must satisfy AgentPlanOutput.
+- For `file_write`, `after` is the complete replacement content of the target
+  file after approval. Harness writes it verbatim; it is not a diff, patch
+  instruction, TODO, or "add this to the file" note.
 ```
 
 출력 예:

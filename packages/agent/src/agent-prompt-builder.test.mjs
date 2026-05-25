@@ -274,6 +274,24 @@ test("buildSplitAgentPrompt final policy overrides custom profile questions", ()
   assert.match(systemPrompt.slice(finalPolicyIdx), /questions:\s*\[\]/);
 });
 
+test("buildSplitAgentPrompt final policy requires file_write after to be complete file content", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    systemPromptSuffix:
+      "If changing files, describe what should be added to the file.",
+  });
+  const suffixIdx = systemPrompt.indexOf("describe what should be added");
+  const finalPolicyIdx = systemPrompt.lastIndexOf("FINAL NON-INTERACTIVE POLICY");
+
+  assert.ok(suffixIdx >= 0);
+  assert.ok(finalPolicyIdx > suffixIdx);
+  const finalPolicy = systemPrompt.slice(finalPolicyIdx);
+  assert.match(finalPolicy, /file_write\.after/);
+  assert.match(finalPolicy, /complete file content/i);
+  assert.match(finalPolicy, /replaces the whole file/i);
+  assert.match(finalPolicy, /Do not put instructions/i);
+});
+
 test("buildSplitAgentPrompt strips persona/prefix/suffix when blank", () => {
   // Empty/whitespace strings should produce no extra section — common case
   // when AgentProfile has the default empty fields.

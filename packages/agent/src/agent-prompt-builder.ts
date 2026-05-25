@@ -90,6 +90,12 @@ FINAL NON-INTERACTIVE POLICY
   assumptions, and keep progressing.
 - Never wait for a user reply inside the agent output.
 - The questions field must remain exactly questions: [].
+- For file_write, file_write.after MUST be the exact complete file content
+  to write after approval. Harness replaces the whole file with this string.
+- Do not put instructions, patch descriptions, TODO prose, or "add this to
+  the file" text inside file_write.after. If you cannot provide the complete
+  file content, do not propose file_write; explain the missing input in
+  assumptions or propose an allowed inspection/check instead.
 `;
 
 const SYSTEM_PROMPT = `\
@@ -109,6 +115,8 @@ SYSTEM
 - If the user request is informational (no side effect needed), respond
   with proposedActions: [] and answer in summary.
 - The questions field must always be exactly questions: [].
+- Only propose file_write when you can provide the complete replacement
+  content for the file. The runner will not interpret instructions.
 `;
 
 const OUTPUT_CONTRACT = `\
@@ -130,6 +138,12 @@ interface AgentPlanOutput {
 }
 - questions MUST be [] in every response. Put missing-information handling in
   assumptions instead of asking the user.
+- For a file_write action, after is not a diff and not a natural-language
+  instruction. It is the complete UTF-8 text of the target file after the
+  approval runs. Include unchanged existing content too. For new files, include
+  the entire new file.
+- Never write "add/update/modify this file..." instructions in after. Harness
+  writes after verbatim with no interpretation.
 - Do not include any other fenced code block tagged harness_agent_plan.
 - Do not include high-risk action types like dependency_install / git_commit / network /
   skill_script / orchestration_plan; the runner will reject those.

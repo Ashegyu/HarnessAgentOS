@@ -1357,7 +1357,8 @@ interface AgentInvocation {
 - TaskRun이 `drafting` 또는 `blocked`(재시도) 상태일 때만 허용. 다른 상태는 `AGENT_MODE_MISMATCH`.
 - provider 미설치 시 `AGENT_PROVIDER_UNAVAILABLE`. UI는 deterministic template fallback을 권장한다.
 - CLI 출력의 fenced JSON 블록(`harness_agent_plan`)을 파싱한다. 실패 시 `AGENT_INVALID_OUTPUT`.
-- 각 `proposedActions[i]`는 기존 `validateProposedActionDetails` 게이트(절대경로/`..`/NUL 차단)를 통과해야 approval row가 만들어진다. 통과 못 한 항목은 drop되고 `quality_report` artifact에 사유가 기록된다 (filter, not all-or-nothing).
+- `file_write.after`는 승인 후 파일 전체를 대체할 완전한 UTF-8 파일 본문이다. diff, TODO, "이 파일에 추가하세요" 같은 자연어 수정 지시문이 아니다.
+- 각 `proposedActions[i]`는 기존 `validateProposedActionDetails` 게이트(절대경로/`..`/NUL/자연어 `after` 지시문 차단)를 통과해야 approval row가 만들어진다. 통과 못 한 항목은 drop되고 `quality_report` artifact에 사유가 기록된다 (filter, not all-or-nothing).
 - `proposedActions.length === 0` → TaskRun을 `ready_for_review`로 (answer-only 경로).
 - `proposedActions.length > 0` → TaskRun을 `waiting_for_approval`로.
 - prompt/raw_output artifact는 저장 직전 `redactSecrets`로 마스킹된다.

@@ -283,6 +283,10 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       "all seed profiles carry the no-questions contract in the prompt prefix",
     );
     assert.ok(
+      all.every((p) => p.tuning.systemPromptPrefix.includes("file_write.after")),
+      "all seed profiles must explain that file_write.after is complete replacement content",
+    );
+    assert.ok(
       all.every((p) => p.tuning.systemPromptSuffix.includes("보고")),
       "all seed profiles carry a concrete reporting contract in the prompt suffix",
     );

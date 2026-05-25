@@ -56,6 +56,23 @@ test("file_write accepts relative path", () => {
   assert.equal(r.details.filePatch.path, "src/foo.ts");
 });
 
+test("file_write rejects natural-language instructions in after content", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_write",
+      filePatch: {
+        path: "src/FlyContract.cs",
+        after:
+          "이 파일에 public contract를 명확히 하는 인터페이스 설명과 검증 로직을 추가하세요.",
+      },
+    },
+    "file_write",
+  );
+
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /complete file content/i);
+});
+
 test("file_write strips disallowed extra fields", () => {
   const r = validateProposedActionDetails(
     {

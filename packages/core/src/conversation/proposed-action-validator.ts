@@ -18,6 +18,24 @@ const containsNul = (s: string): boolean => {
   return false;
 };
 
+const INSTRUCTION_LIKE_AFTER_PATTERNS: readonly RegExp[] = [
+  /^\s*(?:please\s+)?(?:add|append|insert|update|modify|change|replace|create|implement|write|generate)\b[\s\S]{0,220}\b(?:file|class|method|function|section|code|content|contract)\b/i,
+  /\b(?:to|in|inside|for)\s+(?:this|the)\s+file\b[\s\S]{0,160}\b(?:add|append|insert|update|modify|change|replace|implement|write)\b/i,
+  /\b(?:add|append|insert)\s+(?:the\s+)?(?:following|below)\s+(?:code|content|section)\b/i,
+  /\b(?:file|class|method|function|contract)\s+(?:should|must|needs to)\b/i,
+  /\bfile_write\b[\s\S]{0,80}\b(?:proposal|propose|suggest)\b/i,
+  /(?:이\s*)?파일에[\s\S]{0,220}(?:추가|작성|수정|구현|반영|넣)(?:하|해|합니다|하세요|하라)?/u,
+  /(?:다음|아래)[\s\S]{0,120}(?:내용|코드|섹션)[\s\S]{0,120}(?:추가|삽입|작성|반영)(?:하|해|합니다|하세요|하라)?/u,
+  /(?:추가|작성|수정|구현|반영|명확히)(?:하|해|합니다|하세요|하라)/u,
+  /\b(?:public\s+contract|contract)\b[\s\S]{0,120}(?:clarify|명확)/iu,
+];
+
+const looksLikeInstructionInsteadOfFileContent = (after: string): boolean => {
+  const sample = after.trim().slice(0, 1_200);
+  if (sample.length === 0) return false;
+  return INSTRUCTION_LIKE_AFTER_PATTERNS.some((pattern) => pattern.test(sample));
+};
+
 /**
  * Phase 3+ schema validation for the renderer-supplied
  * ProposedActionDetails. Runs at the IPC boundary so main never
@@ -102,6 +120,13 @@ const validateFileWrite = (raw: Record<string, unknown>): ProposedActionValidati
   const after = filePatch.after;
   if (typeof after !== "string") {
     return { ok: false, reason: "filePatch.after must be a string" };
+  }
+  if (looksLikeInstructionInsteadOfFileContent(after)) {
+    return {
+      ok: false,
+      reason:
+        "filePatch.after must be complete file content, not natural-language edit instructions",
+    };
   }
   const before =
     filePatch.before === undefined ? undefined : String(filePatch.before);

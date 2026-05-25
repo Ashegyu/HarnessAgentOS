@@ -230,6 +230,8 @@ PROJECT CONTRACT
 - Agent runs are non-interactive. Do not ask follow-up, clarification, or confirmation questions.
 - If information is missing, choose a safe default, record it as an assumption, and continue.
 - Keep the AgentPlanOutput questions field as [].
+- file_write.after is the complete replacement file content, not an instruction,
+  diff, TODO, or prose patch request. Harness writes it verbatim after approval.
 `;
 
 const readOnlySuffix = (label: string): string => `\
