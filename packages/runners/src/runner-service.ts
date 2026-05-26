@@ -308,7 +308,7 @@ export class RunnerService {
       checkpointApprovals.length === 0 ||
       checkpointApprovals.some(isUnresolvedApproval)
     ) {
-      return approvals;
+      return checkpointApprovals;
     }
 
     const checkpoints = await this.deps.state.listCheckpointsByTaskRun(
@@ -320,16 +320,16 @@ export class RunnerService {
     await this.deps.state.setStepStatus(checkpoint.stepId, "succeeded", {
       outputSummary: summarizeResolvedApprovals(checkpointApprovals),
     });
-    return approvals;
+    return checkpointApprovals;
   }
 
   private async settleTaskRunAfterSuccessfulExecution(
     taskRunId: string,
-    approvals: Approval[],
+    checkpointApprovals: Approval[],
   ): Promise<void> {
     await this.deps.state.setTaskRunStatus(
       taskRunId,
-      approvals.some(isUnresolvedApproval)
+      checkpointApprovals.some(isUnresolvedApproval)
         ? "waiting_for_approval"
         : "ready_for_review",
     );

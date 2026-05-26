@@ -532,6 +532,64 @@ test("executeApproved keeps approval step pending until sibling approvals resolv
   }
 });
 
+test("executeApproved ignores pending approvals from other checkpoints when settling TaskRun", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await conversation.setProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "current.txt", after: "current\n" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+
+      const staleStep = await state.createStep({
+        taskRunId: draft.taskRun.id,
+        index: 99,
+        kind: "approval",
+        title: "stale approval",
+        status: "pending",
+        inputSummary: "stale",
+      });
+      const staleCheckpoint = await state.createCheckpoint({
+        taskRunId: draft.taskRun.id,
+        stepId: staleStep.id,
+        reason: "before_edit",
+        stateRef: "{}",
+        summary: "stale checkpoint",
+      });
+      const staleApproval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: staleCheckpoint.id,
+        actionType: "file_write",
+        actionSummary: "stale pending approval",
+        status: "pending",
+      });
+
+      await runner.executeApproved(approval.id);
+
+      const updatedTaskRun = await state.getTaskRun(draft.taskRun.id);
+      assert.equal(updatedTaskRun.status, "ready_for_review");
+
+      const currentApprovalStep = (await state.listStepsByTaskRun(draft.taskRun.id))
+        .find((s) => s.id === draft.checkpoint.stepId);
+      assert.equal(currentApprovalStep.status, "succeeded");
+
+      const unresolvedStaleApproval = await state.getApproval(staleApproval.id);
+      assert.equal(unresolvedStaleApproval.status, "pending");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("file_write modifies an existing file and records before/after diff", async () => {
   const t = tmp();
   try {
