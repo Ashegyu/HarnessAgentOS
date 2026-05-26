@@ -47,6 +47,41 @@ test("createInternalAgentMessage truncates long content for downstream context",
   assert.equal(message.content, "xxxxx\n[truncated 7 chars]");
 });
 
+test("createInternalAgentMessage preserves structured payload outside truncated content", () => {
+  const structuredPayload = {
+    schemaVersion: 1,
+    status: "success",
+    outputContract: "plan",
+    producer: {
+      taskRunId: "task_run_1",
+      planId: "plan_1",
+      stepId: "step_planner",
+      role: "planner",
+      title: "Plan the work",
+      artifactId: "artifact_1",
+    },
+    summary: "Use dependency-scoped handoff only.",
+    evidence: [],
+    findings: [],
+    proposedActions: [],
+    changedFiles: [],
+    verification: { run: [], passed: [], failed: [], notRun: [] },
+    risks: [],
+    nextActions: [],
+  };
+  const message = createInternalAgentMessage({
+    ...base,
+    content: "x".repeat(12),
+    structuredPayload,
+    maxContentChars: 5,
+    now: () => "2026-05-15T00:00:00.000Z",
+    createId: () => "iam_1",
+  });
+
+  assert.equal(message.content, "xxxxx\n[truncated 7 chars]");
+  assert.deepEqual(message.structuredPayload, structuredPayload);
+});
+
 test("formatHandoffMessages renders ordered prior agent context", () => {
   const first = createInternalAgentMessage({
     ...base,

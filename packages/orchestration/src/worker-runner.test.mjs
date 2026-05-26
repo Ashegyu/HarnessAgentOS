@@ -398,6 +398,126 @@ test("runApproved passes prior worker outputs as internal handoff messages", asy
   }
 });
 
+test("runApproved carries structured handoff payloads to dependent workers", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const plannerProfile = await state.agentProfiles.create(
+      validProfileInput({
+        name: "StructuredPlanner",
+        role: "planner",
+        persona: "Produce structured handoff.",
+      }),
+    );
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({
+        name: "StructuredCoder",
+        role: "coder",
+        persona: "Consume structured handoff.",
+      }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Structured handoff",
+      description: "",
+      steps: [
+        {
+          id: "planner",
+          agentProfileId: plannerProfile.id,
+          title: "Plan",
+          instruction: "Plan with evidence.",
+          expectedArtifactKinds: ["log"],
+          outputContract: "plan",
+        },
+        {
+          id: "coder",
+          agentProfileId: coderProfile.id,
+          title: "Implement",
+          instruction: "Implement from structured handoff.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: ["planner"],
+          outputContract: "diff_proposal",
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const calls = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        calls.push({
+          profileName: input.profile.name,
+          handoffMessages: input.handoffMessages ?? [],
+        });
+        if (input.profile.name === "StructuredPlanner") {
+          return {
+            outputText: [
+              "Planner summary.",
+              "",
+              "```harness_worker_handoff_v1",
+              JSON.stringify({
+                schemaVersion: 1,
+                status: "success",
+                outputContract: "plan",
+                producer: {
+                  taskRunId: "spoofed",
+                  planId: "spoofed",
+                  stepId: "spoofed",
+                  role: "planner",
+                  title: "Spoofed",
+                  artifactId: "spoofed",
+                },
+                summary: "Inspect worker-runner before implementation.",
+                evidence: [
+                  {
+                    kind: "file",
+                    ref: "packages/orchestration/src/worker-runner.ts",
+                    note: "Handoff is created after worker output.",
+                  },
+                ],
+                findings: [],
+                proposedActions: [],
+                changedFiles: [],
+                verification: { run: [], passed: [], failed: [], notRun: [] },
+                risks: [],
+                nextActions: ["Implement structured payload propagation."],
+              }),
+              "```",
+            ].join("\n"),
+          };
+        }
+        return { outputText: "Coder consumed structured handoff." };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    await runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    assert.equal(calls.length, 2);
+    const coderCall = calls[1];
+    assert.equal(coderCall.profileName, "StructuredCoder");
+    assert.equal(coderCall.handoffMessages.length, 1);
+    const structuredPayload = coderCall.handoffMessages[0].structuredPayload;
+    assert.ok(structuredPayload, "structured payload must be attached");
+    assert.equal(
+      structuredPayload.summary,
+      "Inspect worker-runner before implementation.",
+    );
+    assert.equal(structuredPayload.producer.taskRunId, taskRun.id);
+    assert.equal(structuredPayload.producer.stepId, drafted.plan.workerSteps[0].id);
+    assert.match(structuredPayload.producer.artifactId, /^art_/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved limits handoff messages to declared dependencies", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

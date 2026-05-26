@@ -3,6 +3,7 @@ import type {
   CapabilityPromptContext,
   QualityGateResult,
   TaskRun,
+  WorkerHandoffPayload,
 } from "@harness/core";
 import type { PackedRepoContext } from "./context-packer.ts";
 
@@ -18,6 +19,7 @@ export interface AgentHandoffPromptMessage {
   content: string;
   artifactId: string;
   createdAt?: string;
+  structuredPayload?: WorkerHandoffPayload;
 }
 
 export interface ThreadContextPromptTask {
@@ -346,6 +348,14 @@ const formatInternalHandoffMessages = (
     );
     if (message.createdAt) {
       lines.push(`- createdAt: ${message.createdAt}`);
+    }
+    if (message.structuredPayload) {
+      lines.push(
+        "",
+        "```harness_worker_handoff_v1",
+        JSON.stringify(message.structuredPayload),
+        "```",
+      );
     }
     lines.push("", message.content.trim().slice(0, 6_000));
   }

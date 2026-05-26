@@ -1,4 +1,5 @@
 import { newId } from "@harness/storage";
+import type { WorkerHandoffPayload } from "@harness/core";
 import type { WorkerRole } from "./orchestration-types.ts";
 
 export interface InternalAgentMessage {
@@ -10,6 +11,7 @@ export interface InternalAgentMessage {
   fromTitle: string;
   toStepId?: string;
   content: string;
+  structuredPayload?: WorkerHandoffPayload;
   artifactId: string;
   createdAt: string;
 }
@@ -22,6 +24,7 @@ export interface CreateInternalAgentMessageInput {
   fromTitle: string;
   toStepId?: string;
   content: string;
+  structuredPayload?: WorkerHandoffPayload;
   artifactId: string;
   maxContentChars?: number;
   now?: () => string;
@@ -43,6 +46,9 @@ export const createInternalAgentMessage = (
     fromTitle: input.fromTitle,
     ...(input.toStepId !== undefined ? { toStepId: input.toStepId } : {}),
     content: truncate(input.content, maxContentChars),
+    ...(input.structuredPayload !== undefined
+      ? { structuredPayload: input.structuredPayload }
+      : {}),
     artifactId: input.artifactId,
     createdAt: input.now?.() ?? new Date().toISOString(),
   };

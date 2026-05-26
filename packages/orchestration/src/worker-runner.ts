@@ -31,6 +31,10 @@ import {
   createInternalAgentMessage,
   type InternalAgentMessage,
 } from "./internal-agent-bus.ts";
+import {
+  buildWorkerHandoffPayload,
+  WORKER_HANDOFF_FENCE,
+} from "./worker-handoff.ts";
 import { planWorkerWaves } from "./worker-wave-planner.ts";
 import { buildEffectiveWorkerDependencyMap } from "./worker-step-dependencies.ts";
 
@@ -1039,18 +1043,6 @@ export class WorkerRunner {
       outputSummary: `worker artifact ${artifact.id}`,
     });
 
-    const handoff =
-      status === "succeeded"
-        ? createInternalAgentMessage({
-            taskRunId: input.plan.taskRunId,
-            planId: input.plan.id,
-            fromStepId: planStep.id,
-            fromRole: planStep.role,
-            fromTitle: planStep.title,
-            content: body,
-            artifactId: artifact.id,
-          })
-        : null;
     const acceptedActions: WorkerStepExecutionResult["acceptedActions"] = [];
     const policyReport: string[] = [];
     if (status === "succeeded" && proposedActions.length > 0) {
@@ -1078,6 +1070,33 @@ export class WorkerRunner {
         });
       }
     }
+    const handoff =
+      status === "succeeded"
+        ? createInternalAgentMessage({
+            taskRunId: input.plan.taskRunId,
+            planId: input.plan.id,
+            fromStepId: planStep.id,
+            fromRole: planStep.role,
+            fromTitle: planStep.title,
+            content: body,
+            structuredPayload: buildWorkerHandoffPayload({
+              rawOutput: body,
+              producer: {
+                taskRunId: input.plan.taskRunId,
+                planId: input.plan.id,
+                stepId: planStep.id,
+                role: planStep.role,
+                title: planStep.title,
+                artifactId: artifact.id,
+              },
+              ...(planStep.outputContract !== undefined
+                ? { outputContract: planStep.outputContract }
+                : {}),
+              proposedActions: acceptedActions.map(({ action }) => action),
+            }).payload,
+            artifactId: artifact.id,
+          })
+        : null;
 
     return {
       planStep,
@@ -1314,6 +1333,13 @@ const composeWorkerUserRequest = (input: {
     "- A file_write proposal is allowed only when allowedActions includes file_write.",
     "- file_write.after must be the complete replacement content for the target file.",
     "- Do not put natural-language edit instructions inside file_write.after.",
+    "",
+    "STRUCTURED HANDOFF CONTRACT",
+    `- End the response with at most one fenced JSON block tagged \`${WORKER_HANDOFF_FENCE}\`.`,
+    "- This handoff block is for downstream Harness workers; it does not authorize side effects.",
+    "- Keep producer.taskRunId/planId/stepId/artifactId as placeholders if unknown; Harness overwrites producer identity.",
+    "- Required fields: schemaVersion, status, outputContract, producer, summary, evidence, findings, proposedActions, changedFiles, verification, risks, nextActions.",
+    "- findings[].basis must be one of evidence, inference, uncertainty.",
   ].join("\n");
 };
 

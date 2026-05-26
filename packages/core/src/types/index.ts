@@ -16,6 +16,7 @@ export * from "./capability.ts";
 export * from "./learning-trace.ts";
 export * from "./instinct.ts";
 export * from "./orchestration.ts";
+export * from "./worker-handoff.ts";
 export type {
   CreateAgentInvocationInput,
   UpdateAgentInvocationPatch,
