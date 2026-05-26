@@ -651,7 +651,7 @@ After Phase 12 cost policy is in place, allow parallel agent invocations only
 when all steps in the wave satisfy:
 
 - `allowedActions` is `[]`
-- role is reviewer, planner, or documenter if documenter is later added
+- role is reviewer, planner, or documenter
 - no `file_write`, `shell`, `dependency_install`, `network`, or `git_commit`
 - provider queue policy allows it
 - orchestration plan approval already exists

@@ -500,7 +500,8 @@ export interface WorkerTopologyStep {
     | "security-reviewer"
     | "build-error-resolver"
     | "refactor-cleaner"
-    | "performance-reviewer";
+    | "performance-reviewer"
+    | "documenter";
   agentProfileId: string;
   remoteEndpointId?: string;
   dependsOn: string[];
@@ -509,9 +510,8 @@ export interface WorkerTopologyStep {
 }
 ```
 
-`documenter` role은 여전히 `AgentProfile.role`과 `agent_profiles.role` DB CHECK에 없으므로
-profile category/tag 또는 `planner` 계열로 표현한다. 문서 전담 실행 단계가 필요해지면
-WorkerRole enum, DB migration, profile UI, pipeline serializer를 함께 확장한다.
+`documenter` role은 이후 `AgentProfile.role`과 `agent_profiles.role` DB CHECK에 추가되었다.
+문서 전담 실행 단계는 `file_write` approval proposal로 완전한 HTML/문서 파일 본문을 제안한다.
 
 ### 적용 방식
 

@@ -209,7 +209,8 @@ export interface WorkerStep {
     | "security-reviewer"
     | "build-error-resolver"
     | "refactor-cleaner"
-    | "performance-reviewer";
+    | "performance-reviewer"
+    | "documenter";
   inputSummary: string;
   instruction?: string;
   expectedArtifactKinds: string[];

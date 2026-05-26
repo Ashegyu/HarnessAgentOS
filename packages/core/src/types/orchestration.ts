@@ -21,7 +21,8 @@ export type WorkerRole =
   | "security-reviewer"
   | "build-error-resolver"
   | "refactor-cleaner"
-  | "performance-reviewer";
+  | "performance-reviewer"
+  | "documenter";
 
 export const WORKER_ROLES: readonly WorkerRole[] = [
   "planner",
@@ -33,6 +34,7 @@ export const WORKER_ROLES: readonly WorkerRole[] = [
   "build-error-resolver",
   "refactor-cleaner",
   "performance-reviewer",
+  "documenter",
 ];
 
 export type WorkerOutputContract =

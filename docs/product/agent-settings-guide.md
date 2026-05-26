@@ -61,7 +61,7 @@
 | **활성화 토글** | OFF면 single-worker 모드로 동작 |
 | **기본 Mode** | `single_worker` / `planner_worker` / `multi_worker` |
 | **기본 Instruction** | 플래너 에이전트에게 항상 전달되는 시스템 지시 |
-| **Agent Profiles** | `role` + provider + model + 한국어 ROLE 프롬프트 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer` |
+| **Agent Profiles** | `role` + provider + model + 한국어 ROLE 프롬프트 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter` |
 
 ### 2.3 Approval 자동화
 
@@ -90,7 +90,7 @@ profile.permissions.autoApproveActions
 - **이름** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
 - **분류/태그** — UI 필터와 profile 선택 힌트에 사용하는 메타데이터
 - **Provider** — 기본 seed 프로필은 `codex`를 사용합니다. 기존 데이터 호환을 위해 `claude` / `auto`도 저장 가능하지만 Codex 전용 설정은 Codex 실행에만 전달됩니다.
-- **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`를 사용합니다.
+- **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter`를 사용합니다.
 - **Role 설명 카드** — 선택한 role의 책임, 사용 시점, 안전 경계를 표시합니다.
 - **Model** — 비워두면 provider 기본값
 - **CLI 경로 override** — 시스템 PATH의 CLI가 아닌 다른 바이너리를 쓰고 싶을 때
@@ -196,6 +196,7 @@ mcpServerIds: [mcp_fs, mcp_github]
 | `build-error-resolver` | 빌드 오류 해결자 | 실패 로그의 첫 실제 원인 추적과 최소 수정안 제안 | build/type/lint/test 실패 복구 |
 | `refactor-cleaner` | 리팩터링 정리자 | 동작 보존 리팩터링과 dead code/중복 정리 | 테스트로 보호된 구조 개선 |
 | `performance-reviewer` | 성능 리뷰어 | allocation, latency, repeated work, benchmark 누락 검토 | hot path, 반복 실행, 대용량 처리 변경 |
+| `documenter` | 문서 작성자 | 이전 에이전트 결과를 HTML/문서 산출물로 정리하고 file_write approval로 저장 제안 | 분석, 계획, 검증 결과를 다음 세션 handoff나 보고서로 남길 때 |
 
 ### 3.6 기본 Pipeline 템플릿
 

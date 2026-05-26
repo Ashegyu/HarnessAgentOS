@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -228,7 +228,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     category TEXT NOT NULL DEFAULT 'core',
     tags_json TEXT NOT NULL DEFAULT '[]',
     provider TEXT NOT NULL CHECK(provider IN ('auto','claude','codex')),
-    role TEXT NOT NULL CHECK(role IN ('planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer')),
+    role TEXT NOT NULL CHECK(role IN ('planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer','documenter')),
     persona TEXT NOT NULL DEFAULT '',
     tuning_json TEXT NOT NULL,
     cli_json TEXT NOT NULL,
@@ -504,7 +504,6 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_task_runs_follow_up ON task_runs(follow_up_task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checkpoints_task_run_id ON checkpoints(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,

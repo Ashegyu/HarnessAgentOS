@@ -249,6 +249,17 @@ ${label} OUTPUT
 - Keep dependency install, network, and git actions out of the proposal unless the pipeline explicitly allows them.
 `;
 
+const htmlDocumentSuffix = (label: string): string => `\
+${label} OUTPUT
+- 이전 에이전트 handoff, 최근 artifacts, user request를 근거로 정리된 HTML 문서를 생성한다.
+- 사용자가 상대 경로를 지정하지 않으면 docs/harness-agent-report.html 로 file_write를 제안한다.
+- file_write.after에는 완전한 HTML5 문서 전체를 넣는다. 설명이나 patch 지시문을 넣지 않는다.
+- HTML은 self-contained여야 하며 외부 script, 원격 asset, tracking, secret echo를 포함하지 않는다.
+- 문서 본문은 한국어로 작성하고 Scope, Source agents, Key findings, Plan, Risks, Verification, Next actions 섹션을 포함한다.
+- Evidence, Inference, Uncertainty를 분리하고 근거가 없는 내용은 단정하지 않는다.
+- 저장 제안 경로, 포함한 출처, 남은 불확실성을 한국어로 보고한다.
+`;
+
 const testSuffix = (label: string): string => `\
 ${label} OUTPUT
 - Start from the failing or missing behavior, then name the narrowest useful test or smoke check.
@@ -816,6 +827,26 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
         cli: defaultCli,
         permissions: readOnlyPermissions,
+        mcpServerIds: [],
+        skillSourceIds: ["ss_project"],
+      },
+      {
+        id: "ap_framework_html_report_documenter",
+        name: "HTML Report Documenter",
+        description:
+          "이전 에이전트의 분석, 계획, 검증 결과를 self-contained HTML 문서 파일로 정리해 저장 제안을 만듭니다.",
+        category: "documentation",
+        tags: ["html", "documentation", "handoff", "report"],
+        provider: "codex",
+        role: "documenter",
+        persona:
+          "당신은 HTML report documenter입니다. HarnessAgentOS의 이전 에이전트 handoff, 최근 artifact, 사용자 요청을 읽고, 사실/추론/불확실성을 구분한 self-contained HTML 문서로 정리하세요. 파일 저장은 직접 실행하지 말고 file_write approval proposal로만 제안하며, file_write.after에는 완전한 HTML 파일 본문 전체를 넣으세요.",
+        tuning: defaultTuning(DEFAULT_CODEX_MODEL, {
+          contextDepth: 16,
+          systemPromptSuffix: htmlDocumentSuffix("HTML Report Documenter"),
+        }),
+        cli: defaultCli,
+        permissions: codeProposalPermissions,
         mcpServerIds: [],
         skillSourceIds: ["ss_project"],
       },

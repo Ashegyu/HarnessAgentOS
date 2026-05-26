@@ -1254,6 +1254,12 @@ const roleBody = (role: WorkerRole): string => {
         "- Inspect allocations, latency, repeated work, and hot-path regressions",
         "- Recommend benchmarks or focused measurements where useful",
       ].join("\n");
+    case "documenter":
+      return [
+        "Documenter summarized HTML report output:",
+        "- Synthesize previous worker handoffs and artifacts",
+        "- Propose a complete self-contained HTML file through approval",
+      ].join("\n");
     default:
       return `Unknown worker role`;
   }
@@ -1325,6 +1331,7 @@ const roleToActionIntent = (role: WorkerRole): string => {
     case "build-error-resolver":
     case "refactor-cleaner":
     case "performance-reviewer":
+    case "documenter":
       return "summarize";
     default:
       return "summarize";

@@ -4,7 +4,7 @@ import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 const APPROVAL_ACTION_TYPE_CHECK =
   "'capability_use','model_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
 const AGENT_PROFILE_ROLE_CHECK =
-  "'planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer'";
+  "'planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer','documenter'";
 
 /**
  * Idempotent migration runner. Phase 1 ships schema v1 covering all
@@ -119,7 +119,7 @@ export const applyMigrations = (db: DatabaseType): void => {
     }
     const agentProfileRolesAreExpanded = agentProfileRoleAllows(
       db,
-      "orchestrator",
+      "documenter",
     );
     if (!agentProfileRolesAreExpanded) {
       rebuildAgentProfiles(db);

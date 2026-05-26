@@ -388,6 +388,37 @@ test("v31 migration adds TaskRun follow-up anchor column and index", () => {
   }
 });
 
+test("v31 migration upgrades existing task_runs before creating follow-up index", () => {
+  const t = tmp();
+  const db = new Database(t.file);
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.exec(`CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  db.exec(`CREATE TABLE task_runs (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    user_request TEXT NOT NULL,
+    target_dir TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('drafting','waiting_for_approval','running','paused','blocked','quality_failed','ready_for_review','done','cancelled')),
+    current_step_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  db.prepare(
+    `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', '30')`,
+  ).run();
+
+  try {
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "task_runs", "follow_up_task_run_id"), true);
+    assert.equal(hasIndex(db, "idx_task_runs_follow_up"), true);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -534,6 +565,20 @@ test("v21 migration upgrades framework profile roles from legacy seed data", () 
       .prepare(`SELECT role FROM agent_profiles WHERE id = ?`)
       .get("ap_framework_ecc_security_reviewer");
     assert.equal(row.role, "security-reviewer");
+    assert.doesNotThrow(() => {
+      db.prepare(
+        `INSERT INTO agent_profiles
+          (id,name,description,provider,role,persona,tuning_json,cli_json,
+           permissions_json,mcp_server_ids_json,skill_source_ids_json,
+           is_default,created_at,updated_at)
+         VALUES (?,?,'','codex','documenter','','{}','{}','{}','[]','[]',0,?,?)`,
+      ).run(
+        "ap_html_report_documenter",
+        "HTML Report Documenter",
+        "2026-01-01T00:00:00.000Z",
+        "2026-01-01T00:00:00.000Z",
+      );
+    });
     assert.equal(hasColumn(db, "agent_profiles", "category"), true);
     assert.equal(hasColumn(db, "agent_profiles", "tags_json"), true);
   } finally {

@@ -62,6 +62,7 @@ const ROLE_ORDER: readonly WorkerRole[] = [
   "security-reviewer",
   "performance-reviewer",
   "reviewer",
+  "documenter",
 ];
 
 const ROLE_TITLES: Record<WorkerRole, string> = {
@@ -74,6 +75,7 @@ const ROLE_TITLES: Record<WorkerRole, string> = {
   "security-reviewer": "Review security risks",
   "performance-reviewer": "Review performance risks",
   reviewer: "Review behavior and risks",
+  documenter: "Save handoff as HTML report",
 };
 
 const ROLE_CONTRACTS: Record<WorkerRole, WorkerOutputContract> = {
@@ -86,6 +88,7 @@ const ROLE_CONTRACTS: Record<WorkerRole, WorkerOutputContract> = {
   "security-reviewer": "review",
   "performance-reviewer": "review",
   reviewer: "review",
+  documenter: "diff_proposal",
 };
 
 const ROLE_ARTIFACTS: Record<WorkerRole, readonly ArtifactKind[]> = {
@@ -98,6 +101,7 @@ const ROLE_ARTIFACTS: Record<WorkerRole, readonly ArtifactKind[]> = {
   "security-reviewer": ["quality_report", "log"],
   "performance-reviewer": ["quality_report", "log"],
   reviewer: ["quality_report", "log"],
+  documenter: ["file", "log"],
 };
 
 const ROLE_ACTIONS: Record<WorkerRole, readonly ApprovalActionType[]> = {
@@ -110,6 +114,7 @@ const ROLE_ACTIONS: Record<WorkerRole, readonly ApprovalActionType[]> = {
   "security-reviewer": [],
   "performance-reviewer": [],
   reviewer: [],
+  documenter: ["file_write"],
 };
 
 const ROLE_PATTERNS: Record<WorkerRole, RegExp> = {
@@ -131,6 +136,8 @@ const ROLE_PATTERNS: Record<WorkerRole, RegExp> = {
     /performance|latency|allocation|memory|hot path|benchmark|perf|성능|메모리|지연/u,
   reviewer:
     /review|audit|risk|quality|contract|invariant|검토|리뷰|위험|품질/u,
+  documenter:
+    /html|report|documentation|handoff|export|save|html 문서|문서화|저장|인계|보고서/u,
 };
 
 export class TopologyAdvisor {
@@ -396,7 +403,7 @@ const chooseRoles = (signals: Map<WorkerRole, RoleSignal>): WorkerRole[] => {
   if (!roles.includes("planner") && roles.length > 1) {
     roles.unshift("planner");
   }
-  if (!roles.includes("coder")) {
+  if (!roles.includes("coder") && !roles.includes("documenter")) {
     roles.splice(roles.includes("planner") ? 1 : 0, 0, "coder");
   }
   return uniqueRoles(roles);
@@ -491,6 +498,8 @@ const instructionForRole = (role: WorkerRole): string => {
       return "Review for secrets, injection, path traversal, approval bypasses, unsafe shell usage, and permission drift.";
     case "performance-reviewer":
       return "Review for latency, allocation, repeated-work, hot-path, and resource-lifetime regressions.";
+    case "documenter":
+      return "Synthesize prior agent handoffs and recent artifacts into a self-contained HTML report. Propose the saved file through file_write only.";
     case "reviewer":
       return "Review the result for correctness, regressions, and policy violations before completion.";
   }

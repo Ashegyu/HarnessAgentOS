@@ -224,6 +224,7 @@ test("isAgentProfile validates a complete profile with expanded role", () => {
     updatedAt: "2026-05-12T00:00:00.000Z",
   };
   assert.equal(isAgentProfile(profile), true);
+  assert.equal(isAgentProfile({ ...profile, role: "documenter" }), true);
 });
 
 test("isAgentProfile rejects unknown provider", () => {

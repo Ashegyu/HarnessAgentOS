@@ -80,6 +80,14 @@ export const WORKER_ROLE_METADATA: Record<WorkerRole, WorkerRoleMetadata> = {
     whenToUse:
       "핫패스, 반복 실행, 대용량 데이터, UI 반응성에 영향을 줄 수 있는 변경에 사용합니다.",
   },
+  documenter: {
+    label: "문서 작성자",
+    shortLabel: "문서",
+    description:
+      "이전 에이전트의 분석, 계획, 검증 결과를 정리된 문서 산출물로 저장합니다.",
+    whenToUse:
+      "여러 worker의 결과를 HTML/문서 형태로 남기거나 다음 세션 handoff를 고정할 때 사용합니다.",
+  },
 };
 
 export const roleLabel = (role: WorkerRole): string =>

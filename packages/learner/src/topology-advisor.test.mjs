@@ -176,6 +176,36 @@ test("recommend creates an explicit pipeline draft from capability metadata", as
   }
 });
 
+test("recommend can route HTML report requests to documenter without forced coder", async () => {
+  const { t, db, state } = await setup();
+  try {
+    const documenter = await state.agentProfiles.create(
+      profileInput("documenter", "HTML Report Documenter"),
+    );
+    const taskRun = await seedTaskRun(
+      state,
+      "앞의 에이전트 분석과 계획을 HTML 보고서로 저장해줘",
+    );
+
+    const advisor = new TopologyAdvisor({ state });
+    const [rec] = await advisor.recommend({
+      taskRunId: taskRun.id,
+      maxCandidates: 1,
+    });
+
+    assert.ok(rec, "documenter recommendation should be produced");
+    assert.deepEqual(
+      rec.pipelineDraft.steps.map((step) => step.agentProfileId),
+      [documenter.id],
+    );
+    assert.deepEqual(rec.pipelineDraft.steps[0].allowedActions, ["file_write"]);
+    assert.equal(rec.pipelineDraft.steps[0].outputContract, "diff_proposal");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("recommend skips untrusted capability metadata and warns", async () => {
   const { t, db, state } = await setup();
   try {

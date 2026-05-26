@@ -29,6 +29,7 @@ const FRAMEWORK_PROFILE_NAMES = [
   "ECC UX Flow Designer",
   "ECC Design QA Reviewer",
   "ECC Documentation Writer",
+  "HTML Report Documenter",
   "ECC Data Migration Planner",
   "ECC Codebase Explorer",
   "ECC Docs Researcher",
@@ -58,6 +59,7 @@ const EXPECTED_SEED_COUNT = 4 + FRAMEWORK_PROFILE_NAMES.length;
 const EXPECTED_ROLE_SET = [
   "build-error-resolver",
   "coder",
+  "documenter",
   "orchestrator",
   "performance-reviewer",
   "planner",
@@ -84,6 +86,7 @@ const FRAMEWORK_PROFILE_ROLES = new Map([
   ["ECC UX Flow Designer", "planner"],
   ["ECC Design QA Reviewer", "reviewer"],
   ["ECC Documentation Writer", "planner"],
+  ["HTML Report Documenter", "documenter"],
   ["ECC Data Migration Planner", "planner"],
   ["ECC Codebase Explorer", "planner"],
   ["ECC Docs Researcher", "planner"],
@@ -296,6 +299,7 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.ok(all.some((p) => p.name === "Hermes Image Prompt Designer" && p.tags.includes("image")));
     assert.ok(all.some((p) => p.name === "ECC UX Flow Designer" && p.tags.includes("design")));
     assert.ok(all.some((p) => p.name === "ECC Codebase Explorer" && p.tags.includes("evidence")));
+    assert.ok(all.some((p) => p.name === "HTML Report Documenter" && p.tags.includes("html")));
     assert.ok(all.some((p) => p.name === "Hermes Delegation Coordinator" && p.tags.includes("delegation")));
     assert.ok(all.some((p) => p.name === "Agno Approval Policy Designer" && p.tags.includes("approval")));
     assert.ok(all.some((p) => p.name === "Project PRD Agent" && p.tags.includes("prd")));
@@ -315,6 +319,11 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
       all.find((p) => p.name === "ECC Build Error Resolver")?.persona ?? "",
       /첫 번째 실제 실패|한국어/,
       "framework seed persona should be Korean-facing",
+    );
+    assert.match(
+      all.find((p) => p.name === "HTML Report Documenter")?.tuning.systemPromptSuffix ?? "",
+      /docs\/harness-agent-report\.html|완전한 HTML5 문서/,
+      "HTML documenter should carry the HTML file_write prompt contract",
     );
     assertFrameworkProfilesPresent(all);
   } finally {

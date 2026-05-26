@@ -346,6 +346,7 @@ const defaultOutputContractForRole = (
       return "plan";
     case "coder":
     case "refactor-cleaner":
+    case "documenter":
       return "diff_proposal";
     case "reviewer":
     case "security-reviewer":
