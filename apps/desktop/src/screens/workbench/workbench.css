@@ -1013,7 +1013,8 @@
   letter-spacing: 0.04em;
 }
 
-.thread-create-form__field input {
+.thread-create-form__field input,
+.thread-create-form__field select {
   font: inherit;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1026,7 +1027,8 @@
   letter-spacing: normal;
 }
 
-.thread-create-form__field input:focus {
+.thread-create-form__field input:focus,
+.thread-create-form__field select:focus {
   outline: none;
   border-color: var(--text-accent);
 }
@@ -3548,7 +3550,7 @@
 .conversation-input__pipeline-select {
   flex: 1;
   max-width: 320px;
-  background: var(--bg-base);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: 3px;
   color: var(--text-primary);
@@ -3602,12 +3604,19 @@
 .conversation-input__orch-field select,
 .conversation-input__orch-field input {
   flex: 1;
-  background: var(--bg-base);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: 3px;
   color: var(--text-primary);
   font-size: 11px;
   padding: 2px 6px;
+}
+
+.thread-create-form__field select option,
+.conversation-input__pipeline-select option,
+.conversation-input__orch-field select option {
+  color: var(--text-primary);
+  background: var(--bg-input);
 }
 
 .agent-panel {
@@ -7231,7 +7240,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   padding: var(--space-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
-  background: var(--bg-base);
+  background: var(--bg-input);
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;

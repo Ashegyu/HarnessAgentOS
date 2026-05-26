@@ -1,4 +1,6 @@
 :root {
+  color-scheme: dark;
+
   --bg-app: #0e1116;
   --bg-panel: #161b22;
   --bg-panel-elev: #1c232c;
@@ -53,6 +55,8 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
+
   --bg-app: #ffffff;
   --bg-panel: #f7f8fa;
   --bg-panel-elev: #eef1f5;
