@@ -879,6 +879,12 @@ export class WorkerRunner {
     const userRequest = composeWorkerUserRequest({
       originalUserRequest: taskRun?.userRequest ?? "",
       stepInstruction: step.instruction ?? step.inputSummary,
+      ...(step.allowedActions !== undefined
+        ? { allowedActions: step.allowedActions }
+        : {}),
+      ...(step.outputContract !== undefined
+        ? { outputContract: step.outputContract }
+        : {}),
     });
     if (invoker && profile && userRequest.length > 0) {
       const { outputText, proposedActions, lifecycle } =
@@ -1260,7 +1266,7 @@ const lifecycleBody = (
   const lines = [
     lifecycle.message,
     lifecycle.kind === "requires_input"
-      ? "Remote worker paused because it requires user input."
+      ? "Remote worker paused because it requested input. Harness will not ask the user; retry/backflow must continue from assumptions."
       : "Remote worker paused because it requires authentication setup.",
   ];
   if (output.trim().length > 0) {
@@ -1272,17 +1278,36 @@ const lifecycleBody = (
 const composeWorkerUserRequest = (input: {
   originalUserRequest: string;
   stepInstruction: string;
+  allowedActions?: readonly string[];
+  outputContract?: string;
 }): string => {
   const original = input.originalUserRequest.trim();
   const instruction = input.stepInstruction.trim();
-  if (original.length === 0) return instruction;
-  if (instruction.length === 0 || instruction === original) return original;
+  const base =
+    original.length === 0
+      ? instruction
+      : instruction.length === 0 || instruction === original
+        ? original
+        : [
+            "ORIGINAL USER REQUEST",
+            original,
+            "",
+            "PIPELINE STEP INSTRUCTION",
+            instruction,
+          ].join("\n");
+  const allowedActions = input.allowedActions
+    ? input.allowedActions.join(", ") || "(none)"
+    : "(legacy default)";
+  const outputContract = input.outputContract ?? "(unspecified)";
   return [
-    "ORIGINAL USER REQUEST",
-    original,
+    base,
     "",
-    "PIPELINE STEP INSTRUCTION",
-    instruction,
+    "WORKER OUTPUT CONTRACT",
+    `outputContract: ${outputContract}`,
+    `allowedActions: ${allowedActions}`,
+    "- A file_write proposal is allowed only when allowedActions includes file_write.",
+    "- file_write.after must be the complete replacement content for the target file.",
+    "- Do not put natural-language edit instructions inside file_write.after.",
   ].join("\n");
 };
 

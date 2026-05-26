@@ -15,7 +15,7 @@ export const remoteTaskNeedsAttention = (ref: A2ARemoteTaskRef): boolean =>
 export const remoteTaskAttentionLabel = (
   ref: A2ARemoteTaskRef,
 ): string | null => {
-  if (ref.state === "input-required") return "사용자 입력 필요";
+  if (ref.state === "input-required") return "입력 요청 차단됨";
   if (ref.state === "auth-required") return "인증 설정 필요";
   return null;
 };

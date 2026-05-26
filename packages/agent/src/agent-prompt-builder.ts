@@ -76,8 +76,27 @@ const buildSystemBlock = (
   parts.push(OUTPUT_CONTRACT.trim());
   const trimmedSuffix = trimmedOrNull(suffix);
   if (trimmedSuffix) parts.push(trimmedSuffix);
+  parts.push(NON_INTERACTIVE_AGENT_POLICY.trim());
   return parts.join("\n\n");
 };
+
+export const NON_INTERACTIVE_AGENT_POLICY = `\
+FINAL NON-INTERACTIVE POLICY
+- This applies to every Harness agent, including custom profiles, pipeline
+  workers, and remote handoffs.
+- Do not ask the user follow-up questions, clarification questions, or
+  confirmation questions.
+- If a choice is missing, choose the safest useful default, record it in
+  assumptions, and keep progressing.
+- Never wait for a user reply inside the agent output.
+- The questions field must remain exactly questions: [].
+- For file_write, file_write.after MUST be the exact complete file content
+  to write after approval. Harness replaces the whole file with this string.
+- Do not put instructions, patch descriptions, TODO prose, or "add this to
+  the file" text inside file_write.after. If you cannot provide the complete
+  file content, do not propose file_write; explain the missing input in
+  assumptions or propose an allowed inspection/check instead.
+`;
 
 const SYSTEM_PROMPT = `\
 SYSTEM
@@ -89,8 +108,15 @@ SYSTEM
 - Do not claim completion. A separate quality gate decides completion.
 - Do not produce shell commands containing rm -rf, del /s, shutdown,
   format, mkfs, or any other destructive operation.
+- Do not ask follow-up questions or clarification questions. The user cannot
+  answer inside this agent run.
+- If information is missing, choose a conservative default, record it in
+  assumptions, and continue with the most useful next action.
 - If the user request is informational (no side effect needed), respond
-  with proposedActions: [] and answer in summary + questions.
+  with proposedActions: [] and answer in summary.
+- The questions field must always be exactly questions: [].
+- Only propose file_write when you can provide the complete replacement
+  content for the file. The runner will not interpret instructions.
 `;
 
 const OUTPUT_CONTRACT = `\
@@ -110,6 +136,14 @@ interface AgentPlanOutput {
   suggestedQualityChecks: Array<{ command: string; reason: string }>;
   questions: string[];
 }
+- questions MUST be [] in every response. Put missing-information handling in
+  assumptions instead of asking the user.
+- For a file_write action, after is not a diff and not a natural-language
+  instruction. It is the complete UTF-8 text of the target file after the
+  approval runs. Include unchanged existing content too. For new files, include
+  the entire new file.
+- Never write "add/update/modify this file..." instructions in after. Harness
+  writes after verbatim with no interpretation.
 - Do not include any other fenced code block tagged harness_agent_plan.
 - Do not include high-risk action types like dependency_install / git_commit / network /
   skill_script / orchestration_plan; the runner will reject those.
@@ -260,11 +294,12 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
     );
   }
   sections.push(OUTPUT_CONTRACT.trim());
+  sections.push(NON_INTERACTIVE_AGENT_POLICY.trim());
   const joined = sections.join("\n\n");
   if (Buffer.byteLength(joined, "utf8") <= PROMPT_HARD_CAP_BYTES) return joined;
-  // Hard cap: chop from the middle (context) but keep system + user + output contract.
+  // Hard cap: chop from the middle (context) but keep system + user + contracts.
   const head = sections.slice(0, 3).join("\n\n");
-  const tail = sections.slice(-1).join("\n\n");
+  const tail = sections.slice(-2).join("\n\n");
   const room = PROMPT_HARD_CAP_BYTES - Buffer.byteLength(head + "\n\n" + tail, "utf8") - 64;
   const middle = sections.slice(3, -1).join("\n\n");
   const truncated = middle.slice(0, Math.max(0, room));

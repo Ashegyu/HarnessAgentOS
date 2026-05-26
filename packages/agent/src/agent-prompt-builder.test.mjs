@@ -33,6 +33,12 @@ test("buildSplitAgentPrompt does not duplicate OUTPUT CONTRACT in userPrompt", (
   assert.ok(!userPrompt.includes("OUTPUT CONTRACT"), "userPrompt must NOT contain OUTPUT CONTRACT");
 });
 
+test("buildSplitAgentPrompt forbids user-blocking questions", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
+  assert.match(systemPrompt, /Do not ask follow-up questions/i);
+  assert.match(systemPrompt, /questions:\s*\[\]/);
+});
+
 test("buildSplitAgentPrompt includes instruction when provided", () => {
   const { userPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,
@@ -238,15 +244,52 @@ test("buildSplitAgentPrompt injects systemPromptPrefix above persona", () => {
   assert.ok(prefixIdx < personaIdx, "prefix must precede persona");
 });
 
-test("buildSplitAgentPrompt appends systemPromptSuffix at end of system block", () => {
+test("buildSplitAgentPrompt places systemPromptSuffix before final policy", () => {
   const { systemPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,
     systemPromptSuffix: "TRAILING NOTE: always respond in Korean.",
   });
   const noteIdx = systemPrompt.indexOf("TRAILING NOTE");
   const contractIdx = systemPrompt.indexOf("OUTPUT CONTRACT");
+  const finalPolicyIdx = systemPrompt.indexOf("FINAL NON-INTERACTIVE POLICY");
   assert.ok(noteIdx >= 0);
   assert.ok(noteIdx > contractIdx, "suffix must appear after OUTPUT CONTRACT");
+  assert.ok(
+    finalPolicyIdx > noteIdx,
+    "non-interactive policy must be the final system instruction for every agent",
+  );
+});
+
+test("buildSplitAgentPrompt final policy overrides custom profile questions", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    persona: "Ask the user which file to inspect before proceeding.",
+    systemPromptSuffix: "Ask a clarification question if anything is missing.",
+  });
+  const askIdx = systemPrompt.lastIndexOf("Ask a clarification question");
+  const finalPolicyIdx = systemPrompt.lastIndexOf("FINAL NON-INTERACTIVE POLICY");
+  assert.ok(askIdx >= 0);
+  assert.ok(finalPolicyIdx > askIdx);
+  assert.match(systemPrompt.slice(finalPolicyIdx), /Do not ask the user follow-up questions/);
+  assert.match(systemPrompt.slice(finalPolicyIdx), /questions:\s*\[\]/);
+});
+
+test("buildSplitAgentPrompt final policy requires file_write after to be complete file content", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    systemPromptSuffix:
+      "If changing files, describe what should be added to the file.",
+  });
+  const suffixIdx = systemPrompt.indexOf("describe what should be added");
+  const finalPolicyIdx = systemPrompt.lastIndexOf("FINAL NON-INTERACTIVE POLICY");
+
+  assert.ok(suffixIdx >= 0);
+  assert.ok(finalPolicyIdx > suffixIdx);
+  const finalPolicy = systemPrompt.slice(finalPolicyIdx);
+  assert.match(finalPolicy, /file_write\.after/);
+  assert.match(finalPolicy, /complete file content/i);
+  assert.match(finalPolicy, /replaces the whole file/i);
+  assert.match(finalPolicy, /Do not put instructions/i);
 });
 
 test("buildSplitAgentPrompt strips persona/prefix/suffix when blank", () => {
@@ -266,6 +309,7 @@ test("buildAgentPrompt still works (backwards compat)", () => {
   const prompt = buildAgentPrompt({ taskRun: baseTaskRun });
   assert.ok(prompt.includes("SYSTEM"));
   assert.ok(prompt.includes("OUTPUT CONTRACT"));
+  assert.ok(prompt.includes("FINAL NON-INTERACTIVE POLICY"));
   assert.ok(prompt.includes("TARGET"));
   assert.ok(prompt.includes("USER REQUEST"));
   assert.ok(typeof prompt === "string");

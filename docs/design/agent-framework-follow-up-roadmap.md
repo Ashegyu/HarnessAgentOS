@@ -420,7 +420,7 @@ quality.evaluate -> failed
   -> parsed plan artifact + pending approvals
   -> approved actions run through RunnerService
   -> quality.evaluate again
-  -> stop, retry, or ask user
+  -> stop, retry with recorded assumptions, or surface a blocked state
 ```
 
 ### Storage

@@ -1409,10 +1409,6 @@ const renderPlanMarkdown = (
       lines.push(`- \`${q.command}\` — ${q.reason}`);
     }
   }
-  if (plan.questions.length > 0) {
-    lines.push("", "## Questions");
-    for (const q of plan.questions) lines.push(`- ${q}`);
-  }
   return lines.join("\n");
 };
 

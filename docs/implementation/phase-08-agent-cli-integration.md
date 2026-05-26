@@ -177,6 +177,11 @@ export type AgentProposedAction =
     };
 ```
 
+`questions` 필드는 이전 저장 데이터와 렌더러 호환성을 위해 유지하지만,
+agent 실행은 대화형 질의응답을 지원하지 않는다. 새 응답은 항상
+`questions: []`를 반환해야 하며, 부족한 정보는 `assumptions[]`에 기록하고
+보수적인 기본값으로 계속 진행한다.
+
 파싱 실패 시:
 
 - raw output은 `log` artifact로 저장한다.
@@ -187,7 +192,7 @@ export type AgentProposedAction =
 
 "실행 가능"은 모델 응답을 받는 것이 아니라 다음 조건을 만족하는 것이다.
 
-- agent가 `proposedActions[]` 또는 `summary`+`questions` 중 **최소 하나는 의미 있게** 채운 응답을 반환한다 (action 0개여도 답변 전용 경로로 success — #8 참고).
+- agent가 `proposedActions[]` 또는 `summary` 중 **최소 하나는 의미 있게** 채운 응답을 반환한다 (action 0개여도 답변 전용 경로로 success — #8 참고).
 - 사용자는 action 내용을 수정하거나 거절할 수 있다.
 - 승인한 action만 실제 파일/프로세스 side effect를 만든다.
 - action 실행 후 artifact가 남는다.
@@ -231,11 +236,11 @@ agent가 `proposedActions: [a1, a2, a3]`을 반환하면 각 action마다 독립
 
 ### 8. 답변 전용 응답 경로 (no_actions)
 
-사용자 요청이 "이 함수는 뭐 하는 거야?"처럼 정보 조회만 필요할 때 agent는 `proposedActions: []` + `summary` + (선택) `questions`로 응답할 수 있다. 이 경우 흐름:
+사용자 요청이 "이 함수는 뭐 하는 거야?"처럼 정보 조회만 필요할 때 agent는 `proposedActions: []` + `summary` + `questions: []`로 응답한다. 이 경우 흐름:
 
 ```text
 agent.generatePlan succeeds with proposedActions = []
-  -> plan artifact 저장 (summary + questions 본문)
+  -> plan artifact 저장 (summary + assumptions 본문)
   -> 0개의 approval 생성
   -> TaskRun status = ready_for_review (skip waiting_for_approval)
   -> sideEffect 없음, runner 호출 없음
@@ -243,7 +248,7 @@ agent.generatePlan succeeds with proposedActions = []
   -> markDone 시 quality.evaluate는 자동 통과 (changed_files=[], gate=passed by default rule)
 ```
 
-UI는 이 경우 "답변 전용" 배지를 표시하고 approval/runner 영역을 hide한다. agent가 추가 질문을 한 경우(`questions[]` non-empty) 사용자가 답변 후 `redirectTask`로 이어 갈 수 있다.
+UI는 이 경우 "답변 전용" 배지를 표시하고 approval/runner 영역을 hide한다. agent가 추가 질문을 만들면 파서는 `questions[]`를 빈 배열로 정규화하고, 필요한 판단은 `assumptions[]`에 남긴다.
 
 이 경로 덕분에 사용자의 "그냥 답만 알려줘" 의도가 챗봇처럼 자연스럽게 동작한다 — file 선택/승인이 강제되지 않는다.
 
@@ -668,6 +673,9 @@ OUTPUT CONTRACT
 - Return a short explanation.
 - Return a fenced json block named harness_agent_plan.
 - JSON must satisfy AgentPlanOutput.
+- For `file_write`, `after` is the complete replacement content of the target
+  file after approval. Harness writes it verbatim; it is not a diff, patch
+  instruction, TODO, or "add this to the file" note.
 ```
 
 출력 예:
@@ -986,4 +994,4 @@ export interface AgentPlanOutput {
 }
 ```
 
-이 계약은 shadow workspace mode에서도 유지한다. agent가 직접 만든 diff도 곧바로 적용하지 않고 `ProposedAction` 또는 `PatchApproval`로 변환해야 한다.
+이 계약은 shadow workspace mode에서도 유지한다. 단, `questions`는 항상 빈 배열이어야 한다. agent가 직접 만든 diff도 곧바로 적용하지 않고 `ProposedAction` 또는 `PatchApproval`로 변환해야 한다.

@@ -1357,7 +1357,8 @@ interface AgentInvocation {
 - TaskRun이 `drafting` 또는 `blocked`(재시도) 상태일 때만 허용. 다른 상태는 `AGENT_MODE_MISMATCH`.
 - provider 미설치 시 `AGENT_PROVIDER_UNAVAILABLE`. UI는 deterministic template fallback을 권장한다.
 - CLI 출력의 fenced JSON 블록(`harness_agent_plan`)을 파싱한다. 실패 시 `AGENT_INVALID_OUTPUT`.
-- 각 `proposedActions[i]`는 기존 `validateProposedActionDetails` 게이트(절대경로/`..`/NUL 차단)를 통과해야 approval row가 만들어진다. 통과 못 한 항목은 drop되고 `quality_report` artifact에 사유가 기록된다 (filter, not all-or-nothing).
+- `file_write.after`는 승인 후 파일 전체를 대체할 완전한 UTF-8 파일 본문이다. diff, TODO, "이 파일에 추가하세요" 같은 자연어 수정 지시문이 아니다.
+- 각 `proposedActions[i]`는 기존 `validateProposedActionDetails` 게이트(절대경로/`..`/NUL/자연어 `after` 지시문 차단)를 통과해야 approval row가 만들어진다. 통과 못 한 항목은 drop되고 `quality_report` artifact에 사유가 기록된다 (filter, not all-or-nothing).
 - `proposedActions.length === 0` → TaskRun을 `ready_for_review`로 (answer-only 경로).
 - `proposedActions.length > 0` → TaskRun을 `waiting_for_approval`로.
 - prompt/raw_output artifact는 저장 직전 `redactSecrets`로 마스킹된다.
@@ -1661,7 +1662,8 @@ pipeline.delete(input: { pipelineId: string }): Promise<void>;
 - `targetStepId`는 `retryStepId`보다 앞선 step이어야 하며, 정상 `dependsOn` 경로에서 `retryStepId`의 ancestor여야 한다. `maxAttempts`는 1..5다.
 - Backflow 실행은 `targetStepId`에서 `retryStepId`까지의 정상 dependency path를 새 Step/Artifact row로 재실행한다. 단순히 target 다음 retry만 직접 호출하지 않는다.
 - `step_failed` rule은 실행 중 실패한 worker step과 `retryStepId`가 일치할 때만 자동 실행된다. `quality_failed` rule은 `QualityGateResult.status === "failed"`에서만 실행되며 `warning`은 기존 known-risk 승인 흐름을 유지한다.
-- 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Product PRD Discovery`, `Evidence-First Bug Investigation`, `Docs-First Contract Reconciliation`, `Runtime Approval Hardening`, `A2A Federation Safety Review`, `Eval-Driven Release Verification`, `Cross-Harness Agent Baseline`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `New Project Delivery`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
+- 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Product PRD Discovery`, `Evidence-First Bug Investigation`, `Docs-First Contract Reconciliation`, `Runtime Approval Hardening`, `A2A Federation Safety Review`, `Eval-Driven Release Verification`, `Cross-Harness Agent Baseline`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `3D New Project Delivery`, `New Project Delivery`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
+- `3D New Project Delivery`는 `PRD -> architecture -> plan -> texture-generation -> modeling -> file-composition -> class-generation -> implementation -> review -> execution-validation -> explanation -> completion` 순서의 12단계 pipeline이다. 텍스처/모델링/파일/클래스/구현 단계는 approval-gated `file_write` 제안만 만들고, 실행 검증 단계는 approval-gated `shell` 제안만 허용한다. Seed된 backflow rule은 step failure 시 앞선 dependency path를 재실행하고, final quality failure 시 `implementation`부터 `completion`까지 재검토하도록 구성된다.
 - 기본 AgentProfile seed의 description/persona, rich system prompt prefix/suffix, 기본 pipeline step instruction은 한국어 UI 표시와 HarnessAgentOS approval/IPC/storage 계약을 기준으로 저장한다.
 - 기본 템플릿 seed는 저장된 선택지를 추가할 뿐이며, 기본 실행 pipeline 지정이나 자동 실행을 수행하지 않는다.
 - `pipeline.run` 같은 직접 실행 IPC는 없다.

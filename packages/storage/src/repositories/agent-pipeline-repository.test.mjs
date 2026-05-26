@@ -119,6 +119,7 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
     const all = await pipelines.list();
     const names = all.map((p) => p.name).sort();
     assert.deepEqual(names, [
+      "3D New Project Delivery",
       "A2A Federation Safety Review",
       "Architecture RFC",
       "Build Recovery",
@@ -265,6 +266,123 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       baseline.steps.map((step) => step.id),
       ["sources", "skill-memory", "topology", "implement", "verify", "security", "review"],
     );
+
+    const project3d = all.find((p) => p.id === "pipe_template_3d_new_project_delivery");
+    assert.ok(project3d, "3D New Project Delivery template should exist");
+    assert.deepEqual(
+      project3d.steps.map((step) => step.id),
+      [
+        "prd",
+        "architecture",
+        "plan",
+        "texture-generation",
+        "modeling",
+        "file-composition",
+        "class-generation",
+        "implementation",
+        "review",
+        "execution-validation",
+        "explanation",
+        "completion",
+      ],
+    );
+    assert.deepEqual(
+      project3d.steps.map((step) => profileRoles.get(step.agentProfileId)),
+      [
+        "planner",
+        "orchestrator",
+        "planner",
+        "coder",
+        "coder",
+        "coder",
+        "coder",
+        "coder",
+        "reviewer",
+        "tester",
+        "planner",
+        "reviewer",
+      ],
+    );
+    assert.deepEqual(
+      project3d.steps.find((step) => step.id === "texture-generation")?.allowedActions,
+      ["file_write"],
+      "texture artifacts must be proposed as approval-gated files",
+    );
+    assert.deepEqual(
+      project3d.steps.find((step) => step.id === "execution-validation")?.allowedActions,
+      ["shell"],
+      "execution verification may run approved smoke commands",
+    );
+    assert.match(
+      project3d.steps.find((step) => step.id === "implementation")?.instruction ?? "",
+      /3D 모델|텍스처/,
+      "implementation step must explicitly consume the generated 3D model and texture outputs",
+    );
+    assert.deepEqual(project3d.backflowRules, [
+      {
+        id: "bf_architecture_from_prd",
+        trigger: "step_failed",
+        targetStepId: "prd",
+        retryStepId: "architecture",
+        maxAttempts: 2,
+        instruction:
+          "아키텍처가 실패하면 PRD 산출물부터 요구사항/제약을 보강한 뒤 아키텍처를 다시 작성하세요.",
+      },
+      {
+        id: "bf_plan_from_architecture",
+        trigger: "step_failed",
+        targetStepId: "architecture",
+        retryStepId: "plan",
+        maxAttempts: 2,
+        instruction:
+          "계획이 실패하면 아키텍처 산출물을 먼저 보강하고 생성 순서와 검증 기준을 다시 정리하세요.",
+      },
+      {
+        id: "bf_texture_from_plan",
+        trigger: "step_failed",
+        targetStepId: "plan",
+        retryStepId: "texture-generation",
+        maxAttempts: 2,
+        instruction:
+          "텍스처 생성이 실패하면 계획 단계로 돌아가 텍스처 용도, 해상도, 파일 형식, 검수 기준을 보강하세요.",
+      },
+      {
+        id: "bf_model_from_texture",
+        trigger: "step_failed",
+        targetStepId: "texture-generation",
+        retryStepId: "modeling",
+        maxAttempts: 2,
+        instruction:
+          "3D 모델링이 실패하면 텍스처 산출물과 매핑 요구사항을 재작성한 뒤 모델을 다시 생성하세요.",
+      },
+      {
+        id: "bf_implementation_from_model",
+        trigger: "step_failed",
+        targetStepId: "modeling",
+        retryStepId: "implementation",
+        maxAttempts: 2,
+        instruction:
+          "세부 구현이 생성된 3D 모델을 사용하지 못하면 모델링 산출물부터 되돌아가 asset path와 import 계약을 보강하세요.",
+      },
+      {
+        id: "bf_validation_from_implementation",
+        trigger: "step_failed",
+        targetStepId: "implementation",
+        retryStepId: "execution-validation",
+        maxAttempts: 2,
+        instruction:
+          "실행 검증이 실패하면 구현 단계부터 재시도하고 검증 명령이 실제 산출물을 확인하도록 수정하세요.",
+      },
+      {
+        id: "bf_completion_quality_from_implementation",
+        trigger: "quality_failed",
+        targetStepId: "implementation",
+        retryStepId: "completion",
+        maxAttempts: 1,
+        instruction:
+          "최종 품질 게이트가 실패하면 구현 이후 리뷰, 실행 검증, 설명, 완료 판단을 다시 수행하세요.",
+      },
+    ]);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -279,7 +397,7 @@ test("AgentPipelineRepository.ensureSeed is idempotent", async () => {
     await pipelines.ensureSeed();
 
     const all = await pipelines.list();
-    assert.equal(all.length, 17);
+    assert.equal(all.length, 18);
     assert.equal(
       all.filter((p) => p.id === "pipe_template_refactor_safety").length,
       1,

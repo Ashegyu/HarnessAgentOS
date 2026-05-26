@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>agentmemory GitHub Repository Analysis for HarnessAgentOS</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #ffffff;
+        --text: #1b1f24;
+        --muted: #5d6673;
+        --line: #d8dee7;
+        --accent: #116d6e;
+        --accent-soft: #e8f4f4;
+        --warn: #8a5a00;
+        --warn-soft: #fff3cf;
+        --bad: #a12222;
+        --bad-soft: #ffe8e8;
+        --good: #1f6f43;
+        --good-soft: #e6f4eb;
+        --code: #0f1720;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          "Segoe UI",
+          "Noto Sans KR",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        line-height: 1.6;
+      }
+
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 40px 28px 72px;
+      }
+
+      header {
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 24px;
+        margin-bottom: 28px;
+      }
+
+      h1,
+      h2,
+      h3 {
+        line-height: 1.25;
+        margin: 0;
+        color: #101418;
+      }
+
+      h1 {
+        font-size: 34px;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        margin-top: 34px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        font-size: 24px;
+      }
+
+      h3 {
+        margin-top: 24px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 12px 0;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      ul,
+      ol {
+        padding-left: 24px;
+      }
+
+      li {
+        margin: 6px 0;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #eef1f5;
+        color: var(--code);
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 0.94em;
+      }
+
+      pre {
+        overflow-x: auto;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #111827;
+        color: #edf2f7;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 16px 0 24px;
+        background: var(--panel);
+      }
+
+      th,
+      td {
+        vertical-align: top;
+        border: 1px solid var(--line);
+        padding: 10px 12px;
+        text-align: left;
+      }
+
+      th {
+        background: #eef2f6;
+        font-weight: 650;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+        margin: 18px 0;
+      }
+
+      .meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 18px;
+        color: var(--muted);
+      }
+
+      .meta div {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+
+      .tag {
+        display: inline-block;
+        margin: 2px 4px 2px 0;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .decision {
+        border-left: 5px solid var(--accent);
+      }
+
+      .good {
+        background: var(--good-soft);
+        border-color: #b8dec6;
+      }
+
+      .warn {
+        background: var(--warn-soft);
+        border-color: #eed48a;
+      }
+
+      .bad {
+        background: var(--bad-soft);
+        border-color: #f0b8b8;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .toc {
+        columns: 2;
+      }
+
+      .toc a {
+        text-decoration: none;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 28px 16px 54px;
+        }
+
+        h1 {
+          font-size: 28px;
+        }
+
+        .meta {
+          grid-template-columns: 1fr;
+        }
+
+        .toc {
+          columns: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>agentmemory GitHub 저장소 분석 및 HarnessAgentOS 적용 검토</h1>
+        <p>
+          <code>rohitg00/agentmemory</code>의 코드 동작 방식, 런타임 흐름, 메모리 저장/검색 구조,
+          MCP/Hook 통합 방식, 보안/품질 리스크를 검토하고 현재 HarnessAgentOS에 적용 가능한 항목을
+          분리한 문서다.
+        </p>
+        <div class="meta">
+          <div><strong>분석 대상</strong><br /><a href="https://github.com/rohitg00/agentmemory">https://github.com/rohitg00/agentmemory</a></div>
+          <div><strong>분석 기준 커밋</strong><br /><code>355124141625ccc0d740ae08ddaaf77fe2c165ae</code></div>
+          <div><strong>현재 프로젝트</strong><br /><code>HarnessAgentOS</code></div>
+          <div><strong>작성일</strong><br />2026-05-23</div>
+        </div>
+      </header>
+
+      <section class="panel decision">
+        <h2 id="summary">핵심 결론</h2>
+        <p>
+          agentmemory는 단순한 라이브러리가 아니라, <code>iii-sdk</code> 기반 워커와 localhost HTTP,
+          stream, viewer, MCP proxy를 함께 띄우는 독립 메모리 런타임이다. Claude Code, Codex,
+          OpenCode, MCP 클라이언트에서 발생하는 세션/프롬프트/툴 사용 이벤트를 수집하고, 관찰값을
+          압축해 BM25, 벡터, 그래프 기반 하이브리드 검색으로 다시 제공하는 구조다.
+        </p>
+        <p>
+          HarnessAgentOS에는 agentmemory를 그대로 붙이는 방식은 권장하지 않는다. 현재 프로젝트의
+          핵심 제약인 Electron IPC 전용 통신, SQLite WAL 단일 source of truth, 승인 기반 side effect,
+          사용자 감독형 워크벤치 철학과 충돌한다. 다만 agentmemory의 관찰 수집, 세션 요약, BM25/벡터
+          검색, pinned slot, provenance/audit, memory benchmark 방식은 Harness-native 기능으로
+          재해석해 적용할 가치가 크다.
+        </p>
+        <p>
+          권장 방향은 <strong>외부 agentmemory 런타임 통합</strong>이 아니라
+          <strong>Harness 내부 SQLite 기반 ObservationMemory/Recall 레이어</strong>를 만드는 것이다.
+          이 레이어는 기존 <code>LearningTrace</code>, <code>ObservationCollector</code>,
+          <code>CapabilityService</code>, <code>LearnerAdvisor</code>를 보강하되, 추천/회상 결과가
+          사용자의 승인 없이 실행 경로를 바꾸지 않도록 유지해야 한다.
+        </p>
+      </section>
+
+      <nav class="panel">
+        <h2 id="toc">목차</h2>
+        <ol class="toc">
+          <li><a href="#source-method">분석 범위와 방법</a></li>
+          <li><a href="#repo-map">저장소 구조</a></li>
+          <li><a href="#runtime">런타임 아키텍처</a></li>
+          <li><a href="#hook-flow">Hook 기반 수집 흐름</a></li>
+          <li><a href="#memory-flow">메모리 저장/검색 흐름</a></li>
+          <li><a href="#mcp-api">MCP와 API 표면</a></li>
+          <li><a href="#state-model">상태 모델</a></li>
+          <li><a href="#security">보안 및 개인정보 검토</a></li>
+          <li><a href="#quality">코드 품질 검토</a></li>
+          <li><a href="#benchmarks">벤치마크 검토</a></li>
+          <li><a href="#harness-fit">HarnessAgentOS 적용성</a></li>
+          <li><a href="#adoption-plan">권장 적용 계획</a></li>
+          <li><a href="#appendix">참고 파일 목록</a></li>
+        </ol>
+      </nav>
+
+      <section>
+        <h2 id="source-method">분석 범위와 방법</h2>
+        <p>
+          GitHub 원본 저장소를 얕은 clone으로 받아 코드와 문서를 직접 확인했다. README의 기능 설명만
+          보지 않고, 실제 entrypoint, function registry, trigger, MCP tool registry, state persistence,
+          hooks, benchmark 문서를 기준으로 런타임 흐름을 재구성했다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>항목</th>
+              <th>확인 내용</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>패키지</td>
+              <td><code>@agentmemory/agentmemory</code>, version <code>0.9.21</code>, Apache-2.0, Node <code>&gt;=20</code></td>
+            </tr>
+            <tr>
+              <td>주요 의존성</td>
+              <td><code>iii-sdk</code>, Anthropic SDK/Claude Agent SDK, <code>zod</code>, <code>@clack/prompts</code>, <code>dotenv</code></td>
+            </tr>
+            <tr>
+              <td>선택 의존성</td>
+              <td><code>@xenova/transformers</code>, <code>onnxruntime-node</code>, <code>onnxruntime-web</code>, <code>@node-rs/jieba</code>, <code>tiny-segmenter</code></td>
+            </tr>
+            <tr>
+              <td>빌드</td>
+              <td><code>tsdown</code>으로 <code>dist/index.mjs</code>, <code>dist/cli.mjs</code>, <code>dist/standalone.mjs</code> 생성</td>
+            </tr>
+            <tr>
+              <td>테스트/평가</td>
+              <td>테스트 파일 약 104개, synthetic benchmark와 LongMemEval retrieval 평가 문서 포함</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 id="repo-map">저장소 구조</h2>
+        <p>
+          저장소는 agentmemory 서버, MCP shim, editor/agent hook plugin, 외부 통합 예제, benchmark/eval
+          도구를 함께 담고 있다. 단일 npm 패키지처럼 보이지만 실제로는 여러 진입점을 가진 제품형
+          런타임이다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>경로</th>
+              <th>역할</th>
+              <th>검토 의견</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>src/index.ts</code></td>
+              <td>메인 agentmemory 서버 entrypoint. iii worker, function registry, triggers, index restore, timers 시작.</td>
+              <td>실제 제품 핵심. 기능 플래그와 provider fallback이 많이 모이는 중심 파일.</td>
+            </tr>
+            <tr>
+              <td><code>src/cli.ts</code>, <code>src/cli/</code></td>
+              <td>설치, 연결, Codex/Claude/OpenCode hook 설정, 상태 점검 CLI.</td>
+              <td>사용자 홈 설정 파일을 수정하는 side effect가 많아 승인 UX가 중요하다.</td>
+            </tr>
+            <tr>
+              <td><code>src/functions/</code></td>
+              <td><code>mem::observe</code>, <code>mem::search</code>, <code>mem::context</code>, <code>mem::remember</code>, compression, slots, graph 등 60개 이상 함수.</td>
+              <td>기능이 풍부하지만 범위가 넓다. Harness에 가져올 때는 기능 단위로 잘라야 한다.</td>
+            </tr>
+            <tr>
+              <td><code>src/triggers/api.ts</code></td>
+              <td>REST API trigger 등록. 관찰, 검색, context, import/export, health, MCP proxy 등 노출.</td>
+              <td>Harness의 "localhost 서버 금지" 제약과 직접 충돌하는 표면이다.</td>
+            </tr>
+            <tr>
+              <td><code>src/mcp/</code></td>
+              <td>MCP tool registry, standalone MCP server, REST proxy/fallback.</td>
+              <td>도구 모델과 progressive disclosure는 참고 가치가 높다.</td>
+            </tr>
+            <tr>
+              <td><code>src/state/</code></td>
+              <td>KV wrapper, schema, BM25 index, vector index, hybrid search, persistence.</td>
+              <td>검색/인덱싱 설계에서 가장 재사용할 아이디어가 많다.</td>
+            </tr>
+            <tr>
+              <td><code>src/hooks/</code></td>
+              <td>Claude/Codex/OpenCode hook 이벤트를 agentmemory REST API로 보냄.</td>
+              <td>수집 흐름 이해에 중요하지만 Harness에는 hidden hook 자동 주입을 그대로 쓰면 안 된다.</td>
+            </tr>
+            <tr>
+              <td><code>packages/mcp/</code></td>
+              <td><code>@agentmemory/mcp</code> thin npm package. 본체 dist standalone을 실행.</td>
+              <td>Codex MCP 설치 경험을 단순화하기 위한 wrapper다.</td>
+            </tr>
+            <tr>
+              <td><code>plugin/</code>, <code>.codex-plugin/</code>, <code>.claude-plugin/</code></td>
+              <td>plugin marketplace metadata, hook manifest, skills.</td>
+              <td>ECC/skills-first 흐름과 유사하지만, Harness 내장 기능으로 흡수하려면 승인 경계를 명확히 해야 한다.</td>
+            </tr>
+            <tr>
+              <td><code>benchmark/</code>, <code>eval/</code>, <code>docs/benchmarks/</code></td>
+              <td>synthetic coding-agent-life benchmark, LongMemEval retrieval 평가, 비교 문서.</td>
+              <td>Harness 메모리 기능 도입 시 eval harness의 좋은 참고 자료다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 id="runtime">런타임 아키텍처</h2>
+        <p>
+          agentmemory는 <code>iii-config.yaml</code>의 worker 구성을 바탕으로 HTTP, stream, state,
+          queue, pubsub, cron, observability worker를 띄운다. 기본 포트는 HTTP <code>3111</code>,
+          stream <code>3112</code>, viewer <code>3113</code>이다. 이 구조는 로컬 에이전트들이 같은
+          메모리 서버를 공유하도록 설계되어 있다.
+        </p>
+        <pre><code>agentmemory CLI / hooks / MCP client
+        |
+        v
+localhost REST API :3111  &lt;--&gt;  iii worker registry
+        |                         |
+        |                         +-- mem::observe
+        |                         +-- mem::remember
+        |                         +-- mem::search
+        |                         +-- mem::context
+        |                         +-- mem::summarize
+        |                         +-- mem::consolidate-pipeline
+        |
+        +-- StateKV over iii-state file DB
+        +-- BM25 SearchIndex
+        +-- optional VectorIndex
+        +-- optional GraphRetrieval
+        +-- Stream events :3112
+        +-- Viewer :3113
+        +-- MCP proxy / standalone fallback</code></pre>
+        <h3>시작 흐름</h3>
+        <ol>
+          <li>환경 변수와 config를 읽고 provider fallback, LLM provider, embedding provider를 구성한다.</li>
+          <li><code>registerWorker</code>를 호출해 iii worker와 telemetry를 등록한다.</li>
+          <li><code>StateKV</code>, <code>MetricsStore</code>, <code>DedupMap</code>, optional <code>VectorIndex</code>를 생성한다.</li>
+          <li>privacy, observe, compress, search, context, summarize, export/import, graph, lessons, slots 등 <code>mem::*</code> 함수들을 등록한다.</li>
+          <li>기능 플래그에 따라 consolidation, team, actions, routines, graph, semantic/procedural memory 함수를 추가 등록한다.</li>
+          <li>BM25와 vector index를 persisted state에서 복원하고, dimension mismatch가 있으면 vector index를 안전하게 초기화한다.</li>
+          <li>필요하면 기존 관찰/메모리에서 index backfill을 수행한다.</li>
+          <li>REST trigger, MCP endpoints, viewer, auto-forget, lesson decay, consolidation timers를 시작한다.</li>
+        </ol>
+        <p>
+          중요한 점은 agentmemory의 저장소가 HarnessAgentOS처럼 SQLite 도메인 모델을 중심으로 한
+          애플리케이션 상태가 아니라, iii state worker 위의 scoped key-value store와 별도 index들로
+          구성된다는 것이다.
+        </p>
+      </section>
+
+      <section>
+        <h2 id="hook-flow">Hook 기반 수집 흐름</h2>
+        <p>
+          agentmemory의 가장 실용적인 흐름은 agent hook에서 자동으로 세션 이벤트와 툴 이벤트를
+          수집하는 부분이다. Claude Code와 Codex에서 다른 hook 이벤트명이 쓰이는 점을 흡수하고,
+          stop/session-end에서 요약과 consolidation을 실행한다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Hook</th>
+              <th>동작</th>
+              <th>주의점</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>session-start</code></td>
+              <td><code>/agentmemory/session/start</code> 호출. 옵션이 켜진 경우 context를 주입한다.</td>
+              <td>기본은 fire-and-forget에 가깝고 timeout이 짧다. 실패가 사용자 작업을 막지 않도록 설계됐다.</td>
+            </tr>
+            <tr>
+              <td><code>prompt-submit</code></td>
+              <td>사용자 prompt를 observation으로 저장한다.</td>
+              <td>프롬프트 원문에는 민감 정보가 포함될 수 있어 redaction이 중요하다.</td>
+            </tr>
+            <tr>
+              <td><code>pre-tool-use</code></td>
+              <td>기본적으로 no-op. context injection 옵션이 켜진 경우 enrich API를 호출한다.</td>
+              <td>자동 context injection은 Harness의 사용자 감독 철학과 충돌할 수 있다.</td>
+            </tr>
+            <tr>
+              <td><code>post-tool-use</code></td>
+              <td>툴명, 입력, 출력, 이미지 참조 등을 observation으로 저장한다.</td>
+              <td>툴 출력은 길이 제한과 이미지 처리 경로가 있다. 파일/출력 데이터 유출 가능성 검토 필요.</td>
+            </tr>
+            <tr>
+              <td><code>post-tool-failure</code></td>
+              <td>실패 정보를 저장하되 interrupt성 실패는 무시한다.</td>
+              <td>실패 축적은 useful하지만 오류 메시지에 secret이 섞일 수 있다.</td>
+            </tr>
+            <tr>
+              <td><code>stop</code></td>
+              <td>세션 요약, end 처리, Codex의 session-end 대체 처리.</td>
+              <td>Codex hook surface 차이를 보정하는 compatibility layer다.</td>
+            </tr>
+            <tr>
+              <td><code>session-end</code></td>
+              <td>세션 종료, summary/consolidation/bridge를 실행한다.</td>
+              <td>백그라운드 지식 생성은 결과 provenance와 사용자 표시가 필요하다.</td>
+            </tr>
+          </tbody>
+        </table>
+        <pre><code>prompt/tool event
+  -> hook script
+  -> REST /agentmemory/observe or session endpoint
+  -> api::observe trigger
+  -> mem::observe function
+  -> stripPrivateData
+  -> RawObservation stored in StateKV
+  -> stream event published
+  -> synthetic or LLM compression
+  -> BM25 / vector index update
+  -> later context/search/summarize can retrieve it</code></pre>
+      </section>
+
+      <section>
+        <h2 id="memory-flow">메모리 저장/검색 흐름</h2>
+        <h3>관찰 저장</h3>
+        <p>
+          <code>mem::observe</code>는 agentmemory의 자동 수집 entrypoint다. Hook, REST API, MCP 도구에서
+          들어온 세션 이벤트를 <code>RawObservation</code>으로 정규화하고, privacy 필터를 거친 뒤
+          session scoped storage에 저장한다. 이후 compression 결과가 있으면 검색 인덱스에 반영한다.
+        </p>
+        <h3>명시적 기억 저장</h3>
+        <p>
+          <code>mem::remember</code>는 사용자가 직접 저장하는 durable memory 경로다. 입력 validation,
+          Jaccard 기반 supersession, memory id 생성, KV 저장, BM25/vector indexing을 수행한다.
+          자동 관찰보다 명시성이 높기 때문에 Harness에 도입한다면 이 흐름이 더 안전한 출발점이다.
+        </p>
+        <h3>검색</h3>
+        <p>
+          검색은 세 계층으로 나뉜다. <code>SearchIndex</code>는 자체 BM25 구현으로 stemming, CJK
+          segmenter, synonym, prefix matching, serialization을 제공한다. <code>VectorIndex</code>는
+          embedding vector를 in-memory map으로 보관하고 cosine similarity로 검색하며, base64
+          Float32Array persistence와 dimension guard를 갖는다. <code>HybridSearch</code>는 BM25, vector,
+          graph 결과를 Reciprocal Rank Fusion으로 합치고 diversification과 optional rerank를 적용한다.
+        </p>
+        <pre><code>memory_smart_search / REST search
+  -> mem::smart-search
+  -> HybridSearch
+     -> BM25 SearchIndex
+     -> optional VectorIndex
+     -> optional GraphRetrieval
+  -> reciprocal rank fusion
+  -> session diversification
+  -> optional reranker
+  -> compact results + lessons
+  -> optional expand by ids for full observations</code></pre>
+        <h3>Context 생성</h3>
+        <p>
+          <code>mem::context</code>는 검색 결과를 그대로 던지지 않고, pinned slots, project profile,
+          lessons, summaries, 중요한 observations를 budget 안에서 조합해 XML에 가까운 구조의 context
+          block을 만든다. 이 progressive disclosure 방식은 HarnessAgentOS의 에이전트 handoff와
+          추천 UX에 적용할 가치가 있다.
+        </p>
+        <h3>Consolidation</h3>
+        <p>
+          <code>mem::summarize</code>는 세션 요약을 만들고, <code>mem::consolidate-pipeline</code>은
+          요약에서 semantic memory와 procedural memory를 추출한다. reflect tier는 더 높은 수준의
+          insight를 합성하고, decay는 시간이 지나며 lesson 강도를 낮춘다. Harness에서는 이 과정을
+          자동 실행하더라도 결과를 UI에 노출하고 사용자가 승인/삭제할 수 있어야 한다.
+        </p>
+      </section>
+
+      <section>
+        <h2 id="mcp-api">MCP와 API 표면</h2>
+        <p>
+          <code>src/mcp/tools-registry.ts</code>는 MCP 도구를 core, v040, v050, v051, v061, v070, v073,
+          slots 그룹으로 나눈다. 코드 기준 tool name은 약 56개이며, README의 53/51개류 표현과는
+          약간 드리프트가 있다. 기본 노출은 essential core 도구 중심이고, <code>AGENTMEMORY_TOOLS=all</code>
+          설정에서 전체 도구가 보인다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>표면</th>
+              <th>역할</th>
+              <th>Harness 적용 판단</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>REST API</td>
+              <td>observe, remember, search, context, export/import, session, health, MCP proxy.</td>
+              <td>직접 도입 비권장. Harness는 Express/localhost/WebSocket 서버 추가 금지.</td>
+            </tr>
+            <tr>
+              <td>MCP server</td>
+              <td>MCP client가 memory tools를 호출. 서버가 있으면 proxy, 없으면 local fallback.</td>
+              <td>외부 도구로 연결하는 것은 가능하나 핵심 앱 상태로 쓰면 canonical state가 분리된다.</td>
+            </tr>
+            <tr>
+              <td>Standalone fallback</td>
+              <td>agentmemory 서버가 없을 때 in-memory/local fallback으로 일부 도구 제공.</td>
+              <td>동작 차이가 생기므로 제품 기능으로 신뢰하기 어렵다.</td>
+            </tr>
+            <tr>
+              <td>Codex connect</td>
+              <td><code>~/.codex/config.toml</code>에 <code>[mcp_servers.agentmemory]</code>를 추가하고 optional hooks를 설치.</td>
+              <td>사용자 홈 설정 변경이므로 Harness에서는 명시 승인과 rollback UX가 필요하다.</td>
+            </tr>
+            <tr>
+              <td>Plugin metadata</td>
+              <td>Claude/Codex plugin marketplace용 manifest와 hook mapping.</td>
+              <td>skills-first 흐름은 참고 가능. Hidden workflow 변경은 피해야 한다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 id="state-model">상태 모델</h2>
+        <p>
+          agentmemory의 <code>src/state/schema.ts</code>는 단일 relational schema가 아니라 여러 scoped
+          KV collection의 계약을 정의한다. 주요 scope는 sessions, observations, memories, summaries,
+          config, metrics, health, embeddings, bm25Index, relations, profiles, graph nodes/edges,
+          semantic/procedural memories, team state, audit, actions, routines, signals, checkpoints,
+          lessons, insights, accessLog, image refs, slots 등이다.
+        </p>
+        <p>
+          이 방식은 기능 확장에는 빠르지만 HarnessAgentOS의 SQLite WAL source-of-truth 규칙과는 다르다.
+          Harness에서 도입한다면 JSON blob 중심의 KV를 새 canonical state로 만들지 말고, 기존
+          repository/service 경계 안에서 필요한 테이블을 명시적으로 추가해야 한다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>agentmemory 개념</th>
+              <th>Harness에 대응 가능한 개념</th>
+              <th>도입 방식</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>RawObservation</td>
+              <td><code>observations</code>, <code>LearningTrace</code>, <code>Artifact</code></td>
+              <td>기존 observation 저장소를 확장하고 provenance 필드를 추가.</td>
+            </tr>
+            <tr>
+              <td>SessionSummary</td>
+              <td>TaskRun summary, Checkpoint, handoff artifact</td>
+              <td>TaskRun 종료 시 quality evidence와 함께 summary artifact 생성.</td>
+            </tr>
+            <tr>
+              <td>Memory / Lesson</td>
+              <td>Learner recommendation, capability note, durable project knowledge</td>
+              <td>자동 적용이 아니라 추천/검토 대상으로 저장.</td>
+            </tr>
+            <tr>
+              <td>BM25 index</td>
+              <td>ObservationMemory lexical index</td>
+              <td>SQLite index table 또는 rebuild 가능한 persisted index metadata.</td>
+            </tr>
+            <tr>
+              <td>VectorIndex</td>
+              <td>Optional embedding-backed recall</td>
+              <td>embedding provider/network는 승인 및 설정 UI 뒤에 배치.</td>
+            </tr>
+            <tr>
+              <td>Slots</td>
+              <td>Project/user pinned context</td>
+              <td>UI에서 명시적으로 보이고 편집 가능한 pinned context로 구현.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 id="security">보안 및 개인정보 검토</h2>
+        <div class="panel good">
+          <h3>강점</h3>
+          <ul>
+            <li><code>stripPrivateData</code>가 <code>&lt;private&gt;</code> 블록, API key, secret, token, password, Bearer token, OpenAI/GitHub/AWS/Gemini/JWT/npm/GitLab/DigitalOcean 형태의 민감 패턴을 redaction한다.</li>
+            <li>REST/MCP 경로는 <code>AGENTMEMORY_SECRET</code> bearer auth를 지원한다.</li>
+            <li>viewer는 README 기준 CSP와 nonce 기반 보호를 사용한다.</li>
+            <li>import 경로에는 size limit validation이 있고, image compression은 관리 store 밖의 image path 읽기를 거부한다.</li>
+            <li>audit/access log 계층이 있어 durable memory 변경의 provenance를 남길 수 있다.</li>
+          </ul>
+        </div>
+        <div class="panel warn">
+          <h3>주의점</h3>
+          <ul>
+            <li>기본 secret이 없으면 local REST API가 사실상 보호되지 않을 수 있다. 로컬 앱이라도 다른 프로세스가 접근할 수 있다.</li>
+            <li>localhost HTTP/stream/viewer 포트가 열리므로 HarnessAgentOS의 Electron IPC-only 정책과 충돌한다.</li>
+            <li>hook 기반 자동 수집은 사용자가 인식하지 못한 prompt/tool output 저장으로 이어질 수 있다.</li>
+            <li><code>compress-file</code> 같은 file-writing 도구는 백업을 만들고 파일을 직접 수정하므로 Harness의 approval gate 없이는 위험하다.</li>
+            <li>import/export/delete/forget류 도구는 데이터 손실과 대량 유출의 위험이 있어 별도 권한 모델이 필요하다.</li>
+            <li>LLM compression과 embedding provider는 외부 API나 로컬 모델로 데이터가 나갈 수 있으므로 provider별 disclosure가 필요하다.</li>
+          </ul>
+        </div>
+        <p>
+          HarnessAgentOS 적용 시에는 agentmemory의 redaction 패턴과 audit 아이디어는 유용하지만, 외부
+          REST 서버와 hidden hook 자동 저장 방식은 그대로 사용하지 않는 것이 맞다. 저장 전 사용자에게
+          어떤 범주의 데이터가 durable memory가 되는지 보이고, 삭제/forget UI를 제공해야 한다.
+        </p>
+      </section>
+
+      <section>
+        <h2 id="quality">코드 품질 검토</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>영역</th>
+              <th>평가</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>모듈화</td>
+              <td>기능별 파일 분리는 잘 되어 있지만, <code>src/index.ts</code>에 bootstrapping 책임이 많이 집중되어 있다.</td>
+            </tr>
+            <tr>
+              <td>검증</td>
+              <td><code>zod</code>와 function-level validation이 많다. 단, API/tool 수가 넓어 validation 일관성을 계속 관리해야 한다.</td>
+            </tr>
+            <tr>
+              <td>오류 처리</td>
+              <td>agent 작업을 방해하지 않기 위해 catch 후 무시하는 경로가 있다. 제품 신뢰성 관점에서는 observability가 부족해질 수 있다.</td>
+            </tr>
+            <tr>
+              <td>불변성</td>
+              <td><code>actions.ts</code>, <code>lessons.ts</code>, <code>consolidation-pipeline.ts</code> 일부 흐름에 in-place mutation 패턴이 보인다. HarnessAgentOS의 immutability 선호와는 맞지 않는다.</td>
+            </tr>
+            <tr>
+              <td>기능 플래그</td>
+              <td>많은 optional 기능을 env/config로 제어한다. 유연하지만 조합 테스트 부담이 커진다.</td>
+            </tr>
+            <tr>
+              <td>문서 드리프트</td>
+              <td>README의 tool count와 코드상의 registry count가 일부 맞지 않는다. 기능 표면이 빠르게 바뀌는 프로젝트에서 흔한 드리프트다.</td>
+            </tr>
+            <tr>
+              <td>테스트</td>
+              <td>테스트 파일 수와 benchmark harness가 충실하다. 다만 외부 런타임 의존성이 있어 Harness 통합 전에는 별도 contract test가 필요하다.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2 id="benchmarks">벤치마크 검토</h2>
+        <p>
+          agentmemory는 단순 README claim에 그치지 않고 synthetic benchmark와 LongMemEval retrieval
+          문서를 제공한다. 이 점은 강점이다. 다만 두 benchmark 모두 "memory recall/retrieval" 능력의
+          근거이지, 전체 개발 워크플로우 성공률의 직접 증거는 아니다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>문서</th>
+              <th>주요 결과</th>
+              <th>해석</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>docs/benchmarks/2026-05-20-coding-agent-life-v1.md</code></td>
+              <td>agentmemory-hybrid P@5 0.578, R@5 0.967, hit rate 15/15, p50 14ms. grep baseline P@5 0.267, R@5 0.967.</td>
+              <td>작은 fictional corpus에서 ranking precision이 grep보다 좋다는 근거. recall은 둘 다 높아 corpus 특성도 봐야 한다.</td>
+            </tr>
+            <tr>
+              <td><code>benchmark/LONGMEMEVAL.md</code></td>
+              <td>LongMemEval-S retrieval-only BM25+Vector R@5 95.2%, R@10 98.6%, MRR 88.2.</td>
+              <td>공식 end-to-end QA score가 아니라 retrieval-only 평가라고 명시되어 있다.</td>
+            </tr>
+            <tr>
+              <td><code>benchmark/COMPARISON.md</code></td>
+              <td>grep과 agentmemory retrieval 비교 설명.</td>
+              <td>Harness 적용 시에도 grep baseline과 BM25/vector baseline을 함께 둬야 효과를 검증할 수 있다.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          HarnessAgentOS에 메모리/회상 기능을 넣는다면 agentmemory의 benchmark style을 차용해
+          "작업 재개 시 필요한 artifact/decision/approval/quality-gate를 얼마나 정확히 찾는가"를
+          별도 eval로 측정하는 것이 적절하다.
+        </p>
+      </section>
+
+      <section>
+        <h2 id="harness-fit">HarnessAgentOS 적용성</h2>
+        <p>
+          현재 HarnessAgentOS는 사용자가 흐름을 통제하는 감독형 개발 워크벤치다. Renderer는
+          <code>window.harness.*</code>만 호출하고, Main은 Electron IPC로 서비스에 위임하며, SQLite WAL이
+          canonical state다. 모든 side effect는 approval을 통과해야 한다. 이 전제를 기준으로
+          agentmemory의 적용성을 평가하면 다음과 같다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>agentmemory 기능</th>
+              <th>그대로 도입</th>
+              <th>Harness-native 도입</th>
+              <th>판단</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>localhost REST/stream/viewer 서버</td>
+              <td><span class="tag">비권장</span></td>
+              <td>Electron IPC와 existing renderer route로 재구현</td>
+              <td>ADR-0002와 충돌한다.</td>
+            </tr>
+            <tr>
+              <td>iii StateKV/file DB</td>
+              <td><span class="tag">비권장</span></td>
+              <td>SQLite WAL tables/repositories로 저장</td>
+              <td>ADR-0003과 충돌한다.</td>
+            </tr>
+            <tr>
+              <td>hook 자동 관찰</td>
+              <td><span class="tag">주의</span></td>
+              <td>TaskRun/Step/Approval/Artifact 이벤트에서 명시 관찰 생성</td>
+              <td>Hidden write가 아니라 앱 내부 이벤트로 처리해야 한다.</td>
+            </tr>
+            <tr>
+              <td>BM25 SearchIndex</td>
+              <td><span class="tag">가능</span></td>
+              <td>ObservationMemory lexical index로 이식</td>
+              <td>가장 적용 가치가 높다.</td>
+            </tr>
+            <tr>
+              <td>VectorIndex</td>
+              <td><span class="tag">조건부</span></td>
+              <td>provider 설정/승인 뒤 optional embedding table로 도입</td>
+              <td>네트워크/모델 경로/비용 disclosure가 필요하다.</td>
+            </tr>
+            <tr>
+              <td>HybridSearch/RRF</td>
+              <td><span class="tag">가능</span></td>
+              <td>BM25 + vector + graph/capability signals fusion</td>
+              <td>LearnerAdvisor 추천 품질 개선에 직접 도움이 된다.</td>
+            </tr>
+            <tr>
+              <td>Context block 생성</td>
+              <td><span class="tag">주의</span></td>
+              <td>사용자에게 보이는 handoff/recall panel로 생성</td>
+              <td>자동 prompt injection은 피하고 preview/approval을 둔다.</td>
+            </tr>
+            <tr>
+              <td>Slots</td>
+              <td><span class="tag">가능</span></td>
+              <td>Pinned project context로 구현</td>
+              <td>UI에서 편집/삭제 가능해야 한다.</td>
+            </tr>
+            <tr>
+              <td>Consolidation/Lessons</td>
+              <td><span class="tag">조건부</span></td>
+              <td>QualityGate evidence와 연결된 learner note로 저장</td>
+              <td>자동 정책 변경 금지. 추천으로만 사용.</td>
+            </tr>
+            <tr>
+              <td>MCP tool surface</td>
+              <td><span class="tag">비권장</span></td>
+              <td>Harness 내부 service API와 IPC contract로 필요한 subset만 노출</td>
+              <td>도구가 너무 넓고 side effect가 섞여 있다.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="panel good">
+          <h3>현재 프로젝트에 특히 유용한 아이디어</h3>
+          <ul>
+            <li>TaskRun과 Step에서 나온 관찰을 나중에 검색 가능한 memory item으로 만드는 <strong>ObservationMemory</strong>.</li>
+            <li>full output을 매번 넣지 않고 summary, artifact id, provenance를 우선 제공하는 <strong>progressive disclosure</strong>.</li>
+            <li>BM25와 optional vector를 함께 쓰고 RRF로 합치는 <strong>hybrid recall</strong>.</li>
+            <li>프로젝트별 반복 규칙이나 사용자가 고정한 결정을 보관하는 <strong>pinned context slot</strong>.</li>
+            <li>세션 종료 시 다음 실행을 위한 <strong>handoff summary</strong>를 생성하는 흐름.</li>
+            <li>메모리 기능 자체를 평가하는 <strong>recall benchmark harness</strong>.</li>
+            <li>redaction, audit, source/provenance 필드를 durable memory의 필수 필드로 두는 방식.</li>
+          </ul>
+        </div>
+
+        <div class="panel bad">
+          <h3>그대로 가져오면 안 되는 부분</h3>
+          <ul>
+            <li>Harness 앱 안에 agentmemory의 HTTP/stream/viewer 서버를 추가하는 방식.</li>
+            <li>iii StateKV나 JSON/KV blob을 Harness의 새로운 canonical state로 삼는 방식.</li>
+            <li>사용자가 보지 못하는 hook에서 prompt/tool output을 지속 저장하는 방식.</li>
+            <li>검색 결과를 자동으로 agent prompt에 삽입해 실행 경로를 바꾸는 방식.</li>
+            <li>파일 쓰기, import/export, forget/delete 도구를 approval 없이 노출하는 방식.</li>
+            <li>외부 embedding/LLM provider로 데이터를 보내는 것을 기본값으로 만드는 방식.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="adoption-plan">권장 적용 계획</h2>
+        <p>
+          HarnessAgentOS에 적용한다면 작은 단계로 들어가야 한다. 먼저 외부 provider 없이 deterministic
+          lexical recall을 만들고, 이후 사용자가 명시적으로 선택한 경우에만 vector/LLM consolidation을
+          추가하는 순서가 안전하다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>단계</th>
+              <th>구현 범위</th>
+              <th>검증 기준</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Phase A</td>
+              <td>
+                SQLite 기반 <code>memory_observations</code> 또는 기존 <code>observations</code> 확장.
+                source type, taskRunId, stepId, artifactId, redactedText, summary, tags, createdAt, provenance 저장.
+              </td>
+              <td>repository unit test, migration idempotency, sensitive token redaction test.</td>
+            </tr>
+            <tr>
+              <td>Phase B</td>
+              <td>
+                BM25 lexical index 또는 rebuild 가능한 token table 추가. TaskRun detail에서 "관련 이전 관찰"을 조회.
+              </td>
+              <td>known corpus에서 top-K recall test, rebuild test, CJK query test.</td>
+            </tr>
+            <tr>
+              <td>Phase C</td>
+              <td>
+                LearnerAdvisor/CapabilityService가 memory recall 결과를 추천 이유로 참조하되 자동 실행은 하지 않음.
+              </td>
+              <td>추천 결과에 evidence id가 표시되고 hidden route change가 없는지 IPC test.</td>
+            </tr>
+            <tr>
+              <td>Phase D</td>
+              <td>
+                Pinned context slot UI. 사용자가 프로젝트 규칙/결정을 고정, 수정, 삭제할 수 있게 함.
+              </td>
+              <td>renderer event subscription, preload API, approval/visibility UX test.</td>
+            </tr>
+            <tr>
+              <td>Phase E</td>
+              <td>
+                Optional embedding provider와 vector table. provider 설정, 비용/데이터 disclosure, dimension guard 포함.
+              </td>
+              <td>provider off 기본값, dimension mismatch reset/backfill test, no-network mode test.</td>
+            </tr>
+            <tr>
+              <td>Phase F</td>
+              <td>
+                Memory recall benchmark. generated project handoff, approval, quality gate, artifact retrieval을 측정.
+              </td>
+              <td>grep baseline 대비 precision/recall 개선 수치와 regression threshold.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>구체적 backlog 후보</h3>
+        <ol>
+          <li><code>packages/core/src/types/memory-observation.ts</code>에 observation memory 계약 추가.</li>
+          <li><code>packages/storage</code>에 memory observation repository와 idempotent migration 추가.</li>
+          <li><code>packages/learner</code>에 <code>ObservationRecallService</code> 추가, 처음에는 BM25 lexical만 사용.</li>
+          <li><code>apps/desktop/electron/ipc</code>에 recall IPC domain 추가. 9-layer IPC 규칙 준수.</li>
+          <li>Renderer에 "관련 근거" panel을 추가하되, recommendation/capability 실행 경로를 자동 변경하지 않음.</li>
+          <li>민감 정보 redaction 테스트를 먼저 작성하고 통과 후 저장 로직 구현.</li>
+          <li>TaskRun 종료 시 handoff summary artifact를 생성하되, QualityGate evidence와 연결.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2 id="appendix">참고 파일 목록</h2>
+        <p>
+          다음 파일들을 중심으로 agentmemory의 동작을 확인했다. 경로는 분석용 checkout 기준이다.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>분류</th>
+              <th>파일</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Entrypoint/config</td>
+              <td><code>src/index.ts</code>, <code>src/cli.ts</code>, <code>iii-config.yaml</code>, <code>package.json</code>, <code>tsdown.config.ts</code></td>
+            </tr>
+            <tr>
+              <td>API/MCP</td>
+              <td><code>src/triggers/api.ts</code>, <code>src/mcp/tools-registry.ts</code>, <code>src/mcp/server.ts</code>, <code>src/mcp/standalone.ts</code>, <code>packages/mcp/bin.mjs</code></td>
+            </tr>
+            <tr>
+              <td>Core functions</td>
+              <td><code>src/functions/observe.ts</code>, <code>search.ts</code>, <code>smart-search.ts</code>, <code>context.ts</code>, <code>remember.ts</code>, <code>compress.ts</code>, <code>summarize.ts</code>, <code>consolidation-pipeline.ts</code></td>
+            </tr>
+            <tr>
+              <td>State/search</td>
+              <td><code>src/state/schema.ts</code>, <code>kv.ts</code>, <code>search-index.ts</code>, <code>vector-index.ts</code>, <code>hybrid-search.ts</code>, <code>index-persistence.ts</code></td>
+            </tr>
+            <tr>
+              <td>Hooks</td>
+              <td><code>src/hooks/session-start.ts</code>, <code>prompt-submit.ts</code>, <code>pre-tool-use.ts</code>, <code>post-tool-use.ts</code>, <code>post-tool-failure.ts</code>, <code>stop.ts</code>, <code>session-end.ts</code>, <code>plugin/hooks/hooks.codex.json</code></td>
+            </tr>
+            <tr>
+              <td>Codex/plugin</td>
+              <td><code>src/cli/connect/codex.ts</code>, <code>src/cli/connect/codex-hooks.ts</code>, <code>.codex-plugin/marketplace.json</code>, <code>.claude-plugin/marketplace.json</code></td>
+            </tr>
+            <tr>
+              <td>Benchmark/eval</td>
+              <td><code>docs/benchmarks/2026-05-20-coding-agent-life-v1.md</code>, <code>benchmark/COMPARISON.md</code>, <code>benchmark/LONGMEMEVAL.md</code>, <code>eval/README.md</code></td>
+            </tr>
+            <tr>
+              <td>Harness comparison</td>
+              <td><code>docs/architecture/architecture-decisions.md</code>, <code>docs/architecture/capability-and-learning-architecture.md</code>, <code>packages/learner/src/*</code>, <code>packages/storage/src/schema.ts</code>, <code>packages/skillify-adapter/src/capability-service.ts</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="small">
+          분석용 checkout은 <code>workspace/agentmemory-src</code>에 생성되어 있으며, 문서 작성 기준 커밋은
+          <code>355124141625ccc0d740ae08ddaaf77fe2c165ae</code>이다.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

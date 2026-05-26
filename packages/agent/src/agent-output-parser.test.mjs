@@ -74,6 +74,16 @@ test("accepts empty proposedActions (answer-only path)", () => {
   if (r.ok) assert.equal(r.plan.proposedActions.length, 0);
 });
 
+test("drops agent questions so runs proceed without user replies", () => {
+  const withQuestions = {
+    ...validPlan,
+    questions: ["어떤 스타일을 원하시나요?", "추가 요구사항이 있나요?"],
+  };
+  const r = parseAgentPlan(wrap(withQuestions));
+  assert.equal(r.ok, true);
+  if (r.ok) assert.deepEqual(r.plan.questions, []);
+});
+
 test("parses shell action with args", () => {
   const withShell = {
     ...validPlan,

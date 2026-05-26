@@ -97,6 +97,7 @@ export type PipelineIntentKey =
   | "a2a_federation"
   | "eval_release"
   | "agent_baseline"
+  | "new_project_3d_delivery"
   | "new_project_delivery"
   | "product_prd"
   | "architecture_design"
@@ -455,6 +456,58 @@ export const PIPELINE_INTENT_PRESETS: readonly PipelineIntentPreset[] = [
     ],
     preferredPipelineIds: ["pipe_template_cross_harness_agent_baseline"],
     preferredRoles: ["planner", "orchestrator", "coder", "tester", "security-reviewer", "reviewer"],
+  },
+  {
+    key: "new_project_3d_delivery",
+    label: "3D New Project Delivery",
+    requestHint: "3D 새 프로젝트 생성",
+    reason: "PRD/아키텍처/계획/텍스처/3D 모델링/파일/클래스/구현/검증/완료",
+    keywords: [
+      "3d",
+      "3D",
+      "3d 모델",
+      "3D 모델",
+      "3d 모델링",
+      "3D 모델링",
+      "모델링",
+      "텍스처",
+      "텍스쳐",
+      "texture",
+      "textures",
+      "gltf",
+      "glb",
+      "obj",
+      "material",
+      "uv",
+      "파일 구성",
+      "클래스 생성",
+      "새 프로젝트",
+      "새로운 프로젝트",
+      "프로젝트 생성",
+    ],
+    pipelineKeywords: [
+      "3d",
+      "3D",
+      "texture",
+      "텍스처",
+      "텍스쳐",
+      "모델링",
+      "gltf",
+      "obj",
+      "material",
+      "파일 구성",
+      "클래스",
+      "실행 검증",
+      "완료",
+    ],
+    preferredPipelineIds: ["pipe_template_3d_new_project_delivery"],
+    preferredRoles: [
+      "planner",
+      "orchestrator",
+      "coder",
+      "tester",
+      "reviewer",
+    ],
   },
   {
     key: "new_project_delivery",

@@ -684,10 +684,6 @@ const buildHarnessPlanThinkingText = (
     }
     if (lines.length > 1) sections.push(lines.join("\n"));
   }
-  const questions = stringArray(plan["questions"]);
-  if (questions.length > 0) {
-    sections.push(["확인 질문", ...questions.map((q) => `- ${q}`)].join("\n"));
-  }
   return sections.join("\n\n");
 };
 

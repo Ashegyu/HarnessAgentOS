@@ -282,6 +282,8 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
       calls[0].userRequest,
       /Refactor the parser without changing behaviour\./,
     );
+    assert.match(calls[0].userRequest, /WORKER OUTPUT CONTRACT/);
+    assert.match(calls[0].userRequest, /file_write\.after/);
 
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const workerArtifact = artifacts.find(
@@ -1276,6 +1278,77 @@ test("runApproved rejects proposed actions outside step allowedActions", async (
     assert.match(policyArtifact.summary, /not allowed for this worker step/);
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun.status, "ready_for_review");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved rejects worker file_write proposals whose after is an instruction", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "CliCoder", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Instruction after guard",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Implement",
+          instruction: "Create the contract file.",
+          expectedArtifactKinds: ["log"],
+          allowedActions: ["file_write"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "Worker proposed an instruction instead of file content.",
+          proposedActions: [
+            {
+              type: "file_write",
+              path: "src/FlyContract.cs",
+              after:
+                "이 파일에 public contract를 명확히 하는 인터페이스 설명과 검증 로직을 추가하세요.",
+              rationale: "clarify the contract",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.deepEqual(result.proposedApprovalIds, []);
+    const approvals = await state.listApprovalsByTaskRun(taskRun.id);
+    assert.equal(
+      approvals.filter((approval) => approval.actionType === "file_write").length,
+      0,
+      "instruction-like after content must not become a file_write approval",
+    );
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const policyArtifact = artifacts.find(
+      (artifact) => artifact.title === "Worker action policy report",
+    );
+    assert.ok(policyArtifact, "policy report artifact must explain the rejection");
+    assert.match(policyArtifact.summary, /complete file content/i);
   } finally {
     closeDb(db);
     t.cleanup();
