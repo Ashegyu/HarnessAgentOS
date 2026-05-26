@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -29,6 +29,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     thread_id TEXT NOT NULL,
     user_request TEXT NOT NULL,
     target_dir TEXT NOT NULL,
+    follow_up_task_run_id TEXT,
     status TEXT NOT NULL CHECK(status IN ('drafting','waiting_for_approval','running','paused','blocked','quality_failed','ready_for_review','done','cancelled')),
     current_step_id TEXT,
     created_at TEXT NOT NULL,
@@ -503,6 +504,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_task_runs_follow_up ON task_runs(follow_up_task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checkpoints_task_run_id ON checkpoints(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,

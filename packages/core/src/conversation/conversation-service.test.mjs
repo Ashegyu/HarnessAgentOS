@@ -80,6 +80,62 @@ test("createTask rejects non-existent targetDir", async () => {
   }
 });
 
+test("createTask persists a same-thread follow-up anchor", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const first = await conversation.createTask({
+      userRequest: "첫 번째 작업",
+      targetDir: "/tmp/project",
+      mode: "agent",
+    });
+    const followUp = await conversation.createTask({
+      threadId: first.taskRun.threadId,
+      userRequest: "방금 답변 기준으로 계속해줘",
+      targetDir: "/tmp/project",
+      mode: "agent",
+      followUpTaskRunId: first.taskRun.id,
+    });
+
+    assert.equal(followUp.taskRun.followUpTaskRunId, first.taskRun.id);
+    const reread = await state.getTaskRun(followUp.taskRun.id);
+    assert.equal(reread.followUpTaskRunId, first.taskRun.id);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("createTask rejects a follow-up anchor from another thread", async () => {
+  const t = tmp();
+  const { db, conversation } = makeService(t);
+  try {
+    const first = await conversation.createTask({
+      userRequest: "첫 번째 스레드 작업",
+      targetDir: "/tmp/project",
+      mode: "agent",
+    });
+    const second = await conversation.createTask({
+      userRequest: "두 번째 스레드 작업",
+      targetDir: "/tmp/project",
+      mode: "agent",
+    });
+
+    await assert.rejects(() =>
+      conversation.createTask({
+        threadId: second.taskRun.threadId,
+        userRequest: "다른 스레드 작업을 이어받으면 안 됨",
+        targetDir: "/tmp/project",
+        mode: "agent",
+        followUpTaskRunId: first.taskRun.id,
+      }),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("rejectApproval requires non-empty message and pauses TaskRun", async () => {
   const t = tmp();
   const { db, state, conversation } = makeService(t);

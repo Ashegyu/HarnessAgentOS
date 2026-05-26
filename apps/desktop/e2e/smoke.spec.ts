@@ -62,6 +62,57 @@ test("workbench launches and creates a thread", async () => {
     await expect(
       window.getByRole("region", { name: "새 대화 시작" }),
     ).toBeVisible();
+
+    const thread = await window.evaluate(async () => {
+      const threads = await window.harness.state.listThreads();
+      return threads.find((item) => item.title === "E2E smoke thread") ?? null;
+    });
+    expect(thread).not.toBeNull();
+    const firstTaskRun = await window.evaluate(
+      async ({ threadId, targetDir }) => {
+        const draft = await window.harness.conversation.createTask({
+          threadId,
+          targetDir,
+          mode: "template",
+          userRequest: "첫 번째 태스크를 생성해줘",
+        });
+        return draft.taskRun;
+      },
+      { threadId: thread!.id, targetDir: projectDir },
+    );
+    await expect(window.locator(".chat-turn")).toHaveCount(1);
+
+    await window.evaluate(
+      async ({ threadId, targetDir, followUpTaskRunId }) => {
+        await window.harness.conversation.createTask({
+          threadId,
+          targetDir,
+          mode: "template",
+          followUpTaskRunId,
+          userRequest: "앞선 태스크를 이어서 점검해줘",
+        });
+      },
+      {
+        threadId: thread!.id,
+        targetDir: projectDir,
+        followUpTaskRunId: firstTaskRun.id,
+      },
+    );
+    await expect(window.locator(".chat-turn")).toHaveCount(2);
+    const threadDetail = await window.evaluate(async ({ threadId }) => {
+      return window.harness.state.getThread({ threadId });
+    }, { threadId: thread!.id });
+    const followUpTaskRun = threadDetail.taskRuns.find(
+      (item) => item.userRequest === "앞선 태스크를 이어서 점검해줘",
+    );
+    expect(followUpTaskRun?.followUpTaskRunId).toBe(firstTaskRun.id);
+    await expect(window.locator(".conversation-input__followup")).toBeVisible();
+    await expect(window.locator(".thread-task-flow")).toBeVisible();
+    await expect(window.locator(".thread-task-flow__node")).toHaveCount(2);
+    await expect(window.locator(".thread-task-flow__connector")).toHaveCount(1);
+    await expect(window.locator(".chat-turn__thread-link").first()).toContainText(
+      "다음 태스크",
+    );
   } finally {
     await cleanup();
   }
@@ -98,6 +149,133 @@ test("settings pipelines tab exposes seeded templates and request ranking", asyn
     await expect(pipelineList.locator("li").first()).toContainText(
       "Refactor Safety",
     );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("settings visual pipeline builder supports node connection editing", async () => {
+  const { app, cleanup } = await launchIsolatedApp();
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    await window.getByRole("button", { name: "설정 열기" }).click();
+    await expect(window.getByRole("dialog", { name: "설정" })).toBeVisible();
+    await window.getByRole("tab", { name: "Pipelines" }).click();
+    await window.getByRole("button", { name: "+ 새 파이프라인" }).click();
+
+    const builder = window.locator(".pipeline-visual-builder");
+    await expect(builder).toBeVisible();
+    await builder.getByRole("button", { name: "+ node 추가" }).click();
+    await builder.getByRole("button", { name: "+ node 추가" }).click();
+    await builder.getByRole("button", { name: "그래프 창 열기" }).click();
+    await expect(builder).toHaveClass(/pipeline-visual-builder--window/);
+
+    await expect(builder.locator(".pipeline-visual__node")).toHaveCount(2);
+    await expect(builder.locator(".pipeline-visual__graph")).toBeVisible();
+    await expect(builder.locator(".pipeline-visual__edges")).toBeVisible();
+    await expect(builder.locator(".pipeline-visual__link--dependency")).toHaveCount(1);
+
+    const firstNode = builder.locator(".pipeline-visual__graph-node").first();
+    const dragHandle = firstNode.locator(".pipeline-visual__graph-node-header");
+    const beforeDrag = await firstNode.boundingBox();
+    const handleBox = await dragHandle.boundingBox();
+    expect(beforeDrag).not.toBeNull();
+    expect(handleBox).not.toBeNull();
+    await window.mouse.move(handleBox!.x + 20, handleBox!.y + 12);
+    await window.mouse.down();
+    await window.mouse.move(handleBox!.x + 390, handleBox!.y + 230);
+    await window.mouse.up();
+    const afterDrag = await firstNode.boundingBox();
+    expect(afterDrag).not.toBeNull();
+    expect(afterDrag!.x).toBeGreaterThan(beforeDrag!.x + 280);
+    expect(afterDrag!.y).toBeGreaterThan(beforeDrag!.y + 150);
+
+    const dependencyEdge = builder.locator(".pipeline-visual__edge.pipeline-visual__link--dependency").first();
+    const edgeStyle = await dependencyEdge.evaluate((node) => {
+      const style = window.getComputedStyle(node);
+      const graph = document.querySelector(
+        ".pipeline-visual__graph",
+      ) as HTMLElement | null;
+      const svg = document.querySelector(
+        ".pipeline-visual__edges",
+      ) as SVGSVGElement | null;
+      const graphNodes = Array.from(
+        document.querySelectorAll<HTMLElement>(".pipeline-visual__graph-node"),
+      );
+      const source = graphNodes[0];
+      const target = graphNodes[1];
+      const sourcePort = source?.querySelector(
+        ".pipeline-visual__node-port--out",
+      ) as HTMLElement | null | undefined;
+      const targetPort = target?.querySelector(
+        ".pipeline-visual__node-port--in",
+      ) as HTMLElement | null | undefined;
+      const graphBox = graph?.getBoundingClientRect();
+      const sourcePortBox = sourcePort?.getBoundingClientRect();
+      const targetPortBox = targetPort?.getBoundingClientRect();
+      const start = node
+        .getAttribute("d")
+        ?.match(/M\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)/);
+      const end = node
+        .getAttribute("d")
+        ?.match(/,\s*(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)$/);
+      return {
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        startX: start ? Number(start[1]) : Number.NaN,
+        startY: start ? Number(start[2]) : Number.NaN,
+        endX: end ? Number(end[1]) : Number.NaN,
+        endY: end ? Number(end[2]) : Number.NaN,
+        preserveAspectRatio: svg?.getAttribute("preserveAspectRatio") ?? "",
+        sourcePortX:
+          graphBox && sourcePortBox
+            ? sourcePortBox.left + sourcePortBox.width / 2 - graphBox.left
+            : Number.NaN,
+        sourcePortY:
+          graphBox && sourcePortBox
+            ? sourcePortBox.top + sourcePortBox.height / 2 - graphBox.top
+            : Number.NaN,
+        targetPortX:
+          graphBox && targetPortBox
+            ? targetPortBox.left + targetPortBox.width / 2 - graphBox.left
+            : Number.NaN,
+        targetPortY:
+          graphBox && targetPortBox
+            ? targetPortBox.top + targetPortBox.height / 2 - graphBox.top
+            : Number.NaN,
+      };
+    });
+    expect(edgeStyle.stroke).not.toBe("none");
+    expect(Number.parseFloat(edgeStyle.strokeWidth)).toBeGreaterThanOrEqual(3);
+    expect(edgeStyle.preserveAspectRatio).toBe("xMinYMin meet");
+    expect(Math.abs(edgeStyle.startX - edgeStyle.sourcePortX)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(edgeStyle.startY - edgeStyle.sourcePortY)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(edgeStyle.endX - edgeStyle.targetPortX)).toBeLessThanOrEqual(1.5);
+    expect(Math.abs(edgeStyle.endY - edgeStyle.targetPortY)).toBeLessThanOrEqual(1.5);
+
+    await builder.getByTitle("연결 삭제").click();
+    await expect(builder.locator(".pipeline-visual__link--dependency")).toHaveCount(0);
+
+    await builder.getByRole("button", { name: "의존 연결" }).click();
+    const sourcePort = builder
+      .locator(".pipeline-visual__graph-node")
+      .nth(0)
+      .locator(".pipeline-visual__node-port--out");
+    const targetPort = builder
+      .locator(".pipeline-visual__graph-node")
+      .nth(1)
+      .locator(".pipeline-visual__node-port--in");
+    const sourceBox = await sourcePort.boundingBox();
+    const targetBox = await targetPort.boundingBox();
+    expect(sourceBox).not.toBeNull();
+    expect(targetBox).not.toBeNull();
+    await window.mouse.move(sourceBox!.x + sourceBox!.width / 2, sourceBox!.y + sourceBox!.height / 2);
+    await window.mouse.down();
+    await window.mouse.move(targetBox!.x + targetBox!.width / 2, targetBox!.y + targetBox!.height / 2);
+    await window.mouse.up();
+    await expect(builder.locator(".pipeline-visual__link--dependency")).toHaveCount(1);
   } finally {
     await cleanup();
   }

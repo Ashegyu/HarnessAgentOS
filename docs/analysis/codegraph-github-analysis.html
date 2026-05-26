@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeGraph GitHub Repository Analysis for HarnessAgentOS</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --surface: #ffffff;
+      --surface-2: #f0f4f8;
+      --text: #16202a;
+      --muted: #52616f;
+      --line: #d9e1ea;
+      --accent: #0f766e;
+      --accent-2: #1d4ed8;
+      --warn: #9a5b00;
+      --danger: #a83232;
+      --ok: #166534;
+      --code-bg: #111827;
+      --code-text: #e5e7eb;
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", "Noto Sans KR", Arial, sans-serif;
+      line-height: 1.62;
+    }
+
+    main {
+      width: min(1160px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    header {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 34px;
+      margin-bottom: 22px;
+    }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 28px 32px;
+      margin: 18px 0;
+    }
+
+    h1, h2, h3 {
+      letter-spacing: 0;
+      line-height: 1.25;
+      margin: 0 0 14px;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3.1rem);
+      max-width: 980px;
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      margin-bottom: 18px;
+    }
+
+    h3 {
+      font-size: 1.05rem;
+      margin-top: 22px;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    a {
+      color: var(--accent-2);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 3px;
+    }
+
+    code {
+      font-family: Consolas, "Cascadia Mono", monospace;
+      font-size: 0.93em;
+      background: #edf2f7;
+      border: 1px solid #d7e0ea;
+      border-radius: 5px;
+      padding: 0.08rem 0.32rem;
+    }
+
+    pre {
+      overflow-x: auto;
+      border-radius: 8px;
+      padding: 16px;
+      background: var(--code-bg);
+      color: var(--code-text);
+      border: 1px solid #243244;
+      line-height: 1.45;
+      font-size: 0.9rem;
+    }
+
+    pre code {
+      background: transparent;
+      border: 0;
+      color: inherit;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    ul, ol {
+      margin: 0 0 12px 1.2rem;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--surface-2);
+      text-align: left;
+      font-weight: 700;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-size: 0.78rem;
+      margin-bottom: 8px;
+    }
+
+    .lede {
+      font-size: 1.08rem;
+      color: var(--muted);
+      max-width: 940px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .meta-item {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 88px;
+    }
+
+    .meta-label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-bottom: 6px;
+    }
+
+    .meta-value {
+      display: block;
+      font-weight: 700;
+    }
+
+    .callout {
+      border-left: 5px solid var(--accent-2);
+      background: #eef6ff;
+      padding: 14px 16px;
+      border-radius: 8px;
+      margin: 14px 0;
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .callout.ok {
+      border-left-color: var(--ok);
+      background: #eef9f1;
+    }
+
+    .callout.warn {
+      border-left-color: var(--warn);
+      background: #fff7e6;
+    }
+
+    .callout.danger {
+      border-left-color: var(--danger);
+      background: #fff0f0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .badge.ok {
+      color: var(--ok);
+      background: #eef9f1;
+      border-color: #b6dec0;
+    }
+
+    .badge.warn {
+      color: var(--warn);
+      background: #fff7e6;
+      border-color: #f0d39a;
+    }
+
+    .badge.danger {
+      color: var(--danger);
+      background: #fff0f0;
+      border-color: #efb7b7;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .mini-card {
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .diagram {
+      font-size: 0.86rem;
+    }
+
+    .source-list {
+      columns: 2;
+      column-gap: 28px;
+    }
+
+    .source-list li {
+      break-inside: avoid;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        width: min(100% - 24px, 1160px);
+        padding-top: 22px;
+      }
+
+      header, section {
+        padding: 20px;
+      }
+
+      .meta-grid, .two-col {
+        grid-template-columns: 1fr;
+      }
+
+      .source-list {
+        columns: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">External repository analysis</p>
+      <h1>CodeGraph 분석 및 HarnessAgentOS 적용성 검토</h1>
+      <p class="lede">
+        <a href="https://github.com/colbymchenry/codegraph">colbymchenry/codegraph</a>의 코드 구조,
+        인덱싱 흐름, MCP/CLI 표면, 성능상 장단점을 확인하고 현재 HarnessAgentOS에 적용할 수 있는 방식을 검토했다.
+        결론은 직접 내장보다 외부 MCP/CLI로 먼저 사용해 검증하는 편이 가장 낮은 위험과 높은 실익을 가진다는 것이다.
+      </p>
+      <div class="meta-grid">
+        <div class="meta-item">
+          <span class="meta-label">작성일</span>
+          <span class="meta-value">2026-05-26</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">대상 프로젝트</span>
+          <span class="meta-value">HarnessAgentOS</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">분석 대상</span>
+          <span class="meta-value">CodeGraph GitHub repository</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">권장 적용 방식</span>
+          <span class="meta-value">외부 MCP/CLI 파일럿</span>
+        </div>
+      </div>
+    </header>
+
+    <section>
+      <h2>1. 결론</h2>
+      <div class="callout ok">
+        <strong>추천: CodeGraph는 HarnessAgentOS에 바로 내장하지 말고, 별도 MCP/CLI로 먼저 사용한다.</strong>
+        현재 프로젝트에는 이미 MCP 서버 등록, per-agent profile binding, CLI invocation 준비 경로가 있다. CodeGraph는 그 위에 붙이면
+        코드 이해, 영향 범위 분석, 호출 관계 추적, 관련 컨텍스트 검색 기능을 즉시 실험할 수 있다.
+      </div>
+      <p>
+        CodeGraph는 Tree-sitter 기반 AST 추출, SQLite 그래프 저장소, FTS5 검색, 참조 해석, MCP 도구, CLI를 함께 제공한다.
+        HarnessAgentOS의 현재 <code>RepoIndexService</code>는 파일 요약, 심볼, import 정도를 저장하는 경량 인덱스이므로 역할이 다르다.
+        CodeGraph는 이 경량 인덱스를 대체하기보다, 리뷰/설계/영향 분석 에이전트가 필요할 때 호출하는 외부 지식 그래프 도구로 두는 편이 안전하다.
+      </p>
+      <p>
+        직접 내장은 보류가 맞다. CodeGraph는 자체 <code>.codegraph/codegraph.db</code>, 파일락, 워커 스레드, 파일 감시, Tree-sitter WASM 런타임,
+        Node 버전 제약을 가진다. HarnessAgentOS의 source of truth는 SQLite WAL 기반 storage 계층이고, side effect는 approval을 거쳐야 한다.
+        따라서 내부 저장소/런타임으로 합치면 운영 복잡도와 latency 예측 불확실성이 커진다.
+      </p>
+    </section>
+
+    <section>
+      <h2>2. 범위와 증거 기준</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>구분</th>
+            <th>내용</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge ok">Evidence</span></td>
+            <td>GitHub 공개 소스의 <code>src/index.ts</code>, <code>src/types.ts</code>, <code>src/db/schema.sql</code>, <code>src/extraction/index.ts</code>, <code>src/resolution/index.ts</code>, <code>src/context/index.ts</code>, <code>src/graph/traversal.ts</code>, <code>src/mcp/tools.ts</code>, <code>src/bin/codegraph.ts</code>, <code>src/sync/index.ts</code>를 확인했다. HarnessAgentOS 로컬 파일도 <code>packages/agent</code>, <code>packages/core</code>, <code>packages/storage</code>, <code>apps/desktop/electron</code> 중심으로 확인했다.</td>
+          </tr>
+          <tr>
+            <td><span class="badge warn">Inference</span></td>
+            <td>성능 효과, 컨텍스트 품질 개선, latency 영향은 코드 구조와 현재 HarnessAgentOS 호출 경로를 근거로 추정했다. 실제 수치는 로컬 인덱싱/쿼리 벤치마크 전까지 확정할 수 없다.</td>
+          </tr>
+          <tr>
+            <td><span class="badge danger">Uncertainty</span></td>
+            <td>현재 머신의 Node 버전, CodeGraph npm 배포 버전, HarnessAgentOS 실제 대형 워크로드, 워커 스레드와 Electron 개발 서버 동시 실행 영향은 이 문서 작성 시점에 측정하지 않았다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. CodeGraph 코드 구조 요약</h2>
+      <pre class="diagram"><code>CodeGraph
+  ├─ DatabaseConnection / QueryBuilder
+  ├─ ExtractionOrchestrator
+  │   ├─ git ls-files 우선 스캔
+  │   ├─ Tree-sitter WASM 파서
+  │   ├─ worker thread 파싱
+  │   └─ files, nodes, edges, unresolved_refs 저장
+  ├─ ReferenceResolver
+  │   ├─ import/path/name 기반 참조 해석
+  │   ├─ framework-specific rule
+  │   ├─ bounded LRU cache
+  │   └─ unresolved refs -> graph edges
+  ├─ GraphQueryManager / GraphTraverser
+  │   ├─ callers, callees, impact, path, type hierarchy
+  │   └─ batched neighbor query
+  ├─ ContextBuilder
+  │   ├─ natural-language symbol extraction
+  │   ├─ exact/prefix/text/camel-case search
+  │   └─ source block + relation context assembly
+  ├─ MCP tools
+  │   ├─ codegraph_context
+  │   ├─ codegraph_search / node / trace / explore
+  │   └─ codegraph_callers / callees / impact / status / files
+  └─ CLI
+      ├─ init / index / sync / status
+      ├─ query / context / callers / callees / impact / affected
+      └─ serve --mcp</code></pre>
+
+      <table>
+        <thead>
+          <tr>
+            <th>파일</th>
+            <th>역할</th>
+            <th>HarnessAgentOS 관점</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>src/index.ts</code></td>
+            <td>공개 <code>CodeGraph</code> 클래스. init/open/close, index/sync/watch, query, traversal, context, optimize/clear/destroy를 묶는 facade.</td>
+            <td>라이브러리로 직접 내장하면 lifecycle과 side effect 경계가 커진다. 외부 MCP 프로세스로 두면 격리된다.</td>
+          </tr>
+          <tr>
+            <td><code>src/types.ts</code></td>
+            <td>node kind, edge kind, language, graph/context/task 타입 정의. 언어 범위가 TypeScript, JavaScript, Python, Go, Rust, Java, C#, Kotlin 등으로 넓다.</td>
+            <td>HarnessAgentOS는 TypeScript 중심이지만, 향후 다중 repo 분석에는 유리하다.</td>
+          </tr>
+          <tr>
+            <td><code>src/db/schema.sql</code></td>
+            <td><code>nodes</code>, <code>edges</code>, <code>files</code>, <code>unresolved_refs</code>, FTS5 <code>nodes_fts</code>, 다수의 조회 인덱스와 트리거.</td>
+            <td>자체 DB를 쓰므로 HarnessAgentOS canonical state와 섞지 않는 것이 안전하다.</td>
+          </tr>
+          <tr>
+            <td><code>src/extraction/index.ts</code></td>
+            <td>git 기반 스캔, ignore 처리, 파일 크기 제한, worker thread 파싱, Tree-sitter grammar 로딩, 변경 파일 판별, 추출 결과 저장.</td>
+            <td>현재 <code>RepoIndexService</code>보다 무겁지만 의미론적 그래프를 만든다. cold/warm 작업으로 분리해야 한다.</td>
+          </tr>
+          <tr>
+            <td><code>src/resolution/index.ts</code></td>
+            <td>unresolved reference를 import/name/framework rule로 edge로 해석. cache, batch, built-in/external filtering 포함.</td>
+            <td>call/reference graph 품질을 좌우한다. 정확도는 언어와 프로젝트 패턴별 검증이 필요하다.</td>
+          </tr>
+          <tr>
+            <td><code>src/context/index.ts</code></td>
+            <td>자연어 쿼리에서 관련 심볼과 소스 블록을 조합해 컨텍스트를 만든다. 기본 output size는 제한적이다.</td>
+            <td>HarnessAgentOS의 <code>context-packer</code>보다 에이전트 컨텍스트 품질을 높일 가능성이 크다.</td>
+          </tr>
+          <tr>
+            <td><code>src/graph/traversal.ts</code></td>
+            <td>BFS/DFS, callers/callees/call graph/type hierarchy/usages/path/impact radius. neighbor batch fetch로 N+1을 줄인다.</td>
+            <td>리뷰, 영향 분석, phase plan 검증에서 직접적인 가치가 있다.</td>
+          </tr>
+          <tr>
+            <td><code>src/mcp/tools.ts</code></td>
+            <td>MCP 도구 정의와 입력/출력 제한, projectPath 기반 cross-project query, status, explore, trace 제공.</td>
+            <td>현재 HarnessAgentOS MCP 등록 구조와 가장 잘 맞는 표면이다.</td>
+          </tr>
+          <tr>
+            <td><code>src/bin/codegraph.ts</code></td>
+            <td>CLI 명령과 <code>serve --mcp</code>. install/uninstall/init/index/sync/status/context/query/impact/affected 제공.</td>
+            <td>처음에는 CLI 파일럿으로 정확도와 latency를 확인하고, 이후 MCP profile에 연결하는 순서가 적합하다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>4. 데이터 모델과 조회 특성</h2>
+      <p>
+        CodeGraph의 핵심 저장소는 SQLite 그래프다. <code>files</code>가 파일 단위 상태를 들고, <code>nodes</code>가 심볼/구조 요소를 들며,
+        <code>edges</code>가 contains, calls, imports, extends, implements, references 같은 관계를 저장한다.
+        <code>unresolved_refs</code>는 파싱 시점에 아직 target을 모르는 참조를 보관하고, resolver가 이를 실제 edge로 변환한다.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>저장 요소</th>
+            <th>관찰한 설계</th>
+            <th>성능상 의미</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Nodes</td>
+            <td>kind, name, qualified_name, file path, line range, language 등으로 인덱싱된다.</td>
+            <td>심볼명 기반 조회, 파일/언어별 필터링, line 기반 탐색이 빠르게 설계되어 있다.</td>
+          </tr>
+          <tr>
+            <td>Edges</td>
+            <td>source/kind, target/kind, provenance index가 있다.</td>
+            <td>callers/callees/impact 같은 graph traversal에서 반복 조회 비용을 낮추려는 구조다.</td>
+          </tr>
+          <tr>
+            <td>FTS5</td>
+            <td><code>nodes_fts</code>와 트리거로 text search를 지원한다.</td>
+            <td>자연어/부분 검색을 일반 LIKE scan보다 낫게 처리할 수 있다.</td>
+          </tr>
+          <tr>
+            <td>Unresolved refs</td>
+            <td>대상 미확정 참조를 batch로 해결하고, 해결 후 삭제한다.</td>
+            <td>추출과 해석을 분리해 indexing latency를 단계화한다.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>HarnessAgentOS에 직접 저장하지 않는 편이 낫다.</strong>
+        현재 프로젝트의 canonical state는 storage 패키지의 SQLite WAL이다. CodeGraph DB는 분석 캐시로 보고, 삭제/재생성 가능한 외부 산출물로 취급해야 한다.
+      </div>
+    </section>
+
+    <section>
+      <h2>5. MCP와 CLI 표면</h2>
+      <div class="two-col">
+        <div class="mini-card">
+          <h3>MCP 도구</h3>
+          <ul>
+            <li><code>codegraph_context</code>: 자연어 작업 설명을 기반으로 관련 코드와 관계를 반환하는 주 도구.</li>
+            <li><code>codegraph_search</code>: 심볼/파일 검색.</li>
+            <li><code>codegraph_node</code>: 특정 노드의 정의, trail, callers/callees 조회.</li>
+            <li><code>codegraph_trace</code>: 두 지점 사이의 관계 경로 탐색.</li>
+            <li><code>codegraph_impact</code>: 변경 영향 범위 탐색.</li>
+            <li><code>codegraph_files</code>, <code>codegraph_status</code>: 파일 목록과 인덱스 상태 확인.</li>
+          </ul>
+        </div>
+        <div class="mini-card">
+          <h3>CLI 명령</h3>
+          <ul>
+            <li><code>init</code>, <code>index</code>, <code>sync</code>, <code>status</code>: 인덱스 생명주기.</li>
+            <li><code>context</code>, <code>query</code>: 질의 기반 컨텍스트 검색.</li>
+            <li><code>callers</code>, <code>callees</code>, <code>impact</code>: 그래프 질의.</li>
+            <li><code>affected</code>: 변경된 소스에서 영향받는 테스트 추론.</li>
+            <li><code>serve --mcp</code>: MCP 서버 실행.</li>
+          </ul>
+        </div>
+      </div>
+      <p>
+        HarnessAgentOS에는 이미 MCP 서버 타입, stdio/http/sse transport, per-agent profile binding, Codex/Claude용 MCP config 생성 경로가 있다.
+        CodeGraph는 secret이 필요 없는 stdio MCP로 보이며, <code>mcp-config-builder</code>의 Codex stdio 제약에도 맞는다.
+      </p>
+    </section>
+
+    <section>
+      <h2>6. HarnessAgentOS 현재 구조와 비교</h2>
+      <pre class="diagram"><code>현재 HarnessAgentOS repo context 흐름
+
+TaskRun
+  → AgentPlanningService.generatePlan(...)
+  → getRepoContext(taskRun, prompt)
+  → RepoIndexService / repo_index_files
+  → context-packer.ts
+  → agent-prompt-builder.ts
+  → CLI agent invocation
+
+현재 MCP 흐름
+
+MCP server definition
+  → mcp-config-builder.ts
+  → prepareMcpInvocation(...)
+  → Claude .mcp.json 또는 Codex -c override
+  → agent profile별 tool surface</code></pre>
+      <table>
+        <thead>
+          <tr>
+            <th>현재 파일</th>
+            <th>확인 내용</th>
+            <th>CodeGraph와의 관계</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>packages/agent/src/repo-index-service.ts</code></td>
+            <td>파일 스캔, 경량 요약, regex 기반 symbol/import 추출, read cap과 max file limit을 둔다.</td>
+            <td>빠른 map 용도. CodeGraph는 AST/graph 기반 deep context 용도.</td>
+          </tr>
+          <tr>
+            <td><code>packages/storage/src/repositories/repo-index-repository.ts</code></td>
+            <td><code>repo_index_files</code>에 symbols/imports JSON을 저장한다.</td>
+            <td>CodeGraph schema와 병합하지 않는 편이 안전하다.</td>
+          </tr>
+          <tr>
+            <td><code>packages/agent/src/context-packer.ts</code></td>
+            <td>prompt tokens와 path/summary/symbol/import 매칭으로 상위 파일을 선택하고, map-only라는 주석성 안내를 붙인다.</td>
+            <td>CodeGraph의 <code>codegraph_context</code>가 보완할 수 있는 가장 직접적인 지점이다.</td>
+          </tr>
+          <tr>
+            <td><code>packages/agent/src/mcp-config-builder.ts</code></td>
+            <td>Claude와 Codex용 MCP 설정을 생성한다. Codex는 stdio만 지원하며 secret vault 참조를 거부한다.</td>
+            <td>CodeGraph는 stdio, no-secret 방식으로 붙이기 좋다.</td>
+          </tr>
+          <tr>
+            <td><code>apps/desktop/electron/ipc/mcp-ipc.ts</code></td>
+            <td>renderer에서 MCP 서버 draft, scaffold, profile binding을 IPC로 관리한다.</td>
+            <td>UI에서 CodeGraph 서버를 등록하고 특정 profile에만 바인딩하는 방식이 자연스럽다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>7. Hot-path 평가</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>경로</th>
+            <th>Hot/Warm/Cold</th>
+            <th>근거</th>
+            <th>권장 처리</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>HarnessAgentOS renderer IPC와 TaskRun 상태 갱신</td>
+            <td><span class="badge danger">Hot</span></td>
+            <td>사용자 조작과 화면 갱신에 직접 연결된다.</td>
+            <td>CodeGraph 호출을 이 경로에 동기적으로 넣지 않는다.</td>
+          </tr>
+          <tr>
+            <td>Agent plan 생성 전 repo context 구성</td>
+            <td><span class="badge warn">Warm</span></td>
+            <td>agent invocation 전에 실행되며 체감 latency에 영향을 준다.</td>
+            <td>기본 경량 인덱스는 유지하고, profile/작업 유형에 따라 CodeGraph MCP를 선택적으로 쓰게 한다.</td>
+          </tr>
+          <tr>
+            <td>CodeGraph 최초 index</td>
+            <td><span class="badge">Cold</span></td>
+            <td>Tree-sitter parsing, DB write, reference resolution이 포함된다.</td>
+            <td>명시적 approval 후 별도 작업으로 실행한다. UI hot path와 분리한다.</td>
+          </tr>
+          <tr>
+            <td>CodeGraph context/query</td>
+            <td><span class="badge warn">Warm</span></td>
+            <td>SQLite/FTS/traversal 조회이며 prompt 준비 중 사용될 수 있다.</td>
+            <td>timeout, output cap, profile gating을 둔다.</td>
+          </tr>
+          <tr>
+            <td>CodeGraph watch/sync</td>
+            <td><span class="badge warn">Warm</span></td>
+            <td>파일 변화에 따라 백그라운드 I/O와 parsing이 발생할 수 있다.</td>
+            <td>파일럿 초기에는 watch를 끄고 수동 <code>sync</code>로 운영한다.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout warn">
+        <strong>성능 판단은 아직 측정 전이다.</strong>
+        CodeGraph 코드에는 worker thread, batch query, output cap, cache, file size limit 같은 방어 장치가 있다.
+        다만 현재 프로젝트에서 p50/p95 latency, indexing 시간, DB 크기, agent prompt 품질 개선 폭은 별도 측정이 필요하다.
+      </div>
+    </section>
+
+    <section>
+      <h2>8. 적용 가능성 판단</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>선택지</th>
+            <th>판단</th>
+            <th>이유</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>외부 CLI로 수동 사용</td>
+            <td><span class="badge ok">권장</span></td>
+            <td>설치, index, context, impact 명령만으로 즉시 검증 가능하다. 프로젝트 코드 변경이 필요 없다.</td>
+          </tr>
+          <tr>
+            <td>HarnessAgentOS MCP 서버로 등록</td>
+            <td><span class="badge ok">권장</span></td>
+            <td>현재 MCP profile binding 구조와 잘 맞는다. reviewer/architect/perf agent에 선택적으로 노출할 수 있다.</td>
+          </tr>
+          <tr>
+            <td>기존 RepoIndexService 보완재로 사용</td>
+            <td><span class="badge ok">조건부 권장</span></td>
+            <td>경량 인덱스는 계속 prompt map으로 쓰고, CodeGraph는 deep query에만 사용하면 latency와 복잡도를 통제할 수 있다.</td>
+          </tr>
+          <tr>
+            <td>RepoIndexService를 CodeGraph로 교체</td>
+            <td><span class="badge danger">비권장</span></td>
+            <td>storage schema, side effect approval, DB lifecycle, Node/WASM runtime까지 영향을 준다. 현재 이득 대비 변경 폭이 크다.</td>
+          </tr>
+          <tr>
+            <td>CodeGraph 라이브러리 직접 내장</td>
+            <td><span class="badge warn">보류</span></td>
+            <td>파일락, watcher, 워커, DB, cleanup 책임이 앱 내부로 들어온다. 충분한 pilot evidence 이후 별도 adapter로 검토해야 한다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>9. 별도 사용 방법</h2>
+      <p>
+        다음 순서는 HarnessAgentOS 코드를 바꾸지 않고 CodeGraph를 독립 분석 도구로 사용하는 방식이다.
+        최초 <code>init</code>, <code>index</code>, <code>sync</code>는 파일/DB side effect가 있으므로 명시적으로 실행한다.
+      </p>
+      <pre><code># 1. 전역 설치
+npm install -g @colbymchenry/codegraph
+
+# 2. 프로젝트 루트에서 인덱스 초기화
+codegraph init "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+
+# 3. 전체 인덱싱
+codegraph index "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+
+# 4. 상태 확인
+codegraph status "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+
+# 5. 자연어 컨텍스트 검색
+codegraph context "AgentPlanningService가 repo context와 MCP 설정을 CLI invocation에 연결하는 흐름" --path "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+
+# 6. 영향 범위 분석 예시
+codegraph impact "RepoIndexFile" --path "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"</code></pre>
+
+      <h3>npx로 별도 설치 없이 실행</h3>
+      <pre><code>npx -y @colbymchenry/codegraph@latest init "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+npx -y @colbymchenry/codegraph@latest index "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"
+npx -y @colbymchenry/codegraph@latest serve --mcp --path "C:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS"</code></pre>
+
+      <h3>HarnessAgentOS MCP 서버 등록 초안</h3>
+      <p>
+        UI에서 MCP 서버를 수동 등록한다면 다음 형태가 적합하다. 초기 파일럿에서는 watch를 끄거나 수동 sync만 사용하는 구성이 latency 예측에 유리하다.
+      </p>
+      <pre><code>{
+  "name": "CodeGraph MCP",
+  "transport": "stdio",
+  "command": "codegraph",
+  "args": [
+    "serve",
+    "--mcp",
+    "--path",
+    "C:\\Users\\GC\\Desktop\\Works\\Personal\\Study\\HarnessAgentOS",
+    "--no-watch"
+  ],
+  "env": {
+    "CODEGRAPH_NO_WATCH": "1"
+  },
+  "enabled": true,
+  "scope": "profile",
+  "recommendedProfiles": [
+    "reviewer",
+    "architect",
+    "performance-reviewer"
+  ]
+}</code></pre>
+      <div class="callout warn">
+        <strong>주의</strong>
+        실제 CLI option 이름은 설치된 CodeGraph 버전에서 <code>codegraph serve --help</code>로 확인해야 한다.
+        소스상 <code>serve --mcp</code> 경로는 확인했지만, watch 비활성 option은 버전별 차이가 있을 수 있다.
+      </div>
+    </section>
+
+    <section>
+      <h2>10. 장점</h2>
+      <ul>
+        <li><strong>코드 이해 품질 개선:</strong> 단순 파일 요약이 아니라 AST node와 edge를 기반으로 관련 코드를 찾는다.</li>
+        <li><strong>영향 범위 분석:</strong> callers/callees/impact/path query로 public API 변경, IPC 계약 변경, storage schema 변경 전 검토가 쉬워진다.</li>
+        <li><strong>MCP 친화성:</strong> HarnessAgentOS의 MCP profile binding과 직접 맞물린다. 특정 agent에만 노출할 수 있다.</li>
+        <li><strong>다중 언어 확장성:</strong> TypeScript 외에도 C#, Python, Go, Rust 등 여러 언어 parser kind를 정의한다.</li>
+        <li><strong>출력 통제:</strong> MCP 도구에 max output, input length, path length 제한이 있어 agent prompt 폭주를 줄이려는 설계가 보인다.</li>
+        <li><strong>변경 추적 가능성:</strong> git 기반 changed-file 감지와 affected test 분석은 phase 검증 workflow에 활용할 수 있다.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>11. 리스크와 완화</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>리스크</th>
+            <th>영향</th>
+            <th>완화책</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>최초 인덱싱 비용</td>
+            <td>CPU, I/O, DB write가 발생한다.</td>
+            <td>approval 후 수동 실행. UI hot path와 분리. 인덱싱 시간과 DB 크기를 측정한다.</td>
+          </tr>
+          <tr>
+            <td>watcher 백그라운드 작업</td>
+            <td>latency 변동과 파일 시스템 부하가 생길 수 있다.</td>
+            <td>초기에는 watch 비활성, 수동 <code>sync</code> 사용.</td>
+          </tr>
+          <tr>
+            <td>Node/WASM 버전 제약</td>
+            <td>CLI 실행 실패 또는 parser crash 가능성이 있다.</td>
+            <td><code>node --version</code>, <code>codegraph status</code>를 pilot checklist에 포함한다.</td>
+          </tr>
+          <tr>
+            <td>그래프 정확도 불확실성</td>
+            <td>동적 import, Electron IPC, generated code, framework convention에서 누락 가능성이 있다.</td>
+            <td>대표 흐름 5개를 수동 ground truth와 비교한다.</td>
+          </tr>
+          <tr>
+            <td>중복 인덱스 저장소</td>
+            <td>HarnessAgentOS storage와 CodeGraph DB가 별도로 존재한다.</td>
+            <td>CodeGraph DB는 재생성 가능한 cache로 정의하고 canonical state로 취급하지 않는다.</td>
+          </tr>
+          <tr>
+            <td>agent tool overuse</td>
+            <td>불필요한 MCP 호출로 응답 지연이 커질 수 있다.</td>
+            <td>profile gating, prompt rule, timeout, output cap을 설정한다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>12. 권장 최소 구현 계획</h2>
+      <ol>
+        <li><strong>Phase 0: 외부 CLI 파일럿.</strong> CodeGraph를 설치하고 HarnessAgentOS 루트에서 <code>init</code>, <code>index</code>, <code>status</code>, <code>context</code>, <code>impact</code>를 실행한다. 이 단계는 프로젝트 코드 변경 없이 진행한다.</li>
+        <li><strong>Phase 1: MCP 서버 등록.</strong> HarnessAgentOS UI에서 stdio MCP 서버로 등록하고 reviewer/architect/performance profile에만 바인딩한다.</li>
+        <li><strong>Phase 2: agent 운영 규칙 추가.</strong> call path, impact, IPC/storage 변경 검토 작업에서 CodeGraph MCP를 먼저 사용하도록 profile prompt 또는 운영 문서에 추가한다.</li>
+        <li><strong>Phase 3: 품질 측정.</strong> 대표 작업 5개에서 기존 repo context만 쓴 결과와 CodeGraph context를 함께 쓴 결과를 비교한다.</li>
+        <li><strong>Phase 4: adapter 검토.</strong> 파일럿 결과가 좋을 때만 <code>packages/agent</code>에 optional <code>CodeGraphContextProvider</code> adapter를 설계한다. storage migration은 하지 않는다.</li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>13. 검증 계획</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>항목</th>
+            <th>방법</th>
+            <th>측정값</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>설치/런타임 호환성</td>
+            <td><code>node --version</code>, <code>codegraph --version</code>, <code>codegraph status</code></td>
+            <td>실행 성공, 경고, Node 버전 제약</td>
+          </tr>
+          <tr>
+            <td>초기 인덱싱 비용</td>
+            <td><code>Measure-Command { codegraph index ... }</code></td>
+            <td>wall time, CPU 체감, <code>.codegraph</code> DB 크기</td>
+          </tr>
+          <tr>
+            <td>쿼리 latency</td>
+            <td>동일 query 10회 반복</td>
+            <td>p50/p95, timeout, output size</td>
+          </tr>
+          <tr>
+            <td>정확도</td>
+            <td>AgentPlanningService, MCP config builder, repo index, IPC handler, storage repository 대표 흐름을 수동 call path와 비교</td>
+            <td>누락/오탐 symbol, edge, file count</td>
+          </tr>
+          <tr>
+            <td>agent 품질</td>
+            <td>기존 repo context와 CodeGraph context를 동일 prompt에 넣고 plan/review 품질 비교</td>
+            <td>필요 파일 적중률, 잘못된 파일 언급 감소, 리뷰 finding 근거성</td>
+          </tr>
+          <tr>
+            <td>운영 안전성</td>
+            <td>watch off/on 비교, MCP health probe, disabled profile behavior 확인</td>
+            <td>프로세스 종료, 파일락, latency 변동, UI blocking 여부</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>14. 바로 적용 가능한 HarnessAgentOS 개선 아이디어</h2>
+      <p>
+        CodeGraph 자체를 내장하지 않더라도 다음 아이디어는 낮은 위험으로 참고할 수 있다.
+      </p>
+      <ul>
+        <li><strong>RepoIndexService ignore 목록 보강:</strong> CodeGraph처럼 build/cache/output directory 기본 ignore를 더 명시적으로 관리한다.</li>
+        <li><strong>git-aware scan option:</strong> 전체 파일 스캔 전에 git tracked files를 우선 사용하는 옵션을 검토한다. 단, git이 없는 workspace fallback은 유지한다.</li>
+        <li><strong>agent context tool policy:</strong> architecture/review/perf profile에는 context 도구를 우선 사용하도록 하고, implementer profile에는 필요 시에만 허용한다.</li>
+        <li><strong>output budget 규칙:</strong> CodeGraph MCP의 max output/input cap처럼 HarnessAgentOS 자체 generated context도 명시적 budget과 truncation reason을 남긴다.</li>
+        <li><strong>affected test workflow:</strong> CodeGraph의 affected 개념을 참고해, 변경 파일에서 관련 테스트 후보를 제안하는 advisory 기능을 별도 phase로 검토한다.</li>
+      </ul>
+      <div class="callout">
+        <strong>구현 우선순위</strong>
+        지금 당장 코드를 바꾼다면 MCP 등록 preset 또는 운영 문서 추가가 최우선이다. RepoIndexService 교체나 AST 인덱싱 내장은 측정 전에는 추천하지 않는다.
+      </div>
+    </section>
+
+    <section>
+      <h2>15. 소스</h2>
+      <ul class="source-list">
+        <li><a href="https://github.com/colbymchenry/codegraph">CodeGraph repository</a></li>
+        <li><a href="https://colbymchenry.github.io/codegraph/core-concepts/how-it-works/">CodeGraph docs: How it works</a></li>
+        <li><a href="https://colbymchenry.github.io/codegraph/core-concepts/knowledge-graph/">CodeGraph docs: Knowledge graph</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/index.ts">src/index.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/types.ts">src/types.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/db/schema.sql">src/db/schema.sql</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/extraction/index.ts">src/extraction/index.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/resolution/index.ts">src/resolution/index.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/context/index.ts">src/context/index.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/graph/traversal.ts">src/graph/traversal.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/mcp/tools.ts">src/mcp/tools.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/bin/codegraph.ts">src/bin/codegraph.ts</a></li>
+        <li><a href="https://github.com/colbymchenry/codegraph/blob/main/src/sync/index.ts">src/sync/index.ts</a></li>
+      </ul>
+      <p>
+        로컬 HarnessAgentOS 근거 파일:
+        <code>package.json</code>,
+        <code>packages/agent/src/repo-index-service.ts</code>,
+        <code>packages/agent/src/context-packer.ts</code>,
+        <code>packages/agent/src/agent-planning-service.ts</code>,
+        <code>packages/agent/src/mcp-config-builder.ts</code>,
+        <code>packages/core/src/types/repo-index.ts</code>,
+        <code>packages/core/src/types/mcp.ts</code>,
+        <code>packages/storage/src/repositories/repo-index-repository.ts</code>,
+        <code>apps/desktop/electron/ipc/mcp-ipc.ts</code>,
+        <code>apps/desktop/electron/mcp-probe.ts</code>.
+      </p>
+    </section>
+  </main>
+</body>
+</html>

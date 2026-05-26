@@ -305,6 +305,7 @@ export const registerConversationIpc = (
         threadId?: unknown;
         userRequest?: unknown;
         targetDir?: unknown;
+        followUpTaskRunId?: unknown;
         mode?: unknown;
       };
       if (!isNonEmptyString(cast.userRequest)) {
@@ -329,6 +330,17 @@ export const registerConversationIpc = (
         );
       }
       if (
+        cast.followUpTaskRunId !== undefined &&
+        !isNonEmptyString(cast.followUpTaskRunId)
+      ) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "followUpTaskRunId must be a non-empty string when provided",
+          ),
+        );
+      }
+      if (
         cast.mode !== undefined &&
         cast.mode !== "template" &&
         cast.mode !== "agent"
@@ -345,6 +357,9 @@ export const registerConversationIpc = (
       };
       if (typeof cast.threadId === "string") payload.threadId = cast.threadId;
       if (typeof cast.targetDir === "string") payload.targetDir = cast.targetDir;
+      if (typeof cast.followUpTaskRunId === "string") {
+        payload.followUpTaskRunId = cast.followUpTaskRunId;
+      }
       if (cast.mode === "template" || cast.mode === "agent")
         payload.mode = cast.mode;
       try {

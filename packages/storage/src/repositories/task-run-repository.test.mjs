@@ -36,6 +36,39 @@ test("TaskRunRepository creates with default status drafting", async () => {
   }
 });
 
+test("TaskRunRepository persists follow-up TaskRun linkage", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const threads = new SqliteThreadRepository(db);
+    const tr = new SqliteTaskRunRepository(db);
+    const thread = await threads.create({ title: "x" });
+    const first = await tr.create({
+      threadId: thread.id,
+      userRequest: "initial task",
+      targetDir: "/tmp/x",
+    });
+    const followUp = await tr.create({
+      threadId: thread.id,
+      userRequest: "continue from previous task",
+      targetDir: "/tmp/x",
+      followUpTaskRunId: first.id,
+    });
+
+    assert.equal(followUp.followUpTaskRunId, first.id);
+    const reread = await tr.get(followUp.id);
+    assert.equal(reread.followUpTaskRunId, first.id);
+    const listed = await tr.listByThread(thread.id);
+    assert.equal(
+      listed.find((taskRun) => taskRun.id === followUp.id).followUpTaskRunId,
+      first.id,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("TaskRunRepository updateStatus bumps updatedAt and persists", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

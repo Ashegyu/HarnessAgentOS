@@ -26,6 +26,7 @@ export interface TaskRun {
   threadId: string;
   userRequest: string;
   targetDir: string;
+  followUpTaskRunId?: string;
   status: TaskRunStatus;
   currentStepId?: string;
   createdAt: string;
@@ -36,5 +37,6 @@ export interface CreateTaskRunInput {
   threadId: string;
   userRequest: string;
   targetDir: string;
+  followUpTaskRunId?: string;
   status?: TaskRunStatus;
 }

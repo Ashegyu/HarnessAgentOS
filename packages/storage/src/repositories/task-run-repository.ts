@@ -36,17 +36,21 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
       createdAt: now,
       updatedAt: now,
     };
+    if (input.followUpTaskRunId !== undefined) {
+      taskRun.followUpTaskRunId = input.followUpTaskRunId;
+    }
 
     this.db
       .prepare(
-        `INSERT INTO task_runs(id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at)
-         VALUES(@id, @threadId, @userRequest, @targetDir, @status, NULL, @createdAt, @updatedAt)`,
+        `INSERT INTO task_runs(id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at)
+         VALUES(@id, @threadId, @userRequest, @targetDir, @followUpTaskRunId, @status, NULL, @createdAt, @updatedAt)`,
       )
       .run({
         id: taskRun.id,
         threadId: taskRun.threadId,
         userRequest: taskRun.userRequest,
         targetDir: taskRun.targetDir,
+        followUpTaskRunId: taskRun.followUpTaskRunId ?? null,
         status: taskRun.status,
         createdAt: taskRun.createdAt,
         updatedAt: taskRun.updatedAt,
@@ -58,7 +62,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   async listByThread(threadId: string): Promise<TaskRun[]> {
     const rows = this.db
       .prepare(
-        `SELECT id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at
+        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at
          FROM task_runs WHERE thread_id = ?
          ORDER BY datetime(created_at) DESC, rowid DESC`,
       )
@@ -69,7 +73,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   async get(id: string): Promise<TaskRun | null> {
     const row = this.db
       .prepare(
-        `SELECT id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at
+        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at
          FROM task_runs WHERE id = ?`,
       )
       .get(id) as Parameters<typeof rowToTaskRun>[0] | undefined;

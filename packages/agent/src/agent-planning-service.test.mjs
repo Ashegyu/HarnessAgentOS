@@ -994,6 +994,148 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
   );
 });
 
+test("generatePlan includes previous TaskRuns from the same thread in the prompt", async () => {
+  const taskRun = {
+    id: "tr-current-thread",
+    threadId: "th-thread-context",
+    userRequest: "이어서 마무리해줘",
+    targetDir: "/tmp/project",
+    status: "drafting",
+    followUpTaskRunId: "tr-prev-thread",
+    createdAt: "2026-01-01T00:10:00.000Z",
+    updatedAt: "2026-01-01T00:10:00.000Z",
+  };
+  const previousTaskRun = {
+    id: "tr-prev-thread",
+    threadId: taskRun.threadId,
+    userRequest: "그래프 연결선을 고쳐줘",
+    targetDir: "/tmp/project",
+    status: "ready_for_review",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:05:00.000Z",
+  };
+  const invocation = {
+    id: "inv-thread-context",
+    taskRunId: taskRun.id,
+    provider: "codex",
+    model: "gpt-5.5",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:10:00.000Z",
+    updatedAt: "2026-01-01T00:10:00.000Z",
+  };
+  const planOutput = {
+    summary: "Thread context used",
+    assumptions: [],
+    steps: [{ title: "Continue", rationale: "same thread", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  let lastRequest = null;
+  let promptArtifactSummary = "";
+  let artifactSeq = 0;
+  let stepSeq = 0;
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      getThreadDetail: async () => ({
+        thread: {
+          id: taskRun.threadId,
+          title: "Thread",
+          targetDir: "/tmp/project",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:10:00.000Z",
+        },
+        taskRuns: [taskRun, previousTaskRun],
+        agentAnswers: {
+          [previousTaskRun.id]: "포트 중심 좌표로 연결선 보정 완료",
+        },
+      }),
+      createStep: async (input) => ({
+        id: `step-${++stepSeq}`,
+        taskRunId: input.taskRunId,
+        index: input.index,
+        kind: input.kind,
+        title: input.title,
+        status: input.status,
+        createdAt: "2026-01-01T00:10:00.000Z",
+        updatedAt: "2026-01-01T00:10:00.000Z",
+      }),
+      createArtifact: async (input) => {
+        if (input.title === "Agent prompt") promptArtifactSummary = input.summary;
+        return {
+          id: `art-${++artifactSeq}`,
+          taskRunId: input.taskRunId,
+          stepId: input.stepId,
+          kind: input.kind,
+          title: input.title,
+          uri: input.uri,
+          summary: input.summary,
+          createdAt: "2026-01-01T00:10:00.000Z",
+          updatedAt: "2026-01-01T00:10:00.000Z",
+        };
+      },
+      createAgentInvocation: async () => invocation,
+      updateAgentInvocation: async (_id, patch) => ({
+        ...invocation,
+        ...patch,
+      }),
+      setStepStatus: async (id, status) => ({
+        id,
+        taskRunId: taskRun.id,
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status,
+        createdAt: "2026-01-01T00:10:00.000Z",
+        updatedAt: "2026-01-01T00:10:00.000Z",
+      }),
+      setTaskRunStatus: async (_id, status) => ({ ...taskRun, status }),
+      setTaskRunCurrentStep: async (_id, stepId) => ({ ...taskRun, currentStepId: stepId }),
+      createCheckpoint: async (input) => ({
+        id: "cp-thread-context",
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        reason: input.reason,
+        stateRef: input.stateRef,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:10:00.000Z",
+      }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({
+        claude: { available: false, queueDepth: 0 },
+        codex: { available: true, queueDepth: 0 },
+      }),
+    adapter: {
+      invoke: async (request) => {
+        lastRequest = request;
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 10,
+        };
+      },
+    },
+  });
+
+  await svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" });
+
+  assert.match(lastRequest.prompt, /THREAD CONTEXT/);
+  assert.match(lastRequest.prompt, /FOLLOW-UP ANCHOR/);
+  assert.match(lastRequest.prompt, /continuation of this specific previous TaskRun/);
+  assert.match(lastRequest.prompt, /그래프 연결선을 고쳐줘/);
+  assert.match(lastRequest.prompt, /포트 중심 좌표로 연결선 보정 완료/);
+  assert.doesNotMatch(lastRequest.prompt, /Task 2[\s\S]*이어서 마무리해줘/);
+  assert.match(promptArtifactSummary, /THREAD CONTEXT/);
+  assert.match(promptArtifactSummary, /FOLLOW-UP ANCHOR/);
+});
+
 test("generatePlan persists token usage from provider metadata", async () => {
   const taskRun = {
     id: "tr-token-usage",

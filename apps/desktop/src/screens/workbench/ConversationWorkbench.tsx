@@ -45,6 +45,7 @@ interface ConversationWorkbenchProps {
     userRequest: string;
     targetDir?: string;
     mode: ConversationMode;
+    followUpTaskRunId?: string;
   }) => Promise<void>;
   threadTargetDir: string | undefined;
   threadId: string | null;
@@ -80,6 +81,44 @@ const formatTime = (iso: string): string => {
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
+
+interface FollowUpTaskRunOption {
+  id: string;
+  ordinal: number;
+  userRequest: string;
+}
+
+const resolveFollowUpTaskRun = (
+  taskRuns: readonly TaskRun[],
+  selectedTaskRunId: string | null,
+): FollowUpTaskRunOption | null => {
+  if (taskRuns.length === 0) return null;
+  const ordered = [...taskRuns].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+      a.id.localeCompare(b.id),
+  );
+  const selectedIndex =
+    selectedTaskRunId === null
+      ? -1
+      : ordered.findIndex((taskRun) => taskRun.id === selectedTaskRunId);
+  const index = selectedIndex >= 0 ? selectedIndex : ordered.length - 1;
+  const taskRun = ordered[index];
+  if (!taskRun) return null;
+  return {
+    id: taskRun.id,
+    ordinal: index + 1,
+    userRequest: taskRun.userRequest,
+  };
+};
+
+interface ChatTurnThreadLink {
+  ordinal: number;
+  total: number;
+  previous?: TaskRun;
+  next?: TaskRun;
+  onSelectTaskRun: (id: string) => void;
+}
 
 export const ConversationWorkbench = ({
   detailState,
@@ -152,6 +191,11 @@ export const ConversationWorkbench = ({
     );
   }
 
+  const followUpTaskRun = resolveFollowUpTaskRun(
+    detailState.detail.taskRuns,
+    selectedTaskRunId,
+  );
+
   return (
     <main className="conversation-workbench" aria-label="Conversation workbench">
       <ChatHeader
@@ -185,6 +229,7 @@ export const ConversationWorkbench = ({
         threadPipelineId={threadPipelineId}
         agentAvailable={agentAvailable}
         composerSeed={composerSeed}
+        followUpTaskRun={followUpTaskRun}
         onSubmit={onCreateTask}
       />
     </main>
@@ -307,7 +352,13 @@ const ChatTranscript = ({
 
   return (
     <div className="chat-transcript" ref={scrollRef}>
-      {ordered.map((tr) => {
+      <ThreadTaskFlow
+        taskRuns={ordered}
+        selectedTaskRunId={selectedTaskRunId}
+        agentAnswers={agentAnswers ?? {}}
+        onSelectTaskRun={onSelectTaskRun}
+      />
+      {ordered.map((tr, index) => {
         const displayTaskRun = taskRunWithActiveOverride(tr, activeTaskRun);
         const isActive = activeTaskRunId === tr.id;
         return (
@@ -322,6 +373,15 @@ const ChatTranscript = ({
             steps={isActive ? activeTaskRunSteps : []}
             approvals={isActive ? activeTaskRunApprovals : []}
             progress={agentProgressByTaskRunId[tr.id] ?? []}
+            threadLink={{
+              ordinal: index + 1,
+              total: ordered.length,
+              ...(ordered[index - 1]
+                ? { previous: ordered[index - 1] }
+                : {}),
+              ...(ordered[index + 1] ? { next: ordered[index + 1] } : {}),
+              onSelectTaskRun,
+            }}
             inlineApprovalCard={
               isActive ? (
                 <InlineApprovalCard
@@ -339,6 +399,57 @@ const ChatTranscript = ({
   );
 };
 
+const ThreadTaskFlow = ({
+  taskRuns,
+  selectedTaskRunId,
+  agentAnswers,
+  onSelectTaskRun,
+}: {
+  taskRuns: readonly TaskRun[];
+  selectedTaskRunId: string | null;
+  agentAnswers: Record<string, string>;
+  onSelectTaskRun: (id: string) => void;
+}): JSX.Element | null => {
+  if (taskRuns.length <= 1) return null;
+  return (
+    <nav className="thread-task-flow" aria-label="Current thread TaskRun flow">
+      <header className="thread-task-flow__header">
+        <span>Thread Task Flow</span>
+        <strong>{taskRuns.length} tasks connected</strong>
+      </header>
+      <ol className="thread-task-flow__nodes">
+        {taskRuns.map((taskRun, index) => {
+          const selected = selectedTaskRunId === taskRun.id;
+          const hasAnswer = (agentAnswers[taskRun.id]?.length ?? 0) > 0;
+          return (
+            <li key={taskRun.id} className="thread-task-flow__item">
+              <button
+                type="button"
+                className={`thread-task-flow__node${
+                  selected ? " thread-task-flow__node--selected" : ""
+                }`}
+                onClick={() => onSelectTaskRun(taskRun.id)}
+                aria-current={selected ? "step" : undefined}
+                title={taskRun.userRequest}
+              >
+                <span className="thread-task-flow__ordinal">
+                  Task {index + 1}
+                </span>
+                <TaskRunStatusBadge status={taskRun.status} />
+                <strong>{shortTaskText(taskRun.userRequest, 54)}</strong>
+                <span>{hasAnswer ? "답변 있음" : "답변 대기"}</span>
+              </button>
+              {index < taskRuns.length - 1 ? (
+                <span className="thread-task-flow__connector" aria-hidden />
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+};
+
 const ChatTurn = ({
   taskRun,
   answer,
@@ -349,6 +460,7 @@ const ChatTurn = ({
   steps,
   approvals,
   progress,
+  threadLink,
   inlineApprovalCard,
 }: {
   taskRun: TaskRun;
@@ -360,6 +472,7 @@ const ChatTurn = ({
   steps: readonly Step[];
   approvals: readonly Approval[];
   progress: readonly AgentProgressItem[];
+  threadLink: ChatTurnThreadLink;
   inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
   // When this turn has a live invocation we render the streaming view
@@ -389,6 +502,37 @@ const ChatTurn = ({
       className={`chat-turn${isSelected ? " chat-turn--selected" : ""}`}
       onClick={onSelect}
     >
+      {threadLink.total > 1 ? (
+        <div className="chat-turn__thread-link" aria-label="Thread task links">
+          <span>
+            Task {threadLink.ordinal} / {threadLink.total}
+          </span>
+          {threadLink.previous ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                threadLink.onSelectTaskRun(threadLink.previous!.id);
+              }}
+              title={threadLink.previous.userRequest}
+            >
+              이전 태스크
+            </button>
+          ) : null}
+          {threadLink.next ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                threadLink.onSelectTaskRun(threadLink.next!.id);
+              }}
+              title={threadLink.next.userRequest}
+            >
+              다음 태스크
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <div className="chat-bubble chat-bubble--user">
         <div className="chat-bubble__body">{taskRun.userRequest}</div>
         <div className="chat-bubble__meta">
@@ -536,4 +680,10 @@ const pendingPlaceholder = (status: TaskRun["status"]): string => {
 const shortPath = (p: string): string => {
   if (p.length <= 36) return p;
   return `${p.slice(0, 12)}…${p.slice(-20)}`;
+};
+
+const shortTaskText = (text: string, max: number): string => {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1))}…`;
 };

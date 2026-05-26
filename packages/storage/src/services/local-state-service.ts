@@ -339,6 +339,9 @@ export class LocalStateService implements ConversationStateGateway {
       threadId: input.threadId,
       userRequest: input.userRequest,
       targetDir: v.normalized,
+      ...(input.followUpTaskRunId !== undefined
+        ? { followUpTaskRunId: input.followUpTaskRunId }
+        : {}),
       ...(input.status ? { status: input.status } : {}),
     });
   }

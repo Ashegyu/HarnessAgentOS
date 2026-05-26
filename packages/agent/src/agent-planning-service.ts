@@ -33,6 +33,7 @@ import { redactSecrets } from "@harness/learner";
 import {
   buildSplitAgentPrompt,
   type AgentHandoffPromptMessage,
+  type ThreadContextPromptTask,
 } from "./agent-prompt-builder.ts";
 import type { PackedRepoContext } from "./context-packer.ts";
 import { resolveAgentProfile } from "./agent-profile-resolver.ts";
@@ -295,10 +296,12 @@ export class AgentPlanningService {
       taskRun,
       taskRun.userRequest,
     );
+    const threadContext = await this.loadThreadContext(taskRun);
 
     const splitPrompt = buildSplitAgentPrompt({
       taskRun,
       repoContext,
+      threadContext,
       recentArtifacts,
       qualityRisks,
       persona: resolved.persona,
@@ -370,7 +373,7 @@ export class AgentPlanningService {
     emitProgress(
       "context",
       "컨텍스트 수집 완료",
-      `${recentArtifacts.length}개 artifact, 품질 리포트 ${qualityRisks ? "있음" : "없음"}, repo ${describeRepoContext(repoContext)}`,
+      `${recentArtifacts.length}개 artifact, 이전 task ${threadContext.length}개, 품질 리포트 ${qualityRisks ? "있음" : "없음"}, repo ${describeRepoContext(repoContext)}`,
     );
     emitProgress(
       "profile",
@@ -953,9 +956,11 @@ export class AgentPlanningService {
       input.profile.id,
     );
     const repoContext = await this.loadRepoContext(taskRun, input.userRequest);
+    const threadContext = await this.loadThreadContext(taskRun);
     const prompt = buildSplitAgentPrompt({
       taskRun: { ...taskRun, userRequest: input.userRequest },
       repoContext,
+      threadContext,
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
@@ -1030,7 +1035,7 @@ export class AgentPlanningService {
     emitProgress(
       "prompt",
       "Worker 프롬프트 구성 완료",
-      `system ${systemPrompt.length}자, user ${userPrompt.length}자, handoff ${input.handoffMessages?.length ?? 0}개, repo ${describeRepoContext(repoContext)}`,
+      `system ${systemPrompt.length}자, user ${userPrompt.length}자, 이전 task ${threadContext.length}개, handoff ${input.handoffMessages?.length ?? 0}개, repo ${describeRepoContext(repoContext)}`,
     );
     emitProgress(
       "session",
@@ -1291,6 +1296,58 @@ export class AgentPlanningService {
       return await this.deps.getRepoContext({ taskRun, prompt });
     } catch {
       return null;
+    }
+  }
+
+  private async loadThreadContext(
+    taskRun: TaskRun,
+  ): Promise<ThreadContextPromptTask[]> {
+    if (!this.deps.state.getThreadDetail) return [];
+    try {
+      const detail = await this.deps.state.getThreadDetail(taskRun.threadId);
+      if (!detail) return [];
+      const currentCreatedAt = Date.parse(taskRun.createdAt);
+      const ordered = [...detail.taskRuns].sort(
+        (a, b) =>
+          Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+          a.id.localeCompare(b.id),
+      );
+      const priorTasks = ordered
+        .filter((candidate) => {
+          if (candidate.id === taskRun.id) return false;
+          const candidateCreatedAt = Date.parse(candidate.createdAt);
+          if (
+            Number.isFinite(currentCreatedAt) &&
+            Number.isFinite(candidateCreatedAt)
+          ) {
+            return candidateCreatedAt <= currentCreatedAt;
+          }
+          return candidate.createdAt <= taskRun.createdAt;
+        })
+        .map((candidate, index) => ({
+          ordinal:
+            ordered.findIndex((task) => task.id === candidate.id) + 1 ||
+            index + 1,
+          taskRunId: candidate.id,
+          userRequest: candidate.userRequest,
+          status: candidate.status,
+          ...(taskRun.followUpTaskRunId === candidate.id
+            ? { isFollowUpAnchor: true }
+            : {}),
+          ...(detail.agentAnswers?.[candidate.id]
+            ? { answerSummary: detail.agentAnswers[candidate.id] }
+            : {}),
+        }));
+      const visible = priorTasks.slice(-6);
+      const anchor = priorTasks.find((candidate) => candidate.isFollowUpAnchor);
+      if (!anchor || visible.some((candidate) => candidate.taskRunId === anchor.taskRunId)) {
+        return visible;
+      }
+      return [anchor, ...visible.slice(-5)].sort(
+        (a, b) => a.ordinal - b.ordinal,
+      );
+    } catch {
+      return [];
     }
   }
 

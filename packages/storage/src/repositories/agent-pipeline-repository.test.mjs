@@ -169,6 +169,24 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       /한국어/,
       "seed step instructions should be Korean-facing",
     );
+    assert.ok(
+      delivery.backflowRules?.some(
+        (rule) =>
+          rule.trigger === "step_failed" &&
+          rule.targetStepId === "plan" &&
+          rule.retryStepId === "implement",
+      ),
+      "seeded delivery pipelines should include retry-to-upstream backflow",
+    );
+    assert.ok(
+      delivery.backflowRules?.some(
+        (rule) =>
+          rule.trigger === "quality_failed" &&
+          rule.targetStepId === "implement" &&
+          rule.retryStepId === "final-review",
+      ),
+      "seeded delivery pipelines should include a bounded quality backflow",
+    );
 
     const prd = all.find((p) => p.id === "pipe_template_product_prd");
     assert.ok(prd, "Product PRD Discovery template should exist");
@@ -236,6 +254,15 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       newProject.steps.find((step) => step.id === "image-assets")?.allowedActions,
       [],
       "image generation planning remains read-only until a concrete image runner exists",
+    );
+    assert.ok(
+      newProject.backflowRules?.some(
+        (rule) =>
+          rule.trigger === "step_failed" &&
+          rule.targetStepId === "image-assets" &&
+          rule.retryStepId === "implementation",
+      ),
+      "new project implementation should be able to backflow to asset planning",
     );
 
     const investigation = all.find((p) => p.id === "pipe_template_evidence_bug_investigation");
@@ -318,71 +345,51 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       /3D 모델|텍스처/,
       "implementation step must explicitly consume the generated 3D model and texture outputs",
     );
-    assert.deepEqual(project3d.backflowRules, [
-      {
-        id: "bf_architecture_from_prd",
-        trigger: "step_failed",
-        targetStepId: "prd",
-        retryStepId: "architecture",
-        maxAttempts: 2,
-        instruction:
-          "아키텍처가 실패하면 PRD 산출물부터 요구사항/제약을 보강한 뒤 아키텍처를 다시 작성하세요.",
-      },
-      {
-        id: "bf_plan_from_architecture",
-        trigger: "step_failed",
-        targetStepId: "architecture",
-        retryStepId: "plan",
-        maxAttempts: 2,
-        instruction:
-          "계획이 실패하면 아키텍처 산출물을 먼저 보강하고 생성 순서와 검증 기준을 다시 정리하세요.",
-      },
-      {
-        id: "bf_texture_from_plan",
-        trigger: "step_failed",
-        targetStepId: "plan",
-        retryStepId: "texture-generation",
-        maxAttempts: 2,
-        instruction:
-          "텍스처 생성이 실패하면 계획 단계로 돌아가 텍스처 용도, 해상도, 파일 형식, 검수 기준을 보강하세요.",
-      },
-      {
-        id: "bf_model_from_texture",
-        trigger: "step_failed",
-        targetStepId: "texture-generation",
-        retryStepId: "modeling",
-        maxAttempts: 2,
-        instruction:
-          "3D 모델링이 실패하면 텍스처 산출물과 매핑 요구사항을 재작성한 뒤 모델을 다시 생성하세요.",
-      },
-      {
-        id: "bf_implementation_from_model",
-        trigger: "step_failed",
-        targetStepId: "modeling",
-        retryStepId: "implementation",
-        maxAttempts: 2,
-        instruction:
-          "세부 구현이 생성된 3D 모델을 사용하지 못하면 모델링 산출물부터 되돌아가 asset path와 import 계약을 보강하세요.",
-      },
-      {
-        id: "bf_validation_from_implementation",
-        trigger: "step_failed",
-        targetStepId: "implementation",
-        retryStepId: "execution-validation",
-        maxAttempts: 2,
-        instruction:
-          "실행 검증이 실패하면 구현 단계부터 재시도하고 검증 명령이 실제 산출물을 확인하도록 수정하세요.",
-      },
-      {
-        id: "bf_completion_quality_from_implementation",
-        trigger: "quality_failed",
-        targetStepId: "implementation",
-        retryStepId: "completion",
-        maxAttempts: 1,
-        instruction:
-          "최종 품질 게이트가 실패하면 구현 이후 리뷰, 실행 검증, 설명, 완료 판단을 다시 수행하세요.",
-      },
-    ]);
+    assert.ok(
+      project3d.backflowRules?.some(
+        (rule) =>
+          rule.id === "bf_completion_quality_from_implementation" &&
+          rule.trigger === "quality_failed" &&
+          rule.targetStepId === "implementation" &&
+          rule.retryStepId === "completion",
+      ),
+      "3D template keeps its explicit final quality backflow",
+    );
+    assert.ok(
+      project3d.backflowRules?.some(
+        (rule) =>
+          rule.trigger === "step_failed" &&
+          rule.targetStepId === "file-composition" &&
+          rule.retryStepId === "class-generation",
+      ),
+      "3D template should add missing step-level backflow where topology allows it",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.ensureSeed backfills missing seed backflow rules", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    await pipelines.ensureSeed();
+    const seeded = await pipelines.get("pipe_template_supervised_delivery");
+    assert.ok(seeded, "Supervised Delivery template should exist");
+    await pipelines.update({ ...seeded, backflowRules: [] });
+
+    await pipelines.ensureSeed();
+
+    const refreshed = await pipelines.get("pipe_template_supervised_delivery");
+    assert.ok(refreshed?.backflowRules?.length > 0);
+    assert.ok(
+      refreshed.backflowRules.some(
+        (rule) =>
+          rule.id === "bf_implement_from_plan_step_failed" &&
+          rule.trigger === "step_failed",
+      ),
+    );
   } finally {
     closeDb(db);
     t.cleanup();

@@ -11,6 +11,12 @@ import {
   settingsWithDefaultPipeline,
   topologyTaskRunOptionsFromThreadDetails,
   moveStep,
+  buildPipelineVisualModel,
+  connectPipelineBackflow,
+  connectPipelineDependency,
+  disconnectPipelineBackflow,
+  disconnectPipelineDependency,
+  suggestBackflowRulesForDraft,
 } from "./pipeline-form.ts";
 
 const profile = (id, name = "Coder", role = "coder") => ({ id, name, role });
@@ -470,6 +476,226 @@ test("validatePipelineDraft accepts and serializes backflow rules", () => {
   );
   const out = serializePipelineDraft(d);
   assert.deepEqual(out.backflowRules, d.backflowRules);
+});
+
+test("buildPipelineVisualModel exposes editable topology metadata", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Visual Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        remoteEndpointId: "",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+        outputContract: "plan",
+      },
+      {
+        id: "code",
+        agentProfileId: "ap_b",
+        remoteEndpointId: "a2a_remote",
+        title: "Code",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["plan"],
+        allowedActions: ["file_write"],
+        outputContract: "diff_proposal",
+      },
+    ],
+    backflowRules: [
+      {
+        id: "bf_code",
+        trigger: "step_failed",
+        targetStepId: "plan",
+        retryStepId: "code",
+        maxAttempts: 2,
+      },
+    ],
+  };
+
+  const model = buildPipelineVisualModel(
+    d,
+    [profile("ap_a", "Planner", "planner"), profile("ap_b", "Coder", "coder")],
+    [remoteEntry("a2a_remote", "Remote Coder")],
+  );
+
+  assert.deepEqual(
+    model.links.map((link) => [link.kind, link.fromStepId, link.toStepId]),
+    [
+      ["dependency", "plan", "code"],
+      ["step_failed", "code", "plan"],
+    ],
+  );
+  assert.equal(model.nodes[1].roleLabel, "Coder");
+  assert.equal(model.nodes[1].remoteEndpointLabel, "Remote Coder");
+  assert.equal(model.nodes[1].outputContractLabel, "diff_proposal");
+  assert.equal(model.nodes[1].allowedActionLabel, "file_write");
+  assert.equal(model.nodes[1].backflowRuleCount, 1);
+});
+
+test("suggestBackflowRulesForDraft adds bounded rules where dependency paths allow it", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Suggested Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "implement",
+        agentProfileId: "ap_b",
+        title: "Implement",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: ["plan"],
+        allowedActions: ["file_write"],
+      },
+      {
+        id: "review",
+        agentProfileId: "ap_c",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["quality_report"],
+        dependsOn: ["implement"],
+        allowedActions: [],
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    suggestBackflowRulesForDraft(d).map((rule) => [
+      rule.id,
+      rule.trigger,
+      rule.targetStepId,
+      rule.retryStepId,
+      rule.maxAttempts,
+    ]),
+    [
+      ["bf_implement_from_plan_step_failed", "step_failed", "plan", "implement", 2],
+      ["bf_review_from_implement_step_failed", "step_failed", "implement", "review", 2],
+      ["bf_review_from_implement_quality_failed", "quality_failed", "implement", "review", 1],
+    ],
+  );
+
+  assert.deepEqual(
+    suggestBackflowRulesForDraft({
+      ...d,
+      backflowRules: [
+        {
+          id: "bf_implement_from_plan_step_failed",
+          trigger: "step_failed",
+          targetStepId: "plan",
+          retryStepId: "implement",
+          maxAttempts: 2,
+        },
+      ],
+    }).map((rule) => rule.id),
+    [
+      "bf_review_from_implement_step_failed",
+      "bf_review_from_implement_quality_failed",
+    ],
+  );
+});
+
+test("visual connection helpers update dependencies and backflow safely", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Interactive Flow",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_a",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "implement",
+        agentProfileId: "ap_b",
+        title: "Implement",
+        instruction: "",
+        expectedArtifactKinds: ["diff"],
+        dependsOn: [],
+        allowedActions: ["file_write"],
+      },
+      {
+        id: "review",
+        agentProfileId: "ap_c",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["quality_report"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+    ],
+    backflowRules: [],
+  };
+
+  const dep = connectPipelineDependency(d, "plan", "implement");
+  assert.equal(dep.changed, true);
+  assert.deepEqual(dep.draft.steps[1].dependsOn, ["plan"]);
+
+  const duplicate = connectPipelineDependency(dep.draft, "plan", "implement");
+  assert.equal(duplicate.changed, false);
+  assert.equal(duplicate.reason, "duplicate");
+
+  const cycle = connectPipelineDependency(dep.draft, "implement", "plan");
+  assert.equal(cycle.changed, false);
+  assert.equal(cycle.reason, "cycle");
+
+  const chained = connectPipelineDependency(dep.draft, "implement", "review");
+  const backflow = connectPipelineBackflow(
+    chained.draft,
+    "review",
+    "implement",
+    "quality_failed",
+  );
+  assert.equal(backflow.changed, true);
+  assert.deepEqual(backflow.draft.backflowRules, [
+    {
+      id: "bf_review_from_implement_quality_failed",
+      trigger: "quality_failed",
+      targetStepId: "implement",
+      retryStepId: "review",
+      maxAttempts: 1,
+    },
+  ]);
+
+  const invalidBackflow = connectPipelineBackflow(
+    chained.draft,
+    "plan",
+    "review",
+    "step_failed",
+  );
+  assert.equal(invalidBackflow.changed, false);
+  assert.equal(invalidBackflow.reason, "invalid_backflow_target");
+
+  const withoutBackflow = disconnectPipelineBackflow(
+    backflow.draft,
+    "bf_review_from_implement_quality_failed",
+  );
+  assert.equal(withoutBackflow.changed, true);
+  assert.deepEqual(withoutBackflow.draft.backflowRules, []);
+
+  const withoutDependency = disconnectPipelineDependency(
+    dep.draft,
+    "plan",
+    "implement",
+  );
+  assert.equal(withoutDependency.changed, true);
+  assert.deepEqual(withoutDependency.draft.steps[1].dependsOn, []);
 });
 
 test("validatePipelineDraft flags invalid backflow rules without treating them as dependency cycles", () => {

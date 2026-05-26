@@ -709,6 +709,7 @@ export const WorkbenchShell = (): JSX.Element => {
       userRequest: string;
       targetDir?: string;
       mode: ConversationMode;
+      followUpTaskRunId?: string;
       orchMode?: OrchestrationMode;
       orchInstruction?: string;
       orchPipelineId?: string;
@@ -727,6 +728,7 @@ export const WorkbenchShell = (): JSX.Element => {
         threadId: string;
         userRequest: string;
         targetDir?: string;
+        followUpTaskRunId?: string;
         mode: ConversationMode;
       } = {
         threadId: selectedThreadId,
@@ -734,6 +736,9 @@ export const WorkbenchShell = (): JSX.Element => {
         mode: input.mode,
       };
       if (input.targetDir !== undefined) payload.targetDir = input.targetDir;
+      if (input.followUpTaskRunId !== undefined) {
+        payload.followUpTaskRunId = input.followUpTaskRunId;
+      }
       const draft = await window.harness.conversation.createTask(payload);
       // Mark this TaskRun as pipeline-auto BEFORE the render that
       // mounts the detail panels. There's a race window between the
@@ -746,6 +751,14 @@ export const WorkbenchShell = (): JSX.Element => {
       // first render so the manual button never flashes.
       if (usingPipeline) markPipelineAutoTaskRun(draft.taskRun.id);
       setSelectedTaskRunId(draft.taskRun.id);
+      if (input.followUpTaskRunId !== undefined) {
+        noteAgentProgress(
+          draft.taskRun.id,
+          "context",
+          "이전 Task 이어받기",
+          input.followUpTaskRunId,
+        );
+      }
       let advisoryApprovalCount = 0;
       if (input.mode === "agent" && !usingPipeline) {
         try {

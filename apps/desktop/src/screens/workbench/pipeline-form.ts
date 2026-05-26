@@ -78,6 +78,47 @@ export interface PipelineFanOutPreview {
   warnings: string[];
 }
 
+export type PipelineVisualLinkKind = "dependency" | PipelineBackflowTrigger;
+
+export interface PipelineVisualNode {
+  stepId: string;
+  title: string;
+  index: number;
+  roleLabel: string;
+  remoteEndpointLabel: string;
+  outputContractLabel: string;
+  allowedActionLabel: string;
+  dependencyIds: string[];
+  dependentIds: string[];
+  backflowRuleCount: number;
+}
+
+export interface PipelineVisualLink {
+  id: string;
+  kind: PipelineVisualLinkKind;
+  fromStepId: string;
+  toStepId: string;
+  label: string;
+}
+
+export interface PipelineVisualModel {
+  nodes: PipelineVisualNode[];
+  links: PipelineVisualLink[];
+}
+
+export type PipelineVisualConnectionReason =
+  | "missing_step"
+  | "same_step"
+  | "duplicate"
+  | "cycle"
+  | "invalid_backflow_target";
+
+export interface PipelineVisualConnectionResult {
+  draft: PipelineDraft;
+  changed: boolean;
+  reason?: PipelineVisualConnectionReason;
+}
+
 export interface TopologyTaskRunOption {
   id: string;
   label: string;
@@ -820,6 +861,312 @@ const READ_ONLY_PARALLEL_ROLES = new Set<string>([
   "performance-reviewer",
   "documenter",
 ]);
+
+const visualDependsOn = (
+  steps: readonly PipelineStepDraft[],
+  index: number,
+): string[] => {
+  const step = steps[index];
+  if (!step) return [];
+  if (step.dependsOn !== null && step.dependsOn !== undefined) {
+    return [...step.dependsOn];
+  }
+  return index > 0 ? [steps[index - 1]!.id] : [];
+};
+
+const hasVisualDependencyPath = (
+  steps: readonly PipelineStepDraft[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const visited = new Set<string>();
+  const visit = (stepId: string): boolean => {
+    if (stepId === targetStepId) return true;
+    if (visited.has(stepId)) return false;
+    visited.add(stepId);
+    const index = stepIndexById.get(stepId);
+    if (index === undefined) return false;
+    return visualDependsOn(steps, index).some((depId) => visit(depId));
+  };
+  return visit(retryStepId);
+};
+
+const backflowTargetCandidatesForDraft = (
+  steps: readonly PipelineStepDraft[],
+  retryStepId: string,
+): PipelineStepDraft[] => {
+  const retryIndex = steps.findIndex((step) => step.id === retryStepId);
+  if (retryIndex <= 0) return [];
+  return steps
+    .slice(0, retryIndex)
+    .filter((step) =>
+      hasVisualDependencyPath(steps, step.id, retryStepId),
+    );
+};
+
+const safeBackflowIdPart = (value: string): string =>
+  value
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "step";
+
+const suggestedBackflowId = (
+  retryStepId: string,
+  targetStepId: string,
+  trigger: PipelineBackflowTrigger,
+): string =>
+  `bf_${safeBackflowIdPart(retryStepId)}_from_${safeBackflowIdPart(
+    targetStepId,
+  )}_${trigger}`;
+
+const chooseQualityBackflowTarget = (
+  steps: readonly PipelineStepDraft[],
+  retryStepId: string,
+): PipelineStepDraft | null => {
+  const candidates = backflowTargetCandidatesForDraft(steps, retryStepId);
+  if (candidates.length === 0) return null;
+  const firstSideEffectCandidate = candidates.find(
+    (step) => (step.allowedActions ?? []).length > 0,
+  );
+  return firstSideEffectCandidate ?? candidates.at(-1) ?? null;
+};
+
+export const suggestBackflowRulesForDraft = (
+  draft: PipelineDraft,
+): AgentPipelineBackflowRule[] => {
+  const existingKeys = new Set(
+    (draft.backflowRules ?? []).map(
+      (rule) =>
+        rule.trigger === "quality_failed"
+          ? `${rule.trigger}:*`
+          : `${rule.trigger}:${rule.retryStepId}`,
+    ),
+  );
+  const existingIds = new Set((draft.backflowRules ?? []).map((rule) => rule.id));
+  const rules: AgentPipelineBackflowRule[] = [];
+  const pushRule = (
+    trigger: PipelineBackflowTrigger,
+    targetStepId: string,
+    retryStepId: string,
+    maxAttempts: number,
+  ): void => {
+    const key =
+      trigger === "quality_failed"
+        ? `${trigger}:*`
+        : `${trigger}:${retryStepId}`;
+    if (existingKeys.has(key)) return;
+    const id = suggestedBackflowId(retryStepId, targetStepId, trigger);
+    if (existingIds.has(id)) return;
+    rules.push({
+      id,
+      trigger,
+      targetStepId,
+      retryStepId,
+      maxAttempts,
+    });
+    existingKeys.add(key);
+    existingIds.add(id);
+  };
+
+  for (const step of draft.steps) {
+    const target = backflowTargetCandidatesForDraft(draft.steps, step.id).at(-1);
+    if (!target) continue;
+    pushRule("step_failed", target.id, step.id, 2);
+  }
+
+  const retryStep = draft.steps.at(-1);
+  if (retryStep) {
+    const target = chooseQualityBackflowTarget(draft.steps, retryStep.id);
+    if (target) {
+      pushRule("quality_failed", target.id, retryStep.id, 1);
+    }
+  }
+
+  return rules;
+};
+
+export const connectPipelineDependency = (
+  draft: PipelineDraft,
+  fromStepId: string,
+  toStepId: string,
+): PipelineVisualConnectionResult => {
+  const fromIndex = draft.steps.findIndex((step) => step.id === fromStepId);
+  const toIndex = draft.steps.findIndex((step) => step.id === toStepId);
+  if (fromIndex < 0 || toIndex < 0) {
+    return { draft, changed: false, reason: "missing_step" };
+  }
+  if (fromStepId === toStepId) {
+    return { draft, changed: false, reason: "same_step" };
+  }
+  const current = new Set(visualDependsOn(draft.steps, toIndex));
+  if (current.has(fromStepId)) {
+    return { draft, changed: false, reason: "duplicate" };
+  }
+  if (hasVisualDependencyPath(draft.steps, toStepId, fromStepId)) {
+    return { draft, changed: false, reason: "cycle" };
+  }
+  current.add(fromStepId);
+  const steps = draft.steps.map((step, index) =>
+    index === toIndex ? { ...step, dependsOn: [...current] } : step,
+  );
+  return { draft: { ...draft, steps }, changed: true };
+};
+
+export const disconnectPipelineDependency = (
+  draft: PipelineDraft,
+  fromStepId: string,
+  toStepId: string,
+): PipelineVisualConnectionResult => {
+  const toIndex = draft.steps.findIndex((step) => step.id === toStepId);
+  if (toIndex < 0 || !draft.steps.some((step) => step.id === fromStepId)) {
+    return { draft, changed: false, reason: "missing_step" };
+  }
+  const current = new Set(visualDependsOn(draft.steps, toIndex));
+  if (!current.delete(fromStepId)) {
+    return { draft, changed: false, reason: "missing_step" };
+  }
+  const steps = draft.steps.map((step, index) =>
+    index === toIndex ? { ...step, dependsOn: [...current] } : step,
+  );
+  return { draft: { ...draft, steps }, changed: true };
+};
+
+export const connectPipelineBackflow = (
+  draft: PipelineDraft,
+  retryStepId: string,
+  targetStepId: string,
+  trigger: PipelineBackflowTrigger,
+): PipelineVisualConnectionResult => {
+  const targetIndex = draft.steps.findIndex((step) => step.id === targetStepId);
+  const retryIndex = draft.steps.findIndex((step) => step.id === retryStepId);
+  if (targetIndex < 0 || retryIndex < 0) {
+    return { draft, changed: false, reason: "missing_step" };
+  }
+  if (targetStepId === retryStepId) {
+    return { draft, changed: false, reason: "same_step" };
+  }
+  if (
+    targetIndex >= retryIndex ||
+    !hasVisualDependencyPath(draft.steps, targetStepId, retryStepId)
+  ) {
+    return { draft, changed: false, reason: "invalid_backflow_target" };
+  }
+  const duplicate = (draft.backflowRules ?? []).some(
+    (rule) => rule.trigger === trigger && rule.retryStepId === retryStepId,
+  );
+  if (duplicate) {
+    return { draft, changed: false, reason: "duplicate" };
+  }
+  const id = suggestedBackflowId(retryStepId, targetStepId, trigger);
+  if ((draft.backflowRules ?? []).some((rule) => rule.id === id)) {
+    return { draft, changed: false, reason: "duplicate" };
+  }
+  return {
+    draft: {
+      ...draft,
+      backflowRules: [
+        ...(draft.backflowRules ?? []),
+        {
+          id,
+          trigger,
+          targetStepId,
+          retryStepId,
+          maxAttempts: trigger === "quality_failed" ? 1 : 2,
+        },
+      ],
+    },
+    changed: true,
+  };
+};
+
+export const disconnectPipelineBackflow = (
+  draft: PipelineDraft,
+  ruleId: string,
+): PipelineVisualConnectionResult => {
+  const nextRules = (draft.backflowRules ?? []).filter(
+    (rule) => rule.id !== ruleId,
+  );
+  if (nextRules.length === (draft.backflowRules ?? []).length) {
+    return { draft, changed: false, reason: "missing_step" };
+  }
+  return {
+    draft: { ...draft, backflowRules: nextRules },
+    changed: true,
+  };
+};
+
+export const buildPipelineVisualModel = (
+  draft: PipelineDraft,
+  profiles: readonly ProfileLite[] = [],
+  remoteEntries: readonly A2ARegistryEntry[] = [],
+): PipelineVisualModel => {
+  const profileById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const remoteById = new Map(
+    remoteEntries.map((entry) => [entry.endpoint.id, entry] as const),
+  );
+  const dependentIdsByStepId = new Map<string, string[]>();
+  const links: PipelineVisualLink[] = [];
+
+  draft.steps.forEach((step, index) => {
+    for (const dependencyId of visualDependsOn(draft.steps, index)) {
+      const dependents = dependentIdsByStepId.get(dependencyId) ?? [];
+      dependents.push(step.id);
+      dependentIdsByStepId.set(dependencyId, dependents);
+      links.push({
+        id: `dep:${dependencyId}:${step.id}`,
+        kind: "dependency",
+        fromStepId: dependencyId,
+        toStepId: step.id,
+        label: "depends",
+      });
+    }
+  });
+
+  for (const rule of draft.backflowRules ?? []) {
+    links.push({
+      id: `backflow:${rule.id}`,
+      kind: rule.trigger,
+      fromStepId: rule.retryStepId,
+      toStepId: rule.targetStepId,
+      label: `${rule.trigger} · max ${rule.maxAttempts}`,
+    });
+  }
+
+  const nodes = draft.steps.map((step, index): PipelineVisualNode => {
+    const profile = profileById.get(step.agentProfileId);
+    const remoteEndpointId = step.remoteEndpointId.trim();
+    const remoteEndpointLabel =
+      remoteEndpointId.length === 0
+        ? "Local CLI"
+        : remoteById.get(remoteEndpointId)?.endpoint.name ??
+          `(missing remote: ${remoteEndpointId})`;
+    return {
+      stepId: step.id,
+      title: step.title.trim() || step.id,
+      index,
+      roleLabel: profile?.name ?? `(missing: ${step.agentProfileId})`,
+      remoteEndpointLabel,
+      outputContractLabel: step.outputContract || "Role default",
+      allowedActionLabel:
+        step.allowedActions === null
+          ? "Role default"
+          : step.allowedActions.length > 0
+            ? step.allowedActions.join(", ")
+            : "Read-only",
+      dependencyIds: visualDependsOn(draft.steps, index),
+      dependentIds: dependentIdsByStepId.get(step.id) ?? [],
+      backflowRuleCount: (draft.backflowRules ?? []).filter(
+        (rule) => rule.retryStepId === step.id,
+      ).length,
+    };
+  });
+
+  return { nodes, links };
+};
 
 const normalizeIntentText = (value: string): string =>
   value.trim().toLocaleLowerCase("ko-KR");

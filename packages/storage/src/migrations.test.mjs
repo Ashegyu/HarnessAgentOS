@@ -369,6 +369,25 @@ test("v30 migration creates pipeline backflow rule column and event ledger", () 
   }
 });
 
+test("v31 migration adds TaskRun follow-up anchor column and index", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(
+      hasColumn(db, "task_runs", "follow_up_task_run_id"),
+      true,
+      "task_runs.follow_up_task_run_id must exist",
+    );
+    assert.equal(hasIndex(db, "idx_task_runs_follow_up"), true);
+    applyMigrations(db);
+    assert.equal(hasColumn(db, "task_runs", "follow_up_task_run_id"), true);
+    assert.equal(hasIndex(db, "idx_task_runs_follow_up"), true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v7 migration enforces a single default profile via partial unique index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

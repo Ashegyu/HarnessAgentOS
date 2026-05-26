@@ -7,6 +7,7 @@ import {
   type AgentPipeline,
   type AgentPipelineStep,
   type CreateAgentPipelineInput,
+  type PipelineBackflowTrigger,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
@@ -133,6 +134,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
 
     const now = nowIso();
     this.localizeLegacySeedPipelines({ existing, updatedAt: now });
+    this.backfillSeedBackflowRules({ existing, updatedAt: now });
     for (const template of pipelineSeedTemplates) {
       if (existingIds.has(template.id)) continue;
       const nameKey = template.name.trim().toLowerCase();
@@ -148,7 +150,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         name: template.name,
         description: template.description,
         steps,
-        backflowRules: template.backflowRules ?? [],
+        backflowRules: suggestSeedBackflowRules(steps, template.backflowRules ?? []),
         createdAt: now,
         updatedAt: now,
       };
@@ -324,6 +326,35 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
           input.updatedAt,
           pipeline.id,
         );
+    }
+  }
+
+  private backfillSeedBackflowRules(input: {
+    existing: readonly AgentPipeline[];
+    updatedAt: string;
+  }): void {
+    const desiredById = new Map(
+      pipelineSeedTemplates.map((template) => [template.id, template] as const),
+    );
+    for (const pipeline of input.existing) {
+      const desired = desiredById.get(pipeline.id);
+      if (!desired) continue;
+      const backflowRules = suggestSeedBackflowRules(
+        pipeline.steps,
+        pipeline.backflowRules ?? [],
+        new Map(desired.steps.map((step) => [step.id, step.title] as const)),
+      );
+      if (backflowRules.length === (pipeline.backflowRules ?? []).length) {
+        continue;
+      }
+      validateBackflowRules(pipeline.steps, backflowRules);
+      this.db
+        .prepare(
+          `UPDATE agent_pipelines
+              SET backflow_rules_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(JSON.stringify(backflowRules), input.updatedAt, pipeline.id);
     }
   }
 }
@@ -2108,6 +2139,125 @@ const resolveSeedProfile = (input: {
     if (profile) return profile;
   }
   return input.profilesByRole.get(input.ref.role) ?? null;
+};
+
+const suggestSeedBackflowRules = (
+  steps: readonly AgentPipelineStep[],
+  existingRules: readonly AgentPipelineBackflowRule[] = [],
+  titleById: ReadonlyMap<string, string> = new Map(
+    steps.map((step) => [step.id, step.title] as const),
+  ),
+): AgentPipelineBackflowRule[] => {
+  const rules: AgentPipelineBackflowRule[] = [...existingRules];
+  const existingKeys = new Set(
+    rules.map((rule) =>
+      rule.trigger === "quality_failed"
+        ? `${rule.trigger}:*`
+        : `${rule.trigger}:${rule.retryStepId}`,
+    ),
+  );
+  const existingIds = new Set(rules.map((rule) => rule.id));
+  const pushRule = (
+    trigger: PipelineBackflowTrigger,
+    targetStepId: string,
+    retryStepId: string,
+    maxAttempts: number,
+  ): void => {
+    const key =
+      trigger === "quality_failed"
+        ? `${trigger}:*`
+        : `${trigger}:${retryStepId}`;
+    if (existingKeys.has(key)) return;
+    const id = seedBackflowId(retryStepId, targetStepId, trigger);
+    if (existingIds.has(id)) return;
+    rules.push({
+      id,
+      trigger,
+      targetStepId,
+      retryStepId,
+      maxAttempts,
+      instruction: seedBackflowInstruction(
+        steps,
+        titleById,
+        targetStepId,
+        retryStepId,
+        trigger,
+      ),
+    });
+    existingKeys.add(key);
+    existingIds.add(id);
+  };
+
+  for (const step of steps) {
+    const target = seedBackflowTargetCandidates(steps, step.id).at(-1);
+    if (!target) continue;
+    pushRule("step_failed", target.id, step.id, 2);
+  }
+
+  const retryStep = steps.at(-1);
+  if (retryStep) {
+    const target = chooseSeedQualityBackflowTarget(steps, retryStep.id);
+    if (target) {
+      pushRule("quality_failed", target.id, retryStep.id, 1);
+    }
+  }
+
+  return rules;
+};
+
+const seedBackflowInstruction = (
+  steps: readonly AgentPipelineStep[],
+  titleById: ReadonlyMap<string, string>,
+  targetStepId: string,
+  retryStepId: string,
+  trigger: PipelineBackflowTrigger,
+): string => {
+  const target = steps.find((step) => step.id === targetStepId);
+  const retry = steps.find((step) => step.id === retryStepId);
+  const targetTitle = titleById.get(targetStepId) ?? target?.title ?? targetStepId;
+  const retryTitle = titleById.get(retryStepId) ?? retry?.title ?? retryStepId;
+  return trigger === "quality_failed"
+    ? `최종 품질 게이트가 실패하면 ${targetTitle} 단계부터 산출물을 보강하고 ${retryTitle}까지 다시 검증하세요.`
+    : `${retryTitle} 단계가 실패하면 ${targetTitle} 단계 산출물부터 보강한 뒤 ${retryTitle}를 다시 수행하세요.`;
+};
+
+const seedBackflowId = (
+  retryStepId: string,
+  targetStepId: string,
+  trigger: PipelineBackflowTrigger,
+): string =>
+  `bf_${safeSeedBackflowIdPart(retryStepId)}_from_${safeSeedBackflowIdPart(
+    targetStepId,
+  )}_${trigger}`;
+
+const safeSeedBackflowIdPart = (value: string): string =>
+  value
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "step";
+
+const chooseSeedQualityBackflowTarget = (
+  steps: readonly AgentPipelineStep[],
+  retryStepId: string,
+): AgentPipelineStep | null => {
+  const candidates = seedBackflowTargetCandidates(steps, retryStepId);
+  if (candidates.length === 0) return null;
+  const firstSideEffectCandidate = candidates.find(
+    (step) => (step.allowedActions ?? []).length > 0,
+  );
+  return firstSideEffectCandidate ?? candidates.at(-1) ?? null;
+};
+
+const seedBackflowTargetCandidates = (
+  steps: readonly AgentPipelineStep[],
+  retryStepId: string,
+): AgentPipelineStep[] => {
+  const retryIndex = steps.findIndex((step) => step.id === retryStepId);
+  if (retryIndex <= 0) return [];
+  return steps
+    .slice(0, retryIndex)
+    .filter((step) => hasBackflowDependencyPath(steps, step.id, retryStepId));
 };
 
 const validateStepTopology = (steps: readonly AgentPipelineStep[]): void => {

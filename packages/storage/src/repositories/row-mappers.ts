@@ -53,6 +53,7 @@ interface TaskRunRow {
   thread_id: string;
   user_request: string;
   target_dir: string;
+  follow_up_task_run_id: string | null;
   status: TaskRunStatus;
   current_step_id: string | null;
   created_at: string;
@@ -69,6 +70,9 @@ export const rowToTaskRun = (r: TaskRunRow): TaskRun => {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
+  if (r.follow_up_task_run_id !== null) {
+    t.followUpTaskRunId = r.follow_up_task_run_id;
+  }
   if (r.current_step_id !== null) t.currentStepId = r.current_step_id;
   return t;
 };

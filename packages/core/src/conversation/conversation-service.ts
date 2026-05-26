@@ -139,13 +139,40 @@ export class ConversationService {
       });
     }
 
+    let followUpTaskRunId: string | undefined;
+    if (input.followUpTaskRunId !== undefined) {
+      const candidateId = input.followUpTaskRunId.trim();
+      if (candidateId.length === 0) {
+        throw new ConversationServiceError(
+          "CONVERSATION_TASK_NOT_FOUND",
+          "followUpTaskRunId must be a non-empty string when provided",
+        );
+      }
+      const followUpTaskRun = await this.deps.state.getTaskRun(candidateId);
+      if (!followUpTaskRun) {
+        throw new ConversationServiceError(
+          "CONVERSATION_TASK_NOT_FOUND",
+          `TaskRun ${candidateId} not found`,
+        );
+      }
+      if (followUpTaskRun.threadId !== thread.id) {
+        throw new ConversationServiceError(
+          "CONVERSATION_TASK_NOT_FOUND",
+          `TaskRun ${candidateId} does not belong to Thread ${thread.id}`,
+        );
+      }
+      followUpTaskRunId = candidateId;
+    }
+
     // 1. Create TaskRun in drafting state.
-    const taskRun = await this.deps.state.createTaskRun({
+    const createTaskRunInput = {
       threadId: thread.id,
       userRequest,
       targetDir,
       status: "drafting",
-    });
+      ...(followUpTaskRunId !== undefined ? { followUpTaskRunId } : {}),
+    } as const;
+    const taskRun = await this.deps.state.createTaskRun(createTaskRunInput);
 
     // 2. inspect Step (immediately succeeded with summary).
     const inspectStep = await this.deps.state.createStep({
@@ -191,6 +218,7 @@ export class ConversationService {
           artifactIds: [planArtifact.id],
           targetDir,
           mode: "agent",
+          ...(followUpTaskRunId !== undefined ? { followUpTaskRunId } : {}),
         }),
         summary: "agent mode placeholder checkpoint",
       });

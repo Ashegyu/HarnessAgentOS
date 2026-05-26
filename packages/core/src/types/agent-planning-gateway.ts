@@ -4,6 +4,7 @@ import type { Checkpoint, CreateCheckpointInput } from "./checkpoint.ts";
 import type { QualityGateResult } from "./quality-gate-result.ts";
 import type { Step, StepStatus, CreateStepInput } from "./step.ts";
 import type { TaskRun, TaskRunStatus } from "./task-run.ts";
+import type { ThreadDetail } from "./thread-detail.ts";
 import type { Thread } from "./thread.ts";
 import type {
   AgentInvocation,
@@ -37,6 +38,12 @@ export interface AgentPlanningStateGateway {
   getAgentInvocation(id: string): Promise<AgentInvocation | null>;
   /** Look up the thread that owns a TaskRun — used to chain agent sessions. */
   getThread(id: string): Promise<Thread | null>;
+  /**
+   * Optional richer thread view. AgentPlanningService uses this when
+   * available to carry previous TaskRun context into follow-up prompts
+   * without coupling @harness/agent to @harness/storage.
+   */
+  getThreadDetail?(id: string): Promise<ThreadDetail | null>;
   /** Persist the Claude CLI session id on the thread (null clears it). */
   setThreadAgentSession(
     threadId: string,

@@ -90,6 +90,17 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE threads ADD COLUMN pipeline_id TEXT`);
     }
 
+    // v31 — explicit per-TaskRun follow-up anchor. This lets a new task
+    // continue a specific previous task in the same thread without relying
+    // on the agent to infer intent from chronological history alone.
+    if (!hasColumn(db, "task_runs", "follow_up_task_run_id")) {
+      db.exec(`ALTER TABLE task_runs ADD COLUMN follow_up_task_run_id TEXT`);
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_task_runs_follow_up
+        ON task_runs(follow_up_task_run_id)`,
+    );
+
     // v30 — pipeline-level conditional backflow rules. Existing pipeline
     // templates default to no backflow edges.
     if (!hasColumn(db, "agent_pipelines", "backflow_rules_json")) {

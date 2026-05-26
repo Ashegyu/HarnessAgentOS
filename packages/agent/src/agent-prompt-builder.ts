@@ -20,10 +20,21 @@ export interface AgentHandoffPromptMessage {
   createdAt?: string;
 }
 
+export interface ThreadContextPromptTask {
+  ordinal: number;
+  taskRunId: string;
+  userRequest: string;
+  status: TaskRun["status"];
+  answerSummary?: string;
+  isFollowUpAnchor?: boolean;
+}
+
 export interface PromptBuildInput {
   taskRun: TaskRun;
   /** Optional repair-loop instruction; injected near the bottom. */
   instruction?: string;
+  /** Previous TaskRuns in the same thread, oldest-first and excluding this run. */
+  threadContext?: readonly ThreadContextPromptTask[];
   /** Prior local worker outputs handed off inside the same TaskRun. */
   handoffMessages?: readonly AgentHandoffPromptMessage[];
   /** Deterministic repository map selected from the persisted repo index. */
@@ -177,6 +188,9 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
       `- node: ${process.version}`,
     ].join("\n"),
   );
+  if (input.threadContext && input.threadContext.length > 0) {
+    userSections.push(formatThreadContext(input.threadContext));
+  }
   userSections.push(
     ["USER REQUEST", `- ${input.taskRun.userRequest.trim()}`].join("\n"),
   );
@@ -218,12 +232,14 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
   // Hard cap: trim middle context sections if combined size exceeds budget.
   const combined = systemPrompt + "\n\n" + userPrompt;
   if (Buffer.byteLength(combined, "utf8") > PROMPT_HARD_CAP_BYTES) {
-    const head = userSections.slice(0, 2).join("\n\n");
+    const preservedHeadCount =
+      input.threadContext && input.threadContext.length > 0 ? 3 : 2;
+    const head = userSections.slice(0, preservedHeadCount).join("\n\n");
     const room =
       PROMPT_HARD_CAP_BYTES -
       Buffer.byteLength(systemPrompt + "\n\n" + head, "utf8") -
       64;
-    const middle = userSections.slice(2).join("\n\n");
+    const middle = userSections.slice(preservedHeadCount).join("\n\n");
     userPrompt = [head, middle.slice(0, Math.max(0, room)), "[...truncated]"].join("\n\n");
   }
   return { systemPrompt, userPrompt };
@@ -256,6 +272,9 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
       `- node: ${process.version}`,
     ].join("\n"),
   );
+  if (input.threadContext && input.threadContext.length > 0) {
+    sections.push(formatThreadContext(input.threadContext));
+  }
   sections.push(
     ["USER REQUEST", `- ${input.taskRun.userRequest.trim()}`].join("\n"),
   );
@@ -298,10 +317,12 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
   const joined = sections.join("\n\n");
   if (Buffer.byteLength(joined, "utf8") <= PROMPT_HARD_CAP_BYTES) return joined;
   // Hard cap: chop from the middle (context) but keep system + user + contracts.
-  const head = sections.slice(0, 3).join("\n\n");
+  const preservedHeadCount =
+    input.threadContext && input.threadContext.length > 0 ? 4 : 3;
+  const head = sections.slice(0, preservedHeadCount).join("\n\n");
   const tail = sections.slice(-2).join("\n\n");
   const room = PROMPT_HARD_CAP_BYTES - Buffer.byteLength(head + "\n\n" + tail, "utf8") - 64;
-  const middle = sections.slice(3, -1).join("\n\n");
+  const middle = sections.slice(preservedHeadCount, -2).join("\n\n");
   const truncated = middle.slice(0, Math.max(0, room));
   return [head, truncated, "[...truncated]", tail].join("\n\n");
 };
@@ -329,6 +350,59 @@ const formatInternalHandoffMessages = (
     lines.push("", message.content.trim().slice(0, 6_000));
   }
   return lines.join("\n");
+};
+
+const formatThreadContext = (
+  tasks: readonly ThreadContextPromptTask[],
+): string => {
+  const visibleTasks = tasks.slice(-6);
+  const lines: string[] = [];
+  const anchor = visibleTasks.find((task) => task.isFollowUpAnchor);
+  if (anchor) {
+    lines.push(...formatFollowUpAnchor(anchor), "");
+  }
+  lines.push(
+    "THREAD CONTEXT",
+    "- Previous TaskRuns in this same Harness thread, oldest-first.",
+    "- Treat these as continuity context; the current USER REQUEST remains authoritative.",
+  );
+  for (const task of visibleTasks) {
+    lines.push(
+      "",
+      `### Task ${task.ordinal}`,
+      `- taskRunId: ${task.taskRunId}`,
+      `- status: ${task.status}`,
+      `- request: ${task.userRequest.trim().slice(0, 1_000)}`,
+    );
+    if (task.isFollowUpAnchor) {
+      lines.push("- followUpAnchor: true");
+    }
+    const answerSummary = task.answerSummary?.trim();
+    if (answerSummary) {
+      lines.push(`- latest answer: ${answerSummary.slice(0, 2_000)}`);
+    }
+  }
+  return lines.join("\n");
+};
+
+const formatFollowUpAnchor = (
+  task: ThreadContextPromptTask,
+): string[] => {
+  const lines = [
+    "FOLLOW-UP ANCHOR",
+    "- The current USER REQUEST is a continuation of this specific previous TaskRun.",
+    '- Resolve references such as "it", "that", "previous", "방금", "이전", and "그거" against this anchor first.',
+    "- Use the rest of THREAD CONTEXT as supporting context only.",
+    `- taskRunId: ${task.taskRunId}`,
+    `- task: Task ${task.ordinal}`,
+    `- status: ${task.status}`,
+    `- request: ${task.userRequest.trim().slice(0, 1_500)}`,
+  ];
+  const answerSummary = task.answerSummary?.trim();
+  if (answerSummary) {
+    lines.push(`- latest answer: ${answerSummary.slice(0, 4_000)}`);
+  }
+  return lines;
 };
 
 const formatCapabilityContexts = (

@@ -4,9 +4,20 @@ import { FeatureHelpButton } from "./FeatureHelpButton";
 
 export type ConversationMode = "template" | "agent";
 
+const shortText = (text: string, max: number): string => {
+  const trimmed = text.trim().replace(/\s+/g, " ");
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, max - 1))}…`;
+};
+
 interface ConversationInputProps {
   threadId: string | null;
   threadTargetDir?: string | undefined;
+  followUpTaskRun?: {
+    id: string;
+    ordinal: number;
+    userRequest: string;
+  } | null;
   /**
    * AgentPipeline.id remembered on the thread. Used as the dropdown's
    * initial pre-selection so a thread "remembers" the user's last
@@ -27,6 +38,7 @@ interface ConversationInputProps {
   onSubmit: (input: {
     userRequest: string;
     targetDir?: string;
+    followUpTaskRunId?: string;
     mode: ConversationMode;
     orchMode?: OrchestrationMode;
     orchInstruction?: string;
@@ -42,6 +54,7 @@ export const ConversationInput = ({
   threadId,
   threadTargetDir,
   threadPipelineId,
+  followUpTaskRun,
   agentAvailable,
   composerSeed,
   onSubmit,
@@ -49,6 +62,7 @@ export const ConversationInput = ({
   const [text, setText] = useState("");
   const [overrideDir, setOverrideDir] = useState("");
   const [showDirOverride, setShowDirOverride] = useState(false);
+  const [includeFollowUpContext, setIncludeFollowUpContext] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mode: ConversationMode = agentAvailable ? "agent" : "template";
@@ -145,6 +159,10 @@ export const ConversationInput = ({
     }
   }, [composerSeed]);
 
+  useEffect(() => {
+    setIncludeFollowUpContext(followUpTaskRun !== null && followUpTaskRun !== undefined);
+  }, [followUpTaskRun?.id]);
+
   const targetDir = overrideDir.trim() || threadTargetDir || "";
   const canSubmit = !submitting && text.trim().length > 0 && targetDir.length > 0;
 
@@ -156,6 +174,7 @@ export const ConversationInput = ({
       const payload: {
         userRequest: string;
         targetDir?: string;
+        followUpTaskRunId?: string;
         mode: ConversationMode;
         orchMode?: OrchestrationMode;
         orchInstruction?: string;
@@ -166,6 +185,9 @@ export const ConversationInput = ({
       };
       if (overrideDir.trim().length > 0) payload.targetDir = overrideDir.trim();
       else if (!threadTargetDir) payload.targetDir = targetDir;
+      if (followUpTaskRun && includeFollowUpContext) {
+        payload.followUpTaskRunId = followUpTaskRun.id;
+      }
       // Per-message pipeline pick. Empty value means "(없음 — 일반
       // 채팅)" so we deliberately omit orchPipelineId from the payload
       // and the regular agent flow runs.
@@ -267,6 +289,26 @@ export const ConversationInput = ({
           )}
         </label>
       )}
+      {followUpTaskRun ? (
+        <label
+          className={`conversation-input__followup${
+            includeFollowUpContext ? " conversation-input__followup--active" : ""
+          }`}
+          title={followUpTaskRun.userRequest}
+        >
+          <input
+            type="checkbox"
+            checked={includeFollowUpContext}
+            onChange={(e) => setIncludeFollowUpContext(e.target.checked)}
+            disabled={submitting}
+          />
+          <span>이어받기</span>
+          <strong>Task {followUpTaskRun.ordinal}</strong>
+          <span className="conversation-input__followup-text">
+            {shortText(followUpTaskRun.userRequest, 86)}
+          </span>
+        </label>
+      ) : null}
       <textarea
         className="conversation-input__text"
         placeholder={

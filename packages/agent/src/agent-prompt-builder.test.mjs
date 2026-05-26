@@ -83,6 +83,53 @@ test("buildSplitAgentPrompt includes recentArtifacts when provided", () => {
   assert.ok(userPrompt.includes("Previous plan"));
 });
 
+test("buildSplitAgentPrompt includes previous thread task context", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    threadContext: [
+      {
+        ordinal: 1,
+        taskRunId: "tr-prev",
+        userRequest: "이전 구현을 점검해줘",
+        status: "ready_for_review",
+        answerSummary: "연결 그래프 구현이 완료되었습니다.",
+      },
+    ],
+  });
+
+  assert.ok(userPrompt.includes("THREAD CONTEXT"));
+  assert.ok(userPrompt.includes("Task 1"));
+  assert.ok(userPrompt.includes("이전 구현을 점검해줘"));
+  assert.ok(userPrompt.includes("연결 그래프 구현이 완료되었습니다"));
+});
+
+test("buildSplitAgentPrompt emphasizes the explicit follow-up anchor", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: {
+      ...baseTaskRun,
+      userRequest: "방금 답변 기준으로 더 고쳐줘",
+      followUpTaskRunId: "tr-anchor",
+    },
+    threadContext: [
+      {
+        ordinal: 2,
+        taskRunId: "tr-anchor",
+        userRequest: "파이프라인 그래프 연결선을 고쳐줘",
+        status: "ready_for_review",
+        answerSummary: "포트 중심 기준으로 연결선을 보정했습니다.",
+        isFollowUpAnchor: true,
+      },
+    ],
+  });
+
+  assert.ok(userPrompt.includes("FOLLOW-UP ANCHOR"));
+  assert.ok(userPrompt.includes("continuation of this specific previous TaskRun"));
+  assert.ok(userPrompt.includes("방금"));
+  assert.ok(userPrompt.includes("tr-anchor"));
+  assert.ok(userPrompt.includes("포트 중심 기준으로 연결선을 보정했습니다."));
+  assert.ok(userPrompt.indexOf("FOLLOW-UP ANCHOR") < userPrompt.indexOf("USER REQUEST"));
+});
+
 test("buildSplitAgentPrompt includes internal handoff messages when provided", () => {
   const { userPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,

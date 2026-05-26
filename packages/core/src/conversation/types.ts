@@ -29,6 +29,11 @@ export interface CreateConversationTaskInput {
   threadId?: string;
   userRequest: string;
   targetDir?: string;
+  /**
+   * Previous TaskRun in the same thread that this request continues.
+   * Used as an explicit follow-up anchor for agent prompts.
+   */
+  followUpTaskRunId?: string;
   mode?: ConversationTaskMode;
 }
 
