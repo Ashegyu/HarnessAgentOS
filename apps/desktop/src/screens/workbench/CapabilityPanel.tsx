@@ -124,6 +124,70 @@ export const CapabilityPanel = ({
     }
   }, [fetchSuggestions, onApprovalCreated, prompt, taskRun]);
 
+  const renderCatalog = (): JSX.Element => {
+    if (catalog.kind === "loading") {
+      return <div className="empty-state">등록 목록 불러오는 중…</div>;
+    }
+    if (catalog.kind === "error") {
+      return <div className="error-message">{catalog.message}</div>;
+    }
+    if (catalog.capabilities.length === 0) {
+      return (
+        <div className="empty-state">
+          등록된 capability가 없습니다. Skill 디렉터리 재스캔으로 등록 상태를
+          확인하세요.
+        </div>
+      );
+    }
+
+    return (
+      <section className="capability-panel__section" aria-label="등록된 capability">
+        <header className="capability-panel__section-header">
+          <span>등록된 capability</span>
+          <span className="muted">{catalog.capabilities.length}개</span>
+        </header>
+        <p className="capability-item__reason">
+          전체 registry에는 등록되어 있지만 현재 요청과 매칭되지 않을 수
+          있습니다.
+        </p>
+        <ul className="capability-list capability-list--catalog">
+          {catalog.capabilities.map((capability) => (
+            <li key={capability.id} className="capability-item">
+              <header className="capability-item__header">
+                <span className="capability-item__name">{capability.name}</span>
+                <span className="capability-item__badges">
+                  <span
+                    className={`status-pill status-pill--${riskClass(capability.riskLevel)}`}
+                  >
+                    {capability.riskLevel}
+                  </span>
+                  <span className="status-pill status-pill--neutral">
+                    {capability.source}
+                  </span>
+                </span>
+              </header>
+              <p className="capability-item__desc">{capability.description}</p>
+              {capability.triggerTerms.length > 0 ? (
+                <p className="capability-item__reason">
+                  trigger: {capability.triggerTerms.join(", ")}
+                </p>
+              ) : null}
+              <div className="capability-item__actions">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setOpenCapability(capability)}
+                >
+                  상세 보기
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  };
+
   const renderSuggestions = (): JSX.Element => {
     if (!taskRun) {
       return (
@@ -234,6 +298,7 @@ export const CapabilityPanel = ({
       </div>
       {actionError ? <div className="error-message">{actionError}</div> : null}
       {renderSuggestions()}
+      {renderCatalog()}
 
       {openCapability ? (
         <SkillDetailDrawer
