@@ -507,6 +507,7 @@ export interface HarnessDesktopApi {
       packageId: string;
       workflowId?: string;
       bindings: readonly HarnessAgentProfileBinding[];
+      providers?: AgentProviderStatusMap;
     }): Promise<HarnessPipelineDraftPreviewResult>;
     remove(input: { packageId: string }): Promise<void>;
   };

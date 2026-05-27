@@ -496,6 +496,23 @@ test("harnessPackages.previewPipelineDraft validates binding input", async () =>
     });
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "STATE_INVALID_INPUT");
+
+    const invalidProviders = await handlers.previewPipelineDraft({
+      packageId: "harness_missing",
+      bindings: [
+        {
+          harnessAgentRef: "reviewer",
+          agentProfileId: "profile-reviewer",
+        },
+      ],
+      providers: {
+        claude: { available: false, queueDepth: -1 },
+        codex: { available: true, queueDepth: 0 },
+      },
+    });
+    assert.equal(invalidProviders.ok, false);
+    assert.equal(invalidProviders.error.code, "STATE_INVALID_INPUT");
+    assert.match(invalidProviders.error.message, /providers\.claude\.queueDepth/);
   } finally {
     closeDb(db);
     t.cleanup();

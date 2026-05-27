@@ -624,6 +624,11 @@ source-boundary rules:
 - Ambiguous failure prose remains review-only through
   `HARNESS_FAILURE_POLICY_REVIEW_REQUIRED`; it is not guessed into a local
   retry route.
+- Provider readiness is now passed through package preview as caller-supplied
+  data: the renderer sends its existing `agent.checkProviders()` snapshot to
+  `harnessPackages.previewPipelineDraft`, IPC validates the `AgentProviderStatusMap`,
+  and the service uses it for readiness warnings without triggering a hidden
+  provider probe.
 
 Verified commands for the latest checkpoint:
 
@@ -638,6 +643,7 @@ node --import tsx --test --test-force-exit apps/desktop/electron/harness-package
 node --import tsx --test packages/orchestration/src/harness-binding-readiness.test.mjs
 node --import tsx --test packages/orchestration/src/harness-package-service.test.mjs
 node --import tsx --test apps/desktop/electron/ipc/harness-package-ipc.test.mjs
+node --import tsx --test apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
 node --import tsx --test packages/orchestration/src/harness-pipeline-draft.test.mjs
 node --import tsx --test packages/core/src/types/harness-package.test.mjs
 npm run check
@@ -653,18 +659,18 @@ manual workflow repair, pipeline-template creation, and persisted repaired
 package snapshots. It now also has a closed approved-execution acceptance path,
 a service-level readiness gate for package-derived pipeline preview, and an
 explicit bounded failure-policy mapping path for safe local backflow rules, plus
-an approval-gated export projection path. It is still intentionally not a
-complete autonomous package runner: import, repair, binding, preview, save, plan
-approval, worker side effects, and export writes remain separate user-visible
-steps.
+caller-supplied provider readiness pass-through and an approval-gated export
+projection path. It is still intentionally not a complete autonomous package
+runner: import, repair, binding, preview, save, plan approval, worker side
+effects, and export writes remain separate user-visible steps.
 
 ### 18.3 Remaining Uncertainty
 
 - Real-world Markdown package shapes outside `harness-100` may need more parser
   aliases or stricter `needs_review` diagnostics.
-- Provider availability can be included in the service-level readiness contract
-  when a caller supplies a provider status map; the persisted registry checks
-  already cover AgentProfile, MCP, Skill source, and capability state.
+- Provider availability is included in service-level readiness when a caller
+  supplies a provider status map; stale provider snapshots remain possible
+  because preview intentionally does not re-probe providers.
 - Export write is approval-gated, but batch execution UX still depends on the
   existing approval panel rather than a dedicated "approve all export files"
   workflow.
@@ -673,11 +679,7 @@ steps.
 
 Proceed in this order:
 
-1. **Provider-status pass-through**: if non-UI preview callers need provider
-   availability in the service result, pass a validated provider status map into
-   `HarnessPackageService.previewPipelineDraft`; do not make provider probing a
-   hidden side effect of package preview.
-2. **Export approval UX**: keep the current approval-gated file writes, then
+1. **Export approval UX**: keep the current approval-gated file writes, then
    consider a dedicated batch review/approve surface for export projections.
 
 The immediate user workflow is:

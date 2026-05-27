@@ -327,6 +327,9 @@ export const HarnessPackagesTab = (): JSX.Element => {
           packageId: selectedPackage.id,
           ...(selectedWorkflowId ? { workflowId: selectedWorkflowId } : {}),
           bindings: previewBindings(),
+          ...(readinessList.kind === "ready"
+            ? { providers: readinessList.providers }
+            : {}),
         });
       setPreview(result);
       if (result.ok) {

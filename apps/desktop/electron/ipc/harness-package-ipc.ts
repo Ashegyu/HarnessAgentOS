@@ -4,6 +4,7 @@ import {
   err,
   harnessError,
   ok,
+  type AgentProviderStatusMap,
   type HarnessAgentProfileBinding,
   type HarnessDefinition,
   type HarnessPackageExportPreview,
@@ -127,6 +128,79 @@ const parseProfileBindings = (
     });
   }
   return { ok: true, value: bindings };
+};
+
+const parseProviderStatusMap = (
+  input: unknown,
+):
+  | { ok: true; value?: AgentProviderStatusMap }
+  | { ok: false; reason: string } => {
+  const rawProviders =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).providers
+      : undefined;
+  if (rawProviders === undefined) return { ok: true };
+  if (typeof rawProviders !== "object" || rawProviders === null) {
+    return { ok: false, reason: "providers must be an object" };
+  }
+  const providers = rawProviders as Record<string, unknown>;
+  const claude = parseProviderProbe(providers.claude, "providers.claude");
+  if (!claude.ok) return { ok: false, reason: claude.reason };
+  const codex = parseProviderProbe(providers.codex, "providers.codex");
+  if (!codex.ok) return { ok: false, reason: codex.reason };
+  return {
+    ok: true,
+    value: {
+      claude: claude.value,
+      codex: codex.value,
+    },
+  };
+};
+
+const parseProviderProbe = (
+  value: unknown,
+  field: string,
+):
+  | { ok: true; value: AgentProviderStatusMap["claude"] }
+  | { ok: false; reason: string } => {
+  if (typeof value !== "object" || value === null) {
+    return { ok: false, reason: `${field} must be an object` };
+  }
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.available !== "boolean") {
+    return { ok: false, reason: `${field}.available must be a boolean` };
+  }
+  if (
+    typeof raw.queueDepth !== "number" ||
+    !Number.isInteger(raw.queueDepth) ||
+    raw.queueDepth < 0
+  ) {
+    return {
+      ok: false,
+      reason: `${field}.queueDepth must be a non-negative integer`,
+    };
+  }
+  for (const optionalField of ["version", "error", "command"] as const) {
+    if (
+      raw[optionalField] !== undefined &&
+      typeof raw[optionalField] !== "string"
+    ) {
+      return {
+        ok: false,
+        reason: `${field}.${optionalField} must be a string when provided`,
+      };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      available: raw.available,
+      queueDepth: raw.queueDepth,
+      ...(typeof raw.version === "string" ? { version: raw.version } : {}),
+      ...(typeof raw.error === "string" ? { error: raw.error } : {}),
+      ...(typeof raw.command === "string" ? { command: raw.command } : {}),
+    },
+  };
 };
 
 const parseRepairInput = (
@@ -294,6 +368,7 @@ export const buildHarnessPackageHandlers = (
       packageId: string;
       workflowId?: string;
       bindings: readonly HarnessAgentProfileBinding[];
+      providers?: AgentProviderStatusMap;
     }): Promise<HarnessResult<HarnessPipelineDraftPreviewResult>> => {
       const id = requiredString(input, "packageId");
       if (!id.ok) return err(harnessError(STATE_INVALID_INPUT, id.reason));
@@ -304,6 +379,10 @@ export const buildHarnessPackageHandlers = (
       const bindings = parseProfileBindings(input);
       if (!bindings.ok) {
         return err(harnessError(STATE_INVALID_INPUT, bindings.reason));
+      }
+      const providers = parseProviderStatusMap(input);
+      if (!providers.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, providers.reason));
       }
       const found = await harnessPackages.getPackage(id.value);
       if (!found) {
@@ -319,6 +398,7 @@ export const buildHarnessPackageHandlers = (
           packageId: id.value,
           workflowId: workflowId.value,
           bindings: bindings.value,
+          ...(providers.value !== undefined ? { providers: providers.value } : {}),
         }),
       );
     },

@@ -1658,6 +1658,7 @@ harnessPackages.previewPipelineDraft(input: {
   packageId: string;
   workflowId?: string;
   bindings: readonly HarnessAgentProfileBinding[];
+  providers?: AgentProviderStatusMap;
 }): Promise<HarnessPipelineDraftPreviewResult>;
 harnessPackages.remove(input: { packageId: string }): Promise<void>;
 ```
@@ -1762,6 +1763,7 @@ interface HarnessPackageExportProposalResult {
 - `previewExport` 결과에는 TaskRun state, approvals, runtime artifacts, secrets가 포함되지 않는다. Projection에서 정보 손실 가능성이 있으면 `warnings`에 표시한다.
 - `proposeExport`는 `previewExport` 결과를 `targetDir` 기준의 pending `file_write` approvals로 만든다. 호출 시에도 파일은 쓰지 않으며, 실제 디스크 반영은 기존 `runner.executeApproved` 승인 실행을 통과해야 한다.
 - `previewPipelineDraft`는 저장된 snapshot과 명시적 AgentProfile binding만 사용해 `CreateAgentPipelineInput` 초안을 반환한다. pipeline row를 생성하지 않고 TaskRun, approval, runner를 만들지 않는다.
+- `previewPipelineDraft.providers`는 caller가 이미 조회한 provider readiness snapshot만 전달한다. 이 IPC handler는 provider probe를 새로 실행하지 않으며, 전달된 snapshot은 readiness warning 계산에만 사용한다.
 - `previewPipelineDraft`의 `ok=false`는 미바인딩 step, 누락 workflow처럼 사용자가 수정 가능한 변환 issue를 뜻한다. 알 수 없는 package id나 malformed input은 일반 IPC error로 반환한다.
 - `harnessPackages.run`, `harnessPackages.apply`, `harnessPackages.writeSource` 같은 직접 실행/source-write IPC는 없다.
 
