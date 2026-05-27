@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   AgentProfile,
+  AgentProviderStatusMap,
+  Capability,
   HarnessAgentProfileBinding,
   HarnessDefinition,
   HarnessPipelineDraftPreviewResult,
+  McpServerConfig,
+  SkillSource,
 } from "@harness/core";
 import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
 import {
+  assessHarnessBindingReadiness,
   harnessAgentBindingCandidates,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
@@ -27,6 +32,17 @@ type ListState =
 type ProfileListState =
   | { kind: "loading" }
   | { kind: "ready"; profiles: AgentProfile[] }
+  | { kind: "error"; message: string };
+
+type ReadinessListState =
+  | { kind: "loading" }
+  | {
+      kind: "ready";
+      providers: AgentProviderStatusMap;
+      mcpServers: McpServerConfig[];
+      skillSources: SkillSource[];
+      capabilities: Capability[];
+    }
   | { kind: "error"; message: string };
 
 interface Notice {
@@ -52,6 +68,9 @@ const issueText = (definition: HarnessDefinition): string => {
 export const HarnessPackagesTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [profileList, setProfileList] = useState<ProfileListState>({
+    kind: "loading",
+  });
+  const [readinessList, setReadinessList] = useState<ReadinessListState>({
     kind: "loading",
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -85,6 +104,27 @@ export const HarnessPackagesTab = (): JSX.Element => {
     }
   }, []);
 
+  const refreshReadiness = useCallback(async () => {
+    try {
+      const [providers, mcpServers, skillSources, capabilities] =
+        await Promise.all([
+          window.harness.agent.checkProviders(),
+          window.harness.mcp.list(),
+          window.harness.skillSource.list(),
+          window.harness.capability.list(),
+        ]);
+      setReadinessList({
+        kind: "ready",
+        providers,
+        mcpServers,
+        skillSources,
+        capabilities,
+      });
+    } catch (e) {
+      setReadinessList({ kind: "error", message: errorMessage(e) });
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -92,6 +132,10 @@ export const HarnessPackagesTab = (): JSX.Element => {
   useEffect(() => {
     void refreshProfiles();
   }, [refreshProfiles]);
+
+  useEffect(() => {
+    void refreshReadiness();
+  }, [refreshReadiness]);
 
   useEffect(() => {
     if (list.kind !== "ready") return;
@@ -145,6 +189,24 @@ export const HarnessPackagesTab = (): JSX.Element => {
       repairDraft ? validateHarnessWorkflowRepairDraft(repairDraft) : [],
     [repairDraft],
   );
+
+  const bindingReadiness = useMemo(() => {
+    if (!selectedPackage || profileList.kind !== "ready") return null;
+    return assessHarnessBindingReadiness({
+      definition: selectedPackage,
+      workflowId: selectedWorkflowId,
+      bindings,
+      profiles: profileList.profiles,
+      ...(readinessList.kind === "ready"
+        ? {
+            providers: readinessList.providers,
+            mcpServers: readinessList.mcpServers,
+            skillSources: readinessList.skillSources,
+            capabilities: readinessList.capabilities,
+          }
+        : {}),
+    });
+  }, [bindings, profileList, readinessList, selectedPackage, selectedWorkflowId]);
 
   useEffect(() => {
     if (!selectedPackage) {
@@ -553,7 +615,11 @@ export const HarnessPackagesTab = (): JSX.Element => {
                       type="button"
                       className="btn btn--secondary btn--sm"
                       onClick={() => void handlePreviewPipelineDraft()}
-                      disabled={previewBusy || selectedWorkflow === null}
+                      disabled={
+                        previewBusy ||
+                        selectedWorkflow === null ||
+                        (bindingReadiness?.errorCount ?? 0) > 0
+                      }
                     >
                       {previewBusy ? "Previewing..." : "Preview"}
                     </button>
@@ -821,6 +887,46 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           </ul>
                         )}
                       </>
+                    )}
+
+                    {bindingReadiness && (
+                      <div
+                        className={`harness-packages-tab__readiness harness-packages-tab__readiness--${
+                          bindingReadiness.errorCount > 0
+                            ? "blocked"
+                            : bindingReadiness.warningCount > 0
+                              ? "warning"
+                              : "ok"
+                        }`}
+                      >
+                        <div className="harness-packages-tab__readiness-header">
+                          <strong>Binding readiness</strong>
+                          <span>
+                            {bindingReadiness.errorCount} errors ·{" "}
+                            {bindingReadiness.warningCount} warnings ·{" "}
+                            {bindingReadiness.infoCount} info
+                          </span>
+                        </div>
+                        {readinessList.kind === "error" && (
+                          <p>{readinessList.message}</p>
+                        )}
+                        {bindingReadiness.issues.length === 0 ? (
+                          <p>Ready for pipeline preview.</p>
+                        ) : (
+                          <ul className="harness-packages-tab__readiness-list">
+                            {bindingReadiness.issues.map((issue, index) => (
+                              <li
+                                key={`${issue.code}-${issue.profileId ?? issue.harnessAgentRef ?? "package"}-${index}`}
+                                className={`harness-packages-tab__readiness-item harness-packages-tab__readiness-item--${issue.severity}`}
+                              >
+                                <span>{issue.severity}</span>
+                                <strong>{issue.code}</strong>
+                                <p>{issue.message}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     )}
 
                     {preview && (

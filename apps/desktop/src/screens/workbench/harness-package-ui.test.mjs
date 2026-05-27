@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  assessHarnessBindingReadiness,
   harnessAgentBindingCandidates,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
@@ -267,6 +268,142 @@ test("suggestHarnessProfileBinding only fills strong profile matches", () => {
   );
 });
 
+test("assessHarnessBindingReadiness reports unbound workflow candidates", () => {
+  const summary = assessHarnessBindingReadiness({
+    definition: pkg({ workflows: [repairWorkflow()] }),
+    workflowId: "wf",
+    bindings: {},
+    profiles: [],
+  });
+
+  assert.equal(summary.ok, false);
+  assert.equal(summary.errorCount, 2);
+  assert.deepEqual(
+    summary.issues.map((issue) => issue.code),
+    ["HARNESS_PROFILE_UNBOUND", "HARNESS_PROFILE_UNBOUND"],
+  );
+});
+
+test("assessHarnessBindingReadiness surfaces provider MCP Skill and capability risks", () => {
+  const definition = pkg({
+    agents: [
+      {
+        id: "planner",
+        name: "Planner",
+        description: "Plan",
+        roleHint: "planner",
+        sourceFile: ".claude/agents/planner.md",
+        persona: "",
+        responsibilities: [],
+        providerHint: "claude",
+        requiredCapabilities: ["cap-review"],
+      },
+      {
+        id: "reviewer",
+        name: "Reviewer",
+        description: "Review",
+        roleHint: "reviewer",
+        sourceFile: ".claude/agents/reviewer.md",
+        persona: "",
+        responsibilities: [],
+        requiredCapabilities: [],
+      },
+    ],
+    workflows: [repairWorkflow()],
+    capabilities: [
+      {
+        id: "cap-review",
+        kind: "skill_source",
+        required: true,
+        description: "Review capability",
+        providerHint: "claude",
+        risk: "high",
+      },
+    ],
+  });
+  const summary = assessHarnessBindingReadiness({
+    definition,
+    workflowId: "wf",
+    bindings: {
+      planner: "profile-planner",
+      reviewer: "profile-reviewer",
+    },
+    profiles: [
+      readinessProfile({
+        id: "profile-planner",
+        name: "Planner Profile",
+        provider: "codex",
+        mcpServerIds: ["mcp-http", "missing-mcp"],
+        skillSourceIds: ["skill-disabled"],
+        permissions: {
+          allowedSkillIds: ["cap-other"],
+        },
+      }),
+      readinessProfile({
+        id: "profile-reviewer",
+        name: "Reviewer Profile",
+        provider: "codex",
+        role: "reviewer",
+      }),
+    ],
+    providers: {
+      claude: { available: true, queueDepth: 0 },
+      codex: { available: false, queueDepth: 0, error: "not found" },
+    },
+    mcpServers: [
+      {
+        id: "mcp-http",
+        name: "HTTP MCP",
+        description: "",
+        transport: "http",
+        url: "http://localhost:9999",
+        env: {},
+        envSecretRefs: {},
+        scope: "per-agent",
+        enabled: true,
+        createdAt: "2026-05-27T00:00:00.000Z",
+        updatedAt: "2026-05-27T00:00:00.000Z",
+      },
+    ],
+    skillSources: [
+      {
+        id: "skill-disabled",
+        name: "Disabled Skills",
+        origin: "custom",
+        rootDir: "C:/skills",
+        trusted: false,
+        enabled: false,
+        registeredInPathPolicy: false,
+        createdAt: "2026-05-27T00:00:00.000Z",
+        updatedAt: "2026-05-27T00:00:00.000Z",
+      },
+    ],
+    capabilities: [
+      {
+        id: "cap-review",
+        source: "skillify:project",
+        name: "Review capability",
+        description: "",
+        triggerTerms: [],
+        riskLevel: "high",
+        requiresApproval: true,
+      },
+    ],
+  });
+
+  const codes = new Set(summary.issues.map((issue) => issue.code));
+  assert.equal(summary.ok, true);
+  assert.equal(summary.errorCount, 0);
+  assert.equal(codes.has("HARNESS_CAPABILITY_HIGH_RISK"), true);
+  assert.equal(codes.has("HARNESS_PROVIDER_HINT_MISMATCH"), true);
+  assert.equal(codes.has("HARNESS_PROVIDER_UNAVAILABLE"), true);
+  assert.equal(codes.has("HARNESS_MCP_CODEX_LIMITED"), true);
+  assert.equal(codes.has("HARNESS_MCP_UNKNOWN"), true);
+  assert.equal(codes.has("HARNESS_SKILL_SOURCE_DISABLED"), true);
+  assert.equal(codes.has("HARNESS_SKILL_SOURCE_UNTRUSTED"), true);
+  assert.equal(codes.has("HARNESS_AGENT_CAPABILITY_NOT_ALLOWED"), true);
+});
+
 test("harnessWorkflowStepRows formats dependencies and artifact contracts for review", () => {
   const workflow = {
     id: "wf",
@@ -482,3 +619,45 @@ const repairWorkflow = () => ({
   testScenarios: [],
   parseConfidence: "medium",
 });
+
+const readinessProfile = (overrides = {}) => {
+  const permissions = {
+    autoApproveActions: [],
+    blockedActions: [],
+    allowedSkillIds: [],
+    toolAllowlist: [],
+    toolDenylist: [],
+    ...(overrides.permissions ?? {}),
+  };
+  return {
+    id: "profile-planner",
+    name: "Planner Profile",
+    description: "",
+    category: "development",
+    tags: [],
+    provider: "codex",
+    role: "planner",
+    persona: "",
+    tuning: {
+      model: "gpt-5.5",
+      timeoutMs: 300000,
+      stallTimeoutMs: 60000,
+      contextDepth: 4,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: {
+      cliPathOverride: "",
+      env: {},
+      envSecretRefs: {},
+    },
+    permissions,
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+    createdAt: "2026-05-27T00:00:00.000Z",
+    updatedAt: "2026-05-27T00:00:00.000Z",
+    ...overrides,
+    permissions,
+  };
+};

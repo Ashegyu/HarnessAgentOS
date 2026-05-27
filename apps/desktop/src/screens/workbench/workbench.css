@@ -8020,6 +8020,88 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   text-transform: uppercase;
 }
 
+.harness-packages-tab__readiness {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  padding: 8px;
+}
+
+.harness-packages-tab__readiness--ok {
+  border-color: var(--status-success-edge);
+}
+
+.harness-packages-tab__readiness--warning {
+  border-color: var(--status-pending-edge);
+}
+
+.harness-packages-tab__readiness--blocked {
+  border-color: var(--status-failed-edge);
+}
+
+.harness-packages-tab__readiness-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.harness-packages-tab__readiness-header strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.harness-packages-tab__readiness-header span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.harness-packages-tab__readiness-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.harness-packages-tab__readiness-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+  padding: 8px;
+}
+
+.harness-packages-tab__readiness-item span {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-panel);
+  padding: 2px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.harness-packages-tab__readiness-item--error span {
+  color: var(--status-failed);
+  border-color: var(--status-failed-edge);
+  background: var(--status-failed-fill);
+}
+
+.harness-packages-tab__readiness-item--warning span {
+  color: var(--status-pending);
+  border-color: var(--status-pending-edge);
+  background: var(--status-pending-fill);
+}
+
+.harness-packages-tab__readiness-item p {
+  grid-column: 1 / -1;
+}
+
 .harness-packages-tab__binding-list li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(160px, 240px);

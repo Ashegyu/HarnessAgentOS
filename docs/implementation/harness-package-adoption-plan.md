@@ -570,6 +570,10 @@ source-boundary rules:
   source package directory or introduce a direct run/apply/export action.
 - Repaired snapshots preserve source provenance and may share the original
   `root_dir`; the original imported snapshot remains inspectable.
+- Binding readiness is visible before pipeline preview: the Harnesses tab shows
+  missing AgentProfile bindings as errors and surfaces provider availability,
+  provider hint mismatch, MCP server state, Skill source state, and capability
+  requirement risks as warnings/info.
 - `HarnessDefinition -> AgentPipeline draft -> OrchestrationPlan` preserves full
   step instruction text in `AgentPipelineStep.instruction` and
   `WorkerStep.instruction`.
@@ -595,8 +599,9 @@ git diff --check
 The current implementation is now suitable for reviewed package import,
 manual workflow repair, pipeline-template creation, and persisted repaired
 package snapshots. It is not yet a complete autonomous package runner, because
-capability/provider readiness checks and a sample end-to-end approved execution
-pass still need to be closed.
+the readiness checks are currently UI-visible preflight signals rather than a
+service-level conversion gate, and a sample end-to-end approved execution pass
+still needs to be closed.
 
 ### 18.3 Remaining Uncertainty
 
@@ -605,22 +610,21 @@ pass still need to be closed.
 - Source metadata is currently preserved in instruction text and visible review
   surfaces. A later structured metadata field would make reporting and audit
   queries cleaner.
-- Provider availability and capability matching should be checked before users
-  believe a converted template is runnable.
+- Provider availability and capability matching are visible in the Harnesses
+  tab, but the same readiness contract may still need a service-level result if
+  non-UI clients start creating package-derived pipelines.
 
 ## 19. Next Step Order
 
 Proceed in this order:
 
-1. **Binding hardening**: make missing profile, provider, MCP, skill, and
-   capability requirements visible before conversion.
-2. **Structured source metadata**: add optional source package/workflow/source
+1. **Structured source metadata**: add optional source package/workflow/source
    reference fields to the saved pipeline or worker snapshot if audit/reporting
    needs more than instruction-visible provenance.
-3. **Approved execution acceptance**: use one `harness-100` sample, import it,
+2. **Approved execution acceptance**: use one `harness-100` sample, import it,
    bind profiles, save a pipeline template, draft an orchestration plan, require
    approval, run after approval, and confirm artifacts/handoffs/quality gates.
-4. **Export later**: only after import, repair, binding, conversion, and
+3. **Export later**: only after import, repair, binding, conversion, and
    approved execution are stable.
 
 The immediate user workflow is:
@@ -631,6 +635,7 @@ Import Harness package
   -> repair ambiguous owner/dependency/artifact details if needed
   -> choose workflow
   -> bind abstract agents to local AgentProfiles
+  -> inspect binding readiness errors/warnings
   -> preview pipeline draft
   -> save template
   -> start a TaskRun with that template
