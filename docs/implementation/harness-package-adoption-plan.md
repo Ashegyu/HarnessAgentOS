@@ -542,3 +542,89 @@ The safest first slice is:
 5. Add a small CLI or service-level test fixture. Do not add UI yet.
 
 This proves the source-boundary design without changing runtime execution.
+
+## 18. Current Implementation Checkpoint
+
+Date: 2026-05-27
+
+### 18.1 Evidence
+
+The current branch has moved beyond the first slice while preserving the same
+source-boundary rules:
+
+- Neutral `HarnessDefinition` types and validators exist in `packages/core`.
+- Source format detection recognizes Claude-compatible, Codex-compatible, and
+  Harness-native markers without treating any one layout as canonical.
+- Directory import is read-only and scans bounded Markdown/JSON inputs only.
+- Imported package snapshots are persisted as declarations, not runtime state.
+- The desktop Harnesses tab can import, list, inspect, remove, bind profiles,
+  preview a pipeline draft, and save a reviewed pipeline template.
+- Harness workflow tables are parsed into reviewable workflow steps with
+  dependency, owner, artifact, and Korean/English column alias handling.
+- The `harness-100` sample directory is covered by parser regression tests.
+- `HarnessDefinition -> AgentPipeline draft -> OrchestrationPlan` preserves full
+  step instruction text in `AgentPipelineStep.instruction` and
+  `WorkerStep.instruction`.
+- The visible orchestration plan summary and worker step review card expose the
+  full instruction when it differs from the display summary, so source metadata
+  such as source harness, workflow, file, and artifact contracts remains visible
+  before approval.
+
+Verified commands for the latest checkpoint:
+
+```powershell
+node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
+npm run check
+npm run test
+npm run build
+git diff --check
+```
+
+### 18.2 Inference
+
+The current implementation is now suitable for reviewed package import and
+pipeline-template creation. It is not yet a complete autonomous package runner,
+because ambiguous workflow repair, capability/provider readiness checks, and a
+sample end-to-end approved execution pass still need to be closed.
+
+### 18.3 Remaining Uncertainty
+
+- Real-world Markdown package shapes outside `harness-100` may need more parser
+  aliases or stricter `needs_review` diagnostics.
+- Source metadata is currently preserved in instruction text and visible review
+  surfaces. A later structured metadata field would make reporting and audit
+  queries cleaner.
+- Provider availability and capability matching should be checked before users
+  believe a converted template is runnable.
+
+## 19. Next Step Order
+
+Proceed in this order:
+
+1. **Manual repair model**: persist a HarnessAgentOS-owned repaired definition
+   snapshot for ambiguous imports. Do not edit the original package.
+2. **Binding hardening**: make missing profile, provider, MCP, skill, and
+   capability requirements visible before conversion.
+3. **Structured source metadata**: add optional source package/workflow/source
+   reference fields to the saved pipeline or worker snapshot if audit/reporting
+   needs more than instruction-visible provenance.
+4. **Approved execution acceptance**: use one `harness-100` sample, import it,
+   bind profiles, save a pipeline template, draft an orchestration plan, require
+   approval, run after approval, and confirm artifacts/handoffs/quality gates.
+5. **Export later**: only after import, repair, binding, conversion, and
+   approved execution are stable.
+
+The immediate user workflow is:
+
+```text
+Import Harness package
+  -> inspect diagnostics and workflow steps
+  -> choose workflow
+  -> bind abstract agents to local AgentProfiles
+  -> preview pipeline draft
+  -> save template
+  -> start a TaskRun with that template
+  -> review orchestration_plan approval
+  -> approve execution
+  -> inspect artifacts and quality gate
+```
