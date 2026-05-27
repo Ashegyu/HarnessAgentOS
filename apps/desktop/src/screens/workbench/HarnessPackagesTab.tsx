@@ -7,6 +7,7 @@ import type {
 } from "@harness/core";
 import {
   harnessAgentBindingCandidates,
+  harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
   suggestHarnessProfileBinding,
   summarizeHarnessPackage,
@@ -124,6 +125,11 @@ export const HarnessPackagesTab = (): JSX.Element => {
         ? harnessAgentBindingCandidates(selectedPackage, selectedWorkflowId)
         : [],
     [selectedPackage, selectedWorkflowId],
+  );
+
+  const workflowStepRows = useMemo(
+    () => (selectedWorkflow ? harnessWorkflowStepRows(selectedWorkflow) : []),
+    [selectedWorkflow],
   );
 
   useEffect(() => {
@@ -522,6 +528,37 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           <dd>{selectedWorkflow.parseConfidence}</dd>
                         </div>
                       </dl>
+                    )}
+
+                    {workflowStepRows.length > 0 && (
+                      <ul className="harness-packages-tab__step-list">
+                        {workflowStepRows.map((step) => (
+                          <li key={step.id}>
+                            <div className="harness-packages-tab__step-title">
+                              <strong>{step.title}</strong>
+                              <code>{step.id}</code>
+                            </div>
+                            <dl>
+                              <div>
+                                <dt>Owner</dt>
+                                <dd>{step.owner}</dd>
+                              </div>
+                              <div>
+                                <dt>Depends</dt>
+                                <dd>{step.dependsOn}</dd>
+                              </div>
+                              <div>
+                                <dt>Artifacts</dt>
+                                <dd>{step.artifacts}</dd>
+                              </div>
+                              <div>
+                                <dt>Output</dt>
+                                <dd>{step.outputContract}</dd>
+                              </div>
+                            </dl>
+                          </li>
+                        ))}
+                      </ul>
                     )}
 
                     {profileList.kind === "loading" && (

@@ -1,6 +1,7 @@
 import type {
   AgentProfile,
   HarnessDefinition,
+  HarnessWorkflowDefinition,
   HarnessSourceFormat,
   HarnessValidationIssue,
   HarnessValidationStatus,
@@ -40,6 +41,15 @@ export interface HarnessAgentBindingCandidate {
   label: string;
   sourceFile?: string;
   stepCount: number;
+}
+
+export interface HarnessWorkflowStepRow {
+  id: string;
+  title: string;
+  owner: string;
+  dependsOn: string;
+  artifacts: string;
+  outputContract: string;
 }
 
 export const summarizeHarnessPackage = (
@@ -134,6 +144,24 @@ export const suggestHarnessProfileBinding = (
   });
   return partial?.id ?? "";
 };
+
+export const harnessWorkflowStepRows = (
+  workflow: HarnessWorkflowDefinition,
+): HarnessWorkflowStepRow[] =>
+  workflow.steps.map((step) => ({
+    id: step.id,
+    title: step.title,
+    owner: step.agentRef ?? step.roleHint,
+    dependsOn:
+      step.dependsOn.length > 0 ? step.dependsOn.join(", ") : "None",
+    artifacts:
+      step.artifactContracts.length > 0
+        ? step.artifactContracts
+            .map((artifact) => artifact.pathHint ?? artifact.title)
+            .join(", ")
+        : "None",
+    outputContract: step.outputContract,
+  }));
 
 const normalizeMatchText = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");

@@ -7836,7 +7836,8 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .harness-packages-tab__issues,
 .harness-packages-tab__compact-list,
-.harness-packages-tab__binding-list {
+.harness-packages-tab__binding-list,
+.harness-packages-tab__step-list {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
@@ -7847,7 +7848,8 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .harness-packages-tab__issues li,
 .harness-packages-tab__compact-list li,
-.harness-packages-tab__binding-list li {
+.harness-packages-tab__binding-list li,
+.harness-packages-tab__step-list li {
   min-width: 0;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -7873,6 +7875,50 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .harness-packages-tab__binding-list {
   margin-top: 0;
+}
+
+.harness-packages-tab__step-list {
+  margin-top: 0;
+}
+
+.harness-packages-tab__step-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.harness-packages-tab__step-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.harness-packages-tab__step-title code {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.harness-packages-tab__step-list dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.harness-packages-tab__step-list dt {
+  margin: 0 0 2px;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.harness-packages-tab__step-list dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .harness-packages-tab__binding-list li {

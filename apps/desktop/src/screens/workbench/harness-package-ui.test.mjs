@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   harnessAgentBindingCandidates,
+  harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
   suggestHarnessProfileBinding,
   summarizeHarnessPackage,
@@ -261,4 +262,82 @@ test("suggestHarnessProfileBinding only fills strong profile matches", () => {
     ),
     "",
   );
+});
+
+test("harnessWorkflowStepRows formats dependencies and artifact contracts for review", () => {
+  const workflow = {
+    id: "wf",
+    skillId: "demo",
+    name: "Demo workflow",
+    mode: "agent-team",
+    description: "Demo",
+    sourceFile: "skills/demo/SKILL.md",
+    phases: [],
+    steps: [
+      {
+        id: "step-1",
+        title: "Plan",
+        agentRef: "planner",
+        roleHint: "planner",
+        instruction: "Plan",
+        dependsOn: [],
+        artifactContracts: [
+          {
+            id: "artifact-1",
+            pathHint: "_workspace/plan.md",
+            title: "plan",
+            kind: "workspace_file",
+            required: true,
+            description: "Plan",
+          },
+        ],
+        allowedActions: ["file_write"],
+        outputContract: "plan",
+        sourceRef: { relativePath: "skills/demo/SKILL.md" },
+      },
+      {
+        id: "step-2",
+        title: "Review",
+        roleHint: "reviewer",
+        instruction: "Review",
+        dependsOn: ["step-1"],
+        artifactContracts: [],
+        allowedActions: [],
+        outputContract: "review",
+        sourceRef: { relativePath: "skills/demo/SKILL.md" },
+      },
+    ],
+    handoffPolicy: {
+      mode: "source_message_semantics",
+      routes: [],
+      requiredPayload: "harness_worker_handoff_v1",
+      fallback: "synthesize_from_artifact",
+    },
+    failurePolicy: {
+      defaultMode: "pause_for_review",
+      maxAttempts: 2,
+      rules: [],
+    },
+    testScenarios: [],
+    parseConfidence: "medium",
+  };
+
+  assert.deepEqual(harnessWorkflowStepRows(workflow), [
+    {
+      id: "step-1",
+      title: "Plan",
+      owner: "planner",
+      dependsOn: "None",
+      artifacts: "_workspace/plan.md",
+      outputContract: "plan",
+    },
+    {
+      id: "step-2",
+      title: "Review",
+      owner: "reviewer",
+      dependsOn: "step-1",
+      artifacts: "None",
+      outputContract: "review",
+    },
+  ]);
 });
