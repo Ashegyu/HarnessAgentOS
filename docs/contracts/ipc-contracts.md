@@ -1638,6 +1638,44 @@ secret.listKeys(): Promise<string[]>;
 - `secret.read`는 public IPC에 존재하지 않는다.
 - `listKeys`는 UI의 stored/cleared 상태 표시용 key 이름만 반환한다.
 
+## `window.harness.harnessPackages`
+
+Claude `.claude`, Codex `AGENTS.md` + `skills/*/SKILL.md`, 그리고 Harness-native
+`.harness` package를 provider-neutral `HarnessDefinition` snapshot으로 import한다.
+이 namespace는 metadata registry만 담당하며, 실행은 항상 별도 orchestration/manual review
+흐름에서 처리한다.
+
+```ts
+harnessPackages.list(): Promise<HarnessDefinition[]>;
+harnessPackages.get(input: { packageId: string }): Promise<HarnessDefinition>;
+harnessPackages.importDirectory(input: {
+  rootDir: string;
+}): Promise<HarnessPackageImportDirectoryResult>;
+harnessPackages.remove(input: { packageId: string }): Promise<void>;
+```
+
+```ts
+type HarnessPackageImportDirectoryResult =
+  | {
+      ok: true;
+      definition: HarnessDefinition;
+      detection: HarnessSourceDetectionResult;
+    }
+  | {
+      ok: false;
+      detection: HarnessSourceDetectionResult;
+      issues: readonly HarnessValidationIssue[];
+    };
+```
+
+동작:
+
+- `importDirectory`는 main process에서만 디렉터리를 읽고, `.md`/`.json` metadata를 중립 snapshot으로 저장한다.
+- import는 source directory에 파일을 쓰지 않으며 shell, git, network, runner를 호출하지 않는다.
+- Claude/Codex/native format detection 결과가 ambiguous/unsupported이면 IPC 자체는 성공하고, 반환값의 `ok=false`와 `issues`로 review 상태를 전달한다.
+- 저장된 package는 SQLite WAL canonical state의 `harness_packages` table에만 반영된다.
+- `harnessPackages.run`, `harnessPackages.apply`, `harnessPackages.writeSource` 같은 직접 실행/수정 IPC는 없다.
+
 ## `window.harness.pipeline`
 
 AgentPipeline template CRUD. 저장은 template registry만 담당하고, 실행은 항상

@@ -13,6 +13,7 @@ test("declared namespaces match the phases shipped so far", () => {
   // Phase 7: orchestration, Phase 8: agent.
   // Agent Framework adoption: instinct, topology.
   // Detailed-settings: agents, mcp, skillSource, secret, pipeline.
+  // Cross-provider harness import: harnessPackages.
   // A2A Phase B: remoteAgents registry.
   assert.deepEqual(Object.keys(IPC_CHANNELS).sort(), [
     "agent",
@@ -22,6 +23,7 @@ test("declared namespaces match the phases shipped so far", () => {
     "conversation",
     "evals",
     "events",
+    "harnessPackages",
     "instinct",
     "learner",
     "mcp",
@@ -95,6 +97,18 @@ test("pipeline namespace exposes CRUD verbs", () => {
   assert.equal(isAllowedChannel("pipeline:list"), true);
   assert.equal(isAllowedChannel("pipeline:create"), true);
   assert.equal(isAllowedChannel("pipeline:run"), false);
+});
+
+test("harnessPackages namespace exposes import registry verbs only", () => {
+  assert.deepEqual(Object.keys(IPC_CHANNELS.harnessPackages).sort(), [
+    "get",
+    "importDirectory",
+    "list",
+    "remove",
+  ]);
+  assert.equal(isAllowedChannel("harnessPackages:list"), true);
+  assert.equal(isAllowedChannel("harnessPackages:importDirectory"), true);
+  assert.equal(isAllowedChannel("harnessPackages:run"), false);
 });
 
 test("agents namespace exposes profile CRUD verbs", () => {

@@ -1,19 +1,15 @@
-import type { HarnessDefinition } from "@harness/core";
+import type {
+  HarnessDefinition,
+  HarnessPackageImportDirectoryResult,
+} from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import {
   importHarnessPackageFromDirectory,
   type ImportHarnessPackageFromDirectoryInput,
 } from "./harness-directory-import.ts";
-import type { HarnessSourceDetectionResult } from "./harness-source-detection.ts";
-import type { ImportHarnessPackageResult } from "./harness-import.ts";
 
 export type HarnessPackageImportAndSaveResult =
-  | {
-      ok: true;
-      definition: HarnessDefinition;
-      detection: HarnessSourceDetectionResult;
-    }
-  | Extract<ImportHarnessPackageResult, { ok: false }>;
+  HarnessPackageImportDirectoryResult;
 
 export interface HarnessPackageServiceDeps {
   state: LocalStateService;

@@ -29,6 +29,8 @@ import type {
   DecisionLogInput,
   DecisionLogPage,
   HarnessSettings,
+  HarnessDefinition,
+  HarnessPackageImportDirectoryResult,
   EvolutionCandidate,
   Instinct,
   McpServerConfig,
@@ -474,6 +476,19 @@ export interface HarnessDesktopApi {
     }): Promise<AgentPipeline>;
     update(input: { pipeline: AgentPipeline }): Promise<AgentPipeline>;
     delete(input: { pipelineId: string }): Promise<void>;
+  };
+  /**
+   * Read-only import/registry surface for Claude, Codex, and native harness
+   * packages. Import scans source markdown/json and saves a neutral snapshot;
+   * it does not execute tools, write source files, or create TaskRuns.
+   */
+  harnessPackages: {
+    list(): Promise<HarnessDefinition[]>;
+    get(input: { packageId: string }): Promise<HarnessDefinition>;
+    importDirectory(input: {
+      rootDir: string;
+    }): Promise<HarnessPackageImportDirectoryResult>;
+    remove(input: { packageId: string }): Promise<void>;
   };
   remoteAgents: {
     list(): Promise<A2ARegistryEntry[]>;

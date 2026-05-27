@@ -24,7 +24,10 @@ import type {
   TopologyAdvisor,
   TraceRecorder,
 } from "@harness/learner";
-import type { OrchestrationService } from "@harness/orchestration";
+import {
+  HarnessPackageService,
+  type OrchestrationService,
+} from "@harness/orchestration";
 import type { AgentPlanningService } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAppIpc } from "./app-ipc";
@@ -45,6 +48,7 @@ import { registerMcpIpc } from "./mcp-ipc-register";
 import { registerSkillSourceIpc } from "./skill-source-ipc-register";
 import { registerSecretIpc } from "./secret-ipc-register";
 import { registerPipelineIpc } from "./pipeline-ipc-register";
+import { registerHarnessPackageIpc } from "./harness-package-ipc-register";
 import { registerRemoteAgentsIpc } from "./remote-agents-ipc-register";
 import { registerEvalsIpc } from "./evals-ipc-register";
 import type { SkillRootPolicy } from "./skill-source-ipc";
@@ -153,6 +157,9 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     },
   });
   registerPipelineIpc({ pipelines: ctx.state.agentPipelines });
+  registerHarnessPackageIpc({
+    harnessPackages: new HarnessPackageService({ state: ctx.state }),
+  });
   registerRemoteAgentsIpc({ remoteAgents: ctx.state.a2aRemoteAgents });
   registerEvalsIpc({
     evalRuns: ctx.state.evalRuns,

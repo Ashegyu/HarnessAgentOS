@@ -1,0 +1,23 @@
+import { ipcMain } from "electron";
+import { IPC_CHANNELS } from "@harness/core";
+import {
+  buildHarnessPackageHandlers,
+  type HarnessPackageIpcContext,
+} from "./harness-package-ipc.ts";
+
+export const registerHarnessPackageIpc = (
+  ctx: HarnessPackageIpcContext,
+): void => {
+  const h = buildHarnessPackageHandlers(ctx);
+  ipcMain.handle(IPC_CHANNELS.harnessPackages.list, async () => h.list());
+  ipcMain.handle(IPC_CHANNELS.harnessPackages.get, async (_e, input) =>
+    h.get(input),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.importDirectory,
+    async (_e, input) => h.importDirectory(input),
+  );
+  ipcMain.handle(IPC_CHANNELS.harnessPackages.remove, async (_e, input) =>
+    h.remove(input),
+  );
+};

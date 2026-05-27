@@ -159,6 +159,17 @@ export const IPC_CHANNELS = {
     update: "pipeline:update",
     delete: "pipeline:delete",
   },
+  /**
+   * Cross-provider harness package registry. Imports read Claude/Codex/native
+   * markdown package metadata into SQLite; execution is still owned by
+   * orchestration after manual review.
+   */
+  harnessPackages: {
+    list: "harnessPackages:list",
+    get: "harnessPackages:get",
+    importDirectory: "harnessPackages:importDirectory",
+    remove: "harnessPackages:remove",
+  },
   /** Remote A2A agent registry. SDK and network execution stay in main. */
   remoteAgents: {
     list: "remoteAgents:list",

@@ -16,6 +16,32 @@ export const HARNESS_SOURCE_FORMATS: readonly HarnessSourceFormat[] = [
   "harness-native",
 ];
 
+export type HarnessSourceDetectionStatus =
+  | "detected"
+  | "ambiguous"
+  | "unsupported";
+
+export interface HarnessSourceDetectionInput {
+  rootDir: string;
+  relativePaths: readonly string[];
+}
+
+export interface HarnessSourceDetectionCandidate {
+  format: HarnessSourceFormat;
+  score: number;
+  complete: boolean;
+  evidence: readonly string[];
+  missing: readonly string[];
+}
+
+export interface HarnessSourceDetectionResult {
+  rootDir: string;
+  status: HarnessSourceDetectionStatus;
+  format?: HarnessSourceFormat;
+  candidates: readonly HarnessSourceDetectionCandidate[];
+  reasons: readonly string[];
+}
+
 export type HarnessValidationStatus =
   | "valid"
   | "valid_with_warnings"
@@ -331,6 +357,22 @@ export interface HarnessValidationIssue {
   sourceRef?: HarnessSourceRef;
   blocksExecution: boolean;
 }
+
+export interface HarnessPackageImportDirectoryInput {
+  rootDir: string;
+}
+
+export type HarnessPackageImportDirectoryResult =
+  | {
+      ok: true;
+      definition: HarnessDefinition;
+      detection: HarnessSourceDetectionResult;
+    }
+  | {
+      ok: false;
+      detection: HarnessSourceDetectionResult;
+      issues: readonly HarnessValidationIssue[];
+    };
 
 export interface HarnessValidationResult {
   status: HarnessValidationStatus;

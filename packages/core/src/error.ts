@@ -159,6 +159,9 @@ export const PIPELINE_REFERENCED_PROFILE_MISSING =
 export const PIPELINE_IN_USE_BY_PROFILE_DELETE =
   "PIPELINE_IN_USE_BY_PROFILE_DELETE" as const;
 
+// Cross-provider harness package registry.
+export const HARNESS_PACKAGE_NOT_FOUND = "HARNESS_PACKAGE_NOT_FOUND" as const;
+
 // Remote A2A agent registry.
 export const A2A_ENDPOINT_NOT_FOUND = "A2A_ENDPOINT_NOT_FOUND" as const;
 

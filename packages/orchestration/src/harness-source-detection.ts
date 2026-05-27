@@ -1,30 +1,14 @@
-import type { HarnessSourceFormat } from "@harness/core";
-
-export type HarnessSourceDetectionStatus =
-  | "detected"
-  | "ambiguous"
-  | "unsupported";
-
-export interface HarnessSourceDetectionInput {
-  rootDir: string;
-  relativePaths: readonly string[];
-}
-
-export interface HarnessSourceDetectionCandidate {
-  format: HarnessSourceFormat;
-  score: number;
-  complete: boolean;
-  evidence: readonly string[];
-  missing: readonly string[];
-}
-
-export interface HarnessSourceDetectionResult {
-  rootDir: string;
-  status: HarnessSourceDetectionStatus;
-  format?: HarnessSourceFormat;
-  candidates: readonly HarnessSourceDetectionCandidate[];
-  reasons: readonly string[];
-}
+import type {
+  HarnessSourceDetectionCandidate,
+  HarnessSourceDetectionInput,
+  HarnessSourceDetectionResult,
+} from "@harness/core";
+export type {
+  HarnessSourceDetectionCandidate,
+  HarnessSourceDetectionInput,
+  HarnessSourceDetectionResult,
+  HarnessSourceDetectionStatus,
+} from "@harness/core";
 
 interface NormalizedPathSet {
   lower: ReadonlySet<string>;

@@ -25,7 +25,9 @@ import {
   type EvalRunListFilters,
   type EvalRunListItem,
   type ExportApprovalResult,
+  type HarnessDefinition,
   type HarnessSettings,
+  type HarnessPackageImportDirectoryResult,
   type Instinct,
   type SkillResources,
   type ConversationTaskDraft,
@@ -487,6 +489,23 @@ const harnessApi: HarnessDesktopApi = {
     update: (input) => invokeUnwrapped(IPC_CHANNELS.pipeline.update, input),
     delete: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.pipeline.delete, input);
+    },
+  },
+  harnessPackages: {
+    list: () =>
+      invokeUnwrapped<HarnessDefinition[]>(IPC_CHANNELS.harnessPackages.list),
+    get: (input) =>
+      invokeUnwrapped<HarnessDefinition>(
+        IPC_CHANNELS.harnessPackages.get,
+        input,
+      ),
+    importDirectory: (input) =>
+      invokeUnwrapped<HarnessPackageImportDirectoryResult>(
+        IPC_CHANNELS.harnessPackages.importDirectory,
+        input,
+      ),
+    remove: async (input) => {
+      await invokeUnwrapped<void>(IPC_CHANNELS.harnessPackages.remove, input);
     },
   },
   remoteAgents: {
