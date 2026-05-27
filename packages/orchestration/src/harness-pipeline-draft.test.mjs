@@ -129,6 +129,67 @@ test("convertHarnessWorkflowToPipelineDraft refuses unbound workflow steps", () 
   );
 });
 
+test("convertHarnessWorkflowToPipelineDraft maps explicit bounded failure policies to backflow rules", () => {
+  const definition = sampleDefinition();
+  const workflow = definition.workflows[0];
+  const result = convertHarnessWorkflowToPipelineDraft({
+    definition: {
+      ...definition,
+      workflows: [
+        {
+          ...workflow,
+          failurePolicy: {
+            ...workflow.failurePolicy,
+            maxAttempts: 2,
+            rules: [
+              {
+                trigger: "step_failed",
+                action: "backflow_to_step",
+                targetStepId: "step-1",
+                retryStepId: "step-3",
+                maxAttempts: 2,
+                instruction: "Revise the brief before retrying production review.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    bindings: [
+      {
+        harnessAgentRef: "content-strategist",
+        agentProfileId: "profile-strategist",
+      },
+      {
+        harnessAgentRef: "scriptwriter",
+        agentProfileId: "profile-writer",
+      },
+      {
+        harnessAgentRef: "production-reviewer",
+        agentProfileId: "profile-reviewer",
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.pipeline.backflowRules, [
+    {
+      id: "harness-step_failed-step-1-to-step-3",
+      trigger: "step_failed",
+      targetStepId: "step-1",
+      retryStepId: "step-3",
+      maxAttempts: 2,
+      instruction: "Revise the brief before retrying production review.",
+    },
+  ]);
+  assert.equal(
+    result.issues.some(
+      (issue) => issue.code === "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED",
+    ),
+    false,
+  );
+});
+
 test("convertHarnessWorkflowToPipelineDraft reports missing workflow ids", () => {
   const definition = sampleDefinition();
   const result = convertHarnessWorkflowToPipelineDraft({
