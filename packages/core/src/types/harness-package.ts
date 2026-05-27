@@ -314,6 +314,7 @@ export interface HarnessFailureRule {
   trigger: HarnessFailureTrigger;
   action: HarnessFailureAction;
   targetStepId?: string;
+  retryStepId?: string;
   instruction?: string;
   maxAttempts?: number;
 }
@@ -850,6 +851,9 @@ export const isHarnessFailureRule = (
     return false;
   }
   if (v.targetStepId !== undefined && !isNonEmptyString(v.targetStepId)) {
+    return false;
+  }
+  if (v.retryStepId !== undefined && !isNonEmptyString(v.retryStepId)) {
     return false;
   }
   if (v.instruction !== undefined && typeof v.instruction !== "string") {

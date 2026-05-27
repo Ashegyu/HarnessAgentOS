@@ -190,6 +190,55 @@ test("convertHarnessWorkflowToPipelineDraft maps explicit bounded failure polici
   );
 });
 
+test("convertHarnessWorkflowToPipelineDraft leaves ambiguous failure policies for review", () => {
+  const definition = sampleDefinition();
+  const workflow = definition.workflows[0];
+  const result = convertHarnessWorkflowToPipelineDraft({
+    definition: {
+      ...definition,
+      workflows: [
+        {
+          ...workflow,
+          failurePolicy: {
+            ...workflow.failurePolicy,
+            rules: [
+              {
+                trigger: "step_failed",
+                action: "backflow_to_step",
+                targetStepId: "step-1",
+                instruction: "Ask the previous worker to fix the problem.",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    bindings: [
+      {
+        harnessAgentRef: "content-strategist",
+        agentProfileId: "profile-strategist",
+      },
+      {
+        harnessAgentRef: "scriptwriter",
+        agentProfileId: "profile-writer",
+      },
+      {
+        harnessAgentRef: "production-reviewer",
+        agentProfileId: "profile-reviewer",
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.pipeline.backflowRules, []);
+  assert.equal(
+    result.issues.some(
+      (issue) => issue.code === "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED",
+    ),
+    true,
+  );
+});
+
 test("convertHarnessWorkflowToPipelineDraft reports missing workflow ids", () => {
   const definition = sampleDefinition();
   const result = convertHarnessWorkflowToPipelineDraft({

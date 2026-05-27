@@ -1,12 +1,14 @@
 import {
   ARTIFACT_KINDS,
   MAX_PIPELINE_STEPS,
+  type AgentPipelineBackflowRule,
   type AgentPipelineStep,
   type ArtifactKind,
   type CreateAgentPipelineInput,
   type HarnessAgentProfileBinding,
   type HarnessArtifactKind,
   type HarnessDefinition,
+  type HarnessFailureRule,
   type HarnessPipelineDraftIssue,
   type HarnessWorkflowDefinition,
   type HarnessWorkflowStep,
@@ -107,7 +109,8 @@ export const convertHarnessWorkflowToPipelineDraft = (
     return { ok: false, issues };
   }
 
-  if (workflow.failurePolicy.rules.length > 0) {
+  const backflow = mapFailurePolicyBackflowRules(workflow, steps);
+  if (backflow.unmappedCount > 0) {
     issues.push({
       severity: "warning",
       code: "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED",
@@ -124,7 +127,7 @@ export const convertHarnessWorkflowToPipelineDraft = (
       name: `${input.definition.name}: ${workflow.name}`,
       description: buildPipelineDescription(input.definition, workflow),
       steps,
-      backflowRules: [],
+      backflowRules: backflow.rules,
     },
     issues,
   };
@@ -270,6 +273,120 @@ const buildPipelineDescription = (
     "Review AgentProfile bindings, artifact expectations, and backflow rules before execution.",
   ];
   return parts.filter((part) => part.trim().length > 0).join("\n\n");
+};
+
+const mapFailurePolicyBackflowRules = (
+  workflow: HarnessWorkflowDefinition,
+  steps: readonly AgentPipelineStep[],
+): { rules: AgentPipelineBackflowRule[]; unmappedCount: number } => {
+  const rules: AgentPipelineBackflowRule[] = [];
+  const ruleIds = new Set<string>();
+  let unmappedCount = 0;
+  for (const rule of workflow.failurePolicy.rules) {
+    const mapped = mapFailureRule(
+      rule,
+      workflow.failurePolicy.maxAttempts,
+      steps,
+    );
+    if (!mapped) {
+      unmappedCount += 1;
+      continue;
+    }
+    const id = uniqueBackflowRuleId(
+      `harness-${mapped.trigger}-${mapped.targetStepId}-to-${mapped.retryStepId}`,
+      ruleIds,
+    );
+    rules.push({ ...mapped, id });
+  }
+  return { rules, unmappedCount };
+};
+
+const mapFailureRule = (
+  rule: HarnessFailureRule,
+  policyMaxAttempts: number,
+  steps: readonly AgentPipelineStep[],
+): Omit<AgentPipelineBackflowRule, "id"> | null => {
+  if (rule.action !== "backflow_to_step") return null;
+  if (!isPipelineBackflowTrigger(rule.trigger)) return null;
+  if (rule.targetStepId === undefined || rule.retryStepId === undefined) {
+    return null;
+  }
+  const maxAttempts = rule.maxAttempts ?? policyMaxAttempts;
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 5) {
+    return null;
+  }
+  if (!isValidBackflowPath(steps, rule.targetStepId, rule.retryStepId)) {
+    return null;
+  }
+  return {
+    trigger: rule.trigger,
+    targetStepId: rule.targetStepId,
+    retryStepId: rule.retryStepId,
+    maxAttempts,
+    ...(rule.instruction !== undefined ? { instruction: rule.instruction } : {}),
+  };
+};
+
+const isPipelineBackflowTrigger = (
+  trigger: HarnessFailureRule["trigger"],
+): trigger is AgentPipelineBackflowRule["trigger"] =>
+  trigger === "step_failed" || trigger === "quality_failed";
+
+const isValidBackflowPath = (
+  steps: readonly AgentPipelineStep[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  if (targetStepId === retryStepId) return false;
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const targetIndex = stepIndexById.get(targetStepId);
+  const retryIndex = stepIndexById.get(retryStepId);
+  if (targetIndex === undefined || retryIndex === undefined) return false;
+  if (targetIndex >= retryIndex) return false;
+  return hasBackflowDependencyPath(steps, targetStepId, retryStepId);
+};
+
+const hasBackflowDependencyPath = (
+  steps: readonly AgentPipelineStep[],
+  targetStepId: string,
+  retryStepId: string,
+): boolean => {
+  const stepIndexById = new Map(
+    steps.map((step, index) => [step.id, index] as const),
+  );
+  const visited = new Set<string>();
+  const visit = (stepId: string): boolean => {
+    if (stepId === targetStepId) return true;
+    if (visited.has(stepId)) return false;
+    visited.add(stepId);
+    const index = stepIndexById.get(stepId);
+    if (index === undefined) return false;
+    const step = steps[index]!;
+    const dependencyIds =
+      step.dependsOn !== undefined
+        ? step.dependsOn
+        : index > 0
+          ? [steps[index - 1]!.id]
+          : [];
+    return dependencyIds.some((depId) => visit(depId));
+  };
+  return visit(retryStepId);
+};
+
+const uniqueBackflowRuleId = (
+  base: string,
+  used: Set<string>,
+): string => {
+  let candidate = base;
+  let index = 2;
+  while (used.has(candidate)) {
+    candidate = `${base}-${index}`;
+    index += 1;
+  }
+  used.add(candidate);
+  return candidate;
 };
 
 const normalizeBindingRef = (value: string): string =>
