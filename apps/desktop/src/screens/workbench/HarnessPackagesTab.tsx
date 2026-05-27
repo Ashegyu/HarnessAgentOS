@@ -5,12 +5,18 @@ import type {
   HarnessDefinition,
   HarnessPipelineDraftPreviewResult,
 } from "@harness/core";
+import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
 import {
   harnessAgentBindingCandidates,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
+  repairDraftFromWorkflow,
+  repairInputFromDraft,
   suggestHarnessProfileBinding,
   summarizeHarnessPackage,
+  validateHarnessWorkflowRepairDraft,
+  type HarnessWorkflowRepairDraft,
+  type HarnessWorkflowStepRepairDraft,
 } from "./harness-package-ui";
 
 type ListState =
@@ -55,6 +61,8 @@ export const HarnessPackagesTab = (): JSX.Element => {
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [preview, setPreview] =
     useState<HarnessPipelineDraftPreviewResult | null>(null);
+  const [repairDraft, setRepairDraft] =
+    useState<HarnessWorkflowRepairDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -132,11 +140,18 @@ export const HarnessPackagesTab = (): JSX.Element => {
     [selectedWorkflow],
   );
 
+  const repairIssues = useMemo(
+    () =>
+      repairDraft ? validateHarnessWorkflowRepairDraft(repairDraft) : [],
+    [repairDraft],
+  );
+
   useEffect(() => {
     if (!selectedPackage) {
       setSelectedWorkflowId(null);
       setBindings({});
       setPreview(null);
+      setRepairDraft(null);
       return;
     }
     const nextWorkflowId = selectedPackage.workflows[0]?.id ?? null;
@@ -159,6 +174,12 @@ export const HarnessPackagesTab = (): JSX.Element => {
       ),
     );
   }, [selectedPackage?.id, profileList]);
+
+  useEffect(() => {
+    setRepairDraft(
+      selectedWorkflow ? repairDraftFromWorkflow(selectedWorkflow) : null,
+    );
+  }, [selectedPackage?.id, selectedWorkflow?.id]);
 
   const updateWorkflowSelection = (workflowId: string): void => {
     setSelectedWorkflowId(workflowId);
@@ -190,6 +211,27 @@ export const HarnessPackagesTab = (): JSX.Element => {
       ...current,
       [harnessAgentRef]: agentProfileId,
     }));
+  };
+
+  const updateRepairNote = (note: string): void => {
+    setRepairDraft((current) => (current ? { ...current, note } : current));
+  };
+
+  const updateRepairStep = (
+    stepId: string,
+    patch: Partial<Omit<HarnessWorkflowStepRepairDraft, "stepId">>,
+  ): void => {
+    setPreview(null);
+    setRepairDraft((current) =>
+      current
+        ? {
+            ...current,
+            steps: current.steps.map((step) =>
+              step.stepId === stepId ? { ...step, ...patch } : step,
+            ),
+          }
+        : current,
+    );
   };
 
   const previewBindings = (): HarnessAgentProfileBinding[] =>
@@ -246,6 +288,34 @@ export const HarnessPackagesTab = (): JSX.Element => {
       setNotice({ kind: "error", message: errorMessage(e) });
     } finally {
       setPreviewBusy(false);
+    }
+  };
+
+  const handleSaveRepairSnapshot = async (): Promise<void> => {
+    if (!selectedPackage || !selectedWorkflow || !repairDraft) return;
+    const issues = validateHarnessWorkflowRepairDraft(repairDraft);
+    if (issues.length > 0) {
+      setNotice({ kind: "warning", message: issues[0]! });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const result = await window.harness.harnessPackages.repair(
+        repairInputFromDraft(selectedPackage.id, repairDraft),
+      );
+      setNotice({
+        kind: "success",
+        message: `${result.definition.name} repaired snapshot saved.`,
+      });
+      setSelectedId(result.definition.id);
+      setSelectedWorkflowId(selectedWorkflow.id);
+      setPreview(null);
+      await refresh();
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -416,6 +486,11 @@ export const HarnessPackagesTab = (): JSX.Element => {
                     Execution blocked
                   </span>
                 )}
+                {selectedPackage.repair && (
+                  <span title={selectedPackage.repair.sourcePackageId}>
+                    Repaired {formatTimestamp(selectedPackage.repair.repairedAt)}
+                  </span>
+                )}
               </div>
 
               <dl className="harness-packages-tab__metrics">
@@ -559,6 +634,147 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           </li>
                         ))}
                       </ul>
+                    )}
+
+                    {repairDraft && (
+                      <section
+                        className="harness-packages-tab__repair"
+                        aria-label="Manual workflow repair"
+                      >
+                        <div className="harness-packages-tab__repair-header">
+                          <strong>Manual repair</strong>
+                          <button
+                            type="button"
+                            className="btn btn--secondary btn--sm"
+                            onClick={() => void handleSaveRepairSnapshot()}
+                            disabled={
+                              busy ||
+                              selectedWorkflow === null ||
+                              repairIssues.length > 0
+                            }
+                          >
+                            {busy ? "Saving..." : "Save Snapshot"}
+                          </button>
+                        </div>
+
+                        <label className="harness-packages-tab__field">
+                          <span>Note</span>
+                          <input
+                            value={repairDraft.note}
+                            onChange={(event) =>
+                              updateRepairNote(event.currentTarget.value)
+                            }
+                            placeholder="Review note"
+                          />
+                        </label>
+
+                        {repairIssues.length > 0 && (
+                          <p className="harness-packages-tab__repair-issue">
+                            {repairIssues[0]}
+                          </p>
+                        )}
+
+                        <ul className="harness-packages-tab__repair-list">
+                          {repairDraft.steps.map((step) => (
+                            <li key={step.stepId}>
+                              <div className="harness-packages-tab__step-title">
+                                <strong>{step.stepId}</strong>
+                              </div>
+                              <div className="harness-packages-tab__repair-grid">
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Title</span>
+                                  <input
+                                    value={step.title}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        title: event.currentTarget.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Owner</span>
+                                  <input
+                                    value={step.agentRef}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        agentRef: event.currentTarget.value,
+                                      })
+                                    }
+                                    placeholder="agent id"
+                                  />
+                                </label>
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Role</span>
+                                  <input
+                                    value={step.roleHint}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        roleHint: event.currentTarget.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Depends</span>
+                                  <input
+                                    value={step.dependsOnText}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        dependsOnText:
+                                          event.currentTarget.value,
+                                      })
+                                    }
+                                    placeholder="step-id, step-id"
+                                  />
+                                </label>
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Artifacts</span>
+                                  <input
+                                    value={step.artifactsText}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        artifactsText: event.currentTarget.value,
+                                      })
+                                    }
+                                    placeholder="_workspace/result.md"
+                                  />
+                                </label>
+                                <label className="harness-packages-tab__repair-control">
+                                  <span>Output</span>
+                                  <select
+                                    value={step.outputContract}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        outputContract: event.currentTarget
+                                          .value as HarnessWorkflowStepRepairDraft["outputContract"],
+                                      })
+                                    }
+                                  >
+                                    {WORKER_OUTPUT_CONTRACTS.map((contract) => (
+                                      <option key={contract} value={contract}>
+                                        {contract}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="harness-packages-tab__repair-control harness-packages-tab__repair-control--wide">
+                                  <span>Instruction</span>
+                                  <textarea
+                                    value={step.instruction}
+                                    rows={3}
+                                    onChange={(event) =>
+                                      updateRepairStep(step.stepId, {
+                                        instruction: event.currentTarget.value,
+                                      })
+                                    }
+                                  />
+                                </label>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
                     )}
 
                     {profileList.kind === "loading" && (

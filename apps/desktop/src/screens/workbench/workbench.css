@@ -7815,8 +7815,12 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   font-size: 12px;
 }
 
+.harness-packages-tab__field input,
 .harness-packages-tab__field select,
-.harness-packages-tab__binding-list select {
+.harness-packages-tab__binding-list select,
+.harness-packages-tab__repair-control input,
+.harness-packages-tab__repair-control select,
+.harness-packages-tab__repair-control textarea {
   min-width: 0;
   width: 100%;
   border: 1px solid var(--border-subtle);
@@ -7825,6 +7829,11 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   color: var(--text-primary);
   font: inherit;
   padding: 6px 8px;
+}
+
+.harness-packages-tab__repair-control textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 
 .harness-packages-tab__draft-metrics {
@@ -7939,6 +7948,76 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   font-family: var(--font-mono);
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.harness-packages-tab__repair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  padding: 8px;
+}
+
+.harness-packages-tab__repair-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.harness-packages-tab__repair-header strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.harness-packages-tab__repair-issue {
+  color: var(--status-pending) !important;
+}
+
+.harness-packages-tab__repair-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.harness-packages-tab__repair-list li {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-elev);
+  padding: 8px;
+}
+
+.harness-packages-tab__repair-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px;
+}
+
+.harness-packages-tab__repair-control {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.harness-packages-tab__repair-control--wide {
+  grid-column: 1 / -1;
+}
+
+.harness-packages-tab__repair-control span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 .harness-packages-tab__binding-list li {

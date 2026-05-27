@@ -562,9 +562,12 @@ source-boundary rules:
 - Harness workflow tables are parsed into reviewable workflow steps with
   dependency, owner, artifact, and Korean/English column alias handling.
 - The `harness-100` sample directory is covered by parser regression tests.
-- Manual repair now has a service/IPC foundation: a user-reviewed repair can be
-  saved as a new HarnessAgentOS-owned package snapshot with
-  `repair.sourcePackageId` pointing at the original import.
+- Manual repair is now exposed in the Harnesses tab: a user can edit inferred
+  workflow step titles, owners, role hints, dependencies, artifact hints,
+  output contracts, and instruction text, then save the result as a new
+  HarnessAgentOS-owned package snapshot.
+- The manual repair UI calls `harnessPackages.repair`; it does not mutate the
+  source package directory or introduce a direct run/apply/export action.
 - Repaired snapshots preserve source provenance and may share the original
   `root_dir`; the original imported snapshot remains inspectable.
 - `HarnessDefinition -> AgentPipeline draft -> OrchestrationPlan` preserves full
@@ -580,6 +583,7 @@ Verified commands for the latest checkpoint:
 ```powershell
 node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
 node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-repair.test.mjs packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs packages/storage/src/migrations.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/harness-package-ui.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
 npm run check
 npm run test
 npm run build
@@ -589,9 +593,9 @@ git diff --check
 ### 18.2 Inference
 
 The current implementation is now suitable for reviewed package import,
-pipeline-template creation, and persisted repaired package snapshots. It is not
-yet a complete autonomous package runner, because the manual repair editor UI,
-capability/provider readiness checks, and a sample end-to-end approved execution
+manual workflow repair, pipeline-template creation, and persisted repaired
+package snapshots. It is not yet a complete autonomous package runner, because
+capability/provider readiness checks and a sample end-to-end approved execution
 pass still need to be closed.
 
 ### 18.3 Remaining Uncertainty
@@ -608,18 +612,15 @@ pass still need to be closed.
 
 Proceed in this order:
 
-1. **Manual repair UI**: expose the repair snapshot API in the Harnesses tab for
-   editing ambiguous workflow step owner/dependency/artifact details. Do not edit
-   the original package.
-2. **Binding hardening**: make missing profile, provider, MCP, skill, and
+1. **Binding hardening**: make missing profile, provider, MCP, skill, and
    capability requirements visible before conversion.
-3. **Structured source metadata**: add optional source package/workflow/source
+2. **Structured source metadata**: add optional source package/workflow/source
    reference fields to the saved pipeline or worker snapshot if audit/reporting
    needs more than instruction-visible provenance.
-4. **Approved execution acceptance**: use one `harness-100` sample, import it,
+3. **Approved execution acceptance**: use one `harness-100` sample, import it,
    bind profiles, save a pipeline template, draft an orchestration plan, require
    approval, run after approval, and confirm artifacts/handoffs/quality gates.
-5. **Export later**: only after import, repair, binding, conversion, and
+4. **Export later**: only after import, repair, binding, conversion, and
    approved execution are stable.
 
 The immediate user workflow is:
@@ -627,6 +628,7 @@ The immediate user workflow is:
 ```text
 Import Harness package
   -> inspect diagnostics and workflow steps
+  -> repair ambiguous owner/dependency/artifact details if needed
   -> choose workflow
   -> bind abstract agents to local AgentProfiles
   -> preview pipeline draft

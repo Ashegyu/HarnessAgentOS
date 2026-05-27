@@ -4,8 +4,11 @@ import {
   harnessAgentBindingCandidates,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
+  repairDraftFromWorkflow,
+  repairInputFromDraft,
   suggestHarnessProfileBinding,
   summarizeHarnessPackage,
+  validateHarnessWorkflowRepairDraft,
 } from "./harness-package-ui.ts";
 
 const pkg = (overrides = {}) => ({
@@ -340,4 +343,142 @@ test("harnessWorkflowStepRows formats dependencies and artifact contracts for re
       outputContract: "review",
     },
   ]);
+});
+
+test("repairDraftFromWorkflow creates editable fields from workflow steps", () => {
+  const draft = repairDraftFromWorkflow(repairWorkflow());
+
+  assert.equal(draft.workflowId, "wf");
+  assert.equal(draft.note, "");
+  assert.deepEqual(
+    draft.steps.map((step) => [
+      step.stepId,
+      step.title,
+      step.agentRef,
+      step.roleHint,
+      step.dependsOnText,
+      step.artifactsText,
+      step.outputContract,
+    ]),
+    [
+      ["step-1", "Plan", "planner", "planner", "", "_workspace/plan.md", "plan"],
+      ["step-2", "Review", "", "reviewer", "step-1", "", "review"],
+    ],
+  );
+});
+
+test("repairInputFromDraft normalizes dependencies artifacts and blank owners", () => {
+  const draft = repairDraftFromWorkflow(repairWorkflow());
+  const patched = {
+    ...draft,
+    note: " reviewed ",
+    steps: draft.steps.map((step) =>
+      step.stepId === "step-2"
+        ? {
+            ...step,
+            agentRef: "",
+            dependsOnText: " step-1, step-1 ",
+            artifactsText: "_workspace/review.md",
+          }
+        : step,
+    ),
+  };
+
+  const input = repairInputFromDraft("pkg-1", patched);
+
+  assert.equal(input.packageId, "pkg-1");
+  assert.equal(input.note, "reviewed");
+  assert.deepEqual(input.workflows[0].steps[1], {
+    stepId: "step-2",
+    title: "Review",
+    agentRef: null,
+    roleHint: "reviewer",
+    instruction: "Review",
+    dependsOn: ["step-1"],
+    artifactContracts: [
+      {
+        id: "step-2-artifact-1",
+        pathHint: "_workspace/review.md",
+        title: "_workspace/review.md",
+        kind: "workspace_file",
+        required: true,
+        description: "_workspace/review.md",
+      },
+    ],
+    outputContract: "review",
+  });
+});
+
+test("validateHarnessWorkflowRepairDraft reports invalid dependency edits", () => {
+  const draft = repairDraftFromWorkflow(repairWorkflow());
+  const invalid = {
+    ...draft,
+    steps: draft.steps.map((step) =>
+      step.stepId === "step-1"
+        ? { ...step, roleHint: " ", dependsOnText: "step-2" }
+        : { ...step, dependsOnText: "step-1" },
+    ),
+  };
+
+  assert.deepEqual(validateHarnessWorkflowRepairDraft(invalid), [
+    "step-1: role hint is required.",
+    "Workflow dependencies contain a cycle.",
+  ]);
+});
+
+const repairWorkflow = () => ({
+  id: "wf",
+  skillId: "demo",
+  name: "Demo workflow",
+  mode: "agent-team",
+  description: "Demo",
+  sourceFile: "skills/demo/SKILL.md",
+  phases: [],
+  steps: [
+    {
+      id: "step-1",
+      title: "Plan",
+      agentRef: "planner",
+      roleHint: "planner",
+      instruction: "Plan",
+      dependsOn: [],
+      artifactContracts: [
+        {
+          id: "artifact-1",
+          pathHint: "_workspace/plan.md",
+          title: "plan",
+          kind: "workspace_file",
+          required: true,
+          description: "Plan",
+        },
+      ],
+      allowedActions: ["file_write"],
+      outputContract: "plan",
+      sourceRef: { relativePath: "skills/demo/SKILL.md" },
+    },
+    {
+      id: "step-2",
+      title: "Review",
+      roleHint: "reviewer",
+      instruction: "Review",
+      dependsOn: ["step-1"],
+      artifactContracts: [],
+      allowedActions: [],
+      outputContract: "review",
+      sourceRef: { relativePath: "skills/demo/SKILL.md" },
+    },
+  ],
+  handoffPolicy: {
+    mode: "source_message_semantics",
+    routes: [],
+    requiredPayload: "harness_worker_handoff_v1",
+    fallback: "synthesize_from_artifact",
+  },
+  failurePolicy: {
+    defaultMode: "pause_for_review",
+    maxAttempts: 2,
+    rules: [],
+  },
+  testScenarios: [],
+  parseConfidence: "medium",
 });
