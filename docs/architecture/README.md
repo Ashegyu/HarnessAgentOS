@@ -20,6 +20,7 @@
 | `a2a-integration-plan.md` | A2A remote registry/client/worker routing과 서버리스 gateway 경계 |
 | `a2a-refinement-backflow-plan.md` | A2A 수정 요청을 이전 remote worker로 되돌려 보내는 bounded refinement 설계 |
 | `pipeline-backflow-routing-plan.md` | Pipeline template에 조건부 backflow rule을 저장하고 실패 시 target/retry worker를 자동 실행하는 설계 |
+| `vendor-neutral-harness-orchestration.md` | Claude/Codex/native 하네스 패키지를 중립 `HarnessDefinition`으로 정규화하고 기존 승인형 runtime에 연결하는 설계 |
 | `architecture-decisions.md` | 핵심 아키텍처 결정 기록 |
 
 ## 관련 설계 문서
@@ -33,7 +34,9 @@
 | 문서 | 목적 |
 |---|---|
 | `../contracts/ipc-contracts.md` | renderer가 호출할 수 있는 public `window.harness.*` IPC 계약의 단일 기준 |
+| `../contracts/harness-package-format.md` | Claude/Codex/native 하네스 패키지 source format을 중립 `HarnessDefinition`으로 정규화하는 계약 |
 | `../implementation/runtime-contract-fixes-plan.md` | approval executed 상태, pipeline error visibility, targetDir, quality evidence, retry/scope/latest plan 보강 계획 |
+| `../implementation/harness-package-adoption-plan.md` | 하네스 패키지 import, validation, binding, conversion, execution을 단계적으로 도입하는 구현 계획 |
 | `../implementation/phase-08-completion-checklist.md` | Phase 8 구현/검증 close-out과 남은 후속 범위 |
 | `../verification/a2a-phase-f-ops-report.md` | A2A Phase F 서버리스 경계 검증과 companion listener 제거 근거 |
 

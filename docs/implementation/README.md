@@ -63,6 +63,7 @@
 |---|---|
 | `docs/implementation/phase-08-completion-checklist.md` | Phase 8과 이후 A2A/Policy/IPC follow-up을 현재 검증 결과 기준으로 닫은 체크리스트 |
 | `docs/implementation/runtime-contract-fixes-plan.md` | approval 실행 상태, pipeline 실패 노출, targetDir, quality evidence, retry/scope 같은 runtime 계약 보강 계획 |
+| `docs/implementation/harness-package-adoption-plan.md` | Claude/Codex/native 하네스 패키지를 read-only import부터 승인 기반 실행까지 단계적으로 도입하는 계획 |
 | `docs/contracts/ipc-contracts.md` | renderer-facing `window.harness.*` public IPC 단일 계약. `ipc-contracts-surface.test.mjs`가 실제 `IPC_CHANNELS`와 대조한다. |
 | `docs/architecture/a2a-integration-plan.md` | A2A remote registry/client/worker routing 설계와 serverless gateway boundary |
 | `docs/verification/a2a-phase-f-ops-report.md` | loopback companion listener 제거와 A2A Phase F serverless 경계 검증 기록 |
