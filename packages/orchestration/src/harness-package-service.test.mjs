@@ -98,6 +98,66 @@ test("HarnessPackageService removes persisted package snapshots", async () => {
   }
 });
 
+test("HarnessPackageService saves manual repairs as separate snapshots", async () => {
+  const dbTemp = dbTmp();
+  const root = dirTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    await writeFixture(root, "AGENTS.md", "# Agent policy");
+    await writeFixture(
+      root,
+      "skills/demo/SKILL.md",
+      [
+        "---",
+        "name: demo",
+        "description: Demo workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Draft plan | writer | None | `_workspace/plan.md` |",
+      ].join("\n"),
+    );
+    const state = new LocalStateService(db);
+    const service = new HarnessPackageService({ state });
+    const imported = await service.importDirectory({
+      rootDir: root,
+      importedAt: "2026-05-27T00:00:00.000Z",
+    });
+    assert.equal(imported.ok, true);
+    const original = imported.definition;
+
+    const repaired = await service.repairPackage({
+      packageId: original.id,
+      note: "Resolved writer owner.",
+      workflows: [
+        {
+          workflowId: original.workflows[0].id,
+          steps: [
+            {
+              stepId: original.workflows[0].steps[0].id,
+              agentRef: "writer",
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.notEqual(repaired.definition.id, original.id);
+    assert.equal(repaired.definition.repair.sourcePackageId, original.id);
+    assert.equal(repaired.definition.repair.note, "Resolved writer owner.");
+    assert.equal(repaired.definition.workflows[0].steps[0].agentRef, "writer");
+    assert.equal((await service.getPackage(original.id)).repair, undefined);
+    assert.equal((await service.listPackages()).length, 2);
+  } finally {
+    closeDb(db);
+    dbTemp.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 async function writeFixture(root, relativePath, content) {
   const fullPath = path.join(root, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });

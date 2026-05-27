@@ -146,6 +146,13 @@ export const applyMigrations = (db: DatabaseType): void => {
       rebuildApprovals(db);
     }
 
+    // v34 — repaired harness package snapshots may share the same source
+    // root_dir as the original import. The row id identifies each immutable
+    // declaration snapshot; root_dir is source provenance, not uniqueness.
+    if (harnessPackageRootDirIsUnique(db)) {
+      rebuildHarnessPackages(db);
+    }
+
     db.prepare(
       `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)`,
     ).run(String(SCHEMA_VERSION));
@@ -189,6 +196,13 @@ const agentProfileRoleAllows = (
     .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_profiles'`)
     .get() as { sql: string } | undefined;
   return row?.sql?.includes(`'${role}'`) ?? false;
+};
+
+const harnessPackageRootDirIsUnique = (db: DatabaseType): boolean => {
+  const row = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='harness_packages'`)
+    .get() as { sql: string } | undefined;
+  return /\bUNIQUE\s*\(\s*root_dir\s*\)/i.test(row?.sql ?? "");
 };
 
 const rebuildAgentProfiles = (db: DatabaseType): void => {
@@ -264,6 +278,32 @@ const rebuildApprovals = (db: DatabaseType): void => {
   )`);
   db.exec(`INSERT INTO approvals SELECT id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,decided_at,proposed_action_json,policy_evaluation_json,auto_approve_decision_json FROM approvals_migration_old`);
   db.exec(`DROP TABLE approvals_migration_old`);
+};
+
+const rebuildHarnessPackages = (db: DatabaseType): void => {
+  db.exec(`DROP INDEX IF EXISTS idx_harness_packages_format_status`);
+  db.exec(`ALTER TABLE harness_packages RENAME TO harness_packages_migration_old`);
+  db.exec(`CREATE TABLE harness_packages (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_format TEXT NOT NULL CHECK(source_format IN ('claude','codex','harness-native')),
+    root_dir TEXT NOT NULL,
+    validation_status TEXT NOT NULL CHECK(validation_status IN ('valid','valid_with_warnings','needs_review','unsupported')),
+    definition_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`);
+  db.exec(`INSERT INTO harness_packages (
+      id,name,source_format,root_dir,validation_status,
+      definition_json,created_at,updated_at
+    )
+    SELECT
+      id,name,source_format,root_dir,validation_status,
+      definition_json,created_at,updated_at
+    FROM harness_packages_migration_old`);
+  db.exec(`DROP TABLE harness_packages_migration_old`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_harness_packages_format_status
+    ON harness_packages(source_format, validation_status, updated_at DESC)`);
 };
 
 export const readSchemaVersion = (db: DatabaseType): number | null => {

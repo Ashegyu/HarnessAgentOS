@@ -1,12 +1,16 @@
 import type {
   HarnessDefinition,
   HarnessPackageImportDirectoryResult,
+  HarnessPackageRepairInput,
+  HarnessPackageRepairResult,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
+import { nowIso } from "@harness/storage";
 import {
   importHarnessPackageFromDirectory,
   type ImportHarnessPackageFromDirectoryInput,
 } from "./harness-directory-import.ts";
+import { applyHarnessPackageRepair } from "./harness-package-repair.ts";
 
 export type HarnessPackageImportAndSaveResult =
   HarnessPackageImportDirectoryResult;
@@ -45,5 +49,26 @@ export class HarnessPackageService {
 
   async removePackage(id: string): Promise<void> {
     await this.deps.state.harnessPackages.remove(id);
+  }
+
+  async repairPackage(
+    input: HarnessPackageRepairInput,
+  ): Promise<HarnessPackageRepairResult> {
+    const found = await this.getPackage(input.packageId);
+    if (!found) {
+      throw new Error(`unknown harness package: ${input.packageId}`);
+    }
+    const repaired = applyHarnessPackageRepair({
+      ...input,
+      definition: found,
+      repairedAt: nowIso(),
+    });
+    const saved = await this.deps.state.harnessPackages.save(
+      repaired.definition,
+    );
+    return {
+      ...repaired,
+      definition: saved,
+    };
   }
 }

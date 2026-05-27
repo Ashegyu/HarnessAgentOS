@@ -363,6 +363,42 @@ export interface HarnessPackageImportDirectoryInput {
   rootDir: string;
 }
 
+export interface HarnessRepairMetadata {
+  sourcePackageId: string;
+  repairedAt: string;
+  note?: string;
+}
+
+export interface HarnessWorkflowStepRepairInput {
+  stepId: string;
+  title?: string;
+  agentRef?: string | null;
+  roleHint?: string;
+  instruction?: string;
+  dependsOn?: readonly string[];
+  artifactContracts?: readonly HarnessArtifactContract[];
+  allowedActions?: readonly ApprovalActionType[];
+  outputContract?: WorkerOutputContract;
+}
+
+export interface HarnessWorkflowRepairInput {
+  workflowId: string;
+  name?: string;
+  description?: string;
+  steps?: readonly HarnessWorkflowStepRepairInput[];
+}
+
+export interface HarnessPackageRepairInput {
+  packageId: string;
+  note?: string;
+  workflows: readonly HarnessWorkflowRepairInput[];
+}
+
+export interface HarnessPackageRepairResult {
+  definition: HarnessDefinition;
+  issuesResolved: number;
+}
+
 export type HarnessPackageImportDirectoryResult =
   | {
       ok: true;
@@ -427,6 +463,7 @@ export interface HarnessDefinition {
   workflows: readonly HarnessWorkflowDefinition[];
   capabilities: readonly HarnessCapabilityRequirement[];
   validation: HarnessValidationResult;
+  repair?: HarnessRepairMetadata;
 }
 
 const SOURCE_FORMAT_SET: ReadonlySet<string> = new Set(HARNESS_SOURCE_FORMATS);
@@ -498,10 +535,23 @@ export const isHarnessDefinition = (v: unknown): v is HarnessDefinition => {
     return false;
   }
   if (!isHarnessValidationResult(v.validation)) return false;
+  if (v.repair !== undefined && !isHarnessRepairMetadata(v.repair)) {
+    return false;
+  }
   if (!hasUniqueIds(v.agents)) return false;
   if (!hasUniqueIds(v.skills)) return false;
   if (!hasUniqueIds(v.workflows)) return false;
   if (!hasUniqueIds(v.capabilities)) return false;
+  return true;
+};
+
+export const isHarnessRepairMetadata = (
+  v: unknown,
+): v is HarnessRepairMetadata => {
+  if (!isRecord(v)) return false;
+  if (!isNonEmptyString(v.sourcePackageId)) return false;
+  if (!isNonEmptyString(v.repairedAt)) return false;
+  if (v.note !== undefined && typeof v.note !== "string") return false;
   return true;
 };
 

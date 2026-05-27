@@ -853,6 +853,40 @@ test("v33 migration creates harness package snapshot table", () => {
   }
 });
 
+test("v34 migration allows repaired harness snapshots to share root_dir", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const stmt = db.prepare(
+      `INSERT INTO harness_packages(
+         id, name, source_format, root_dir, validation_status,
+         definition_json, created_at, updated_at
+       ) VALUES (?, ?, 'codex', ?, 'needs_review', '{}', ?, ?)`,
+    );
+    stmt.run(
+      "hp_original",
+      "Original",
+      "C:/tmp/harness",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    stmt.run(
+      "hp_repaired",
+      "Original (repaired)",
+      "C:/tmp/harness",
+      "2026-01-01T00:00:00.000Z",
+      "2026-01-01T00:00:00.000Z",
+    );
+    const row = db
+      .prepare("SELECT COUNT(*) AS count FROM harness_packages WHERE root_dir = ?")
+      .get("C:/tmp/harness");
+    assert.equal(row.count, 2);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v20 migration adds profile taxonomy columns", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

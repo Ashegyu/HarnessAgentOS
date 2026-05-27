@@ -562,6 +562,11 @@ source-boundary rules:
 - Harness workflow tables are parsed into reviewable workflow steps with
   dependency, owner, artifact, and Korean/English column alias handling.
 - The `harness-100` sample directory is covered by parser regression tests.
+- Manual repair now has a service/IPC foundation: a user-reviewed repair can be
+  saved as a new HarnessAgentOS-owned package snapshot with
+  `repair.sourcePackageId` pointing at the original import.
+- Repaired snapshots preserve source provenance and may share the original
+  `root_dir`; the original imported snapshot remains inspectable.
 - `HarnessDefinition -> AgentPipeline draft -> OrchestrationPlan` preserves full
   step instruction text in `AgentPipelineStep.instruction` and
   `WorkerStep.instruction`.
@@ -574,6 +579,7 @@ Verified commands for the latest checkpoint:
 
 ```powershell
 node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
+node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-repair.test.mjs packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs packages/storage/src/migrations.test.mjs
 npm run check
 npm run test
 npm run build
@@ -582,10 +588,11 @@ git diff --check
 
 ### 18.2 Inference
 
-The current implementation is now suitable for reviewed package import and
-pipeline-template creation. It is not yet a complete autonomous package runner,
-because ambiguous workflow repair, capability/provider readiness checks, and a
-sample end-to-end approved execution pass still need to be closed.
+The current implementation is now suitable for reviewed package import,
+pipeline-template creation, and persisted repaired package snapshots. It is not
+yet a complete autonomous package runner, because the manual repair editor UI,
+capability/provider readiness checks, and a sample end-to-end approved execution
+pass still need to be closed.
 
 ### 18.3 Remaining Uncertainty
 
@@ -601,8 +608,9 @@ sample end-to-end approved execution pass still need to be closed.
 
 Proceed in this order:
 
-1. **Manual repair model**: persist a HarnessAgentOS-owned repaired definition
-   snapshot for ambiguous imports. Do not edit the original package.
+1. **Manual repair UI**: expose the repair snapshot API in the Harnesses tab for
+   editing ambiguous workflow step owner/dependency/artifact details. Do not edit
+   the original package.
 2. **Binding hardening**: make missing profile, provider, MCP, skill, and
    capability requirements visible before conversion.
 3. **Structured source metadata**: add optional source package/workflow/source

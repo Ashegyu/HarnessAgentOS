@@ -28,6 +28,7 @@ import {
   type HarnessDefinition,
   type HarnessSettings,
   type HarnessPackageImportDirectoryResult,
+  type HarnessPackageRepairResult,
   type HarnessPipelineDraftPreviewResult,
   type Instinct,
   type SkillResources,
@@ -503,6 +504,11 @@ const harnessApi: HarnessDesktopApi = {
     importDirectory: (input) =>
       invokeUnwrapped<HarnessPackageImportDirectoryResult>(
         IPC_CHANNELS.harnessPackages.importDirectory,
+        input,
+      ),
+    repair: (input) =>
+      invokeUnwrapped<HarnessPackageRepairResult>(
+        IPC_CHANNELS.harnessPackages.repair,
         input,
       ),
     previewPipelineDraft: (input) =>

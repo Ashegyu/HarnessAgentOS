@@ -106,6 +106,7 @@ test("harnessPackages namespace exposes import registry and preview verbs only",
     "list",
     "previewPipelineDraft",
     "remove",
+    "repair",
   ]);
   assert.equal(isAllowedChannel("harnessPackages:list"), true);
   assert.equal(isAllowedChannel("harnessPackages:importDirectory"), true);
@@ -113,6 +114,7 @@ test("harnessPackages namespace exposes import registry and preview verbs only",
     isAllowedChannel("harnessPackages:previewPipelineDraft"),
     true,
   );
+  assert.equal(isAllowedChannel("harnessPackages:repair"), true);
   assert.equal(isAllowedChannel("harnessPackages:run"), false);
 });
 

@@ -211,6 +211,32 @@ test("isHarnessDefinition accepts Codex and Harness-native source formats", () =
   );
 });
 
+test("isHarnessDefinition accepts repaired snapshot metadata", () => {
+  assert.equal(
+    isHarnessDefinition({
+      ...VALID_DEFINITION,
+      id: "harness_performance_optimizer_repaired",
+      name: "Performance Optimizer (repaired)",
+      repair: {
+        sourcePackageId: VALID_DEFINITION.id,
+        repairedAt: ISO,
+        note: "Resolved dependency table.",
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isHarnessDefinition({
+      ...VALID_DEFINITION,
+      repair: {
+        sourcePackageId: "",
+        repairedAt: ISO,
+      },
+    }),
+    false,
+  );
+});
+
 test("isHarnessDefinition rejects duplicate top-level ids", () => {
   assert.equal(
     isHarnessDefinition({

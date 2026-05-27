@@ -198,6 +198,85 @@ test("harnessPackages.previewPipelineDraft returns conversion issues for unbound
   }
 });
 
+test("harnessPackages.repair saves a Harness-owned repaired snapshot", async () => {
+  const { db, t, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, "AGENTS.md", "# Agent policy");
+    await writeFixture(
+      root,
+      "skills/demo/SKILL.md",
+      [
+        "---",
+        "name: demo",
+        "description: Demo workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Draft plan | writer | None | `_workspace/plan.md` |",
+      ].join("\n"),
+    );
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+    const definition = imported.value.definition;
+
+    const repaired = await handlers.repair({
+      packageId: definition.id,
+      note: "Resolved writer owner.",
+      workflows: [
+        {
+          workflowId: definition.workflows[0].id,
+          steps: [
+            {
+              stepId: definition.workflows[0].steps[0].id,
+              agentRef: "writer",
+            },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(repaired.ok, true);
+    assert.notEqual(repaired.value.definition.id, definition.id);
+    assert.equal(repaired.value.definition.repair.sourcePackageId, definition.id);
+    assert.equal(
+      repaired.value.definition.workflows[0].steps[0].agentRef,
+      "writer",
+    );
+    assert.equal((await handlers.list()).value.length, 2);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("harnessPackages.repair validates input and unknown packages", async () => {
+  const { db, t, handlers } = setup();
+  try {
+    const malformed = await handlers.repair({
+      packageId: "harness_missing",
+      workflows: [],
+    });
+    assert.equal(malformed.ok, false);
+    assert.equal(malformed.error.code, "STATE_INVALID_INPUT");
+
+    const missing = await handlers.repair({
+      packageId: "harness_missing",
+      workflows: [{ workflowId: "workflow" }],
+    });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.error.code, "HARNESS_PACKAGE_NOT_FOUND");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("harnessPackages.get and remove reject unknown packages", async () => {
   const { db, t, handlers } = setup();
   try {

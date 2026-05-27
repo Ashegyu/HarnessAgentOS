@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -287,8 +287,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     validation_status TEXT NOT NULL CHECK(validation_status IN ('valid','valid_with_warnings','needs_review','unsupported')),
     definition_json TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    UNIQUE(root_dir)
+    updated_at TEXT NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_packages_format_status
     ON harness_packages(source_format, validation_status, updated_at DESC)`,

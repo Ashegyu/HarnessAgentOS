@@ -7,6 +7,8 @@ import {
   type HarnessAgentProfileBinding,
   type HarnessDefinition,
   type HarnessPackageImportDirectoryResult,
+  type HarnessPackageRepairInput,
+  type HarnessPackageRepairResult,
   type HarnessPipelineDraftPreviewResult,
   type HarnessResult,
 } from "@harness/core";
@@ -18,7 +20,11 @@ import {
 export interface HarnessPackageIpcContext {
   harnessPackages: Pick<
     HarnessPackageService,
-    "listPackages" | "getPackage" | "importDirectory" | "removePackage"
+    | "listPackages"
+    | "getPackage"
+    | "importDirectory"
+    | "removePackage"
+    | "repairPackage"
   >;
 }
 
@@ -119,6 +125,30 @@ const parseProfileBindings = (
   return { ok: true, value: bindings };
 };
 
+const parseRepairInput = (
+  input: unknown,
+): { ok: true; value: HarnessPackageRepairInput } | { ok: false; reason: string } => {
+  const packageId = requiredString(input, "packageId");
+  if (!packageId.ok) return { ok: false, reason: packageId.reason };
+  const note = optionalString(input, "note");
+  if (!note.ok) return { ok: false, reason: note.reason };
+  const raw =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).workflows
+      : undefined;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { ok: false, reason: "workflows must be a non-empty array" };
+  }
+  return {
+    ok: true,
+    value: {
+      packageId: packageId.value,
+      ...(note.value !== undefined ? { note: note.value } : {}),
+      workflows: raw as HarnessPackageRepairInput["workflows"],
+    },
+  };
+};
+
 export const buildHarnessPackageHandlers = (
   ctx: HarnessPackageIpcContext,
 ) => {
@@ -154,6 +184,25 @@ export const buildHarnessPackageHandlers = (
       return wrap(() =>
         harnessPackages.importDirectory({ rootDir: rootDir.value }),
       );
+    },
+
+    repair: async (
+      input: HarnessPackageRepairInput,
+    ): Promise<HarnessResult<HarnessPackageRepairResult>> => {
+      const parsed = parseRepairInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      const found = await harnessPackages.getPackage(parsed.value.packageId);
+      if (!found) {
+        return err(
+          harnessError(
+            HARNESS_PACKAGE_NOT_FOUND,
+            `unknown harness package: ${parsed.value.packageId}`,
+          ),
+        );
+      }
+      return wrap(() => harnessPackages.repairPackage(parsed.value));
     },
 
     previewPipelineDraft: async (input: {
