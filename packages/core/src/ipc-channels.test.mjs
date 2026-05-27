@@ -106,6 +106,7 @@ test("harnessPackages namespace exposes import registry and preview verbs only",
     "list",
     "previewExport",
     "previewPipelineDraft",
+    "proposeExport",
     "remove",
     "repair",
   ]);
@@ -116,6 +117,7 @@ test("harnessPackages namespace exposes import registry and preview verbs only",
     true,
   );
   assert.equal(isAllowedChannel("harnessPackages:previewExport"), true);
+  assert.equal(isAllowedChannel("harnessPackages:proposeExport"), true);
   assert.equal(isAllowedChannel("harnessPackages:repair"), true);
   assert.equal(isAllowedChannel("harnessPackages:run"), false);
 });

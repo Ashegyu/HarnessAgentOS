@@ -1,13 +1,17 @@
 import {
   APPROVAL_ACTION_TYPES,
+  type Approval,
   type ApprovalActionType,
 } from "./approval.ts";
 import { ARTIFACT_KINDS, type ArtifactKind } from "./artifact.ts";
 import type { CreateAgentPipelineInput } from "./agent-pipeline.ts";
+import type { Checkpoint } from "./checkpoint.ts";
 import {
   WORKER_OUTPUT_CONTRACTS,
   type WorkerOutputContract,
 } from "./orchestration.ts";
+import type { TaskRun } from "./task-run.ts";
+import type { Thread } from "./thread.ts";
 
 export type HarnessSourceFormat = "claude" | "codex" | "harness-native";
 
@@ -416,6 +420,20 @@ export interface HarnessPackageExportPreview {
 export interface HarnessPackageExportPreviewInput {
   packageId: string;
   targetFormat: HarnessSourceFormat;
+}
+
+export interface HarnessPackageExportProposalInput
+  extends HarnessPackageExportPreviewInput {
+  targetDir: string;
+}
+
+export interface HarnessPackageExportProposalResult {
+  preview: HarnessPackageExportPreview;
+  thread: Thread;
+  taskRun: TaskRun;
+  checkpoint: Checkpoint;
+  approvals: readonly Approval[];
+  targetDir: string;
 }
 
 export type HarnessPackageImportDirectoryResult =

@@ -27,6 +27,7 @@ import {
   type ExportApprovalResult,
   type HarnessDefinition,
   type HarnessPackageExportPreview,
+  type HarnessPackageExportProposalResult,
   type HarnessSettings,
   type HarnessPackageImportDirectoryResult,
   type HarnessPackageRepairResult,
@@ -515,6 +516,11 @@ const harnessApi: HarnessDesktopApi = {
     previewExport: (input) =>
       invokeUnwrapped<HarnessPackageExportPreview>(
         IPC_CHANNELS.harnessPackages.previewExport,
+        input,
+      ),
+    proposeExport: (input) =>
+      invokeUnwrapped<HarnessPackageExportProposalResult>(
+        IPC_CHANNELS.harnessPackages.proposeExport,
         input,
       ),
     previewPipelineDraft: (input) =>

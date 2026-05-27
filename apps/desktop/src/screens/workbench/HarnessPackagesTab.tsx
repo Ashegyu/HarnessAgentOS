@@ -387,6 +387,30 @@ export const HarnessPackagesTab = (): JSX.Element => {
     }
   };
 
+  const handleProposeExport = async (): Promise<void> => {
+    if (!selectedPackage) return;
+    setExportBusy(true);
+    setNotice(null);
+    try {
+      const targetDir = await window.harness.app.selectDirectory();
+      if (!targetDir) return;
+      const result = await window.harness.harnessPackages.proposeExport({
+        packageId: selectedPackage.id,
+        targetFormat: exportTarget,
+        targetDir,
+      });
+      setExportPreview(result.preview);
+      setNotice({
+        kind: "success",
+        message: `${result.approvals.length} export file approvals created.`,
+      });
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   const handleSaveRepairSnapshot = async (): Promise<void> => {
     if (!selectedPackage || !selectedWorkflow || !repairDraft) return;
     const issues = validateHarnessWorkflowRepairDraft(repairDraft);
@@ -666,6 +690,14 @@ export const HarnessPackagesTab = (): JSX.Element => {
                       disabled={exportBusy}
                     >
                       {exportBusy ? "Previewing..." : "Preview"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => void handleProposeExport()}
+                      disabled={exportBusy}
+                    >
+                      Propose Write
                     </button>
                   </div>
                 </div>

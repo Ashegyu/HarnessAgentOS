@@ -158,6 +158,70 @@ test("HarnessPackageService saves manual repairs as separate snapshots", async (
   }
 });
 
+test("HarnessPackageService proposes export files as pending file_write approvals", async () => {
+  const dbTemp = dbTmp();
+  const root = dirTmp();
+  const target = dirTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    await writeFixture(root, "AGENTS.md", "# Agent policy");
+    await writeFixture(
+      root,
+      "skills/demo/SKILL.md",
+      [
+        "---",
+        "name: demo",
+        "description: Demo workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Draft plan | writer | None | `_workspace/plan.md` |",
+      ].join("\n"),
+    );
+    const state = new LocalStateService(db);
+    const service = new HarnessPackageService({ state });
+    const imported = await service.importDirectory({
+      rootDir: root,
+      importedAt: "2026-05-27T00:00:00.000Z",
+    });
+    assert.equal(imported.ok, true);
+
+    const proposed = await service.proposeExportPackage({
+      packageId: imported.definition.id,
+      targetFormat: "claude",
+      targetDir: target,
+    });
+
+    assert.equal(proposed.preview.targetFormat, "claude");
+    assert.equal(proposed.taskRun.status, "waiting_for_approval");
+    assert.equal(proposed.targetDir, target);
+    assert.equal(proposed.approvals.length, proposed.preview.files.length);
+    assert.equal(
+      proposed.approvals.every(
+        (approval) =>
+          approval.status === "pending" &&
+          approval.actionType === "file_write" &&
+          approval.proposedAction?.filePatch?.after.length > 0,
+      ),
+      true,
+    );
+    assert.deepEqual(
+      proposed.approvals.map(
+        (approval) => approval.proposedAction?.filePatch?.path,
+      ),
+      proposed.preview.files.map((file) => file.relativePath),
+    );
+  } finally {
+    closeDb(db);
+    dbTemp.cleanup();
+    await rm(root, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  }
+});
+
 async function writeFixture(root, relativePath, content) {
   const fullPath = path.join(root, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });

@@ -16,6 +16,7 @@ test("HarnessPackagesTab exposes import/list/remove without execution actions", 
   assert.match(source, /window\.harness\.harnessPackages\.importDirectory/);
   assert.match(source, /window\.harness\.harnessPackages\.repair/);
   assert.match(source, /window\.harness\.harnessPackages\.previewExport/);
+  assert.match(source, /window\.harness\.harnessPackages\.proposeExport/);
   assert.match(source, /window\.harness\.harnessPackages\.previewPipelineDraft/);
   assert.match(source, /window\.harness\.pipeline\.create/);
   assert.match(source, /window\.harness\.harnessPackages\.remove/);
@@ -34,6 +35,7 @@ test("HarnessPackagesTab exposes import/list/remove without execution actions", 
   assert.match(source, /harness-packages-tab__repair/);
   assert.match(source, /harness-packages-tab__readiness/);
   assert.match(source, /Export Preview/);
+  assert.match(source, /Propose Write/);
   assert.doesNotMatch(source, /harnessPackages\.run/);
   assert.doesNotMatch(source, /harnessPackages\.apply/);
   assert.doesNotMatch(source, /harnessPackages\.writeSource/);

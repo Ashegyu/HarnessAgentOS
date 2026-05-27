@@ -1653,6 +1653,7 @@ harnessPackages.importDirectory(input: {
 }): Promise<HarnessPackageImportDirectoryResult>;
 harnessPackages.repair(input: HarnessPackageRepairInput): Promise<HarnessPackageRepairResult>;
 harnessPackages.previewExport(input: HarnessPackageExportPreviewInput): Promise<HarnessPackageExportPreview>;
+harnessPackages.proposeExport(input: HarnessPackageExportProposalInput): Promise<HarnessPackageExportProposalResult>;
 harnessPackages.previewPipelineDraft(input: {
   packageId: string;
   workflowId?: string;
@@ -1721,6 +1722,10 @@ interface HarnessPackageExportPreviewInput {
   targetFormat: "claude" | "codex" | "harness-native";
 }
 
+interface HarnessPackageExportProposalInput extends HarnessPackageExportPreviewInput {
+  targetDir: string;
+}
+
 interface HarnessPackageExportPreview {
   packageId: string;
   packageName: string;
@@ -1734,6 +1739,15 @@ interface HarnessPackageExportFile {
   content: string;
   kind: HarnessSourceFileKind;
 }
+
+interface HarnessPackageExportProposalResult {
+  preview: HarnessPackageExportPreview;
+  thread: Thread;
+  taskRun: TaskRun;
+  checkpoint: Checkpoint;
+  approvals: readonly Approval[];
+  targetDir: string;
+}
 ```
 
 동작:
@@ -1746,6 +1760,7 @@ interface HarnessPackageExportFile {
 - repaired snapshot은 원본과 같은 `root_dir` provenance를 공유할 수 있다. `root_dir`는 source provenance이며 row uniqueness 기준이 아니다.
 - `previewExport`는 저장된 snapshot을 Claude `.claude`, Codex `AGENTS.md` + `skills/*/SKILL.md`, 또는 Harness-native `.harness` declaration files로 projection한다. 이 호출은 preview-only이며 파일을 쓰지 않는다.
 - `previewExport` 결과에는 TaskRun state, approvals, runtime artifacts, secrets가 포함되지 않는다. Projection에서 정보 손실 가능성이 있으면 `warnings`에 표시한다.
+- `proposeExport`는 `previewExport` 결과를 `targetDir` 기준의 pending `file_write` approvals로 만든다. 호출 시에도 파일은 쓰지 않으며, 실제 디스크 반영은 기존 `runner.executeApproved` 승인 실행을 통과해야 한다.
 - `previewPipelineDraft`는 저장된 snapshot과 명시적 AgentProfile binding만 사용해 `CreateAgentPipelineInput` 초안을 반환한다. pipeline row를 생성하지 않고 TaskRun, approval, runner를 만들지 않는다.
 - `previewPipelineDraft`의 `ok=false`는 미바인딩 step, 누락 workflow처럼 사용자가 수정 가능한 변환 issue를 뜻한다. 알 수 없는 package id나 malformed input은 일반 IPC error로 반환한다.
 - `harnessPackages.run`, `harnessPackages.apply`, `harnessPackages.writeSource` 같은 직접 실행/source-write IPC는 없다.

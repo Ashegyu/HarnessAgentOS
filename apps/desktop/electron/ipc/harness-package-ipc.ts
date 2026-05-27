@@ -8,6 +8,8 @@ import {
   type HarnessDefinition,
   type HarnessPackageExportPreview,
   type HarnessPackageExportPreviewInput,
+  type HarnessPackageExportProposalInput,
+  type HarnessPackageExportProposalResult,
   type HarnessPackageImportDirectoryResult,
   type HarnessPackageRepairInput,
   type HarnessPackageRepairResult,
@@ -28,6 +30,7 @@ export interface HarnessPackageIpcContext {
     | "removePackage"
     | "repairPackage"
     | "previewExportPackage"
+    | "proposeExportPackage"
   >;
 }
 
@@ -177,6 +180,24 @@ const parseExportPreviewInput = (
   };
 };
 
+const parseExportProposalInput = (
+  input: unknown,
+):
+  | { ok: true; value: HarnessPackageExportProposalInput }
+  | { ok: false; reason: string } => {
+  const preview = parseExportPreviewInput(input);
+  if (!preview.ok) return preview;
+  const targetDir = requiredString(input, "targetDir");
+  if (!targetDir.ok) return { ok: false, reason: targetDir.reason };
+  return {
+    ok: true,
+    value: {
+      ...preview.value,
+      targetDir: targetDir.value,
+    },
+  };
+};
+
 export const buildHarnessPackageHandlers = (
   ctx: HarnessPackageIpcContext,
 ) => {
@@ -250,6 +271,25 @@ export const buildHarnessPackageHandlers = (
         );
       }
       return wrap(() => harnessPackages.previewExportPackage(parsed.value));
+    },
+
+    proposeExport: async (
+      input: HarnessPackageExportProposalInput,
+    ): Promise<HarnessResult<HarnessPackageExportProposalResult>> => {
+      const parsed = parseExportProposalInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      const found = await harnessPackages.getPackage(parsed.value.packageId);
+      if (!found) {
+        return err(
+          harnessError(
+            HARNESS_PACKAGE_NOT_FOUND,
+            `unknown harness package: ${parsed.value.packageId}`,
+          ),
+        );
+      }
+      return wrap(() => harnessPackages.proposeExportPackage(parsed.value));
     },
 
     previewPipelineDraft: async (input: {

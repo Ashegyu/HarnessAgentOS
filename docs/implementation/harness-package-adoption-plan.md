@@ -468,6 +468,9 @@ Rules:
 - The first implementation slice is preview-only: return projected files and
   warnings over IPC, but do not write source/export files until a separate
   approval-gated file_write flow is added.
+- The second slice turns a reviewed export preview into pending `file_write`
+  approvals under a user-selected target directory; the harness package IPC
+  still never writes files directly.
 
 ### Tests
 
@@ -600,11 +603,16 @@ source-boundary rules:
   package snapshots can be projected into Harness-native, Claude, or Codex file
   sets with compatibility warnings, while source/export file writes remain
   outside the harness package IPC surface.
+- Approval-gated export write is now proposed through `harnessPackages.proposeExport`:
+  the user selects a target directory, HarnessAgentOS creates pending
+  `file_write` approvals for every projected file, and the runner remains the
+  only component that can write after approval.
 
 Verified commands for the latest checkpoint:
 
 ```powershell
 node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-export.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
+node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs packages/core/src/ipc-channels.test.mjs
 node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
 node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-repair.test.mjs packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs packages/storage/src/migrations.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/harness-package-ui.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
@@ -621,11 +629,10 @@ git diff --check
 The current implementation is now suitable for reviewed package import,
 manual workflow repair, pipeline-template creation, and persisted repaired
 package snapshots. It now also has a closed approved-execution acceptance path
-for a package-derived pipeline and a preview-only export projection path. It is
-still intentionally not a complete autonomous package runner: the readiness
+for a package-derived pipeline and an approval-gated export projection path. It
+is still intentionally not a complete autonomous package runner: the readiness
 checks are currently UI-visible preflight signals rather than a service-level
-conversion gate, and export file writes still need a separate approval-gated
-flow.
+conversion gate.
 
 ### 18.3 Remaining Uncertainty
 
@@ -634,17 +641,17 @@ flow.
 - Provider availability and capability matching are visible in the Harnesses
   tab, but the same readiness contract may still need a service-level result if
   non-UI clients start creating package-derived pipelines.
-- Export preview is enough to inspect compatibility projections, but it does
-  not yet create an approval-backed file_write task for saving the projected
-  bundle to disk.
+- Export write is approval-gated, but batch execution UX still depends on the
+  existing approval panel rather than a dedicated "approve all export files"
+  workflow.
 
 ## 19. Next Step Order
 
 Proceed in this order:
 
-1. **Approval-gated export write**: take an export preview, let the user choose
-   a target directory, create file_write approvals for the generated files, and
-   execute only after approval.
+1. **Service-level readiness gate**: move the Harnesses tab binding readiness
+   contract into a reusable service result so non-UI clients cannot create
+   package-derived pipelines without the same provider/MCP/Skill diagnostics.
 
 The immediate user workflow is:
 

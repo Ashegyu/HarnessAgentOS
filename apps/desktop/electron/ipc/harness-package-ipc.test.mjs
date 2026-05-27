@@ -202,6 +202,54 @@ test("harnessPackages.previewExport returns declaration-only projection files", 
   }
 });
 
+test("harnessPackages.proposeExport creates approval-gated file writes", async () => {
+  const { db, t, handlers } = setup();
+  const root = dirTmp();
+  const target = dirTmp();
+  try {
+    await writeFixture(root, "AGENTS.md", "# Agent policy");
+    await writeFixture(
+      root,
+      "skills/demo/SKILL.md",
+      [
+        "---",
+        "name: demo",
+        "description: Demo workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Draft plan | writer | None | `_workspace/plan.md` |",
+      ].join("\n"),
+    );
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+
+    const proposed = await handlers.proposeExport({
+      packageId: imported.value.definition.id,
+      targetFormat: "harness-native",
+      targetDir: target,
+    });
+
+    assert.equal(proposed.ok, true);
+    assert.equal(proposed.value.taskRun.status, "waiting_for_approval");
+    assert.equal(proposed.value.targetDir, target);
+    assert.equal(
+      proposed.value.approvals.length,
+      proposed.value.preview.files.length,
+    );
+    assert.equal(proposed.value.approvals[0].actionType, "file_write");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  }
+});
+
 test("harnessPackages.previewPipelineDraft returns conversion issues for unbound steps", async () => {
   const { db, t, handlers } = setup();
   const root = dirTmp();
