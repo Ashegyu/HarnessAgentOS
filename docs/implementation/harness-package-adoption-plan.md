@@ -576,10 +576,19 @@ source-boundary rules:
   source package directory or introduce a direct run/apply/export action.
 - Repaired snapshots preserve source provenance and may share the original
   `root_dir`; the original imported snapshot remains inspectable.
-- Binding readiness is visible before pipeline preview: the Harnesses tab shows
-  missing AgentProfile bindings as errors and surfaces provider availability,
-  provider hint mismatch, MCP server state, Skill source state, and capability
-  requirement risks as warnings/info.
+- Binding readiness is now a reusable orchestration contract rather than a
+  renderer-only helper: `assessHarnessBindingReadiness` and
+  `harnessAgentBindingCandidates` live behind the
+  `@harness/orchestration/harness-binding-readiness` subpath so renderer code
+  can import the browser-safe preflight without pulling Node-only orchestration
+  modules into the client bundle.
+- `HarnessPackageService.previewPipelineDraft` now evaluates readiness from the
+  persisted AgentProfile, MCP server, Skill source, and capability registries
+  before conversion. Readiness errors block package-derived pipeline draft
+  preview with `HARNESS_BINDING_READINESS_FAILED`; warnings and info remain
+  visible but non-blocking.
+- The Harnesses tab still shows readiness before pipeline preview, and the IPC
+  preview result can now carry the same readiness summary for non-UI clients.
 - Package-derived pipeline steps now carry structured source metadata in
   `AgentPipelineStep.source` and `WorkerStep.source`, including package id,
   original package id for repaired snapshots, workflow id/name, source format,
@@ -618,6 +627,9 @@ node --import tsx --test --test-force-exit packages/orchestration/src/harness-pa
 node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/harness-package-ui.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
 node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/orchestration/src/harness-pipeline-draft.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/electron/harness-package-acceptance.test.mjs
+node --import tsx --test packages/orchestration/src/harness-binding-readiness.test.mjs
+node --import tsx --test packages/orchestration/src/harness-package-service.test.mjs
+node --import tsx --test apps/desktop/electron/ipc/harness-package-ipc.test.mjs
 npm run check
 npm run test
 npm run build
@@ -628,19 +640,19 @@ git diff --check
 
 The current implementation is now suitable for reviewed package import,
 manual workflow repair, pipeline-template creation, and persisted repaired
-package snapshots. It now also has a closed approved-execution acceptance path
-for a package-derived pipeline and an approval-gated export projection path. It
-is still intentionally not a complete autonomous package runner: the readiness
-checks are currently UI-visible preflight signals rather than a service-level
-conversion gate.
+package snapshots. It now also has a closed approved-execution acceptance path,
+a service-level readiness gate for package-derived pipeline preview, and an
+approval-gated export projection path. It is still intentionally not a complete
+autonomous package runner: import, repair, binding, preview, save, plan approval,
+worker side effects, and export writes remain separate user-visible steps.
 
 ### 18.3 Remaining Uncertainty
 
 - Real-world Markdown package shapes outside `harness-100` may need more parser
   aliases or stricter `needs_review` diagnostics.
-- Provider availability and capability matching are visible in the Harnesses
-  tab, but the same readiness contract may still need a service-level result if
-  non-UI clients start creating package-derived pipelines.
+- Provider availability can be included in the service-level readiness contract
+  when a caller supplies a provider status map; the persisted registry checks
+  already cover AgentProfile, MCP, Skill source, and capability state.
 - Export write is approval-gated, but batch execution UX still depends on the
   existing approval panel rather than a dedicated "approve all export files"
   workflow.
@@ -649,9 +661,15 @@ conversion gate.
 
 Proceed in this order:
 
-1. **Service-level readiness gate**: move the Harnesses tab binding readiness
-   contract into a reusable service result so non-UI clients cannot create
-   package-derived pipelines without the same provider/MCP/Skill diagnostics.
+1. **Failure-policy/backflow mapping**: map only explicit, bounded package
+   failure rules into existing `AgentPipelineBackflowRule` entries. Ambiguous
+   retry prose should remain manual review.
+2. **Provider-status pass-through**: if non-UI preview callers need provider
+   availability in the service result, pass a validated provider status map into
+   `HarnessPackageService.previewPipelineDraft`; do not make provider probing a
+   hidden side effect of package preview.
+3. **Export approval UX**: keep the current approval-gated file writes, then
+   consider a dedicated batch review/approve surface for export projections.
 
 The immediate user workflow is:
 

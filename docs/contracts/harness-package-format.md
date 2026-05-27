@@ -488,6 +488,43 @@ Mapping:
 This conversion must produce a user-reviewable draft. It must not immediately
 create an approved orchestration run.
 
+### 14.1.1 Binding readiness preflight
+
+Before the service returns a package-derived `AgentPipeline` draft, it must run
+the binding readiness preflight against the same runtime registries that will be
+used later by the worker path:
+
+- persisted `AgentProfile` rows
+- persisted MCP server registrations
+- persisted Skill source registrations
+- persisted capability registry rows
+- optional caller-supplied provider availability map
+
+The preflight result shape is:
+
+```ts
+export interface HarnessBindingReadinessSummary {
+  ok: boolean;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  issues: readonly HarnessBindingReadinessIssue[];
+}
+```
+
+Rules:
+
+- `errorCount > 0` blocks pipeline draft preview and is surfaced as
+  `HARNESS_BINDING_READINESS_FAILED` in the preview issues.
+- warnings and info do not block preview, but must remain available to UI and
+  non-UI clients through the preview result.
+- unknown or missing `AgentProfile` bindings are errors.
+- provider hint mismatch, provider unavailability, MCP state, Skill source
+  state, and capability allowlist problems are warnings unless the specific
+  profile binding is impossible.
+- provider probing is not a hidden side effect of preview. A caller that wants
+  provider availability included must supply the current provider status map.
+
 ### 14.2 AgentPipeline draft to OrchestrationPlan
 
 Use the existing planner path. The current planner already remaps pipeline step
