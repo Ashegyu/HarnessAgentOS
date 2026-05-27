@@ -1651,6 +1651,11 @@ harnessPackages.get(input: { packageId: string }): Promise<HarnessDefinition>;
 harnessPackages.importDirectory(input: {
   rootDir: string;
 }): Promise<HarnessPackageImportDirectoryResult>;
+harnessPackages.previewPipelineDraft(input: {
+  packageId: string;
+  workflowId?: string;
+  bindings: readonly HarnessAgentProfileBinding[];
+}): Promise<HarnessPipelineDraftPreviewResult>;
 harnessPackages.remove(input: { packageId: string }): Promise<void>;
 ```
 
@@ -1666,6 +1671,18 @@ type HarnessPackageImportDirectoryResult =
       detection: HarnessSourceDetectionResult;
       issues: readonly HarnessValidationIssue[];
     };
+
+type HarnessPipelineDraftPreviewResult =
+  | {
+      ok: true;
+      workflowId: string;
+      pipeline: CreateAgentPipelineInput;
+      issues: readonly HarnessPipelineDraftIssue[];
+    }
+  | {
+      ok: false;
+      issues: readonly HarnessPipelineDraftIssue[];
+    };
 ```
 
 동작:
@@ -1674,6 +1691,8 @@ type HarnessPackageImportDirectoryResult =
 - import는 source directory에 파일을 쓰지 않으며 shell, git, network, runner를 호출하지 않는다.
 - Claude/Codex/native format detection 결과가 ambiguous/unsupported이면 IPC 자체는 성공하고, 반환값의 `ok=false`와 `issues`로 review 상태를 전달한다.
 - 저장된 package는 SQLite WAL canonical state의 `harness_packages` table에만 반영된다.
+- `previewPipelineDraft`는 저장된 snapshot과 명시적 AgentProfile binding만 사용해 `CreateAgentPipelineInput` 초안을 반환한다. pipeline row를 생성하지 않고 TaskRun, approval, runner를 만들지 않는다.
+- `previewPipelineDraft`의 `ok=false`는 미바인딩 step, 누락 workflow처럼 사용자가 수정 가능한 변환 issue를 뜻한다. 알 수 없는 package id나 malformed input은 일반 IPC error로 반환한다.
 - `harnessPackages.run`, `harnessPackages.apply`, `harnessPackages.writeSource` 같은 직접 실행/수정 IPC는 없다.
 
 ## `window.harness.pipeline`

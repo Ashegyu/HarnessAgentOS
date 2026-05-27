@@ -3,6 +3,7 @@ import {
   type ApprovalActionType,
 } from "./approval.ts";
 import { ARTIFACT_KINDS, type ArtifactKind } from "./artifact.ts";
+import type { CreateAgentPipelineInput } from "./agent-pipeline.ts";
 import {
   WORKER_OUTPUT_CONTRACTS,
   type WorkerOutputContract,
@@ -372,6 +373,40 @@ export type HarnessPackageImportDirectoryResult =
       ok: false;
       detection: HarnessSourceDetectionResult;
       issues: readonly HarnessValidationIssue[];
+    };
+
+export interface HarnessAgentProfileBinding {
+  harnessAgentRef: string;
+  agentProfileId: string;
+  remoteEndpointId?: string;
+}
+
+export type HarnessPipelineDraftIssueCode =
+  | "HARNESS_WORKFLOW_NOT_FOUND"
+  | "HARNESS_WORKFLOW_TOO_LARGE"
+  | "HARNESS_STEP_PROFILE_UNBOUND"
+  | "HARNESS_ARTIFACT_KIND_MAPPED"
+  | "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED";
+
+export interface HarnessPipelineDraftIssue {
+  severity: "warning" | "error";
+  code: HarnessPipelineDraftIssueCode;
+  message: string;
+  workflowId?: string;
+  stepId?: string;
+  sourceRef?: HarnessSourceRef;
+}
+
+export type HarnessPipelineDraftPreviewResult =
+  | {
+      ok: true;
+      workflowId: string;
+      pipeline: CreateAgentPipelineInput;
+      issues: readonly HarnessPipelineDraftIssue[];
+    }
+  | {
+      ok: false;
+      issues: readonly HarnessPipelineDraftIssue[];
     };
 
 export interface HarnessValidationResult {

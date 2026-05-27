@@ -95,6 +95,109 @@ test("harnessPackages.importDirectory returns review result for unsupported sour
   }
 });
 
+test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft", async () => {
+  const { db, t, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# YouTube Production");
+    await writeFixture(
+      root,
+      ".claude/agents/content-strategist.md",
+      "---\nname: content-strategist\ndescription: Strategy.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/youtube-production/skill.md",
+      [
+        "---",
+        "name: youtube-production",
+        "description: YouTube production workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Content strategy | strategist | None | `_workspace/brief.md` |",
+      ].join("\n"),
+    );
+
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+
+    const preview = await handlers.previewPipelineDraft({
+      packageId: imported.value.definition.id,
+      bindings: [
+        {
+          harnessAgentRef: "content-strategist",
+          agentProfileId: "profile-strategist",
+        },
+      ],
+    });
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.value.ok, true);
+    assert.equal(preview.value.pipeline.steps.length, 1);
+    assert.equal(
+      preview.value.pipeline.steps[0].agentProfileId,
+      "profile-strategist",
+    );
+    assert.deepEqual(preview.value.pipeline.steps[0].dependsOn, []);
+    assert.equal((await handlers.list()).value.length, 1);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("harnessPackages.previewPipelineDraft returns conversion issues for unbound steps", async () => {
+  const { db, t, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# Review");
+    await writeFixture(
+      root,
+      ".claude/agents/reviewer.md",
+      "---\nname: reviewer\ndescription: Review.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/review/skill.md",
+      [
+        "---",
+        "name: review",
+        "description: Review workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Review | reviewer | None | `_workspace/review.md` |",
+      ].join("\n"),
+    );
+
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+
+    const preview = await handlers.previewPipelineDraft({
+      packageId: imported.value.definition.id,
+      bindings: [],
+    });
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.value.ok, false);
+    assert.equal(preview.value.issues[0].code, "HARNESS_STEP_PROFILE_UNBOUND");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("harnessPackages.get and remove reject unknown packages", async () => {
   const { db, t, handlers } = setup();
   try {
@@ -115,6 +218,26 @@ test("harnessPackages.importDirectory validates rootDir input", async () => {
   const { db, t, handlers } = setup();
   try {
     const result = await handlers.importDirectory({ rootDir: "   " });
+    assert.equal(result.ok, false);
+    assert.equal(result.error.code, "STATE_INVALID_INPUT");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("harnessPackages.previewPipelineDraft validates binding input", async () => {
+  const { db, t, handlers } = setup();
+  try {
+    const result = await handlers.previewPipelineDraft({
+      packageId: "harness_missing",
+      bindings: [
+        {
+          harnessAgentRef: " ",
+          agentProfileId: "profile-reviewer",
+        },
+      ],
+    });
     assert.equal(result.ok, false);
     assert.equal(result.error.code, "STATE_INVALID_INPUT");
   } finally {

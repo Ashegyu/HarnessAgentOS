@@ -17,6 +17,10 @@ export const registerHarnessPackageIpc = (
     IPC_CHANNELS.harnessPackages.importDirectory,
     async (_e, input) => h.importDirectory(input),
   );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.previewPipelineDraft,
+    async (_e, input) => h.previewPipelineDraft(input),
+  );
   ipcMain.handle(IPC_CHANNELS.harnessPackages.remove, async (_e, input) =>
     h.remove(input),
   );

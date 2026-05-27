@@ -99,15 +99,20 @@ test("pipeline namespace exposes CRUD verbs", () => {
   assert.equal(isAllowedChannel("pipeline:run"), false);
 });
 
-test("harnessPackages namespace exposes import registry verbs only", () => {
+test("harnessPackages namespace exposes import registry and preview verbs only", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.harnessPackages).sort(), [
     "get",
     "importDirectory",
     "list",
+    "previewPipelineDraft",
     "remove",
   ]);
   assert.equal(isAllowedChannel("harnessPackages:list"), true);
   assert.equal(isAllowedChannel("harnessPackages:importDirectory"), true);
+  assert.equal(
+    isAllowedChannel("harnessPackages:previewPipelineDraft"),
+    true,
+  );
   assert.equal(isAllowedChannel("harnessPackages:run"), false);
 });
 

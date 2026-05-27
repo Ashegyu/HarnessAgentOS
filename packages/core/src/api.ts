@@ -30,7 +30,9 @@ import type {
   DecisionLogPage,
   HarnessSettings,
   HarnessDefinition,
+  HarnessAgentProfileBinding,
   HarnessPackageImportDirectoryResult,
+  HarnessPipelineDraftPreviewResult,
   EvolutionCandidate,
   Instinct,
   McpServerConfig,
@@ -488,6 +490,11 @@ export interface HarnessDesktopApi {
     importDirectory(input: {
       rootDir: string;
     }): Promise<HarnessPackageImportDirectoryResult>;
+    previewPipelineDraft(input: {
+      packageId: string;
+      workflowId?: string;
+      bindings: readonly HarnessAgentProfileBinding[];
+    }): Promise<HarnessPipelineDraftPreviewResult>;
     remove(input: { packageId: string }): Promise<void>;
   };
   remoteAgents: {

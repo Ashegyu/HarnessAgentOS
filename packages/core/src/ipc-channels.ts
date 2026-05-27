@@ -168,6 +168,7 @@ export const IPC_CHANNELS = {
     list: "harnessPackages:list",
     get: "harnessPackages:get",
     importDirectory: "harnessPackages:importDirectory",
+    previewPipelineDraft: "harnessPackages:previewPipelineDraft",
     remove: "harnessPackages:remove",
   },
   /** Remote A2A agent registry. SDK and network execution stay in main. */
