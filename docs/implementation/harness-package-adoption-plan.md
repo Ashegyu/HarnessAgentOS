@@ -587,6 +587,12 @@ source-boundary rules:
   full instruction when it differs from the display summary, so source metadata
   such as source harness, workflow, file, and artifact contracts remains visible
   before approval.
+- Approved execution acceptance is now covered by a desktop integration test
+  using a `harness-100`-style YouTube package fixture: import and persist the
+  package snapshot, bind local AgentProfiles, save a pipeline template, draft an
+  orchestration plan, require approval, run workers only after approval, confirm
+  dependency handoffs, persist worker artifacts with source metadata, and create
+  a passing quality gate.
 
 Verified commands for the latest checkpoint:
 
@@ -595,6 +601,7 @@ node --import tsx --test --test-force-exit packages/orchestration/src/orchestrat
 node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-repair.test.mjs packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs packages/storage/src/migrations.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/harness-package-ui.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
 node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/orchestration/src/harness-pipeline-draft.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs
+node --import tsx --test --test-force-exit apps/desktop/electron/harness-package-acceptance.test.mjs
 npm run check
 npm run test
 npm run build
@@ -605,10 +612,11 @@ git diff --check
 
 The current implementation is now suitable for reviewed package import,
 manual workflow repair, pipeline-template creation, and persisted repaired
-package snapshots. It is not yet a complete autonomous package runner, because
-the readiness checks are currently UI-visible preflight signals rather than a
-service-level conversion gate, and a sample end-to-end approved execution pass
-still needs to be closed.
+package snapshots. It now also has a closed approved-execution acceptance path
+for a package-derived pipeline. It is still intentionally not a complete
+autonomous package runner: the readiness checks are currently UI-visible
+preflight signals rather than a service-level conversion gate, and export is
+still deliberately deferred until the import/repair/run path remains stable.
 
 ### 18.3 Remaining Uncertainty
 
@@ -625,10 +633,7 @@ still needs to be closed.
 
 Proceed in this order:
 
-1. **Approved execution acceptance**: use one `harness-100` sample, import it,
-   bind profiles, save a pipeline template, draft an orchestration plan, require
-   approval, run after approval, and confirm artifacts/handoffs/quality gates.
-2. **Export later**: only after import, repair, binding, conversion, and
+1. **Export later**: only after import, repair, binding, conversion, and
    approved execution are stable.
 
 The immediate user workflow is:
