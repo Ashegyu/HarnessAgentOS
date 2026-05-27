@@ -6,6 +6,7 @@ export * from "./worker-handoff.ts";
 export * from "./harness-source-detection.ts";
 export * from "./harness-import.ts";
 export * from "./harness-directory-import.ts";
+export * from "./harness-package-service.ts";
 export * from "./orchestration-planner.ts";
 export * from "./worker-runner.ts";
 export * from "./worker-step-dependencies.ts";
