@@ -1654,6 +1654,9 @@ Claude `.claude`, Codex `AGENTS.md` + `skills/*/SKILL.md`, 그리고 Harness-nat
 ```ts
 harnessPackages.list(): Promise<HarnessDefinition[]>;
 harnessPackages.get(input: { packageId: string }): Promise<HarnessDefinition>;
+harnessPackages.create(input: {
+  package: CreateHarnessPackageInput;
+}): Promise<HarnessDefinition>;
 harnessPackages.importDirectory(input: {
   rootDir: string;
 }): Promise<HarnessPackageImportDirectoryResult>;
@@ -1690,6 +1693,21 @@ type HarnessPackageImportDirectoryResult =
       detection: HarnessSourceDetectionResult;
       issues: readonly HarnessValidationIssue[];
     };
+
+interface CreateHarnessPackageInput {
+  name: string;
+  description?: string;
+  workflowName: string;
+  agentRef: string;
+  agentName?: string;
+  agentDescription?: string;
+  agentPersona?: string;
+  stepTitle: string;
+  stepInstruction: string;
+  outputContract?: WorkerOutputContract;
+  providerHint?: "auto" | "claude" | "codex";
+  allowedActions?: readonly ApprovalActionType[];
+}
 
 type HarnessPipelineDraftPreviewResult =
   | {
@@ -1782,6 +1800,8 @@ interface HarnessBindingSet extends CreateHarnessBindingSetInput {
 동작:
 
 - `importDirectory`는 main process에서만 디렉터리를 읽고, `.md`/`.json` metadata를 중립 snapshot으로 저장한다.
+- `create`는 renderer가 보낸 typed starter input을 main/service에서 Harness-native `HarnessDefinition`으로 변환해 저장한다. renderer가 raw `HarnessDefinition` JSON을 직접 저장하지 않는다.
+- direct-created package는 `source.format = "harness-native"`와 synthetic `harness://manual` provenance를 사용하며, TaskRun, approval, runner, file write를 만들지 않는다.
 - import는 source directory에 파일을 쓰지 않으며 shell, git, network, runner를 호출하지 않는다.
 - Claude/Codex/native format detection 결과가 ambiguous/unsupported이면 IPC 자체는 성공하고, 반환값의 `ok=false`와 `issues`로 review 상태를 전달한다.
 - 저장된 package는 SQLite WAL canonical state의 `harness_packages` table에만 반영된다.

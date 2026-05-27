@@ -1,12 +1,17 @@
 import {
+  APPROVAL_ACTION_TYPES,
+  HARNESS_PROVIDER_HINTS,
   HARNESS_BINDING_SET_NOT_FOUND,
   HARNESS_PACKAGE_NOT_FOUND,
   STATE_INVALID_INPUT,
+  WORKER_OUTPUT_CONTRACTS,
   err,
   harnessError,
   ok,
   type AgentProviderStatusMap,
+  type ApprovalActionType,
   type CreateHarnessBindingSetInput,
+  type CreateHarnessPackageInput,
   type HarnessAgentProfileBinding,
   type HarnessBindingSet,
   type HarnessBindingSetListInput,
@@ -20,6 +25,8 @@ import {
   type HarnessPackageRepairResult,
   type HarnessPipelineDraftPreviewResult,
   type HarnessResult,
+  type HarnessProviderHint,
+  type WorkerOutputContract,
 } from "@harness/core";
 import { type HarnessPackageService } from "@harness/orchestration";
 
@@ -28,6 +35,7 @@ export interface HarnessPackageIpcContext {
     HarnessPackageService,
     | "listPackages"
     | "getPackage"
+    | "createPackage"
     | "importDirectory"
     | "removePackage"
     | "repairPackage"
@@ -158,6 +166,128 @@ const parseBindingSetListInput = (
       ...(workflowId.value !== undefined ? { workflowId: workflowId.value } : {}),
     },
   };
+};
+
+const parseCreatePackageInput = (
+  input: unknown,
+):
+  | { ok: true; value: CreateHarnessPackageInput }
+  | { ok: false; reason: string } => {
+  const raw =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).package
+      : undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, reason: "package must be an object" };
+  }
+  const name = requiredString(raw, "name");
+  if (!name.ok) return { ok: false, reason: name.reason };
+  const description = optionalString(raw, "description");
+  if (!description.ok) return { ok: false, reason: description.reason };
+  const workflowName = requiredString(raw, "workflowName");
+  if (!workflowName.ok) return { ok: false, reason: workflowName.reason };
+  const agentRef = requiredString(raw, "agentRef");
+  if (!agentRef.ok) return { ok: false, reason: agentRef.reason };
+  const agentName = optionalString(raw, "agentName");
+  if (!agentName.ok) return { ok: false, reason: agentName.reason };
+  const agentDescription = optionalString(raw, "agentDescription");
+  if (!agentDescription.ok) {
+    return { ok: false, reason: agentDescription.reason };
+  }
+  const agentPersona = optionalString(raw, "agentPersona");
+  if (!agentPersona.ok) return { ok: false, reason: agentPersona.reason };
+  const stepTitle = requiredString(raw, "stepTitle");
+  if (!stepTitle.ok) return { ok: false, reason: stepTitle.reason };
+  const stepInstruction = requiredString(raw, "stepInstruction");
+  if (!stepInstruction.ok) {
+    return { ok: false, reason: stepInstruction.reason };
+  }
+  const outputContract = optionalString(raw, "outputContract");
+  if (!outputContract.ok) {
+    return { ok: false, reason: outputContract.reason };
+  }
+  if (
+    outputContract.value !== undefined &&
+    !WORKER_OUTPUT_CONTRACTS.includes(
+      outputContract.value as WorkerOutputContract,
+    )
+  ) {
+    return { ok: false, reason: "outputContract is invalid" };
+  }
+  const providerHint = optionalString(raw, "providerHint");
+  if (!providerHint.ok) return { ok: false, reason: providerHint.reason };
+  if (
+    providerHint.value !== undefined &&
+    !HARNESS_PROVIDER_HINTS.includes(providerHint.value as HarnessProviderHint)
+  ) {
+    return { ok: false, reason: "providerHint is invalid" };
+  }
+  const allowedActions = parseAllowedActions(raw);
+  if (!allowedActions.ok) return { ok: false, reason: allowedActions.reason };
+  return {
+    ok: true,
+    value: {
+      name: name.value,
+      ...(description.value !== undefined
+        ? { description: description.value }
+        : {}),
+      workflowName: workflowName.value,
+      agentRef: agentRef.value,
+      ...(agentName.value !== undefined ? { agentName: agentName.value } : {}),
+      ...(agentDescription.value !== undefined
+        ? { agentDescription: agentDescription.value }
+        : {}),
+      ...(agentPersona.value !== undefined
+        ? { agentPersona: agentPersona.value }
+        : {}),
+      stepTitle: stepTitle.value,
+      stepInstruction: stepInstruction.value,
+      ...(outputContract.value !== undefined
+        ? {
+            outputContract:
+              outputContract.value as WorkerOutputContract,
+          }
+        : {}),
+      ...(providerHint.value !== undefined
+        ? {
+            providerHint:
+              providerHint.value as HarnessProviderHint,
+          }
+        : {}),
+      ...(allowedActions.value !== undefined
+        ? { allowedActions: allowedActions.value }
+        : {}),
+    },
+  };
+};
+
+const parseAllowedActions = (
+  input: unknown,
+):
+  | { ok: true; value?: CreateHarnessPackageInput["allowedActions"] }
+  | { ok: false; reason: string } => {
+  const raw =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).allowedActions
+      : undefined;
+  if (raw === undefined) return { ok: true };
+  if (!Array.isArray(raw)) {
+    return { ok: false, reason: "allowedActions must be an array" };
+  }
+  const out: ApprovalActionType[] = [];
+  for (const [index, value] of raw.entries()) {
+    if (
+      typeof value !== "string" ||
+      !APPROVAL_ACTION_TYPES.includes(value as ApprovalActionType)
+    ) {
+      return {
+        ok: false,
+        reason: `allowedActions[${index}] is invalid`,
+      };
+    }
+    out.push(value as ApprovalActionType);
+  }
+  return { ok: true, value: out };
 };
 
 const parseBindingSetInput = (
@@ -362,6 +492,16 @@ export const buildHarnessPackageHandlers = (
         );
       }
       return ok(found);
+    },
+
+    create: async (input: {
+      package: CreateHarnessPackageInput;
+    }): Promise<HarnessResult<HarnessDefinition>> => {
+      const parsed = parseCreatePackageInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      return wrap(() => harnessPackages.createPackage(parsed.value));
     },
 
     importDirectory: async (input: {

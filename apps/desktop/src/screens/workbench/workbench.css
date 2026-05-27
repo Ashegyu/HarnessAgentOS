@@ -7598,11 +7598,60 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
   font-size: 12px;
   color: var(--text-secondary);
   flex: 0 0 auto;
+}
+
+.harness-packages-tab__list-actions,
+.harness-packages-tab__create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.harness-packages-tab__create {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-panel-elev);
+}
+
+.harness-packages-tab__create-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.harness-packages-tab__create-field input,
+.harness-packages-tab__create-field select,
+.harness-packages-tab__create-field textarea {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 6px 8px;
+  text-transform: none;
+}
+
+.harness-packages-tab__create-field textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .harness-packages-tab__items {
@@ -8114,7 +8163,7 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 .harness-packages-tab__binding-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 240px);
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) auto;
   gap: 8px;
   align-items: center;
 }

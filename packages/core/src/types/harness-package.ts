@@ -368,6 +368,21 @@ export interface HarnessPackageImportDirectoryInput {
   rootDir: string;
 }
 
+export interface CreateHarnessPackageInput {
+  name: string;
+  description?: string;
+  workflowName: string;
+  agentRef: string;
+  agentName?: string;
+  agentDescription?: string;
+  agentPersona?: string;
+  stepTitle: string;
+  stepInstruction: string;
+  outputContract?: WorkerOutputContract;
+  providerHint?: HarnessProviderHint;
+  allowedActions?: readonly ApprovalActionType[];
+}
+
 export interface HarnessRepairMetadata {
   sourcePackageId: string;
   repairedAt: string;

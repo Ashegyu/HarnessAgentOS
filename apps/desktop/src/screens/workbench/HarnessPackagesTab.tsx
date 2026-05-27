@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   AgentProviderStatusMap,
   Capability,
+  CreateHarnessPackageInput,
   HarnessAgentProfileBinding,
   HarnessBindingSet,
   HarnessDefinition,
@@ -56,10 +57,42 @@ type ExportTargetFormat = Extract<
   "claude" | "codex" | "harness-native"
 >;
 
+type DirectHarnessOutputContract = NonNullable<
+  CreateHarnessPackageInput["outputContract"]
+>;
+
+type DirectHarnessProviderHint = NonNullable<
+  CreateHarnessPackageInput["providerHint"]
+>;
+
+interface DirectHarnessDraft {
+  name: string;
+  description: string;
+  workflowName: string;
+  agentRef: string;
+  agentName: string;
+  stepTitle: string;
+  stepInstruction: string;
+  outputContract: DirectHarnessOutputContract;
+  providerHint: DirectHarnessProviderHint;
+}
+
 interface Notice {
   kind: "success" | "warning" | "error";
   message: string;
 }
+
+const emptyDirectHarnessDraft = (): DirectHarnessDraft => ({
+  name: "",
+  description: "",
+  workflowName: "Default workflow",
+  agentRef: "planner",
+  agentName: "Planner",
+  stepTitle: "Plan work",
+  stepInstruction: "",
+  outputContract: "plan",
+  providerHint: "auto",
+});
 
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
@@ -101,6 +134,9 @@ export const HarnessPackagesTab = (): JSX.Element => {
     useState<HarnessPackageExportProposalResult | null>(null);
   const [repairDraft, setRepairDraft] =
     useState<HarnessWorkflowRepairDraft | null>(null);
+  const [showDirectCreate, setShowDirectCreate] = useState(false);
+  const [directCreateDraft, setDirectCreateDraft] =
+    useState<DirectHarnessDraft>(() => emptyDirectHarnessDraft());
   const [busy, setBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
@@ -592,6 +628,71 @@ export const HarnessPackagesTab = (): JSX.Element => {
     }
   };
 
+  const updateDirectCreateDraft = (
+    patch: Partial<DirectHarnessDraft>,
+  ): void => {
+    setDirectCreateDraft((current) => ({ ...current, ...patch }));
+  };
+
+  const handleCreateHarness = async (): Promise<void> => {
+    const draft = directCreateDraft;
+    if (draft.name.trim().length === 0) {
+      setNotice({ kind: "warning", message: "Harness 이름을 입력하세요." });
+      return;
+    }
+    if (draft.workflowName.trim().length === 0) {
+      setNotice({ kind: "warning", message: "Workflow 이름을 입력하세요." });
+      return;
+    }
+    if (draft.agentRef.trim().length === 0) {
+      setNotice({ kind: "warning", message: "Agent ref를 입력하세요." });
+      return;
+    }
+    if (draft.stepTitle.trim().length === 0) {
+      setNotice({ kind: "warning", message: "Step 제목을 입력하세요." });
+      return;
+    }
+    if (draft.stepInstruction.trim().length === 0) {
+      setNotice({ kind: "warning", message: "Step instruction을 입력하세요." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const payload: CreateHarnessPackageInput = {
+        name: draft.name.trim(),
+        ...(draft.description.trim().length > 0
+          ? { description: draft.description.trim() }
+          : {}),
+        workflowName: draft.workflowName.trim(),
+        agentRef: draft.agentRef.trim(),
+        ...(draft.agentName.trim().length > 0
+          ? { agentName: draft.agentName.trim() }
+          : {}),
+        stepTitle: draft.stepTitle.trim(),
+        stepInstruction: draft.stepInstruction.trim(),
+        outputContract: draft.outputContract,
+        providerHint: draft.providerHint,
+      };
+      const created = await window.harness.harnessPackages.create({
+        package: payload,
+      });
+      setNotice({
+        kind: "success",
+        message: `${created.name} Harness를 생성했습니다.`,
+      });
+      setDirectCreateDraft(emptyDirectHarnessDraft());
+      setShowDirectCreate(false);
+      setSelectedId(created.id);
+      await refresh();
+      await refreshBindingSets();
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleRemove = async (definition: HarnessDefinition): Promise<void> => {
     if (!window.confirm(`"${definition.name}" package snapshot을 제거하시겠습니까?`)) {
       return;
@@ -635,15 +736,174 @@ export const HarnessPackagesTab = (): JSX.Element => {
         <aside className="harness-packages-tab__list">
           <header className="harness-packages-tab__list-header">
             <span>Packages</span>
-            <button
-              type="button"
-              className="btn btn--primary btn--sm"
-              onClick={() => void handleImportDirectory()}
-              disabled={busy}
-            >
-              {busy ? "Importing..." : "Import"}
-            </button>
+            <div className="harness-packages-tab__list-actions">
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm"
+                onClick={() => setShowDirectCreate((value) => !value)}
+                disabled={busy}
+              >
+                새 Harness
+              </button>
+              <button
+                type="button"
+                className="btn btn--primary btn--sm"
+                onClick={() => void handleImportDirectory()}
+                disabled={busy}
+              >
+                {busy ? "Importing..." : "Import"}
+              </button>
+            </div>
           </header>
+
+          {showDirectCreate && (
+            <form
+              className="harness-packages-tab__create"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateHarness();
+              }}
+            >
+              <label className="harness-packages-tab__create-field">
+                <span>Harness</span>
+                <input
+                  value={directCreateDraft.name}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({ name: event.currentTarget.value })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Description</span>
+                <input
+                  value={directCreateDraft.description}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      description: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Workflow</span>
+                <input
+                  value={directCreateDraft.workflowName}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      workflowName: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Agent ref</span>
+                <input
+                  value={directCreateDraft.agentRef}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      agentRef: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Agent name</span>
+                <input
+                  value={directCreateDraft.agentName}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      agentName: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Provider</span>
+                <select
+                  value={directCreateDraft.providerHint}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      providerHint: event.currentTarget
+                        .value as DirectHarnessProviderHint,
+                    })
+                  }
+                  disabled={busy}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="codex">Codex</option>
+                  <option value="claude">Claude</option>
+                </select>
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Step</span>
+                <input
+                  value={directCreateDraft.stepTitle}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      stepTitle: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <label className="harness-packages-tab__create-field">
+                <span>Output</span>
+                <select
+                  value={directCreateDraft.outputContract}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      outputContract: event.currentTarget
+                        .value as DirectHarnessOutputContract,
+                    })
+                  }
+                  disabled={busy}
+                >
+                  {WORKER_OUTPUT_CONTRACTS.map((contract) => (
+                    <option key={contract} value={contract}>
+                      {contract}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="harness-packages-tab__create-field harness-packages-tab__create-field--wide">
+                <span>Instruction</span>
+                <textarea
+                  value={directCreateDraft.stepInstruction}
+                  onChange={(event) =>
+                    updateDirectCreateDraft({
+                      stepInstruction: event.currentTarget.value,
+                    })
+                  }
+                  disabled={busy}
+                />
+              </label>
+              <div className="harness-packages-tab__create-actions">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    setShowDirectCreate(false);
+                    setDirectCreateDraft(emptyDirectHarnessDraft());
+                  }}
+                  disabled={busy}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn--primary btn--sm"
+                  disabled={busy}
+                >
+                  생성
+                </button>
+              </div>
+            </form>
+          )}
 
           {list.kind === "loading" && (
             <div className="empty-state">불러오는 중...</div>

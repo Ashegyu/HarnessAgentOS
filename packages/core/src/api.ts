@@ -26,6 +26,7 @@ import type {
   CapabilityCandidateApprovalResult,
   CapabilitySuggestion,
   CreateAgentPipelineInput,
+  CreateHarnessPackageInput,
   DecisionLogInput,
   DecisionLogPage,
   HarnessSettings,
@@ -506,6 +507,9 @@ export interface HarnessDesktopApi {
   harnessPackages: {
     list(): Promise<HarnessDefinition[]>;
     get(input: { packageId: string }): Promise<HarnessDefinition>;
+    create(input: {
+      package: CreateHarnessPackageInput;
+    }): Promise<HarnessDefinition>;
     importDirectory(input: {
       rootDir: string;
     }): Promise<HarnessPackageImportDirectoryResult>;

@@ -504,6 +504,11 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.harnessPackages.get,
         input,
       ),
+    create: (input) =>
+      invokeUnwrapped<HarnessDefinition>(
+        IPC_CHANNELS.harnessPackages.create,
+        input,
+      ),
     importDirectory: (input) =>
       invokeUnwrapped<HarnessPackageImportDirectoryResult>(
         IPC_CHANNELS.harnessPackages.importDirectory,
