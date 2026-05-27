@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import type {
+  ApprovalActionType,
   HarnessAgentDefinition,
+  HarnessArtifactContract,
   HarnessDefinition,
   HarnessOverview,
   HarnessSkillDefinition,
@@ -8,6 +10,9 @@ import type {
   HarnessSourceFileSnapshot,
   HarnessSourceFormat,
   HarnessValidationIssue,
+  HarnessWorkflowDefinition,
+  HarnessWorkflowStep,
+  WorkerOutputContract,
 } from "@harness/core";
 import {
   detectHarnessSourceFormat,
@@ -80,7 +85,13 @@ export const importHarnessPackageFromFiles = (
   const overview = buildOverview(files, sourceFormat, input.rootDir);
   const agents = buildAgents(files, sourceFormat);
   const skills = buildSkills(files, sourceFormat);
-  const issues = buildMetadataIssues({ sourceFormat, skills, agents });
+  const workflows = buildWorkflows(files, sourceFormat, skills, agents);
+  const issues = buildMetadataIssues({
+    sourceFormat,
+    skills,
+    agents,
+    workflows,
+  });
   const status = issues.some((issue) => issue.blocksExecution)
     ? "needs_review"
     : issues.length > 0
@@ -98,7 +109,7 @@ export const importHarnessPackageFromFiles = (
     overview,
     agents,
     skills,
-    workflows: [],
+    workflows,
     capabilities: [],
     validation: {
       status,
@@ -184,10 +195,159 @@ const buildSkills = (
       };
     });
 
+const buildWorkflows = (
+  files: readonly NormalizedSourceFile[],
+  sourceFormat: HarnessSourceFormat,
+  skills: readonly HarnessSkillDefinition[],
+  agents: readonly HarnessAgentDefinition[],
+): HarnessWorkflowDefinition[] => {
+  const workflows: HarnessWorkflowDefinition[] = [];
+  for (const file of files) {
+    if (classifySourceFile(file.lowerPath, sourceFormat) !== "skill") {
+      continue;
+    }
+    const skill = skills.find((item) => item.sourceFile === file.relativePath);
+    if (!skill) continue;
+    const workflow = buildWorkflowFromSkillFile(file, skill, agents);
+    if (workflow) workflows.push(workflow);
+  }
+  return workflows;
+};
+
+const buildWorkflowFromSkillFile = (
+  file: NormalizedSourceFile,
+  skill: HarnessSkillDefinition,
+  agents: readonly HarnessAgentDefinition[],
+): HarnessWorkflowDefinition | null => {
+  const parsed = parseMarkdown(file.content);
+  const table = findWorkflowTable(parsed.body);
+  if (!table) return null;
+  const steps = workflowRowsToSteps(table.rows, file, agents);
+  if (steps.length === 0) return null;
+  return {
+    id: `${skill.id}-workflow`,
+    skillId: skill.id,
+    name: `${skill.name} workflow`,
+    mode: extractExecutionMode(parsed.body) ?? "agent_team",
+    description: skill.description,
+    sourceFile: file.relativePath,
+    phases: [
+      {
+        id: "workflow",
+        title: "Workflow",
+        owner: "orchestrator",
+        summary: "Parsed from the source package workflow table.",
+      },
+    ],
+    steps,
+    handoffPolicy: {
+      mode: "source_message_semantics",
+      routes: steps.flatMap((step) =>
+        step.dependsOn.map((fromStepId) => ({
+          fromStepId,
+          toStepId: step.id,
+          summary: `${fromStepId} -> ${step.id}`,
+        })),
+      ),
+      requiredPayload: "harness_worker_handoff_v1",
+      fallback: "synthesize_from_artifact",
+    },
+    failurePolicy: {
+      defaultMode: "pause_for_review",
+      maxAttempts: detectMaxAttempts(parsed.body),
+      rules: [],
+    },
+    testScenarios: [],
+    parseConfidence: "medium",
+  };
+};
+
+interface MarkdownTable {
+  headers: readonly string[];
+  rows: readonly Readonly<Record<string, string>>[];
+}
+
+const findWorkflowTable = (body: string): MarkdownTable | null => {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  for (let i = 0; i < lines.length - 1; i += 1) {
+    const header = splitMarkdownTableRow(lines[i] ?? "");
+    if (header.length === 0) continue;
+    if (!isMarkdownTableSeparator(lines[i + 1] ?? "")) continue;
+    const normalizedHeaders = header.map(normalizeTableHeader);
+    if (!isWorkflowTableHeader(normalizedHeaders)) continue;
+
+    const rows: Array<Record<string, string>> = [];
+    for (let j = i + 2; j < lines.length; j += 1) {
+      const cells = splitMarkdownTableRow(lines[j] ?? "");
+      if (cells.length === 0) break;
+      const row: Record<string, string> = {};
+      for (let c = 0; c < normalizedHeaders.length; c += 1) {
+        row[normalizedHeaders[c]!] = cells[c] ?? "";
+      }
+      rows.push(row);
+    }
+    return { headers: normalizedHeaders, rows };
+  }
+  return null;
+};
+
+const workflowRowsToSteps = (
+  rows: readonly Readonly<Record<string, string>>[],
+  file: NormalizedSourceFile,
+  agents: readonly HarnessAgentDefinition[],
+): HarnessWorkflowStep[] => {
+  const orderToStepId = new Map<string, string>();
+  for (const row of rows) {
+    const order = normalizeOrder(row.order);
+    if (order) orderToStepId.set(order, `step-${slugFromName(order)}`);
+  }
+  const parallelGroups = countOrderGroups([...orderToStepId.keys()]);
+
+  return rows
+    .map((row): HarnessWorkflowStep | null => {
+      const order = normalizeOrder(row.order);
+      if (!order) return null;
+      const id = orderToStepId.get(order);
+      if (!id) return null;
+      const title = stripMarkdown(row.task ?? "") || `Task ${order}`;
+      const owner = stripMarkdown(row.owner ?? "") || "agent";
+      const artifactContracts = deliverablesToArtifactContracts(
+        row.deliverable,
+        id,
+      );
+      const allowedActions: ApprovalActionType[] =
+        artifactContracts.length > 0 ? ["file_write"] : [];
+      const orderGroup = order.match(/^(\d+)/)?.[1];
+      const parallelGroup =
+        orderGroup && (parallelGroups.get(orderGroup) ?? 0) > 1
+          ? `order-${orderGroup}`
+          : undefined;
+      return {
+        id,
+        title,
+        agentRef: resolveAgentRef(owner, agents) ?? undefined,
+        roleHint: slugFromName(owner),
+        phaseId: "workflow",
+        instruction: buildStepInstruction(title, owner, artifactContracts),
+        dependsOn: parseDependsOn(row["depends on"], orderToStepId),
+        ...(parallelGroup ? { parallelGroup } : {}),
+        artifactContracts,
+        allowedActions,
+        outputContract: inferOutputContract(title, owner),
+        sourceRef: {
+          relativePath: file.relativePath,
+          heading: "Workflow",
+        },
+      };
+    })
+    .filter(isNotNull);
+};
+
 const buildMetadataIssues = (input: {
   sourceFormat: HarnessSourceFormat;
   skills: readonly HarnessSkillDefinition[];
   agents: readonly HarnessAgentDefinition[];
+  workflows: readonly HarnessWorkflowDefinition[];
 }): HarnessValidationIssue[] => {
   const issues: HarnessValidationIssue[] = [];
   if (input.skills.length === 0) {
@@ -218,13 +378,36 @@ const buildMetadataIssues = (input: {
       blocksExecution: false,
     });
   }
-  issues.push({
-    severity: "warning",
-    code: "HARNESS_WORKFLOW_PARSE_PENDING",
-    message:
-      "Workflow tables and dependency edges are not parsed in this import slice, so execution requires manual review.",
-    blocksExecution: true,
-  });
+  if (input.workflows.length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "HARNESS_WORKFLOW_PARSE_PENDING",
+      message:
+        "Workflow tables and dependency edges were not parsed, so execution requires manual repair.",
+      blocksExecution: true,
+    });
+  } else {
+    for (const workflow of input.workflows) {
+      for (const step of workflow.steps) {
+        if (!step.agentRef && step.roleHint !== "orchestrator") {
+          issues.push({
+            severity: "warning",
+            code: "HARNESS_AGENT_REFERENCE_UNRESOLVED",
+            message: `Workflow step ${step.id} owner "${step.roleHint}" could not be mapped to an imported agent.`,
+            sourceRef: step.sourceRef,
+            blocksExecution: true,
+          });
+        }
+      }
+    }
+    issues.push({
+      severity: "warning",
+      code: "HARNESS_PROFILE_BINDING_REQUIRED",
+      message:
+        "Workflow steps were parsed, but abstract agents still require explicit AgentProfile binding before conversion or execution.",
+      blocksExecution: true,
+    });
+  }
   return issues;
 };
 
@@ -281,6 +464,172 @@ const parseMarkdown = (content: string): ParsedMarkdown => {
     frontmatter: parseSimpleFrontmatter(frontmatterText),
     body,
   };
+};
+
+const splitMarkdownTableRow = (line: string): string[] => {
+  const trimmed = line.trim();
+  if (!trimmed.includes("|")) return [];
+  const cells = trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
+  return cells.some((cell) => cell.length > 0) ? cells : [];
+};
+
+const isMarkdownTableSeparator = (line: string): boolean => {
+  const cells = splitMarkdownTableRow(line);
+  return (
+    cells.length > 0 &&
+    cells.every((cell) => /^:?-{3,}:?$/.test(cell.replace(/\s+/g, "")))
+  );
+};
+
+const normalizeTableHeader = (value: string): string =>
+  stripMarkdown(value).toLowerCase().replace(/\s+/g, " ");
+
+const isWorkflowTableHeader = (headers: readonly string[]): boolean =>
+  headers.includes("order") &&
+  headers.includes("task") &&
+  headers.includes("owner") &&
+  headers.includes("depends on") &&
+  headers.includes("deliverable");
+
+const normalizeOrder = (value: string | undefined): string =>
+  stripMarkdown(value ?? "").toLowerCase().replace(/\s+/g, "");
+
+const countOrderGroups = (orders: readonly string[]): Map<string, number> => {
+  const counts = new Map<string, number>();
+  for (const order of orders) {
+    const group = order.match(/^(\d+)/)?.[1];
+    if (!group) continue;
+    counts.set(group, (counts.get(group) ?? 0) + 1);
+  }
+  return counts;
+};
+
+const parseDependsOn = (
+  value: string | undefined,
+  orderToStepId: ReadonlyMap<string, string>,
+): string[] => {
+  const normalized = stripMarkdown(value ?? "").toLowerCase();
+  if (
+    normalized.length === 0 ||
+    normalized === "none" ||
+    normalized === "n/a" ||
+    normalized === "없음"
+  ) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const match of normalized.matchAll(/\b\d+[a-z]?\b/g)) {
+    const stepId = orderToStepId.get(match[0]);
+    if (stepId && !out.includes(stepId)) out.push(stepId);
+  }
+  return out;
+};
+
+const deliverablesToArtifactContracts = (
+  value: string | undefined,
+  stepId: string,
+): HarnessArtifactContract[] => {
+  const raw = value ?? "";
+  const codeSpans = [...raw.matchAll(/`([^`]+)`/g)]
+    .map((match) => match[1]?.trim() ?? "")
+    .filter((item) => item.length > 0);
+  const items =
+    codeSpans.length > 0
+      ? codeSpans
+      : raw
+          .split(",")
+          .map((item) => stripMarkdown(item))
+          .filter((item) => item.length > 0);
+  return items.map((item, index) => ({
+    id: `${stepId}-artifact-${index + 1}`,
+    pathHint: item,
+    title: artifactTitle(item),
+    kind: "workspace_file",
+    required: true,
+    description: item,
+  }));
+};
+
+const buildStepInstruction = (
+  title: string,
+  owner: string,
+  artifactContracts: readonly HarnessArtifactContract[],
+): string => {
+  const deliverables = artifactContracts.map((item) => item.pathHint).filter(isString);
+  const parts = [`${owner}: ${title}`];
+  if (deliverables.length > 0) {
+    parts.push(`Expected deliverables: ${deliverables.join(", ")}`);
+  }
+  return parts.join("\n");
+};
+
+const resolveAgentRef = (
+  owner: string,
+  agents: readonly HarnessAgentDefinition[],
+): string | null => {
+  const ownerId = slugFromName(owner);
+  const exact = agents.find((agent) => agent.id === ownerId);
+  if (exact) return exact.id;
+  const partial = agents.find((agent) => {
+    const parts = agent.id.split(/[-_]/).filter(Boolean);
+    return agent.id.includes(ownerId) || parts.includes(ownerId);
+  });
+  return partial?.id ?? null;
+};
+
+const inferOutputContract = (
+  title: string,
+  owner: string,
+): WorkerOutputContract => {
+  const text = `${title} ${owner}`.toLowerCase();
+  if (/\b(review|validate|검증|리뷰)\b/.test(text)) return "review";
+  if (/\b(test|qa|테스트)\b/.test(text)) return "test_result";
+  return "plan";
+};
+
+const extractExecutionMode = (body: string): string | null => {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const index = lines.findIndex((line) =>
+    /^##\s+execution mode/i.test(line.trim()),
+  );
+  if (index < 0) return null;
+  for (const line of lines.slice(index + 1, index + 6)) {
+    const bold = /\*\*([^*]+)\*\*/.exec(line);
+    if (bold?.[1]) return slugFromName(bold[1]);
+    const stripped = stripMarkdown(line);
+    if (stripped.length > 0) return slugFromName(stripped);
+  }
+  return null;
+};
+
+const detectMaxAttempts = (body: string): number => {
+  const lower = body.toLowerCase();
+  const roundMatch = /up to\s+(\d+)\s+rounds?/.exec(lower);
+  const retryMatch = /retry\s+(\d+)\s+times?/.exec(lower);
+  const numeric = Number(roundMatch?.[1] ?? retryMatch?.[1] ?? NaN);
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= 5) {
+    return numeric;
+  }
+  if (/retry once/.test(lower)) return 1;
+  return 2;
+};
+
+const stripMarkdown = (value: string): string =>
+  value
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const artifactTitle = (path: string): string => {
+  const normalized = path.replaceAll("\\", "/");
+  const name = normalized.split("/").filter(Boolean).at(-1) ?? normalized;
+  return name.replace(/\.[^.]+$/, "") || path;
 };
 
 const parseSimpleFrontmatter = (raw: string): Record<string, unknown> => {
@@ -388,5 +737,8 @@ const stringFrontmatter = (
 
 const sha256 = (content: string): string =>
   createHash("sha256").update(content).digest("hex");
+
+const isString = (value: string | undefined): value is string =>
+  value !== undefined;
 
 const isNotNull = <T>(value: T | null): value is T => value !== null;

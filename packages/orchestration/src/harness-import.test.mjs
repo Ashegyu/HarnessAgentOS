@@ -96,6 +96,99 @@ test("importHarnessPackageFromFiles imports Codex skill roots", () => {
   assert.equal(isHarnessDefinition(result.definition), true);
 });
 
+test("importHarnessPackageFromFiles parses workflow tables from orchestrator skills", () => {
+  const result = importHarnessPackageFromFiles({
+    rootDir: "C:/sample/youtube-production",
+    importedAt: IMPORTED_AT,
+    files: [
+      { relativePath: ".claude/CLAUDE.md", content: "# YouTube Production" },
+      {
+        relativePath: ".claude/agents/content-strategist.md",
+        content: "---\nname: content-strategist\ndescription: Strategy.\n---",
+      },
+      {
+        relativePath: ".claude/agents/scriptwriter.md",
+        content: "---\nname: scriptwriter\ndescription: Script.\n---",
+      },
+      {
+        relativePath: ".claude/agents/thumbnail-designer.md",
+        content: "---\nname: thumbnail-designer\ndescription: Thumbnail.\n---",
+      },
+      {
+        relativePath: ".claude/agents/seo-optimizer.md",
+        content: "---\nname: seo-optimizer\ndescription: SEO.\n---",
+      },
+      {
+        relativePath: ".claude/agents/production-reviewer.md",
+        content: "---\nname: production-reviewer\ndescription: Review.\n---",
+      },
+      {
+        relativePath: ".claude/skills/youtube-production/skill.md",
+        content: [
+          "---",
+          "name: youtube-production",
+          "description: YouTube production workflow.",
+          "---",
+          "",
+          "## Execution Mode",
+          "",
+          "**Agent Team** — 5 members communicate directly via SendMessage.",
+          "",
+          "## Workflow",
+          "",
+          "| Order | Task | Owner | Depends On | Deliverable |",
+          "|-------|------|-------|------------|-------------|",
+          "| 1 | Content strategy | strategist | None | `_workspace/01_strategist_brief.md` |",
+          "| 2a | Script writing | writer | Task 1 | `_workspace/02_scriptwriter_script.md` |",
+          "| 2b | Thumbnail design | designer | Task 1 | `_workspace/03_thumbnail_concept.md` |",
+          "| 3 | SEO package | seo | Tasks 1, 2a | `_workspace/04_seo_package.md`, `_workspace/subtitle.srt` |",
+          "| 4 | Production review | reviewer | Tasks 2a, 2b, 3 | `_workspace/05_review_report.md` |",
+          "",
+          "On Must Fix: request revision from the responsible agent up to 2 rounds.",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.definition.workflows.length, 1);
+  const workflow = result.definition.workflows[0];
+  assert.equal(workflow.mode, "agent-team");
+  assert.equal(workflow.steps.length, 5);
+  assert.deepEqual(
+    workflow.steps.map((step) => step.id),
+    ["step-1", "step-2a", "step-2b", "step-3", "step-4"],
+  );
+  assert.equal(workflow.steps[0].agentRef, "content-strategist");
+  assert.equal(workflow.steps[1].agentRef, "scriptwriter");
+  assert.equal(workflow.steps[2].agentRef, "thumbnail-designer");
+  assert.deepEqual(workflow.steps[1].dependsOn, ["step-1"]);
+  assert.deepEqual(workflow.steps[2].dependsOn, ["step-1"]);
+  assert.equal(workflow.steps[1].parallelGroup, "order-2");
+  assert.equal(workflow.steps[2].parallelGroup, "order-2");
+  assert.deepEqual(workflow.steps[3].dependsOn, ["step-1", "step-2a"]);
+  assert.equal(workflow.steps[3].artifactContracts.length, 2);
+  assert.equal(
+    workflow.steps[3].artifactContracts[1].pathHint,
+    "_workspace/subtitle.srt",
+  );
+  assert.equal(workflow.failurePolicy.maxAttempts, 2);
+  assert.equal(workflow.handoffPolicy.routes.length, 7);
+  assert.equal(
+    result.definition.validation.issues.some(
+      (issue) => issue.code === "HARNESS_WORKFLOW_PARSE_PENDING",
+    ),
+    false,
+  );
+  assert.equal(
+    result.definition.validation.issues.some(
+      (issue) => issue.code === "HARNESS_PROFILE_BINDING_REQUIRED",
+    ),
+    true,
+  );
+  assert.equal(isHarnessDefinition(result.definition), true);
+});
+
 test("importHarnessPackageFromFiles imports Harness-native packages", () => {
   const result = importHarnessPackageFromFiles({
     rootDir: "C:/sample/native",
