@@ -264,6 +264,10 @@ test("importHarnessPackageFromFiles recovers positional workflow tables and depe
         content: "---\nname: benchmark-manager\ndescription: Benchmark.\n---",
       },
       {
+        relativePath: ".claude/agents/style-harmonizer.md",
+        content: "---\nname: style-harmonizer\ndescription: Style.\n---",
+      },
+      {
         relativePath: ".claude/agents/perf-reviewer.md",
         content: "---\nname: perf-reviewer\ndescription: Review.\n---",
       },
@@ -282,6 +286,7 @@ test("importHarnessPackageFromFiles recovers positional workflow tables and depe
           "| 1 | profiling | profiler |  | `_workspace/01_profiling.md` |",
           "| 2 | benchmark | benchmark-manager | 1 | `_workspace/02_benchmark.md` |",
           "| 3 | review | perf-reviewer | 1~2 | `_workspace/03_review.md` |",
+          "| 3+ | style harmonization | harmonizer | 3 | `_workspace/03_style.md` |",
           "| 4 | summary | 오케스트레이터 | All | `_workspace/04_summary.md` |",
         ].join("\n"),
       },
@@ -293,9 +298,17 @@ test("importHarnessPackageFromFiles recovers positional workflow tables and depe
   const steps = result.definition.workflows[0].steps;
   assert.equal(steps[0].agentRef, "profiler");
   assert.equal(steps[2].agentRef, "perf-reviewer");
+  assert.equal(steps[3].id, "step-3-plus");
+  assert.equal(steps[3].agentRef, "style-harmonizer");
   assert.deepEqual(steps[2].dependsOn, ["step-1", "step-2"]);
-  assert.equal(steps[3].roleHint, "orchestrator");
-  assert.deepEqual(steps[3].dependsOn, ["step-1", "step-2", "step-3"]);
+  assert.deepEqual(steps[3].dependsOn, ["step-3"]);
+  assert.equal(steps[4].roleHint, "orchestrator");
+  assert.deepEqual(steps[4].dependsOn, [
+    "step-1",
+    "step-2",
+    "step-3",
+    "step-3-plus",
+  ]);
   assert.equal(
     result.definition.validation.issues.some(
       (issue) => issue.code === "HARNESS_AGENT_REFERENCE_UNRESOLVED",

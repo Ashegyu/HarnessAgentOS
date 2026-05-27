@@ -299,7 +299,7 @@ const workflowRowsToSteps = (
   const orderToStepId = new Map<string, string>();
   for (const row of rows) {
     const order = normalizeOrder(row.order);
-    if (order) orderToStepId.set(order, `step-${slugFromName(order)}`);
+    if (order) orderToStepId.set(order, stepIdFromOrder(order));
   }
   const parallelGroups = countOrderGroups([...orderToStepId.keys()]);
 
@@ -589,14 +589,15 @@ const parseDependsOn = (
     return stepIds.filter((stepId) => stepId !== currentStepId);
   }
   const out: string[] = [];
-  const rangePattern = /\b(\d+[a-z]?)(?:\s*(?:-|~|to|through)\s*)(\d+[a-z]?)\b/g;
+  const rangePattern =
+    /(\d+(?:[a-z]|\+)?)(?:\s*(?:-|~|to|through)\s*)(\d+(?:[a-z]|\+)?)/g;
   for (const match of normalized.matchAll(rangePattern)) {
     for (const stepId of stepIdsInRange(match[1], match[2], orderToStepId)) {
       if (stepId !== currentStepId && !out.includes(stepId)) out.push(stepId);
     }
   }
   const withoutRanges = normalized.replace(rangePattern, " ");
-  for (const match of withoutRanges.matchAll(/\b\d+[a-z]?\b/g)) {
+  for (const match of withoutRanges.matchAll(/\d+(?:[a-z]|\+)?/g)) {
     const stepId = orderToStepId.get(match[0]);
     if (stepId && stepId !== currentStepId && !out.includes(stepId)) {
       out.push(stepId);
@@ -619,6 +620,14 @@ const stepIdsInRange = (
     .slice(fromIndex, toIndex + 1)
     .map((order) => orderToStepId.get(order))
     .filter(isString);
+};
+
+const stepIdFromOrder = (order: string): string => {
+  const normalized = order
+    .replace(/\+/g, "-plus")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `step-${normalized || "unknown"}`;
 };
 
 const deliverablesToArtifactContracts = (

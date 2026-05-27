@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { after, test } from "node:test";
 import assert from "node:assert/strict";
@@ -127,9 +127,66 @@ test(
   },
 );
 
+test(
+  "importHarnessPackageFromDirectory parses every harness-100 workflow when available",
+  { skip: !existsSync(path.resolve(process.cwd(), "..", "harness-100")) },
+  async () => {
+    const harness100 = path.resolve(process.cwd(), "..", "harness-100");
+    const packageDirs = await listHarness100PackageDirs(harness100);
+    const noWorkflow = [];
+    const unresolved = [];
+
+    assert.equal(packageDirs.length >= 100, true);
+    for (const rootDir of packageDirs) {
+      const result = await importHarnessPackageFromDirectory({
+        rootDir,
+        importedAt: "2026-05-27T00:00:00.000Z",
+      });
+      assert.equal(result.ok, true, rootDir);
+      assert.equal(isHarnessDefinition(result.definition), true);
+      if (result.definition.workflows.length === 0) {
+        noWorkflow.push(toHarness100Relative(harness100, rootDir));
+      }
+      if (
+        result.definition.validation.issues.some(
+          (issue) => issue.code === "HARNESS_AGENT_REFERENCE_UNRESOLVED",
+        )
+      ) {
+        unresolved.push(toHarness100Relative(harness100, rootDir));
+      }
+    }
+
+    assert.deepEqual(noWorkflow, []);
+    assert.deepEqual(unresolved.sort(), [
+      "en/60-debate-simulator",
+      "ko/60-debate-simulator",
+    ]);
+  },
+);
+
 async function resetDir(dir) {
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
+}
+
+async function listHarness100PackageDirs(root) {
+  const out = [];
+  const langDirs = await readdir(root, { withFileTypes: true });
+  for (const lang of langDirs) {
+    if (!lang.isDirectory()) continue;
+    const langDir = path.join(root, lang.name);
+    const entries = await readdir(langDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const packageDir = path.join(langDir, entry.name);
+      if (existsSync(path.join(packageDir, ".claude"))) out.push(packageDir);
+    }
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+function toHarness100Relative(root, dir) {
+  return path.relative(root, dir).replaceAll("\\", "/");
 }
 
 async function writeFixture(root, relativePath, content) {
