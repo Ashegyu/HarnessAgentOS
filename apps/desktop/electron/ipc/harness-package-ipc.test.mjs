@@ -21,12 +21,14 @@ const dirTmp = () => mkdtempSync(join(tmpdir(), "hgos-hpkg-ipc-dir-"));
 const setup = () => {
   const t = dbTmp();
   const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
   const service = new HarnessPackageService({
-    state: new LocalStateService(db),
+    state,
   });
   return {
     db,
     t,
+    state,
     handlers: buildHarnessPackageHandlers({ harnessPackages: service }),
   };
 };
@@ -96,7 +98,7 @@ test("harnessPackages.importDirectory returns review result for unsupported sour
 });
 
 test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft", async () => {
-  const { db, t, handlers } = setup();
+  const { db, t, state, handlers } = setup();
   const root = dirTmp();
   try {
     await writeFixture(root, ".claude/CLAUDE.md", "# YouTube Production");
@@ -125,13 +127,17 @@ test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft"
     const imported = await handlers.importDirectory({ rootDir: root });
     assert.equal(imported.ok, true);
     assert.equal(imported.value.ok, true);
+    const profile = await state.agentProfiles.create(agentProfileInput({
+      name: "Content Strategist",
+      role: "planner",
+    }));
 
     const preview = await handlers.previewPipelineDraft({
       packageId: imported.value.definition.id,
       bindings: [
         {
           harnessAgentRef: "content-strategist",
-          agentProfileId: "profile-strategist",
+          agentProfileId: profile.id,
         },
       ],
     });
@@ -141,8 +147,9 @@ test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft"
     assert.equal(preview.value.pipeline.steps.length, 1);
     assert.equal(
       preview.value.pipeline.steps[0].agentProfileId,
-      "profile-strategist",
+      profile.id,
     );
+    assert.equal(preview.value.readiness.ok, true);
     assert.deepEqual(preview.value.pipeline.steps[0].dependsOn, []);
     assert.equal((await handlers.list()).value.length, 1);
   } finally {
@@ -250,7 +257,7 @@ test("harnessPackages.proposeExport creates approval-gated file writes", async (
   }
 });
 
-test("harnessPackages.previewPipelineDraft returns conversion issues for unbound steps", async () => {
+test("harnessPackages.previewPipelineDraft returns readiness issues for unbound steps", async () => {
   const { db, t, handlers } = setup();
   const root = dirTmp();
   try {
@@ -288,7 +295,9 @@ test("harnessPackages.previewPipelineDraft returns conversion issues for unbound
 
     assert.equal(preview.ok, true);
     assert.equal(preview.value.ok, false);
-    assert.equal(preview.value.issues[0].code, "HARNESS_STEP_PROFILE_UNBOUND");
+    assert.equal(preview.value.readiness.ok, false);
+    assert.equal(preview.value.readiness.issues[0].code, "HARNESS_PROFILE_UNBOUND");
+    assert.equal(preview.value.issues[0].code, "HARNESS_BINDING_READINESS_FAILED");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -427,4 +436,40 @@ async function writeFixture(root, relativePath, content) {
   const fullPath = path.join(root, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });
   await writeFile(fullPath, content, "utf8");
+}
+
+function agentProfileInput(overrides = {}) {
+  return {
+    name: "Harness Worker",
+    description: "",
+    category: "development",
+    tags: [],
+    provider: "codex",
+    role: "planner",
+    persona: "",
+    tuning: {
+      model: "gpt-5.5",
+      timeoutMs: 300000,
+      stallTimeoutMs: 60000,
+      contextDepth: 4,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: {
+      cliPathOverride: "",
+      env: {},
+      envSecretRefs: {},
+    },
+    permissions: {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+    ...overrides,
+  };
 }

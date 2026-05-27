@@ -459,7 +459,8 @@ export type HarnessPipelineDraftIssueCode =
   | "HARNESS_WORKFLOW_TOO_LARGE"
   | "HARNESS_STEP_PROFILE_UNBOUND"
   | "HARNESS_ARTIFACT_KIND_MAPPED"
-  | "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED";
+  | "HARNESS_FAILURE_POLICY_REVIEW_REQUIRED"
+  | "HARNESS_BINDING_READINESS_FAILED";
 
 export interface HarnessPipelineDraftIssue {
   severity: "warning" | "error";
@@ -470,16 +471,37 @@ export interface HarnessPipelineDraftIssue {
   sourceRef?: HarnessSourceRef;
 }
 
+export type HarnessBindingReadinessSeverity = "error" | "warning" | "info";
+
+export interface HarnessBindingReadinessIssue {
+  severity: HarnessBindingReadinessSeverity;
+  code: string;
+  message: string;
+  harnessAgentRef?: string;
+  stepId?: string;
+  profileId?: string;
+}
+
+export interface HarnessBindingReadinessSummary {
+  ok: boolean;
+  errorCount: number;
+  warningCount: number;
+  infoCount: number;
+  issues: readonly HarnessBindingReadinessIssue[];
+}
+
 export type HarnessPipelineDraftPreviewResult =
   | {
       ok: true;
       workflowId: string;
       pipeline: CreateAgentPipelineInput;
       issues: readonly HarnessPipelineDraftIssue[];
+      readiness?: HarnessBindingReadinessSummary;
     }
   | {
       ok: false;
       issues: readonly HarnessPipelineDraftIssue[];
+      readiness?: HarnessBindingReadinessSummary;
     };
 
 export interface HarnessValidationResult {

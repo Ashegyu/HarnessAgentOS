@@ -16,10 +16,7 @@ import {
   type HarnessPipelineDraftPreviewResult,
   type HarnessResult,
 } from "@harness/core";
-import {
-  convertHarnessWorkflowToPipelineDraft,
-  type HarnessPackageService,
-} from "@harness/orchestration";
+import { type HarnessPackageService } from "@harness/orchestration";
 
 export interface HarnessPackageIpcContext {
   harnessPackages: Pick<
@@ -31,6 +28,7 @@ export interface HarnessPackageIpcContext {
     | "repairPackage"
     | "previewExportPackage"
     | "proposeExportPackage"
+    | "previewPipelineDraft"
   >;
 }
 
@@ -316,18 +314,13 @@ export const buildHarnessPackageHandlers = (
           ),
         );
       }
-      const preview = convertHarnessWorkflowToPipelineDraft({
-        definition: found,
-        workflowId: workflowId.value,
-        bindings: bindings.value,
-      });
-      if (!preview.ok) return ok(preview);
-      return ok({
-        ok: true,
-        workflowId: preview.workflow.id,
-        pipeline: preview.pipeline,
-        issues: preview.issues,
-      });
+      return wrap(() =>
+        harnessPackages.previewPipelineDraft({
+          packageId: id.value,
+          workflowId: workflowId.value,
+          bindings: bindings.value,
+        }),
+      );
     },
 
     remove: async (input: {

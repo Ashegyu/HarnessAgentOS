@@ -1,11 +1,16 @@
 import type {
   Approval,
+  AgentProviderStatusMap,
+  HarnessAgentProfileBinding,
+  HarnessBindingReadinessSummary,
   HarnessDefinition,
   HarnessPackageExportPreview,
   HarnessPackageExportPreviewInput,
   HarnessPackageExportProposalInput,
   HarnessPackageExportProposalResult,
   HarnessPackageImportDirectoryResult,
+  HarnessPipelineDraftIssue,
+  HarnessPipelineDraftPreviewResult,
   HarnessPackageRepairInput,
   HarnessPackageRepairResult,
 } from "@harness/core";
@@ -15,14 +20,23 @@ import {
   importHarnessPackageFromDirectory,
   type ImportHarnessPackageFromDirectoryInput,
 } from "./harness-directory-import.ts";
+import { assessHarnessBindingReadiness } from "./harness-binding-readiness.ts";
 import { exportHarnessPackage } from "./harness-package-export.ts";
 import { applyHarnessPackageRepair } from "./harness-package-repair.ts";
+import { convertHarnessWorkflowToPipelineDraft } from "./harness-pipeline-draft.ts";
 
 export type HarnessPackageImportAndSaveResult =
   HarnessPackageImportDirectoryResult;
 
 export interface HarnessPackageServiceDeps {
   state: LocalStateService;
+}
+
+export interface HarnessPackagePipelinePreviewInput {
+  packageId: string;
+  workflowId?: string;
+  bindings: readonly HarnessAgentProfileBinding[];
+  providers?: AgentProviderStatusMap;
 }
 
 export class HarnessPackageService {
@@ -68,6 +82,65 @@ export class HarnessPackageService {
       definition: found,
       targetFormat: input.targetFormat,
     });
+  }
+
+  async assessBindingReadiness(
+    input: HarnessPackagePipelinePreviewInput,
+  ): Promise<HarnessBindingReadinessSummary> {
+    const found = await this.getPackage(input.packageId);
+    if (!found) {
+      throw new Error(`unknown harness package: ${input.packageId}`);
+    }
+    const [profiles, mcpServers, skillSources, capabilities] = await Promise.all([
+      this.deps.state.agentProfiles.list(),
+      this.deps.state.mcpServers.list(),
+      this.deps.state.skillSources.list(),
+      this.deps.state.capabilities.list(),
+    ]);
+    return assessHarnessBindingReadiness({
+      definition: found,
+      workflowId: input.workflowId ?? null,
+      bindings: bindingRecord(input.bindings),
+      profiles,
+      ...(input.providers !== undefined ? { providers: input.providers } : {}),
+      mcpServers,
+      skillSources,
+      capabilities,
+    });
+  }
+
+  async previewPipelineDraft(
+    input: HarnessPackagePipelinePreviewInput,
+  ): Promise<HarnessPipelineDraftPreviewResult> {
+    const found = await this.getPackage(input.packageId);
+    if (!found) {
+      throw new Error(`unknown harness package: ${input.packageId}`);
+    }
+    const readiness = await this.assessBindingReadiness(input);
+    if (!readiness.ok) {
+      return {
+        ok: false,
+        readiness,
+        issues: readiness.issues
+          .filter((issue) => issue.severity === "error")
+          .map(readinessIssueToPipelineIssue),
+      };
+    }
+    const preview = convertHarnessWorkflowToPipelineDraft({
+      definition: found,
+      workflowId: input.workflowId,
+      bindings: input.bindings,
+    });
+    if (!preview.ok) {
+      return { ...preview, readiness };
+    }
+    return {
+      ok: true,
+      workflowId: preview.workflow.id,
+      pipeline: preview.pipeline,
+      issues: preview.issues,
+      readiness,
+    };
   }
 
   async proposeExportPackage(
@@ -170,3 +243,24 @@ const assertSafeExportPath = (relativePath: string): void => {
     throw new Error(`unsafe export path: ${relativePath}`);
   }
 };
+
+const bindingRecord = (
+  bindings: readonly HarnessAgentProfileBinding[],
+): Readonly<Record<string, string>> => {
+  const out: Record<string, string> = {};
+  for (const binding of bindings) {
+    if (out[binding.harnessAgentRef] === undefined) {
+      out[binding.harnessAgentRef] = binding.agentProfileId;
+    }
+  }
+  return out;
+};
+
+const readinessIssueToPipelineIssue = (
+  issue: HarnessBindingReadinessSummary["issues"][number],
+): HarnessPipelineDraftIssue => ({
+  severity: "error",
+  code: "HARNESS_BINDING_READINESS_FAILED",
+  message: issue.message,
+  ...(issue.stepId !== undefined ? { stepId: issue.stepId } : {}),
+});

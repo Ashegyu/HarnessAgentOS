@@ -2,29 +2,19 @@ import type {
   AgentProfile,
   AgentProviderStatusMap,
   Capability,
+  HarnessBindingReadinessIssue,
+  HarnessBindingReadinessSeverity,
+  HarnessBindingReadinessSummary,
   HarnessDefinition,
   McpServerConfig,
   SkillSource,
 } from "@harness/core";
 
-export type HarnessBindingReadinessSeverity = "error" | "warning" | "info";
-
-export interface HarnessBindingReadinessIssue {
-  severity: HarnessBindingReadinessSeverity;
-  code: string;
-  message: string;
-  harnessAgentRef?: string;
-  stepId?: string;
-  profileId?: string;
-}
-
-export interface HarnessBindingReadinessSummary {
-  ok: boolean;
-  errorCount: number;
-  warningCount: number;
-  infoCount: number;
-  issues: readonly HarnessBindingReadinessIssue[];
-}
+export type {
+  HarnessBindingReadinessIssue,
+  HarnessBindingReadinessSeverity,
+  HarnessBindingReadinessSummary,
+} from "@harness/core";
 
 export interface HarnessBindingReadinessInput {
   definition: HarnessDefinition;
