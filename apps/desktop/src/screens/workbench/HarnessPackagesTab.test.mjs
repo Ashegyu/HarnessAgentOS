@@ -43,6 +43,15 @@ test("HarnessPackagesTab exposes import/list/remove without execution actions", 
   assert.doesNotMatch(source, /window\.harness\.runner\.executeApproved/);
 });
 
+test("HarnessPackagesTab sends the readiness provider snapshot with pipeline preview", () => {
+  const source = readSource("HarnessPackagesTab.tsx");
+
+  assert.match(
+    source,
+    /previewPipelineDraft\(\{[\s\S]*readinessList\.kind === "ready"[\s\S]*providers: readinessList\.providers[\s\S]*\}\)/,
+  );
+});
+
 test("SettingsPanel includes the Harnesses tab", () => {
   const source = readSource("SettingsPanel.tsx");
 

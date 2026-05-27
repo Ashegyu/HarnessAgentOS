@@ -159,6 +159,76 @@ test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft"
   }
 });
 
+test("harnessPackages.previewPipelineDraft forwards caller provider status into readiness", async () => {
+  const { db, t, state, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# Provider Check");
+    await writeFixture(
+      root,
+      ".claude/agents/reviewer.md",
+      "---\nname: reviewer\ndescription: Review.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/review/skill.md",
+      [
+        "---",
+        "name: review",
+        "description: Review workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Review | reviewer | None | `_workspace/review.md` |",
+      ].join("\n"),
+    );
+
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+    const profile = await state.agentProfiles.create(
+      agentProfileInput({
+        name: "Claude Reviewer",
+        provider: "claude",
+        role: "reviewer",
+      }),
+    );
+
+    const preview = await handlers.previewPipelineDraft({
+      packageId: imported.value.definition.id,
+      bindings: [
+        {
+          harnessAgentRef: "reviewer",
+          agentProfileId: profile.id,
+        },
+      ],
+      providers: {
+        claude: {
+          available: false,
+          error: "claude unavailable in test",
+          queueDepth: 0,
+        },
+        codex: { available: true, queueDepth: 0 },
+      },
+    });
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.value.ok, true);
+    assert.equal(preview.value.readiness.warningCount, 1);
+    assert.deepEqual(
+      preview.value.readiness.issues.map((issue) => issue.code),
+      ["HARNESS_PROVIDER_UNAVAILABLE"],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("harnessPackages.previewExport returns declaration-only projection files", async () => {
   const { db, t, handlers } = setup();
   const root = dirTmp();
