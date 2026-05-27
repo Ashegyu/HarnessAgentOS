@@ -634,6 +634,11 @@ source-boundary rules:
   reason, approval count, and each pending file path/status are shown beside the
   export preview. This is still review-only UI; actual writes remain pending
   `file_write` approvals executed through the existing runner path.
+- Reference smoke against `harness-100/en/01-youtube-production` imports as a
+  single Claude package with 3 skills, 5 agents, 1 workflow, and the expected
+  `HARNESS_PROFILE_BINDING_REQUIRED` review issue. The top-level `harness-100`
+  directory is a collection of package examples, not a single importable package
+  root.
 
 Verified commands for the latest checkpoint:
 
@@ -686,9 +691,10 @@ separate user-visible steps.
 The original import/repair/preview/save/export hardening sequence is now covered.
 Proceed with verification and only then optional polish:
 
-1. **Manual harness-100 UI smoke**: import the reference package, repair if
-   needed, preview pipeline, propose export, and verify the proposed approval
-   batch is readable before approving any writes.
+1. **Manual harness-100 UI smoke**: select an individual package directory such
+   as `harness-100/en/01-youtube-production`, repair if needed, preview
+   pipeline, propose export, and verify the proposed approval batch is readable
+   before approving any writes.
 2. **Optional batch execution UX**: consider an explicit approve-all export-files
    workflow only if it can reuse the existing approval policy and runner gates
    without bypassing per-file visibility.
