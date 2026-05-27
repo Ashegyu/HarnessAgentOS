@@ -6,6 +6,8 @@ import {
   ok,
   type HarnessAgentProfileBinding,
   type HarnessDefinition,
+  type HarnessPackageExportPreview,
+  type HarnessPackageExportPreviewInput,
   type HarnessPackageImportDirectoryResult,
   type HarnessPackageRepairInput,
   type HarnessPackageRepairResult,
@@ -25,6 +27,7 @@ export interface HarnessPackageIpcContext {
     | "importDirectory"
     | "removePackage"
     | "repairPackage"
+    | "previewExportPackage"
   >;
 }
 
@@ -149,6 +152,31 @@ const parseRepairInput = (
   };
 };
 
+const parseExportPreviewInput = (
+  input: unknown,
+):
+  | { ok: true; value: HarnessPackageExportPreviewInput }
+  | { ok: false; reason: string } => {
+  const packageId = requiredString(input, "packageId");
+  if (!packageId.ok) return { ok: false, reason: packageId.reason };
+  const targetFormat = requiredString(input, "targetFormat");
+  if (!targetFormat.ok) return { ok: false, reason: targetFormat.reason };
+  if (
+    targetFormat.value !== "claude" &&
+    targetFormat.value !== "codex" &&
+    targetFormat.value !== "harness-native"
+  ) {
+    return { ok: false, reason: "targetFormat is invalid" };
+  }
+  return {
+    ok: true,
+    value: {
+      packageId: packageId.value,
+      targetFormat: targetFormat.value,
+    },
+  };
+};
+
 export const buildHarnessPackageHandlers = (
   ctx: HarnessPackageIpcContext,
 ) => {
@@ -203,6 +231,25 @@ export const buildHarnessPackageHandlers = (
         );
       }
       return wrap(() => harnessPackages.repairPackage(parsed.value));
+    },
+
+    previewExport: async (
+      input: HarnessPackageExportPreviewInput,
+    ): Promise<HarnessResult<HarnessPackageExportPreview>> => {
+      const parsed = parseExportPreviewInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      const found = await harnessPackages.getPackage(parsed.value.packageId);
+      if (!found) {
+        return err(
+          harnessError(
+            HARNESS_PACKAGE_NOT_FOUND,
+            `unknown harness package: ${parsed.value.packageId}`,
+          ),
+        );
+      }
+      return wrap(() => harnessPackages.previewExportPackage(parsed.value));
     },
 
     previewPipelineDraft: async (input: {

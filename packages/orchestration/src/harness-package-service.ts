@@ -1,5 +1,7 @@
 import type {
   HarnessDefinition,
+  HarnessPackageExportPreview,
+  HarnessPackageExportPreviewInput,
   HarnessPackageImportDirectoryResult,
   HarnessPackageRepairInput,
   HarnessPackageRepairResult,
@@ -10,6 +12,7 @@ import {
   importHarnessPackageFromDirectory,
   type ImportHarnessPackageFromDirectoryInput,
 } from "./harness-directory-import.ts";
+import { exportHarnessPackage } from "./harness-package-export.ts";
 import { applyHarnessPackageRepair } from "./harness-package-repair.ts";
 
 export type HarnessPackageImportAndSaveResult =
@@ -49,6 +52,19 @@ export class HarnessPackageService {
 
   async removePackage(id: string): Promise<void> {
     await this.deps.state.harnessPackages.remove(id);
+  }
+
+  async previewExportPackage(
+    input: HarnessPackageExportPreviewInput,
+  ): Promise<HarnessPackageExportPreview> {
+    const found = await this.getPackage(input.packageId);
+    if (!found) {
+      throw new Error(`unknown harness package: ${input.packageId}`);
+    }
+    return exportHarnessPackage({
+      definition: found,
+      targetFormat: input.targetFormat,
+    });
   }
 
   async repairPackage(

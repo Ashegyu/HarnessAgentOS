@@ -152,6 +152,56 @@ test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft"
   }
 });
 
+test("harnessPackages.previewExport returns declaration-only projection files", async () => {
+  const { db, t, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# YouTube Production");
+    await writeFixture(
+      root,
+      ".claude/agents/content-strategist.md",
+      "---\nname: content-strategist\ndescription: Strategy.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/youtube-production/skill.md",
+      [
+        "---",
+        "name: youtube-production",
+        "description: YouTube production workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Content strategy | strategist | None | `_workspace/brief.md` |",
+      ].join("\n"),
+    );
+
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+
+    const exported = await handlers.previewExport({
+      packageId: imported.value.definition.id,
+      targetFormat: "codex",
+    });
+
+    assert.equal(exported.ok, true);
+    assert.equal(exported.value.targetFormat, "codex");
+    assert.deepEqual(
+      exported.value.files.map((file) => file.relativePath).sort(),
+      ["AGENTS.md", "skills/youtube-production/SKILL.md"],
+    );
+    assert.ok(exported.value.warnings.length > 0);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("harnessPackages.previewPipelineDraft returns conversion issues for unbound steps", async () => {
   const { db, t, handlers } = setup();
   const root = dirTmp();

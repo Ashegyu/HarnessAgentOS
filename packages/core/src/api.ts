@@ -31,6 +31,8 @@ import type {
   HarnessSettings,
   HarnessDefinition,
   HarnessAgentProfileBinding,
+  HarnessPackageExportPreview,
+  HarnessPackageExportPreviewInput,
   HarnessPackageImportDirectoryResult,
   HarnessPackageRepairInput,
   HarnessPackageRepairResult,
@@ -493,6 +495,9 @@ export interface HarnessDesktopApi {
       rootDir: string;
     }): Promise<HarnessPackageImportDirectoryResult>;
     repair(input: HarnessPackageRepairInput): Promise<HarnessPackageRepairResult>;
+    previewExport(
+      input: HarnessPackageExportPreviewInput,
+    ): Promise<HarnessPackageExportPreview>;
     previewPipelineDraft(input: {
       packageId: string;
       workflowId?: string;

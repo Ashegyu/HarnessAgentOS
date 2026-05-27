@@ -21,6 +21,10 @@ export const registerHarnessPackageIpc = (
     h.repair(input),
   );
   ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.previewExport,
+    async (_e, input) => h.previewExport(input),
+  );
+  ipcMain.handle(
     IPC_CHANNELS.harnessPackages.previewPipelineDraft,
     async (_e, input) => h.previewPipelineDraft(input),
   );

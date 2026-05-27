@@ -399,6 +399,25 @@ export interface HarnessPackageRepairResult {
   issuesResolved: number;
 }
 
+export interface HarnessPackageExportFile {
+  relativePath: string;
+  content: string;
+  kind: HarnessSourceFileKind;
+}
+
+export interface HarnessPackageExportPreview {
+  packageId: string;
+  packageName: string;
+  targetFormat: HarnessSourceFormat;
+  files: readonly HarnessPackageExportFile[];
+  warnings: readonly string[];
+}
+
+export interface HarnessPackageExportPreviewInput {
+  packageId: string;
+  targetFormat: HarnessSourceFormat;
+}
+
 export type HarnessPackageImportDirectoryResult =
   | {
       ok: true;

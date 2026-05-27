@@ -5,6 +5,8 @@ import type {
   Capability,
   HarnessAgentProfileBinding,
   HarnessDefinition,
+  HarnessPackageExportPreview,
+  HarnessSourceFormat,
   HarnessPipelineDraftPreviewResult,
   McpServerConfig,
   SkillSource,
@@ -45,6 +47,11 @@ type ReadinessListState =
     }
   | { kind: "error"; message: string };
 
+type ExportTargetFormat = Extract<
+  HarnessSourceFormat,
+  "claude" | "codex" | "harness-native"
+>;
+
 interface Notice {
   kind: "success" | "warning" | "error";
   message: string;
@@ -80,10 +87,15 @@ export const HarnessPackagesTab = (): JSX.Element => {
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [preview, setPreview] =
     useState<HarnessPipelineDraftPreviewResult | null>(null);
+  const [exportTarget, setExportTarget] =
+    useState<ExportTargetFormat>("harness-native");
+  const [exportPreview, setExportPreview] =
+    useState<HarnessPackageExportPreview | null>(null);
   const [repairDraft, setRepairDraft] =
     useState<HarnessWorkflowRepairDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const refresh = useCallback(async () => {
@@ -213,6 +225,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
       setSelectedWorkflowId(null);
       setBindings({});
       setPreview(null);
+      setExportPreview(null);
       setRepairDraft(null);
       return;
     }
@@ -350,6 +363,27 @@ export const HarnessPackagesTab = (): JSX.Element => {
       setNotice({ kind: "error", message: errorMessage(e) });
     } finally {
       setPreviewBusy(false);
+    }
+  };
+
+  const handlePreviewExport = async (): Promise<void> => {
+    if (!selectedPackage) return;
+    setExportBusy(true);
+    setNotice(null);
+    try {
+      const result = await window.harness.harnessPackages.previewExport({
+        packageId: selectedPackage.id,
+        targetFormat: exportTarget,
+      });
+      setExportPreview(result);
+      setNotice({
+        kind: result.warnings.length > 0 ? "warning" : "success",
+        message: `${result.targetFormat} export preview ready: ${result.files.length} files.`,
+      });
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -604,6 +638,67 @@ export const HarnessPackagesTab = (): JSX.Element => {
                       ))}
                     </ul>
                   </>
+                )}
+              </section>
+
+              <section className="harness-packages-tab__section">
+                <div className="harness-packages-tab__section-heading">
+                  <h4>Export Preview</h4>
+                  <div className="harness-packages-tab__actions">
+                    <select
+                      value={exportTarget}
+                      onChange={(event) => {
+                        setExportTarget(
+                          event.currentTarget.value as ExportTargetFormat,
+                        );
+                        setExportPreview(null);
+                      }}
+                      disabled={exportBusy}
+                    >
+                      <option value="harness-native">Harness native</option>
+                      <option value="claude">Claude</option>
+                      <option value="codex">Codex</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--sm"
+                      onClick={() => void handlePreviewExport()}
+                      disabled={exportBusy}
+                    >
+                      {exportBusy ? "Previewing..." : "Preview"}
+                    </button>
+                  </div>
+                </div>
+                {exportPreview === null ? (
+                  <p>Generate a declaration-only compatibility projection.</p>
+                ) : (
+                  <div className="harness-packages-tab__preview harness-packages-tab__preview--ok">
+                    <p>
+                      {exportPreview.targetFormat} · {exportPreview.files.length}{" "}
+                      files · {exportPreview.warnings.length} warnings
+                    </p>
+                    {exportPreview.warnings.length > 0 && (
+                      <ul className="harness-packages-tab__issues">
+                        {exportPreview.warnings.map((warning, index) => (
+                          <li key={`export-warning-${index}`}>
+                            <span>warning</span>
+                            <strong>EXPORT_PROJECTION_WARNING</strong>
+                            <p>{warning}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <ul className="harness-packages-tab__compact-list">
+                      {exportPreview.files.map((file) => (
+                        <li key={file.relativePath}>
+                          <strong>{file.relativePath}</strong>
+                          <span>
+                            {file.kind} · {file.content.length} bytes
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </section>
 

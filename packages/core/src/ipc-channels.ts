@@ -169,6 +169,7 @@ export const IPC_CHANNELS = {
     get: "harnessPackages:get",
     importDirectory: "harnessPackages:importDirectory",
     repair: "harnessPackages:repair",
+    previewExport: "harnessPackages:previewExport",
     previewPipelineDraft: "harnessPackages:previewPipelineDraft",
     remove: "harnessPackages:remove",
   },

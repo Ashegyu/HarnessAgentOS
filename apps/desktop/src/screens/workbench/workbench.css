@@ -7792,6 +7792,16 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
   gap: 6px;
 }
 
+.harness-packages-tab__actions select {
+  min-width: 140px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font: inherit;
+  padding: 5px 8px;
+}
+
 .harness-packages-tab__section p {
   margin: 0;
   color: var(--text-secondary);
