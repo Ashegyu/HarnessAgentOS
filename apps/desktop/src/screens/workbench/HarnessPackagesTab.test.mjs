@@ -52,6 +52,18 @@ test("HarnessPackagesTab sends the readiness provider snapshot with pipeline pre
   );
 });
 
+test("HarnessPackagesTab renders export proposal approval batch details", () => {
+  const source = readSource("HarnessPackagesTab.tsx");
+
+  assert.match(source, /HarnessPackageExportProposalResult/);
+  assert.match(source, /setExportProposal\(result\)/);
+  assert.match(source, /Approval Batch/);
+  assert.match(source, /exportProposal\.targetDir/);
+  assert.match(source, /exportProposal\.taskRun\.status/);
+  assert.match(source, /exportProposal\.approvals\.map/);
+  assert.match(source, /approval\.proposedAction\?\.filePatch\?\.path/);
+});
+
 test("SettingsPanel includes the Harnesses tab", () => {
   const source = readSource("SettingsPanel.tsx");
 
