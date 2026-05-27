@@ -5,6 +5,7 @@ import type {
   Capability,
   HarnessAgentProfileBinding,
   HarnessDefinition,
+  HarnessPackageExportProposalResult,
   HarnessPackageExportPreview,
   HarnessSourceFormat,
   HarnessPipelineDraftPreviewResult,
@@ -91,6 +92,8 @@ export const HarnessPackagesTab = (): JSX.Element => {
     useState<ExportTargetFormat>("harness-native");
   const [exportPreview, setExportPreview] =
     useState<HarnessPackageExportPreview | null>(null);
+  const [exportProposal, setExportProposal] =
+    useState<HarnessPackageExportProposalResult | null>(null);
   const [repairDraft, setRepairDraft] =
     useState<HarnessWorkflowRepairDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -226,6 +229,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
       setBindings({});
       setPreview(null);
       setExportPreview(null);
+      setExportProposal(null);
       setRepairDraft(null);
       return;
     }
@@ -379,6 +383,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
         targetFormat: exportTarget,
       });
       setExportPreview(result);
+      setExportProposal(null);
       setNotice({
         kind: result.warnings.length > 0 ? "warning" : "success",
         message: `${result.targetFormat} export preview ready: ${result.files.length} files.`,
@@ -403,6 +408,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
         targetDir,
       });
       setExportPreview(result.preview);
+      setExportProposal(result);
       setNotice({
         kind: "success",
         message: `${result.approvals.length} export file approvals created.`,
@@ -679,6 +685,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           event.currentTarget.value as ExportTargetFormat,
                         );
                         setExportPreview(null);
+                        setExportProposal(null);
                       }}
                       disabled={exportBusy}
                     >
@@ -733,6 +740,42 @@ export const HarnessPackagesTab = (): JSX.Element => {
                         </li>
                       ))}
                     </ul>
+                    {exportProposal !== null && (
+                      <div className="harness-packages-tab__approval-batch">
+                        <h5>Approval Batch</h5>
+                        <dl className="harness-packages-tab__approval-metrics">
+                          <div>
+                            <dt>Target</dt>
+                            <dd>{exportProposal.targetDir}</dd>
+                          </div>
+                          <div>
+                            <dt>TaskRun</dt>
+                            <dd>{exportProposal.taskRun.status}</dd>
+                          </div>
+                          <div>
+                            <dt>Checkpoint</dt>
+                            <dd>{exportProposal.checkpoint.reason}</dd>
+                          </div>
+                          <div>
+                            <dt>Approvals</dt>
+                            <dd>{exportProposal.approvals.length}</dd>
+                          </div>
+                        </dl>
+                        <ul className="harness-packages-tab__compact-list">
+                          {exportProposal.approvals.map((approval) => (
+                            <li key={approval.id}>
+                              <strong>
+                                {approval.proposedAction?.filePatch?.path ??
+                                  approval.actionSummary}
+                              </strong>
+                              <span>
+                                {approval.status} · {approval.actionType}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>

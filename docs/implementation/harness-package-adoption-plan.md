@@ -629,6 +629,11 @@ source-boundary rules:
   `harnessPackages.previewPipelineDraft`, IPC validates the `AgentProviderStatusMap`,
   and the service uses it for readiness warnings without triggering a hidden
   provider probe.
+- Export approval UX now keeps the proposed write batch visible after
+  `harnessPackages.proposeExport`: target directory, TaskRun status, checkpoint
+  reason, approval count, and each pending file path/status are shown beside the
+  export preview. This is still review-only UI; actual writes remain pending
+  `file_write` approvals executed through the existing runner path.
 
 Verified commands for the latest checkpoint:
 
@@ -660,9 +665,10 @@ package snapshots. It now also has a closed approved-execution acceptance path,
 a service-level readiness gate for package-derived pipeline preview, and an
 explicit bounded failure-policy mapping path for safe local backflow rules, plus
 caller-supplied provider readiness pass-through and an approval-gated export
-projection path. It is still intentionally not a complete autonomous package
-runner: import, repair, binding, preview, save, plan approval, worker side
-effects, and export writes remain separate user-visible steps.
+projection path with a dedicated proposed-write batch view. It is still
+intentionally not a complete autonomous package runner: import, repair, binding,
+preview, save, plan approval, worker side effects, and export writes remain
+separate user-visible steps.
 
 ### 18.3 Remaining Uncertainty
 
@@ -671,16 +677,21 @@ effects, and export writes remain separate user-visible steps.
 - Provider availability is included in service-level readiness when a caller
   supplies a provider status map; stale provider snapshots remain possible
   because preview intentionally does not re-probe providers.
-- Export write is approval-gated, but batch execution UX still depends on the
+- Export write is approval-gated, but batch execution still depends on the
   existing approval panel rather than a dedicated "approve all export files"
   workflow.
 
 ## 19. Next Step Order
 
-Proceed in this order:
+The original import/repair/preview/save/export hardening sequence is now covered.
+Proceed with verification and only then optional polish:
 
-1. **Export approval UX**: keep the current approval-gated file writes, then
-   consider a dedicated batch review/approve surface for export projections.
+1. **Manual harness-100 UI smoke**: import the reference package, repair if
+   needed, preview pipeline, propose export, and verify the proposed approval
+   batch is readable before approving any writes.
+2. **Optional batch execution UX**: consider an explicit approve-all export-files
+   workflow only if it can reuse the existing approval policy and runner gates
+   without bypassing per-file visibility.
 
 The immediate user workflow is:
 
