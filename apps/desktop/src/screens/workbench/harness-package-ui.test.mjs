@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  harnessAgentBindingCandidates,
   primaryHarnessPackageIssue,
+  suggestHarnessProfileBinding,
   summarizeHarnessPackage,
 } from "./harness-package-ui.ts";
 
@@ -110,4 +112,153 @@ test("primaryHarnessPackageIssue returns null with no issues", () => {
   );
 
   assert.equal(issue, null);
+});
+
+test("harnessAgentBindingCandidates reads workflow agent refs in step order", () => {
+  const definition = pkg({
+    agents: [
+      {
+        id: "content-strategist",
+        name: "Content Strategist",
+        description: "Strategy",
+        roleHint: "strategist",
+        sourceFile: ".claude/agents/content-strategist.md",
+        persona: "",
+        responsibilities: [],
+        requiredCapabilities: [],
+      },
+      {
+        id: "reviewer",
+        name: "Reviewer",
+        description: "Review",
+        roleHint: "reviewer",
+        sourceFile: ".claude/agents/reviewer.md",
+        persona: "",
+        responsibilities: [],
+        requiredCapabilities: [],
+      },
+    ],
+    workflows: [
+      {
+        id: "wf",
+        skillId: "demo",
+        name: "Demo workflow",
+        mode: "agent-team",
+        description: "Demo",
+        sourceFile: "skills/demo/SKILL.md",
+        phases: [],
+        steps: [
+          {
+            id: "step-1",
+            title: "Strategy",
+            agentRef: "content-strategist",
+            roleHint: "strategist",
+            instruction: "Plan",
+            dependsOn: [],
+            artifactContracts: [],
+            allowedActions: [],
+            outputContract: "plan",
+            sourceRef: { relativePath: "skills/demo/SKILL.md" },
+          },
+          {
+            id: "step-2",
+            title: "Review",
+            agentRef: "reviewer",
+            roleHint: "reviewer",
+            instruction: "Review",
+            dependsOn: ["step-1"],
+            artifactContracts: [],
+            allowedActions: [],
+            outputContract: "review",
+            sourceRef: { relativePath: "skills/demo/SKILL.md" },
+          },
+          {
+            id: "step-3",
+            title: "Review again",
+            agentRef: "reviewer",
+            roleHint: "reviewer",
+            instruction: "Review",
+            dependsOn: ["step-2"],
+            artifactContracts: [],
+            allowedActions: [],
+            outputContract: "review",
+            sourceRef: { relativePath: "skills/demo/SKILL.md" },
+          },
+        ],
+        handoffPolicy: {
+          mode: "source_message_semantics",
+          routes: [],
+          requiredPayload: "harness_worker_handoff_v1",
+          fallback: "synthesize_from_artifact",
+        },
+        failurePolicy: {
+          defaultMode: "pause_for_review",
+          maxAttempts: 2,
+          rules: [],
+        },
+        testScenarios: [],
+        parseConfidence: "medium",
+      },
+    ],
+  });
+
+  const candidates = harnessAgentBindingCandidates(definition, "wf");
+
+  assert.deepEqual(
+    candidates.map((candidate) => [
+      candidate.harnessAgentRef,
+      candidate.label,
+      candidate.stepCount,
+    ]),
+    [
+      ["content-strategist", "Content Strategist", 1],
+      ["reviewer", "Reviewer", 2],
+    ],
+  );
+});
+
+test("suggestHarnessProfileBinding only fills strong profile matches", () => {
+  const profiles = [
+    {
+      id: "profile-strategist",
+      name: "Content Strategist",
+      tags: [],
+    },
+    {
+      id: "profile-reviewer",
+      name: "Quality",
+      tags: ["reviewer"],
+    },
+    {
+      id: "profile-default",
+      name: "Default Agent",
+      tags: [],
+    },
+  ];
+
+  assert.equal(
+    suggestHarnessProfileBinding(
+      {
+        harnessAgentRef: "content-strategist",
+        label: "Content Strategist",
+        stepCount: 1,
+      },
+      profiles,
+    ),
+    "profile-strategist",
+  );
+  assert.equal(
+    suggestHarnessProfileBinding(
+      { harnessAgentRef: "reviewer", label: "Reviewer", stepCount: 1 },
+      profiles,
+    ),
+    "profile-reviewer",
+  );
+  assert.equal(
+    suggestHarnessProfileBinding(
+      { harnessAgentRef: "writer", label: "Writer", stepCount: 1 },
+      profiles,
+    ),
+    "",
+  );
 });

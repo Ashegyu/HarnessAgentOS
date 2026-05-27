@@ -1,4 +1,5 @@
 import type {
+  AgentProfile,
   HarnessDefinition,
   HarnessSourceFormat,
   HarnessValidationIssue,
@@ -34,6 +35,13 @@ export interface HarnessPackageSummary {
   blocksExecution: boolean;
 }
 
+export interface HarnessAgentBindingCandidate {
+  harnessAgentRef: string;
+  label: string;
+  sourceFile?: string;
+  stepCount: number;
+}
+
 export const summarizeHarnessPackage = (
   definition: HarnessDefinition,
 ): HarnessPackageSummary => {
@@ -66,3 +74,66 @@ export const primaryHarnessPackageIssue = (
   definition.validation.issues.find((issue) => issue.blocksExecution) ??
   definition.validation.issues[0] ??
   null;
+
+export const harnessAgentBindingCandidates = (
+  definition: HarnessDefinition,
+  workflowId: string | null,
+): HarnessAgentBindingCandidate[] => {
+  const workflow =
+    definition.workflows.find((item) => item.id === workflowId) ??
+    definition.workflows[0] ??
+    null;
+  if (!workflow) return [];
+  const agentsById = new Map(
+    definition.agents.map((agent) => [agent.id, agent] as const),
+  );
+  const candidates = new Map<string, HarnessAgentBindingCandidate>();
+  for (const step of workflow.steps) {
+    const ref = step.agentRef ?? step.roleHint;
+    if (ref.length === 0) continue;
+    const agent = agentsById.get(ref);
+    const existing = candidates.get(ref);
+    if (existing) {
+      candidates.set(ref, {
+        ...existing,
+        stepCount: existing.stepCount + 1,
+      });
+      continue;
+    }
+    candidates.set(ref, {
+      harnessAgentRef: ref,
+      label: agent?.name ?? step.roleHint,
+      sourceFile: agent?.sourceFile,
+      stepCount: 1,
+    });
+  }
+  return [...candidates.values()];
+};
+
+export const suggestHarnessProfileBinding = (
+  candidate: HarnessAgentBindingCandidate,
+  profiles: readonly AgentProfile[],
+): string => {
+  const ref = normalizeMatchText(candidate.harnessAgentRef);
+  const label = normalizeMatchText(candidate.label);
+  const exact = profiles.find((profile) => {
+    const name = normalizeMatchText(profile.name);
+    return name === ref || name === label;
+  });
+  if (exact) return exact.id;
+  const tagged = profiles.find((profile) =>
+    profile.tags.some((tag) => {
+      const normalized = normalizeMatchText(tag);
+      return normalized === ref || normalized === label;
+    }),
+  );
+  if (tagged) return tagged.id;
+  const partial = profiles.find((profile) => {
+    const name = normalizeMatchText(profile.name);
+    return name.includes(ref) || ref.includes(name);
+  });
+  return partial?.id ?? "";
+};
+
+const normalizeMatchText = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, "");

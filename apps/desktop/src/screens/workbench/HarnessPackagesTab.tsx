@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { HarnessDefinition } from "@harness/core";
+import type {
+  AgentProfile,
+  HarnessAgentProfileBinding,
+  HarnessDefinition,
+  HarnessPipelineDraftPreviewResult,
+} from "@harness/core";
 import {
+  harnessAgentBindingCandidates,
   primaryHarnessPackageIssue,
+  suggestHarnessProfileBinding,
   summarizeHarnessPackage,
 } from "./harness-package-ui";
 
 type ListState =
   | { kind: "loading" }
   | { kind: "ready"; packages: HarnessDefinition[] }
+  | { kind: "error"; message: string };
+
+type ProfileListState =
+  | { kind: "loading" }
+  | { kind: "ready"; profiles: AgentProfile[] }
   | { kind: "error"; message: string };
 
 interface Notice {
@@ -32,8 +44,18 @@ const issueText = (definition: HarnessDefinition): string => {
 
 export const HarnessPackagesTab = (): JSX.Element => {
   const [list, setList] = useState<ListState>({ kind: "loading" });
+  const [profileList, setProfileList] = useState<ProfileListState>({
+    kind: "loading",
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+    null,
+  );
+  const [bindings, setBindings] = useState<Record<string, string>>({});
+  const [preview, setPreview] =
+    useState<HarnessPipelineDraftPreviewResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const refresh = useCallback(async () => {
@@ -45,9 +67,22 @@ export const HarnessPackagesTab = (): JSX.Element => {
     }
   }, []);
 
+  const refreshProfiles = useCallback(async () => {
+    try {
+      const profiles = await window.harness.agents.list();
+      setProfileList({ kind: "ready", profiles });
+    } catch (e) {
+      setProfileList({ kind: "error", message: errorMessage(e) });
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void refreshProfiles();
+  }, [refreshProfiles]);
 
   useEffect(() => {
     if (list.kind !== "ready") return;
@@ -71,6 +106,142 @@ export const HarnessPackagesTab = (): JSX.Element => {
   const selectedSummary = selectedPackage
     ? summarizeHarnessPackage(selectedPackage)
     : null;
+
+  const selectedWorkflow = useMemo(() => {
+    if (!selectedPackage) return null;
+    return (
+      selectedPackage.workflows.find(
+        (workflow) => workflow.id === selectedWorkflowId,
+      ) ??
+      selectedPackage.workflows[0] ??
+      null
+    );
+  }, [selectedPackage, selectedWorkflowId]);
+
+  const bindingCandidates = useMemo(
+    () =>
+      selectedPackage
+        ? harnessAgentBindingCandidates(selectedPackage, selectedWorkflowId)
+        : [],
+    [selectedPackage, selectedWorkflowId],
+  );
+
+  useEffect(() => {
+    if (!selectedPackage) {
+      setSelectedWorkflowId(null);
+      setBindings({});
+      setPreview(null);
+      return;
+    }
+    const nextWorkflowId = selectedPackage.workflows[0]?.id ?? null;
+    setSelectedWorkflowId(nextWorkflowId);
+    setPreview(null);
+    if (profileList.kind !== "ready") {
+      setBindings({});
+      return;
+    }
+    const candidates = harnessAgentBindingCandidates(
+      selectedPackage,
+      nextWorkflowId,
+    );
+    setBindings(
+      Object.fromEntries(
+        candidates.map((candidate) => [
+          candidate.harnessAgentRef,
+          suggestHarnessProfileBinding(candidate, profileList.profiles),
+        ]),
+      ),
+    );
+  }, [selectedPackage?.id, profileList]);
+
+  const updateWorkflowSelection = (workflowId: string): void => {
+    setSelectedWorkflowId(workflowId);
+    setPreview(null);
+    if (!selectedPackage || profileList.kind !== "ready") {
+      setBindings({});
+      return;
+    }
+    const candidates = harnessAgentBindingCandidates(
+      selectedPackage,
+      workflowId,
+    );
+    setBindings(
+      Object.fromEntries(
+        candidates.map((candidate) => [
+          candidate.harnessAgentRef,
+          suggestHarnessProfileBinding(candidate, profileList.profiles),
+        ]),
+      ),
+    );
+  };
+
+  const handleBindingChange = (
+    harnessAgentRef: string,
+    agentProfileId: string,
+  ): void => {
+    setPreview(null);
+    setBindings((current) => ({
+      ...current,
+      [harnessAgentRef]: agentProfileId,
+    }));
+  };
+
+  const previewBindings = (): HarnessAgentProfileBinding[] =>
+    bindingCandidates
+      .map((candidate) => ({
+        harnessAgentRef: candidate.harnessAgentRef,
+        agentProfileId: bindings[candidate.harnessAgentRef] ?? "",
+      }))
+      .filter((binding) => binding.agentProfileId.length > 0);
+
+  const handlePreviewPipelineDraft = async (): Promise<void> => {
+    if (!selectedPackage) return;
+    setPreviewBusy(true);
+    setNotice(null);
+    try {
+      const result =
+        await window.harness.harnessPackages.previewPipelineDraft({
+          packageId: selectedPackage.id,
+          ...(selectedWorkflowId ? { workflowId: selectedWorkflowId } : {}),
+          bindings: previewBindings(),
+        });
+      setPreview(result);
+      if (result.ok) {
+        setNotice({
+          kind: result.issues.length > 0 ? "warning" : "success",
+          message: `${result.pipeline.name} preview ready.`,
+        });
+      } else {
+        setNotice({
+          kind: "warning",
+          message: result.issues.map((issue) => issue.message).join(" "),
+        });
+      }
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
+  const handleCreatePipelineTemplate = async (): Promise<void> => {
+    if (!preview?.ok) return;
+    setPreviewBusy(true);
+    setNotice(null);
+    try {
+      const saved = await window.harness.pipeline.create({
+        pipeline: preview.pipeline,
+      });
+      setNotice({
+        kind: "success",
+        message: `${saved.name} pipeline template saved.`,
+      });
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
 
   const handleImportDirectory = async (): Promise<void> => {
     setNotice(null);
@@ -290,6 +461,143 @@ export const HarnessPackagesTab = (): JSX.Element => {
                       ))}
                     </ul>
                   </>
+                )}
+              </section>
+
+              <section className="harness-packages-tab__section">
+                <div className="harness-packages-tab__section-heading">
+                  <h4>Pipeline Draft</h4>
+                  <div className="harness-packages-tab__actions">
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--sm"
+                      onClick={() => void handlePreviewPipelineDraft()}
+                      disabled={previewBusy || selectedWorkflow === null}
+                    >
+                      {previewBusy ? "Previewing..." : "Preview"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => void handleCreatePipelineTemplate()}
+                      disabled={previewBusy || !preview?.ok}
+                    >
+                      Save Template
+                    </button>
+                  </div>
+                </div>
+
+                {selectedPackage.workflows.length === 0 ? (
+                  <p>No parsed workflows.</p>
+                ) : (
+                  <div className="harness-packages-tab__draft">
+                    <label className="harness-packages-tab__field">
+                      <span>Workflow</span>
+                      <select
+                        value={selectedWorkflow?.id ?? ""}
+                        onChange={(event) =>
+                          updateWorkflowSelection(event.currentTarget.value)
+                        }
+                      >
+                        {selectedPackage.workflows.map((workflow) => (
+                          <option key={workflow.id} value={workflow.id}>
+                            {workflow.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {selectedWorkflow && (
+                      <dl className="harness-packages-tab__draft-metrics">
+                        <div>
+                          <dt>Steps</dt>
+                          <dd>{selectedWorkflow.steps.length}</dd>
+                        </div>
+                        <div>
+                          <dt>Mode</dt>
+                          <dd>{selectedWorkflow.mode}</dd>
+                        </div>
+                        <div>
+                          <dt>Confidence</dt>
+                          <dd>{selectedWorkflow.parseConfidence}</dd>
+                        </div>
+                      </dl>
+                    )}
+
+                    {profileList.kind === "loading" && (
+                      <p>AgentProfile 목록을 불러오는 중...</p>
+                    )}
+                    {profileList.kind === "error" && (
+                      <p>{profileList.message}</p>
+                    )}
+                    {profileList.kind === "ready" && (
+                      <>
+                        {bindingCandidates.length === 0 ? (
+                          <p>No agent refs in this workflow.</p>
+                        ) : (
+                          <ul className="harness-packages-tab__binding-list">
+                            {bindingCandidates.map((candidate) => (
+                              <li key={candidate.harnessAgentRef}>
+                                <div>
+                                  <strong>{candidate.label}</strong>
+                                  <span>
+                                    {candidate.harnessAgentRef} ·{" "}
+                                    {candidate.stepCount} steps
+                                  </span>
+                                </div>
+                                <select
+                                  value={
+                                    bindings[candidate.harnessAgentRef] ?? ""
+                                  }
+                                  onChange={(event) =>
+                                    handleBindingChange(
+                                      candidate.harnessAgentRef,
+                                      event.currentTarget.value,
+                                    )
+                                  }
+                                >
+                                  <option value="">Unbound</option>
+                                  {profileList.profiles.map((profile) => (
+                                    <option key={profile.id} value={profile.id}>
+                                      {profile.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    )}
+
+                    {preview && (
+                      <div
+                        className={`harness-packages-tab__preview harness-packages-tab__preview--${
+                          preview.ok ? "ok" : "blocked"
+                        }`}
+                      >
+                        {preview.ok ? (
+                          <p>
+                            {preview.pipeline.steps.length} steps ·{" "}
+                            {preview.issues.length} issues
+                          </p>
+                        ) : (
+                          <p>{preview.issues.length} blocking issues</p>
+                        )}
+                        {preview.issues.length > 0 && (
+                          <ul className="harness-packages-tab__issues">
+                            {preview.issues.map((issue, index) => (
+                              <li key={`${issue.code}-${issue.stepId}-${index}`}>
+                                <span>{issue.severity}</span>
+                                <strong>{issue.code}</strong>
+                                <p>{issue.message}</p>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
               </section>
 
