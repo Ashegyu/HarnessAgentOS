@@ -909,6 +909,39 @@ test("serializePipelineDraft preserves topology metadata when selected", () => {
   assert.equal(out.steps[0].outputContract, "diff_proposal");
 });
 
+test("serializePipelineDraft preserves structured source metadata", () => {
+  const source = {
+    kind: "harness_package",
+    packageId: "harness_demo",
+    packageName: "Demo Harness",
+    sourceFormat: "codex",
+    workflowId: "demo-workflow",
+    workflowName: "Demo workflow",
+    stepId: "step-1",
+    sourceRef: { relativePath: "skills/demo/SKILL.md" },
+  };
+  const out = serializePipelineDraft({
+    id: null,
+    name: "Source Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "T",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: null,
+        allowedActions: null,
+        outputContract: "",
+        source,
+      },
+    ],
+    backflowRules: [],
+  });
+  assert.deepEqual(out.steps[0].source, source);
+});
+
 test("serializePipelineDraft preserves id in update mode", () => {
   const d = {
     id: "pipe_1",
@@ -982,6 +1015,37 @@ test("pipelineToDraft round-trips topology metadata", () => {
   assert.deepEqual(draft.steps[0].dependsOn, ["s0"]);
   assert.deepEqual(draft.steps[0].allowedActions, ["file_write"]);
   assert.equal(draft.steps[0].outputContract, "diff_proposal");
+});
+
+test("pipelineToDraft preserves structured source metadata", () => {
+  const pipeline = {
+    id: "pipe_1",
+    name: "Source Flow",
+    description: "",
+    steps: [
+      {
+        id: "s1",
+        agentProfileId: "ap_a",
+        title: "Code",
+        instruction: "Hi",
+        expectedArtifactKinds: ["diff"],
+        source: {
+          kind: "harness_package",
+          packageId: "harness_demo",
+          packageName: "Demo Harness",
+          sourceFormat: "codex",
+          workflowId: "demo-workflow",
+          workflowName: "Demo workflow",
+          stepId: "step-1",
+          sourceRef: { relativePath: "skills/demo/SKILL.md" },
+        },
+      },
+    ],
+    createdAt: "2026-05-12T00:00:00.000Z",
+    updatedAt: "2026-05-12T00:00:00.000Z",
+  };
+  const draft = pipelineToDraft(pipeline);
+  assert.deepEqual(draft.steps[0].source, pipeline.steps[0].source);
 });
 
 test("pipelineInputToDraft converts a recommendation into a new draft", () => {

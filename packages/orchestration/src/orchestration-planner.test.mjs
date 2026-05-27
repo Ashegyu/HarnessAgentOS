@@ -153,6 +153,7 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
       drafted.plan.workerSteps[1].instruction,
       "Check for risks.",
     );
+    assert.equal(drafted.plan.workerSteps[0].source, undefined);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -185,6 +186,16 @@ test("draftPlan visible summary preserves long pipeline instruction metadata", a
           title: "Review source metadata",
           instruction,
           expectedArtifactKinds: ["plan", "quality_report"],
+          source: {
+            kind: "harness_package",
+            packageId: "harness_repo_quality",
+            packageName: "repo-quality",
+            sourceFormat: "codex",
+            workflowId: "repo-quality-workflow",
+            workflowName: "Quality Review",
+            stepId: "s1",
+            sourceRef: { relativePath: "skills/repo-quality/SKILL.md" },
+          },
         },
       ],
     });
@@ -199,10 +210,22 @@ test("draftPlan visible summary preserves long pipeline instruction metadata", a
     )[0];
 
     assert.equal(drafted.plan.workerSteps[0].instruction, instruction);
+    assert.deepEqual(drafted.plan.workerSteps[0].source, {
+      kind: "harness_package",
+      packageId: "harness_repo_quality",
+      packageName: "repo-quality",
+      sourceFormat: "codex",
+      workflowId: "repo-quality-workflow",
+      workflowName: "Quality Review",
+      stepId: "s1",
+      sourceRef: { relativePath: "skills/repo-quality/SKILL.md" },
+    });
     assert.equal(
       drafted.plan.workerSteps[0].inputSummary,
       instruction.slice(0, 120),
     );
+    assert.match(visibleSummary, /source package: repo-quality/);
+    assert.match(visibleSummary, /source workflow: Quality Review/);
     assert.match(visibleSummary, /Source harness: harness100\/repo-quality/);
     assert.match(visibleSummary, /Source workflow: Quality Review/);
     assert.match(

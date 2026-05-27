@@ -245,6 +245,7 @@ export class OrchestrationPlanner {
           ? { allowedActions: [...step.allowedActions] }
           : {}),
         outputContract,
+        ...(step.source !== undefined ? { source: step.source } : {}),
       });
     }
     const backflowRules = (pipeline.backflowRules ?? []).map((rule) => ({

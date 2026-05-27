@@ -9,6 +9,7 @@ import type {
   ApprovalActionType,
   HarnessSettings,
   ThreadDetail,
+  WorkerSourceMetadata,
   WorkerRole,
   WorkerOutputContract,
   PipelineBackflowTrigger,
@@ -32,6 +33,7 @@ export interface PipelineStepDraft {
   dependsOn: string[] | null;
   allowedActions: ApprovalActionType[] | null;
   outputContract: WorkerOutputContract | "";
+  source?: WorkerSourceMetadata;
 }
 
 export interface PipelineDraft {
@@ -790,6 +792,7 @@ export const pipelineToDraft = (p: AgentPipeline): PipelineDraft => ({
     allowedActions:
       s.allowedActions !== undefined ? [...s.allowedActions] : null,
     outputContract: s.outputContract ?? "",
+    ...(s.source !== undefined ? { source: s.source } : {}),
   })),
   backflowRules: (p.backflowRules ?? []).map((rule) => ({ ...rule })),
 });
@@ -811,6 +814,7 @@ export const pipelineInputToDraft = (
     allowedActions:
       s.allowedActions !== undefined ? [...s.allowedActions] : null,
     outputContract: s.outputContract ?? "",
+    ...(s.source !== undefined ? { source: s.source } : {}),
   })),
   backflowRules: (input.backflowRules ?? []).map((rule) => ({ ...rule })),
 });
@@ -1546,6 +1550,7 @@ export const serializePipelineDraft = (
         ? { allowedActions: [...allowedActions] }
         : {}),
       ...(outputContract !== "" ? { outputContract } : {}),
+      ...(s.source !== undefined ? { source: s.source } : {}),
     };
   });
   const base = {

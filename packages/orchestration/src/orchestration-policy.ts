@@ -1,5 +1,6 @@
 import {
   APPROVAL_ACTION_TYPES,
+  isWorkerSourceMetadata,
   WORKER_OUTPUT_CONTRACTS,
   type ApprovalActionType,
 } from "@harness/core";
@@ -92,6 +93,12 @@ export const validateWorkerStep = (step: WorkerStep): void => {
     throw new OrchestrationError(
       "ORCH_INVALID_PLAN",
       `Worker step ${step.id} has malformed outputContract`,
+    );
+  }
+  if (step.source !== undefined && !isWorkerSourceMetadata(step.source)) {
+    throw new OrchestrationError(
+      "ORCH_INVALID_PLAN",
+      `Worker step ${step.id} has malformed source metadata`,
     );
   }
 };

@@ -89,6 +89,21 @@ test("isAgentPipelineStep rejects malformed topology metadata", () => {
     isAgentPipelineStep({ ...VALID_STEP, outputContract: "memo" }),
     false,
   );
+  assert.equal(
+    isAgentPipelineStep({
+      ...VALID_STEP,
+      source: {
+        kind: "harness_package",
+        packageId: "",
+        packageName: "Demo Harness",
+        sourceFormat: "codex",
+        workflowId: "wf",
+        workflowName: "Workflow",
+        stepId: "step-1",
+      },
+    }),
+    false,
+  );
 });
 
 test("isAgentPipeline accepts a well-formed pipeline", () => {
@@ -104,6 +119,30 @@ test("isAgentPipelineBackflowRule accepts a bounded conditional rule", () => {
       retryStepId: "step_02",
       maxAttempts: 2,
       instruction: "Use the target step to correct the failed output.",
+    }),
+    true,
+  );
+});
+
+test("isAgentPipelineStep accepts structured harness source metadata", () => {
+  assert.equal(
+    isAgentPipelineStep({
+      ...VALID_STEP,
+      source: {
+        kind: "harness_package",
+        packageId: "harness_demo",
+        sourcePackageId: "harness_original",
+        packageName: "Demo Harness",
+        sourceFormat: "codex",
+        workflowId: "demo-workflow",
+        workflowName: "Demo workflow",
+        stepId: "step-1",
+        sourceRef: {
+          relativePath: "skills/demo/SKILL.md",
+          heading: "Workflow",
+          line: 12,
+        },
+      },
     }),
     true,
   );

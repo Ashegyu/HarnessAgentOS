@@ -57,6 +57,30 @@ export type WorkerStepStatus =
   | "failed"
   | "skipped";
 
+export type WorkerSourceKind = "harness_package";
+
+export type WorkerSourceFormat = "claude" | "codex" | "harness-native";
+
+export interface WorkerSourceRef {
+  relativePath: string;
+  heading?: string;
+  line?: number;
+}
+
+export interface WorkerSourceMetadata {
+  kind: WorkerSourceKind;
+  /** Concrete HarnessDefinition snapshot used to create this worker step. */
+  packageId: string;
+  /** Original imported package id when the concrete snapshot is repaired. */
+  sourcePackageId?: string;
+  packageName: string;
+  sourceFormat: WorkerSourceFormat;
+  workflowId: string;
+  workflowName: string;
+  stepId: string;
+  sourceRef?: WorkerSourceRef;
+}
+
 export interface WorkerStep {
   id: string;
   title: string;
@@ -107,6 +131,11 @@ export interface WorkerStep {
    * and audit traces; quality gates still validate concrete artifacts.
    */
   outputContract?: WorkerOutputContract;
+  /**
+   * Optional provenance for worker steps synthesized from imported harness
+   * declarations. Legacy and hand-authored pipelines may omit this.
+   */
+  source?: WorkerSourceMetadata;
 }
 
 export interface OrchestrationPlan {
@@ -137,3 +166,48 @@ export interface OrchestrationRunResult {
   workerSteps: WorkerStep[];
   proposedApprovalIds: string[];
 }
+
+const WORKER_SOURCE_FORMATS: ReadonlySet<string> = new Set([
+  "claude",
+  "codex",
+  "harness-native",
+]);
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null;
+
+const isNonEmptyString = (v: unknown): v is string =>
+  typeof v === "string" && v.length > 0;
+
+export const isWorkerSourceRef = (v: unknown): v is WorkerSourceRef => {
+  if (!isRecord(v)) return false;
+  if (!isNonEmptyString(v.relativePath)) return false;
+  if (v.heading !== undefined && typeof v.heading !== "string") return false;
+  if (v.line !== undefined && typeof v.line !== "number") return false;
+  return true;
+};
+
+export const isWorkerSourceMetadata = (
+  v: unknown,
+): v is WorkerSourceMetadata => {
+  if (!isRecord(v)) return false;
+  if (v.kind !== "harness_package") return false;
+  if (!isNonEmptyString(v.packageId)) return false;
+  if (v.sourcePackageId !== undefined && !isNonEmptyString(v.sourcePackageId)) {
+    return false;
+  }
+  if (!isNonEmptyString(v.packageName)) return false;
+  if (
+    typeof v.sourceFormat !== "string" ||
+    !WORKER_SOURCE_FORMATS.has(v.sourceFormat)
+  ) {
+    return false;
+  }
+  if (!isNonEmptyString(v.workflowId)) return false;
+  if (!isNonEmptyString(v.workflowName)) return false;
+  if (!isNonEmptyString(v.stepId)) return false;
+  if (v.sourceRef !== undefined && !isWorkerSourceRef(v.sourceRef)) {
+    return false;
+  }
+  return true;
+};

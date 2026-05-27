@@ -370,6 +370,41 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
   }
 });
 
+test("AgentPipelineRepository preserves structured source metadata in steps_json", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    const input = makePipelineInput(profile.id, {
+      steps: [
+        {
+          id: "step_a",
+          agentProfileId: profile.id,
+          title: "Plan",
+          instruction: "Outline the change.",
+          expectedArtifactKinds: ["plan"],
+          source: {
+            kind: "harness_package",
+            packageId: "harness_demo",
+            sourcePackageId: "harness_original",
+            packageName: "Demo Harness",
+            sourceFormat: "codex",
+            workflowId: "demo-workflow",
+            workflowName: "Demo workflow",
+            stepId: "step-1",
+            sourceRef: { relativePath: "skills/demo/SKILL.md" },
+          },
+        },
+      ],
+    });
+    const created = await pipelines.create(input);
+    const fetched = await pipelines.get(created.id);
+
+    assert.deepEqual(fetched?.steps[0].source, input.steps[0].source);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentPipelineRepository.ensureSeed backfills missing seed backflow rules", async () => {
   const { t, db, pipelines, profiles } = await setupRepos();
   try {

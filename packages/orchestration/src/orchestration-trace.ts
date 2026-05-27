@@ -54,6 +54,15 @@ export const formatPlanSummary = (input: {
     if (step.outputContract) {
       lines.push(`   - output contract: ${step.outputContract}`);
     }
+    if (step.source) {
+      lines.push(
+        `   - source package: ${step.source.packageName} (${step.source.packageId})`,
+        `   - source workflow: ${step.source.workflowName} (${step.source.workflowId})`,
+      );
+      if (step.source.sourceRef) {
+        lines.push(`   - source file: ${step.source.sourceRef.relativePath}`);
+      }
+    }
   });
   if (input.backflowRules && input.backflowRules.length > 0) {
     lines.push("", "## Backflow Rules", "");
@@ -105,6 +114,15 @@ export const formatWorkerStepArtifact = (input: {
   }
   if (input.step.outputContract) {
     lines.push(`**Output contract**: ${input.step.outputContract}`);
+  }
+  if (input.step.source) {
+    lines.push(
+      `**Source package**: ${input.step.source.packageName} (${input.step.source.packageId})`,
+      `**Source workflow**: ${input.step.source.workflowName} (${input.step.source.workflowId})`,
+    );
+    if (input.step.source.sourceRef) {
+      lines.push(`**Source file**: ${input.step.source.sourceRef.relativePath}`);
+    }
   }
   lines.push(
     "",

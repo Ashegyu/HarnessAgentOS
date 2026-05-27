@@ -84,6 +84,19 @@ test("convertHarnessWorkflowToPipelineDraft builds a reviewable AgentPipeline dr
   assert.deepEqual(result.pipeline.steps[0].expectedArtifactKinds, ["file"]);
   assert.equal(result.pipeline.steps[0].allowedActions?.[0], "file_write");
   assert.equal(result.pipeline.steps[2].outputContract, "review");
+  assert.deepEqual(result.pipeline.steps[0].source, {
+    kind: "harness_package",
+    packageId: definition.id,
+    packageName: definition.name,
+    sourceFormat: "claude",
+    workflowId: result.workflow.id,
+    workflowName: result.workflow.name,
+    stepId: "step-1",
+    sourceRef: {
+      relativePath: ".claude/skills/youtube-production/skill.md",
+      heading: "Workflow",
+    },
+  });
   assert.match(result.pipeline.steps[0].instruction, /Source harness:/);
   assert.match(result.pipeline.description, /Review AgentProfile bindings/);
   assert.equal(result.pipeline.backflowRules?.length, 0);

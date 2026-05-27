@@ -574,6 +574,12 @@ source-boundary rules:
   missing AgentProfile bindings as errors and surfaces provider availability,
   provider hint mismatch, MCP server state, Skill source state, and capability
   requirement risks as warnings/info.
+- Package-derived pipeline steps now carry structured source metadata in
+  `AgentPipelineStep.source` and `WorkerStep.source`, including package id,
+  original package id for repaired snapshots, workflow id/name, source format,
+  source step id, and source file reference.
+- Source metadata is stored inside the existing `steps_json` and orchestration
+  plan JSON snapshots; no new SQLite canonical state is introduced.
 - `HarnessDefinition -> AgentPipeline draft -> OrchestrationPlan` preserves full
   step instruction text in `AgentPipelineStep.instruction` and
   `WorkerStep.instruction`.
@@ -588,6 +594,7 @@ Verified commands for the latest checkpoint:
 node --import tsx --test --test-force-exit packages/orchestration/src/orchestration-planner.test.mjs
 node --import tsx --test --test-force-exit packages/orchestration/src/harness-package-repair.test.mjs packages/orchestration/src/harness-package-service.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs packages/storage/src/migrations.test.mjs
 node --import tsx --test --test-force-exit apps/desktop/src/screens/workbench/harness-package-ui.test.mjs apps/desktop/src/screens/workbench/HarnessPackagesTab.test.mjs
+node --import tsx --test --test-force-exit packages/core/src/types/agent-pipeline.test.mjs packages/orchestration/src/harness-pipeline-draft.test.mjs packages/storage/src/repositories/agent-pipeline-repository.test.mjs apps/desktop/src/screens/workbench/pipeline-form.test.mjs
 npm run check
 npm run test
 npm run build
@@ -607,9 +614,9 @@ still needs to be closed.
 
 - Real-world Markdown package shapes outside `harness-100` may need more parser
   aliases or stricter `needs_review` diagnostics.
-- Source metadata is currently preserved in instruction text and visible review
-  surfaces. A later structured metadata field would make reporting and audit
-  queries cleaner.
+- Source metadata is preserved structurally inside pipeline and worker-step JSON
+  snapshots. If audit queries need to filter by source package/workflow at SQL
+  level, a later indexed read-model column/table may still be useful.
 - Provider availability and capability matching are visible in the Harnesses
   tab, but the same readiness contract may still need a service-level result if
   non-UI clients start creating package-derived pipelines.
@@ -618,13 +625,10 @@ still needs to be closed.
 
 Proceed in this order:
 
-1. **Structured source metadata**: add optional source package/workflow/source
-   reference fields to the saved pipeline or worker snapshot if audit/reporting
-   needs more than instruction-visible provenance.
-2. **Approved execution acceptance**: use one `harness-100` sample, import it,
+1. **Approved execution acceptance**: use one `harness-100` sample, import it,
    bind profiles, save a pipeline template, draft an orchestration plan, require
    approval, run after approval, and confirm artifacts/handoffs/quality gates.
-3. **Export later**: only after import, repair, binding, conversion, and
+2. **Export later**: only after import, repair, binding, conversion, and
    approved execution are stable.
 
 The immediate user workflow is:

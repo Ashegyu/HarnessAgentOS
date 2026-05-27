@@ -1,7 +1,9 @@
 import type { ArtifactKind } from "./artifact.ts";
 import { APPROVAL_ACTION_TYPES, type ApprovalActionType } from "./approval.ts";
 import {
+  isWorkerSourceMetadata,
   WORKER_OUTPUT_CONTRACTS,
+  type WorkerSourceMetadata,
   type WorkerOutputContract,
 } from "./orchestration.ts";
 import {
@@ -48,6 +50,7 @@ export interface AgentPipelineStep {
    */
   allowedActions?: readonly ApprovalActionType[];
   outputContract?: WorkerOutputContract;
+  source?: WorkerSourceMetadata;
 }
 
 export interface AgentPipeline {
@@ -111,6 +114,9 @@ export const isAgentPipelineStep = (v: unknown): v is AgentPipelineStep => {
   if (!hasOptionalNonEmptyStringArray(s, "dependsOn")) return false;
   if (!hasOptionalApprovalActionArray(s, "allowedActions")) return false;
   if (!hasOptionalOutputContract(s, "outputContract")) return false;
+  if (s.source !== undefined && !isWorkerSourceMetadata(s.source)) {
+    return false;
+  }
   return true;
 };
 

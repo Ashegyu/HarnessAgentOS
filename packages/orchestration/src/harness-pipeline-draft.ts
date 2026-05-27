@@ -99,6 +99,7 @@ export const convertHarnessWorkflowToPipelineDraft = (
         ? { allowedActions: [...step.allowedActions] }
         : {}),
       outputContract: step.outputContract,
+      source: buildStepSourceMetadata(input.definition, workflow, step),
     });
   }
 
@@ -240,6 +241,24 @@ const buildPipelineInstruction = (
   }
   return lines.join("\n");
 };
+
+const buildStepSourceMetadata = (
+  definition: HarnessDefinition,
+  workflow: HarnessWorkflowDefinition,
+  step: HarnessWorkflowStep,
+): AgentPipelineStep["source"] => ({
+  kind: "harness_package",
+  packageId: definition.id,
+  ...(definition.repair?.sourcePackageId !== undefined
+    ? { sourcePackageId: definition.repair.sourcePackageId }
+    : {}),
+  packageName: definition.name,
+  sourceFormat: definition.source.format,
+  workflowId: workflow.id,
+  workflowName: workflow.name,
+  stepId: step.id,
+  sourceRef: { ...step.sourceRef },
+});
 
 const buildPipelineDescription = (
   definition: HarnessDefinition,
