@@ -23,15 +23,25 @@ const HARNESS_WORKSPACE_PACKAGES = [
   "@harness/orchestration",
 ];
 
-const harnessAliases = Object.fromEntries(
-  HARNESS_WORKSPACE_PACKAGES.map((pkg) => [
-    pkg,
-    resolve(
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const harnessAliases = [
+  {
+    find: "@harness/orchestration/harness-binding-readiness",
+    replacement: resolve(
+      __dirname,
+      "../../packages/orchestration/src/harness-binding-readiness.ts",
+    ),
+  },
+  ...HARNESS_WORKSPACE_PACKAGES.map((pkg) => ({
+    find: new RegExp(`^${escapeRegex(pkg)}$`),
+    replacement: resolve(
       __dirname,
       `../../packages/${pkg.replace("@harness/", "")}/src/index.ts`,
     ),
-  ]),
-);
+  })),
+];
 
 export default defineConfig({
   main: {

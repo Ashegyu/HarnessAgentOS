@@ -10,7 +10,7 @@ import type {
   HarnessValidationStatus,
 } from "@harness/core";
 import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
-import type { HarnessAgentBindingCandidate } from "@harness/orchestration";
+import type { HarnessAgentBindingCandidate } from "@harness/orchestration/harness-binding-readiness";
 export {
   assessHarnessBindingReadiness,
   harnessAgentBindingCandidates,
@@ -19,7 +19,7 @@ export {
   type HarnessBindingReadinessIssue,
   type HarnessBindingReadinessSeverity,
   type HarnessBindingReadinessSummary,
-} from "@harness/orchestration";
+} from "@harness/orchestration/harness-binding-readiness";
 
 export const HARNESS_SOURCE_FORMAT_LABELS: Record<HarnessSourceFormat, string> =
   {
