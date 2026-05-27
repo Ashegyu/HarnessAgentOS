@@ -5,6 +5,9 @@ interface WorkerStepViewProps {
 }
 
 export const WorkerStepView = ({ step }: WorkerStepViewProps): JSX.Element => {
+  const showFullInstruction =
+    step.instruction !== undefined && step.instruction !== step.inputSummary;
+
   return (
     <li className={`worker-step worker-step--${step.status}`}>
       <header className="worker-step__header">
@@ -17,6 +20,12 @@ export const WorkerStepView = ({ step }: WorkerStepViewProps): JSX.Element => {
       <p className="muted worker-step__inputs">
         입력: {step.inputSummary || "(empty)"}
       </p>
+      {showFullInstruction ? (
+        <details className="worker-step__instruction">
+          <summary>instruction 원문</summary>
+          <pre>{step.instruction}</pre>
+        </details>
+      ) : null}
       {step.expectedArtifactKinds.length > 0 ? (
         <p className="muted worker-step__artifacts">
           기대 artifact: {step.expectedArtifactKinds.join(", ")}

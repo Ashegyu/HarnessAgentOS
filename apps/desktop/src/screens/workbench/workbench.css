@@ -3208,6 +3208,26 @@
   font-size: 11px;
 }
 
+.worker-step__instruction {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.worker-step__instruction summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.worker-step__instruction pre {
+  margin: var(--space-1) 0 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: var(--text-secondary);
+}
+
 .orchestration-panel__run {
   border-top: 1px dashed var(--border-subtle);
   padding-top: var(--space-2);

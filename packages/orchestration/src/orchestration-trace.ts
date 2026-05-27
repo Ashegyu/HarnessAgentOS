@@ -32,6 +32,12 @@ export const formatPlanSummary = (input: {
         step.expectedArtifactKinds.join(", ") || "(none)"
       }`,
     );
+    if (step.instruction && step.instruction !== step.inputSummary) {
+      lines.push("   - instruction:");
+      for (const line of step.instruction.split(/\r?\n/)) {
+        lines.push(`     ${line}`);
+      }
+    }
     if (step.remoteEndpointId) {
       lines.push(`   - remote A2A endpoint: ${step.remoteEndpointId}`);
     }

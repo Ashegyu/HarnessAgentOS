@@ -159,6 +159,63 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
   }
 });
 
+test("draftPlan visible summary preserves long pipeline instruction metadata", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const longPrefix =
+      "Read the project and produce a careful implementation plan. ".repeat(4);
+    const instruction = [
+      `${longPrefix}Do not lose the source metadata below.`,
+      "Source harness: harness100/repo-quality",
+      "Source workflow: Quality Review",
+      "Source file: skills/repo-quality/SKILL.md",
+      "Artifact contracts: plan, review",
+    ].join("\n");
+    const pipeline = await state.agentPipelines.create({
+      name: "Harness source metadata",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Review source metadata",
+          instruction,
+          expectedArtifactKinds: ["plan", "quality_report"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const visibleSummary = drafted.artifact.summary.split(
+      "<!-- orchestration-plan:json -->",
+    )[0];
+
+    assert.equal(drafted.plan.workerSteps[0].instruction, instruction);
+    assert.equal(
+      drafted.plan.workerSteps[0].inputSummary,
+      instruction.slice(0, 120),
+    );
+    assert.match(visibleSummary, /Source harness: harness100\/repo-quality/);
+    assert.match(visibleSummary, /Source workflow: Quality Review/);
+    assert.match(
+      visibleSummary,
+      /Source file: skills\/repo-quality\/SKILL\.md/,
+    );
+    assert.match(visibleSummary, /Artifact contracts: plan, review/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("draftPlan translates explicit pipeline dependencies to WorkerStep ids", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
