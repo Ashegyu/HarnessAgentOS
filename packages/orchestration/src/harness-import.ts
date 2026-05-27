@@ -228,7 +228,7 @@ const buildWorkflowFromSkillFile = (
     id: `${skill.id}-workflow`,
     skillId: skill.id,
     name: `${skill.name} workflow`,
-    mode: extractExecutionMode(parsed.body) ?? "agent_team",
+    mode: extractExecutionMode(parsed.body) ?? "agent-team",
     description: skill.description,
     sourceFile: file.relativePath,
     phases: [
@@ -273,8 +273,8 @@ const findWorkflowTable = (body: string): MarkdownTable | null => {
     const header = splitMarkdownTableRow(lines[i] ?? "");
     if (header.length === 0) continue;
     if (!isMarkdownTableSeparator(lines[i + 1] ?? "")) continue;
-    const normalizedHeaders = header.map(normalizeTableHeader);
-    if (!isWorkflowTableHeader(normalizedHeaders)) continue;
+      const normalizedHeaders = canonicalizeWorkflowHeaders(header);
+      if (!isWorkflowTableHeader(normalizedHeaders)) continue;
 
     const rows: Array<Record<string, string>> = [];
     for (let j = i + 2; j < lines.length; j += 1) {
@@ -311,6 +311,7 @@ const workflowRowsToSteps = (
       if (!id) return null;
       const title = stripMarkdown(row.task ?? "") || `Task ${order}`;
       const owner = stripMarkdown(row.owner ?? "") || "agent";
+      const roleHint = roleHintFromOwner(owner);
       const artifactContracts = deliverablesToArtifactContracts(
         row.deliverable,
         id,
@@ -325,11 +326,14 @@ const workflowRowsToSteps = (
       return {
         id,
         title,
-        agentRef: resolveAgentRef(owner, agents) ?? undefined,
-        roleHint: slugFromName(owner),
+        agentRef:
+          roleHint === "orchestrator"
+            ? undefined
+            : (resolveAgentRef(owner, agents) ?? undefined),
+        roleHint,
         phaseId: "workflow",
         instruction: buildStepInstruction(title, owner, artifactContracts),
-        dependsOn: parseDependsOn(row["depends on"], orderToStepId),
+        dependsOn: parseDependsOn(row["depends on"], orderToStepId, id),
         ...(parallelGroup ? { parallelGroup } : {}),
         artifactContracts,
         allowedActions,
@@ -485,8 +489,58 @@ const isMarkdownTableSeparator = (line: string): boolean => {
   );
 };
 
-const normalizeTableHeader = (value: string): string =>
-  stripMarkdown(value).toLowerCase().replace(/\s+/g, " ");
+const canonicalizeWorkflowHeaders = (headers: readonly string[]): string[] => {
+  const normalized = headers.map(normalizeTableHeader);
+  if (isWorkflowTableHeader(normalized)) return normalized;
+  if (isPositionalWorkflowTableHeader(normalized)) {
+    return [
+      "order",
+      "task",
+      "owner",
+      "depends on",
+      "deliverable",
+      ...normalized.slice(5),
+    ];
+  }
+  return normalized;
+};
+
+const normalizeTableHeader = (value: string): string => {
+  const normalized = stripMarkdown(value).toLowerCase().replace(/\s+/g, " ");
+  switch (normalized) {
+    case "order":
+    case "step":
+    case "sequence":
+    case "순서":
+      return "order";
+    case "task":
+    case "작업":
+      return "task";
+    case "owner":
+    case "assigned to":
+    case "assignee":
+    case "agent":
+    case "responsible":
+    case "담당":
+      return "owner";
+    case "depends on":
+    case "depends":
+    case "dependency":
+    case "dependencies":
+    case "의존":
+      return "depends on";
+    case "deliverable":
+    case "deliverables":
+    case "output":
+    case "outputs":
+    case "artifact":
+    case "artifacts":
+    case "산출물":
+      return "deliverable";
+    default:
+      return normalized;
+  }
+};
 
 const isWorkflowTableHeader = (headers: readonly string[]): boolean =>
   headers.includes("order") &&
@@ -494,6 +548,14 @@ const isWorkflowTableHeader = (headers: readonly string[]): boolean =>
   headers.includes("owner") &&
   headers.includes("depends on") &&
   headers.includes("deliverable");
+
+const isPositionalWorkflowTableHeader = (
+  headers: readonly string[],
+): boolean =>
+  headers.length === 5 &&
+  (headers[0] === "order" ||
+    headers[3] === "depends on" ||
+    headers[3] === "of");
 
 const normalizeOrder = (value: string | undefined): string =>
   stripMarkdown(value ?? "").toLowerCase().replace(/\s+/g, "");
@@ -511,6 +573,7 @@ const countOrderGroups = (orders: readonly string[]): Map<string, number> => {
 const parseDependsOn = (
   value: string | undefined,
   orderToStepId: ReadonlyMap<string, string>,
+  currentStepId: string,
 ): string[] => {
   const normalized = stripMarkdown(value ?? "").toLowerCase();
   if (
@@ -521,12 +584,41 @@ const parseDependsOn = (
   ) {
     return [];
   }
+  const stepIds = [...orderToStepId.values()];
+  if (normalized === "all" || normalized === "전체") {
+    return stepIds.filter((stepId) => stepId !== currentStepId);
+  }
   const out: string[] = [];
-  for (const match of normalized.matchAll(/\b\d+[a-z]?\b/g)) {
+  const rangePattern = /\b(\d+[a-z]?)(?:\s*(?:-|~|to|through)\s*)(\d+[a-z]?)\b/g;
+  for (const match of normalized.matchAll(rangePattern)) {
+    for (const stepId of stepIdsInRange(match[1], match[2], orderToStepId)) {
+      if (stepId !== currentStepId && !out.includes(stepId)) out.push(stepId);
+    }
+  }
+  const withoutRanges = normalized.replace(rangePattern, " ");
+  for (const match of withoutRanges.matchAll(/\b\d+[a-z]?\b/g)) {
     const stepId = orderToStepId.get(match[0]);
-    if (stepId && !out.includes(stepId)) out.push(stepId);
+    if (stepId && stepId !== currentStepId && !out.includes(stepId)) {
+      out.push(stepId);
+    }
   }
   return out;
+};
+
+const stepIdsInRange = (
+  fromOrder: string | undefined,
+  toOrder: string | undefined,
+  orderToStepId: ReadonlyMap<string, string>,
+): string[] => {
+  if (!fromOrder || !toOrder) return [];
+  const orders = [...orderToStepId.keys()];
+  const fromIndex = orders.indexOf(fromOrder);
+  const toIndex = orders.indexOf(toOrder);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex > toIndex) return [];
+  return orders
+    .slice(fromIndex, toIndex + 1)
+    .map((order) => orderToStepId.get(order))
+    .filter(isString);
 };
 
 const deliverablesToArtifactContracts = (
@@ -572,13 +664,59 @@ const resolveAgentRef = (
   agents: readonly HarnessAgentDefinition[],
 ): string | null => {
   const ownerId = slugFromName(owner);
+  if (ownerId.length === 0) return null;
   const exact = agents.find((agent) => agent.id === ownerId);
   if (exact) return exact.id;
   const partial = agents.find((agent) => {
     const parts = agent.id.split(/[-_]/).filter(Boolean);
     return agent.id.includes(ownerId) || parts.includes(ownerId);
   });
-  return partial?.id ?? null;
+  if (partial) return partial.id;
+  const ownerTokens = ownerId.split(/[-_]/).filter(Boolean);
+  const tokenMatches = agents.filter((agent) => {
+    const agentTokens = agent.id.split(/[-_]/).filter(Boolean);
+    return ownerTokens.every((ownerToken) =>
+      agentTokens.some((agentToken) => tokensMatch(ownerToken, agentToken)),
+    );
+  });
+  return tokenMatches.length === 1 ? tokenMatches[0]!.id : null;
+};
+
+const roleHintFromOwner = (owner: string): string => {
+  const normalized = stripMarkdown(owner).toLowerCase();
+  if (
+    normalized === "orchestrator" ||
+    normalized === "오케스트레이터" ||
+    normalized === "system" ||
+    normalized === "user"
+  ) {
+    return "orchestrator";
+  }
+  return slugFromName(owner);
+};
+
+const tokensMatch = (ownerToken: string, agentToken: string): boolean => {
+  if (ownerToken === agentToken) return true;
+  const aliases = TOKEN_ALIASES[ownerToken] ?? [];
+  if (aliases.includes(agentToken)) return true;
+  if (aliases.some((alias) => agentToken.startsWith(alias))) return true;
+  if (ownerToken.length >= 4 && agentToken.startsWith(ownerToken.slice(0, 4))) {
+    return true;
+  }
+  if (agentToken.length >= 4 && ownerToken.startsWith(agentToken.slice(0, 4))) {
+    return true;
+  }
+  return false;
+};
+
+const TOKEN_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  comm: ["communication"],
+  obs: ["observability"],
+  mgr: ["manager"],
+  integrator: ["integration"],
+  tester: ["test"],
+  optimizer: ["optimization"],
+  evaluator: ["evaluation"],
 };
 
 const inferOutputContract = (

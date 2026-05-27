@@ -189,6 +189,156 @@ test("importHarnessPackageFromFiles parses workflow tables from orchestrator ski
   assert.equal(isHarnessDefinition(result.definition), true);
 });
 
+test("importHarnessPackageFromFiles parses aliased and Korean workflow table headers", () => {
+  const result = importHarnessPackageFromFiles({
+    rootDir: "C:/sample/game-narrative-ko",
+    importedAt: IMPORTED_AT,
+    files: [
+      { relativePath: ".claude/CLAUDE.md", content: "# 게임 내러티브" },
+      {
+        relativePath: ".claude/agents/worldbuilder.md",
+        content: "---\nname: worldbuilder\ndescription: World.\n---",
+      },
+      {
+        relativePath: ".claude/agents/quest-designer.md",
+        content: "---\nname: quest-designer\ndescription: Quest.\n---",
+      },
+      {
+        relativePath: ".claude/agents/narrative-reviewer.md",
+        content: "---\nname: narrative-reviewer\ndescription: Review.\n---",
+      },
+      {
+        relativePath: ".claude/skills/game-narrative/skill.md",
+        content: [
+          "---",
+          "name: game-narrative",
+          "description: 게임 내러티브 워크플로우.",
+          "---",
+          "",
+          "## 워크플로우",
+          "",
+          "### Phase 2: 팀 구성 및 실행",
+          "",
+          "| 순서 | 작업 | 담당 | 의존 | 산출물 |",
+          "|------|------|------|------|--------|",
+          "| 1 | 세계관 설계 | worldbuilder | 없음 | `_workspace/01_worldbuilding.md` |",
+          "| 2 | 퀘스트 설계 | quest-designer | 작업 1 | `_workspace/02_quest_design.md` |",
+          "| 3 | 내러티브 검증 | narrative-reviewer | 작업 1, 2 | `_workspace/03_review.md` |",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.definition.workflows.length, 1);
+  const workflow = result.definition.workflows[0];
+  assert.equal(workflow.mode, "agent-team");
+  assert.deepEqual(
+    workflow.steps.map((step) => step.agentRef),
+    ["worldbuilder", "quest-designer", "narrative-reviewer"],
+  );
+  assert.deepEqual(workflow.steps[1].dependsOn, ["step-1"]);
+  assert.deepEqual(workflow.steps[2].dependsOn, ["step-1", "step-2"]);
+  assert.equal(workflow.steps[0].artifactContracts[0].pathHint, "_workspace/01_worldbuilding.md");
+  assert.equal(
+    result.definition.validation.issues.some(
+      (issue) => issue.code === "HARNESS_WORKFLOW_PARSE_PENDING",
+    ),
+    false,
+  );
+  assert.equal(isHarnessDefinition(result.definition), true);
+});
+
+test("importHarnessPackageFromFiles recovers positional workflow tables and dependency ranges", () => {
+  const result = importHarnessPackageFromFiles({
+    rootDir: "C:/sample/performance-optimizer",
+    importedAt: IMPORTED_AT,
+    files: [
+      { relativePath: ".claude/CLAUDE.md", content: "# Performance" },
+      {
+        relativePath: ".claude/agents/profiler.md",
+        content: "---\nname: profiler\ndescription: Profile.\n---",
+      },
+      {
+        relativePath: ".claude/agents/benchmark-manager.md",
+        content: "---\nname: benchmark-manager\ndescription: Benchmark.\n---",
+      },
+      {
+        relativePath: ".claude/agents/perf-reviewer.md",
+        content: "---\nname: perf-reviewer\ndescription: Review.\n---",
+      },
+      {
+        relativePath: ".claude/skills/performance-optimizer/skill.md",
+        content: [
+          "---",
+          "name: performance-optimizer",
+          "description: Performance workflow.",
+          "---",
+          "",
+          "## workflow",
+          "",
+          "|  |  | responsible | of |  |",
+          "|------|------|------|------|--------|",
+          "| 1 | profiling | profiler |  | `_workspace/01_profiling.md` |",
+          "| 2 | benchmark | benchmark-manager | 1 | `_workspace/02_benchmark.md` |",
+          "| 3 | review | perf-reviewer | 1~2 | `_workspace/03_review.md` |",
+          "| 4 | summary | 오케스트레이터 | All | `_workspace/04_summary.md` |",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.definition.workflows.length, 1);
+  const steps = result.definition.workflows[0].steps;
+  assert.equal(steps[0].agentRef, "profiler");
+  assert.equal(steps[2].agentRef, "perf-reviewer");
+  assert.deepEqual(steps[2].dependsOn, ["step-1", "step-2"]);
+  assert.equal(steps[3].roleHint, "orchestrator");
+  assert.deepEqual(steps[3].dependsOn, ["step-1", "step-2", "step-3"]);
+  assert.equal(
+    result.definition.validation.issues.some(
+      (issue) => issue.code === "HARNESS_AGENT_REFERENCE_UNRESOLVED",
+    ),
+    false,
+  );
+});
+
+test("importHarnessPackageFromFiles does not treat action-register tables as workflows", () => {
+  const result = importHarnessPackageFromFiles({
+    rootDir: "C:/sample/risk-response-patterns",
+    importedAt: IMPORTED_AT,
+    files: [
+      { relativePath: ".claude/CLAUDE.md", content: "# Risk" },
+      {
+        relativePath: ".claude/skills/risk-response-patterns/skill.md",
+        content: [
+          "---",
+          "name: risk-response-patterns",
+          "description: Risk response patterns.",
+          "---",
+          "",
+          "## Response Register",
+          "",
+          "| # | action | responsible | deadline | cost | status |",
+          "|---|--------|-------------|----------|------|--------|",
+          "| 1 | [action] | [name] | [date] | [amount] | progress |",
+          "| 2 | [action] | [name] | [date] | [amount] | pending |",
+        ].join("\n"),
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.definition.workflows.length, 0);
+  assert.equal(
+    result.definition.validation.issues.some(
+      (issue) => issue.code === "HARNESS_WORKFLOW_PARSE_PENDING",
+    ),
+    true,
+  );
+});
+
 test("importHarnessPackageFromFiles imports Harness-native packages", () => {
   const result = importHarnessPackageFromFiles({
     rootDir: "C:/sample/native",

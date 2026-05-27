@@ -273,7 +273,9 @@ export interface HarnessWorkflowStep {
 Recognized dependency sources:
 
 - workflow tables with columns equivalent to order, task, owner, dependency, and
-  artifact
+  artifact. The source adapter accepts common aliases such as `Assigned To`,
+  `Assignee`, `Responsible`, `Dependencies`, `Output`, `Artifact`, and Korean
+  headers `순서`, `작업`, `담당`, `의존`, `산출물`.
 - explicit `dependsOn` fields in Harness-native manifests
 - prose phrases that are supported by adapter-specific rules, such as "2a and
   2b run in parallel after task 1"
@@ -282,6 +284,12 @@ Parsing rules:
 
 - Missing dependency data should not be treated as fully independent execution.
 - If dependencies are ambiguous, mark the workflow `needs_review`.
+- Dependency ranges such as `1~4`, `1-3b`, and whole-workflow references such
+  as `All`/`전체` may be expanded only when the referenced step ids are already
+  present in the parsed workflow table.
+- Multi-agent owner cells such as `pro + con` are not auto-bound to a single
+  `AgentProfile`; they remain review issues unless the user splits the step or
+  chooses an explicit binding.
 - If a source format has a known legacy linear convention, the adapter may
   propose linear dependencies but must record a warning.
 - Parallelism is advisory. The runner still applies provider queue, approval,

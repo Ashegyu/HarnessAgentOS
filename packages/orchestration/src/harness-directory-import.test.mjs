@@ -109,9 +109,16 @@ test(
       assert.equal(result.definition.source.format, "claude");
       assert.equal(result.definition.agents.length >= 4, true);
       assert.equal(result.definition.skills.length >= 1, true);
+      assert.equal(result.definition.workflows.length >= 1, true);
       assert.equal(
         result.definition.validation.issues.some(
           (issue) => issue.code === "HARNESS_WORKFLOW_PARSE_PENDING",
+        ),
+        false,
+      );
+      assert.equal(
+        result.definition.validation.issues.some(
+          (issue) => issue.code === "HARNESS_PROFILE_BINDING_REQUIRED",
         ),
         true,
       );
