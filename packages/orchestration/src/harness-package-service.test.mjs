@@ -72,6 +72,45 @@ test("HarnessPackageService does not persist unsupported imports", async () => {
   }
 });
 
+test("HarnessPackageService creates a native starter harness snapshot", async () => {
+  const dbTemp = dbTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    const state = new LocalStateService(db);
+    const service = new HarnessPackageService({ state });
+
+    const created = await service.createPackage({
+      name: "Video Production",
+      description: "Create a video production workflow.",
+      workflowName: "Default workflow",
+      agentRef: "scriptwriter",
+      agentName: "Script Writer",
+      agentDescription: "Drafts the script.",
+      stepTitle: "Draft script",
+      stepInstruction: "Write a short script and return a plan.",
+      outputContract: "plan",
+      providerHint: "codex",
+    });
+
+    assert.equal(created.name, "Video Production");
+    assert.equal(created.source.format, "harness-native");
+    assert.equal(created.source.rootDir, "harness://manual");
+    assert.equal(created.validation.status, "valid");
+    assert.equal(created.agents.length, 1);
+    assert.equal(created.agents[0].id, "scriptwriter");
+    assert.equal(created.agents[0].providerHint, "codex");
+    assert.equal(created.workflows.length, 1);
+    assert.equal(created.workflows[0].steps.length, 1);
+    assert.equal(created.workflows[0].steps[0].agentRef, "scriptwriter");
+    assert.equal(created.workflows[0].steps[0].outputContract, "plan");
+
+    assert.deepEqual(await state.harnessPackages.get(created.id), created);
+  } finally {
+    closeDb(db);
+    dbTemp.cleanup();
+  }
+});
+
 test("HarnessPackageService removes persisted package snapshots", async () => {
   const dbTemp = dbTmp();
   const root = dirTmp();

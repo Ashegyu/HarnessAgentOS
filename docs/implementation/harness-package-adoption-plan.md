@@ -715,3 +715,71 @@ Import Harness package
   -> approve execution
   -> inspect artifacts and quality gate
 ```
+
+## 20. Direct Harness Creation
+
+### 20.1 Design Decision
+
+Harnesses must support two package creation routes:
+
+- **Import route**: read Claude, Codex, or Harness-native files and persist a
+  neutral snapshot.
+- **Direct route**: create a HarnessAgentOS-owned Harness-native snapshot from
+  typed UI input.
+
+The direct route is not a pipeline shortcut. It creates the same
+`HarnessDefinition` shape used by imported packages, then reuses the existing
+workflow selection, profile binding, readiness, preview, binding-set, and direct
+orchestration path.
+
+### 20.2 Initial Scope
+
+The first direct-create UI intentionally creates a starter Harness:
+
+- one package
+- one workflow
+- one abstract agent
+- one workflow step
+- optional output contract selection
+
+This is enough to start a native Harness without a `.claude` or Codex skill
+directory. Multi-step and multi-workflow editing should extend the existing
+repair snapshot flow or a later dedicated editor; it should not be bundled into
+the first create route.
+
+### 20.3 Contract
+
+Add a typed IPC method:
+
+```ts
+harnessPackages.create(input: {
+  package: CreateHarnessPackageInput;
+}): Promise<HarnessDefinition>;
+```
+
+`CreateHarnessPackageInput` is user-authored metadata, not a raw
+`HarnessDefinition`. Main/service code owns id generation, default source
+metadata, validation status, handoff policy, failure policy, and the synthetic
+Harness-native source refs.
+
+### 20.4 Safety Rules
+
+- Renderer cannot save arbitrary raw `HarnessDefinition` JSON.
+- Direct-created packages use `source.format = "harness-native"`.
+- Direct creation does not execute agents, create TaskRuns, run shell commands,
+  or write files.
+- Side-effect permissions remain step-level metadata only until a later
+  approval-gated run.
+- Unbound abstract agents continue through the existing AgentProfile binding
+  flow.
+
+### 20.5 Verification
+
+Minimum checks:
+
+- service test: starter input persists a valid Harness-native definition
+- IPC test: `harnessPackages.create` validates typed input and rejects blanks
+- channel test: `harnessPackages:create` is allowlisted while
+  `harnessPackages:run` remains absent
+- UI static test: Harnesses tab exposes `새 Harness` and calls
+  `window.harness.harnessPackages.create`

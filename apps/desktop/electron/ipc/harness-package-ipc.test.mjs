@@ -97,6 +97,56 @@ test("harnessPackages.importDirectory returns review result for unsupported sour
   }
 });
 
+test("harnessPackages.create saves a direct native starter package", async () => {
+  const { db, t, handlers } = setup();
+  try {
+    const created = await handlers.create({
+      package: {
+        name: "Direct Harness",
+        description: "Created without importing source files.",
+        workflowName: "Default workflow",
+        agentRef: "planner",
+        stepTitle: "Plan work",
+        stepInstruction: "Create a scoped implementation plan.",
+        outputContract: "plan",
+      },
+    });
+
+    assert.equal(created.ok, true);
+    assert.equal(created.value.name, "Direct Harness");
+    assert.equal(created.value.source.format, "harness-native");
+
+    const listed = await handlers.list();
+    assert.equal(listed.ok, true);
+    assert.equal(listed.value.length, 1);
+    assert.equal(listed.value[0].id, created.value.id);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("harnessPackages.create rejects blank direct package fields", async () => {
+  const { db, t, handlers } = setup();
+  try {
+    const created = await handlers.create({
+      package: {
+        name: "",
+        workflowName: "Default workflow",
+        agentRef: "planner",
+        stepTitle: "Plan work",
+        stepInstruction: "Create a scoped implementation plan.",
+      },
+    });
+
+    assert.equal(created.ok, false);
+    assert.match(created.error.message, /name is required/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft", async () => {
   const { db, t, state, handlers } = setup();
   const root = dirTmp();
