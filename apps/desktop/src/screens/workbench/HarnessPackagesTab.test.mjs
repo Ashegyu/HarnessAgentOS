@@ -31,6 +31,9 @@ test("HarnessPackagesTab exposes import/list/remove without execution actions", 
   assert.match(source, /assessHarnessBindingReadiness/);
   assert.match(source, /repairInputFromDraft/);
   assert.match(source, /validateHarnessWorkflowRepairDraft/);
+  assert.match(source, /createAgentProfileInputFromHarnessCandidate/);
+  assert.match(source, /window\.harness\.agents\.create/);
+  assert.match(source, /새 프로필 추가/);
   assert.match(source, /harness-packages-tab__step-list/);
   assert.match(source, /harness-packages-tab__repair/);
   assert.match(source, /harness-packages-tab__readiness/);

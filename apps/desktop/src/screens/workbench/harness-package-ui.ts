@@ -1,5 +1,6 @@
 import type {
   AgentProfile,
+  AgentProvider,
   HarnessArtifactContract,
   HarnessDefinition,
   HarnessPackageRepairInput,
@@ -8,8 +9,15 @@ import type {
   HarnessSourceFormat,
   HarnessValidationIssue,
   HarnessValidationStatus,
+  WorkerRole,
 } from "@harness/core";
-import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
+import {
+  DEFAULT_AGENT_PERMISSIONS,
+  DEFAULT_AGENT_STALL_TIMEOUT_MS,
+  DEFAULT_AGENT_TIMEOUT_MS,
+  DEFAULT_CODEX_MODEL,
+  WORKER_OUTPUT_CONTRACTS,
+} from "@harness/core";
 import type { HarnessAgentBindingCandidate } from "@harness/orchestration/harness-binding-readiness";
 export {
   assessHarnessBindingReadiness,
@@ -135,6 +143,87 @@ export const suggestHarnessProfileBinding = (
   return partial?.id ?? "";
 };
 
+export const inferHarnessCandidateWorkerRole = (
+  candidate: HarnessAgentBindingCandidate,
+): WorkerRole => {
+  const text = normalizeMatchText(
+    `${candidate.harnessAgentRef} ${candidate.label}`,
+  );
+  if (/(security|sec|vuln|threat|auth|secret)/.test(text)) {
+    return "security-reviewer";
+  }
+  if (/(performance|perf|latency|benchmark|allocation)/.test(text)) {
+    return "performance-reviewer";
+  }
+  if (/(build|compile|resolver|failure|error)/.test(text)) {
+    return "build-error-resolver";
+  }
+  if (/(refactor|cleanup|cleaner)/.test(text)) return "refactor-cleaner";
+  if (/(test|tester|qa|verify|validator|validation)/.test(text)) {
+    return "tester";
+  }
+  if (/(review|reviewer|critic|quality)/.test(text)) return "reviewer";
+  if (/(orchestrator|coordinate|coordinator|workflow)/.test(text)) {
+    return "orchestrator";
+  }
+  if (/(doc|document|documentation|writerdoc)/.test(text)) {
+    return "documenter";
+  }
+  if (/(plan|planner|architect|strategy|strategist|prd|design)/.test(text)) {
+    return "planner";
+  }
+  return "coder";
+};
+
+export const createAgentProfileInputFromHarnessCandidate = (
+  candidate: HarnessAgentBindingCandidate,
+  provider: AgentProvider = "codex",
+): Omit<AgentProfile, "id" | "createdAt" | "updatedAt"> => {
+  const name = candidate.label.trim() || candidate.harnessAgentRef;
+  const tags = uniqueNonEmpty([
+    candidate.harnessAgentRef,
+    candidate.label,
+    candidate.sourceFile ?? "",
+  ]);
+  return {
+    name,
+    description: `Imported harness role for ${candidate.harnessAgentRef}.`,
+    category: "harness",
+    tags,
+    provider,
+    role: inferHarnessCandidateWorkerRole(candidate),
+    persona: [
+      `You are the ${name} worker for imported Harness workflows.`,
+      `Harness agent ref: ${candidate.harnessAgentRef}.`,
+      "Follow the workflow step instructions exactly and keep side effects approval-gated.",
+    ].join(" "),
+    tuning: {
+      model: DEFAULT_CODEX_MODEL,
+      reasoningEffort: "xhigh",
+      timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+      stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: {
+      cliPathOverride: "",
+      env: {},
+      envSecretRefs: {},
+    },
+    permissions: {
+      autoApproveActions: [...DEFAULT_AGENT_PERMISSIONS.autoApproveActions],
+      blockedActions: [...DEFAULT_AGENT_PERMISSIONS.blockedActions],
+      allowedSkillIds: [...DEFAULT_AGENT_PERMISSIONS.allowedSkillIds],
+      toolAllowlist: [...DEFAULT_AGENT_PERMISSIONS.toolAllowlist],
+      toolDenylist: [...DEFAULT_AGENT_PERMISSIONS.toolDenylist],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+  };
+};
+
 export const harnessWorkflowStepRows = (
   workflow: HarnessWorkflowDefinition,
 ): HarnessWorkflowStepRow[] =>
@@ -236,6 +325,18 @@ export const validateHarnessWorkflowRepairDraft = (
 
 const normalizeMatchText = (value: string): string =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+const uniqueNonEmpty = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+};
 
 const WORKER_OUTPUT_CONTRACT_SET: ReadonlySet<string> = new Set(
   WORKER_OUTPUT_CONTRACTS,

@@ -16,6 +16,7 @@ import type {
 import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
 import {
   assessHarnessBindingReadiness,
+  createAgentProfileInputFromHarnessCandidate,
   harnessAgentBindingCandidates,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
@@ -24,6 +25,7 @@ import {
   suggestHarnessProfileBinding,
   summarizeHarnessPackage,
   validateHarnessWorkflowRepairDraft,
+  type HarnessAgentBindingCandidate,
   type HarnessWorkflowRepairDraft,
   type HarnessWorkflowStepRepairDraft,
 } from "./harness-package-ui";
@@ -102,6 +104,9 @@ export const HarnessPackagesTab = (): JSX.Element => {
   const [busy, setBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [creatingProfileRef, setCreatingProfileRef] = useState<string | null>(
+    null,
+  );
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const refresh = useCallback(async () => {
@@ -323,6 +328,33 @@ export const HarnessPackagesTab = (): JSX.Element => {
       ...current,
       [harnessAgentRef]: agentProfileId,
     }));
+  };
+
+  const handleCreateProfileForBinding = async (
+    candidate: HarnessAgentBindingCandidate,
+  ): Promise<void> => {
+    if (profileList.kind !== "ready") return;
+    setCreatingProfileRef(candidate.harnessAgentRef);
+    setNotice(null);
+    try {
+      const created = await window.harness.agents.create({
+        profile: createAgentProfileInputFromHarnessCandidate(candidate),
+      });
+      await refreshProfiles();
+      setPreview(null);
+      setBindings((current) => ({
+        ...current,
+        [candidate.harnessAgentRef]: created.id,
+      }));
+      setNotice({
+        kind: "success",
+        message: `${created.name} AgentProfile을 생성하고 ${candidate.label}에 바인딩했습니다.`,
+      });
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setCreatingProfileRef(null);
+    }
   };
 
   const updateRepairNote = (note: string): void => {
@@ -1146,35 +1178,61 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           <p>No agent refs in this workflow.</p>
                         ) : (
                           <ul className="harness-packages-tab__binding-list">
-                            {bindingCandidates.map((candidate) => (
-                              <li key={candidate.harnessAgentRef}>
-                                <div>
-                                  <strong>{candidate.label}</strong>
-                                  <span>
-                                    {candidate.harnessAgentRef} ·{" "}
-                                    {candidate.stepCount} steps
-                                  </span>
-                                </div>
-                                <select
-                                  value={
-                                    bindings[candidate.harnessAgentRef] ?? ""
-                                  }
-                                  onChange={(event) =>
-                                    handleBindingChange(
-                                      candidate.harnessAgentRef,
-                                      event.currentTarget.value,
-                                    )
-                                  }
-                                >
-                                  <option value="">Unbound</option>
-                                  {profileList.profiles.map((profile) => (
-                                    <option key={profile.id} value={profile.id}>
-                                      {profile.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </li>
-                            ))}
+                            {bindingCandidates.map((candidate) => {
+                              const selectedProfileId =
+                                bindings[candidate.harnessAgentRef] ?? "";
+                              const isUnbound = selectedProfileId.length === 0;
+                              const isCreating =
+                                creatingProfileRef ===
+                                candidate.harnessAgentRef;
+                              return (
+                                <li key={candidate.harnessAgentRef}>
+                                  <div>
+                                    <strong>{candidate.label}</strong>
+                                    <span>
+                                      {candidate.harnessAgentRef} ·{" "}
+                                      {candidate.stepCount} steps
+                                    </span>
+                                  </div>
+                                  <select
+                                    value={selectedProfileId}
+                                    onChange={(event) =>
+                                      handleBindingChange(
+                                        candidate.harnessAgentRef,
+                                        event.currentTarget.value,
+                                      )
+                                    }
+                                    disabled={creatingProfileRef !== null}
+                                  >
+                                    <option value="">Unbound</option>
+                                    {profileList.profiles.map((profile) => (
+                                      <option
+                                        key={profile.id}
+                                        value={profile.id}
+                                      >
+                                        {profile.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {isUnbound && (
+                                    <button
+                                      type="button"
+                                      className="btn btn--secondary btn--sm"
+                                      onClick={() =>
+                                        void handleCreateProfileForBinding(
+                                          candidate,
+                                        )
+                                      }
+                                      disabled={creatingProfileRef !== null}
+                                    >
+                                      {isCreating
+                                        ? "추가 중..."
+                                        : "새 프로필 추가"}
+                                    </button>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </>

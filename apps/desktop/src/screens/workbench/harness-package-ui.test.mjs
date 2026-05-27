@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   assessHarnessBindingReadiness,
+  createAgentProfileInputFromHarnessCandidate,
   harnessAgentBindingCandidates,
+  inferHarnessCandidateWorkerRole,
   harnessWorkflowStepRows,
   primaryHarnessPackageIssue,
   repairDraftFromWorkflow,
@@ -117,6 +119,69 @@ test("primaryHarnessPackageIssue returns null with no issues", () => {
   );
 
   assert.equal(issue, null);
+});
+
+test("inferHarnessCandidateWorkerRole maps common harness refs to worker roles", () => {
+  assert.equal(
+    inferHarnessCandidateWorkerRole({
+      harnessAgentRef: "security-reviewer",
+      label: "Security Reviewer",
+      stepCount: 1,
+    }),
+    "security-reviewer",
+  );
+  assert.equal(
+    inferHarnessCandidateWorkerRole({
+      harnessAgentRef: "qa-validator",
+      label: "Execution Validator",
+      stepCount: 1,
+    }),
+    "tester",
+  );
+  assert.equal(
+    inferHarnessCandidateWorkerRole({
+      harnessAgentRef: "content-strategist",
+      label: "Content Strategist",
+      stepCount: 1,
+    }),
+    "planner",
+  );
+  assert.equal(
+    inferHarnessCandidateWorkerRole({
+      harnessAgentRef: "scriptwriter",
+      label: "Script Writer",
+      stepCount: 1,
+    }),
+    "coder",
+  );
+});
+
+test("createAgentProfileInputFromHarnessCandidate builds a valid unbound profile draft", () => {
+  const profile = createAgentProfileInputFromHarnessCandidate({
+    harnessAgentRef: "scriptwriter",
+    label: "Script Writer",
+    sourceFile: "skills/video/SKILL.md",
+    stepCount: 3,
+  });
+
+  assert.equal(profile.name, "Script Writer");
+  assert.equal(profile.description, "Imported harness role for scriptwriter.");
+  assert.equal(profile.category, "harness");
+  assert.deepEqual(profile.tags, [
+    "scriptwriter",
+    "Script Writer",
+    "skills/video/SKILL.md",
+  ]);
+  assert.equal(profile.provider, "codex");
+  assert.equal(profile.role, "coder");
+  assert.match(profile.persona, /scriptwriter/);
+  assert.equal(profile.tuning.model, "gpt-5.5");
+  assert.equal(profile.tuning.reasoningEffort, "xhigh");
+  assert.deepEqual(profile.permissions.autoApproveActions, []);
+  assert.deepEqual(profile.permissions.blockedActions, []);
+  assert.deepEqual(profile.mcpServerIds, []);
+  assert.deepEqual(profile.skillSourceIds, []);
+  assert.equal(profile.isDefault, false);
 });
 
 test("harnessAgentBindingCandidates reads workflow agent refs in step order", () => {
