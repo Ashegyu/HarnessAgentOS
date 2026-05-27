@@ -158,6 +158,67 @@ test("HarnessPackageService saves manual repairs as separate snapshots", async (
   }
 });
 
+test("HarnessPackageService blocks pipeline preview when readiness has binding errors", async () => {
+  const dbTemp = dbTmp();
+  const root = dirTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# YouTube Production");
+    await writeFixture(
+      root,
+      ".claude/agents/content-strategist.md",
+      "---\nname: content-strategist\ndescription: Strategy.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/youtube-production/skill.md",
+      [
+        "---",
+        "name: youtube-production",
+        "description: YouTube production workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Content strategy | strategist | None | `_workspace/brief.md` |",
+      ].join("\n"),
+    );
+
+    const state = new LocalStateService(db);
+    const service = new HarnessPackageService({ state });
+    const imported = await service.importDirectory({
+      rootDir: root,
+      importedAt: "2026-05-27T00:00:00.000Z",
+    });
+    assert.equal(imported.ok, true);
+
+    const preview = await service.previewPipelineDraft({
+      packageId: imported.definition.id,
+      bindings: [
+        {
+          harnessAgentRef: "content-strategist",
+          agentProfileId: "missing-profile",
+        },
+      ],
+    });
+
+    assert.equal(preview.ok, false);
+    assert.equal(preview.readiness.ok, false);
+    assert.equal(preview.readiness.errorCount, 1);
+    assert.deepEqual(
+      preview.readiness.issues.map((issue) => issue.code),
+      ["HARNESS_PROFILE_UNKNOWN"],
+    );
+    assert.equal(preview.issues[0].code, "HARNESS_BINDING_READINESS_FAILED");
+  } finally {
+    closeDb(db);
+    dbTemp.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("HarnessPackageService proposes export files as pending file_write approvals", async () => {
   const dbTemp = dbTmp();
   const root = dirTmp();
