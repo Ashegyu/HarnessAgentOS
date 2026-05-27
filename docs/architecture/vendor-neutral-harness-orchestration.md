@@ -311,7 +311,7 @@ The neutral model should reuse the current runtime instead of replacing it.
 | `artifactContracts` | `expectedArtifactKinds`, artifact expectations | Full artifact schema belongs to new contract |
 | `allowedActions` | `AgentPipelineStep.allowedActions` | Approval policy still enforces at runtime |
 | `handoffPolicy` | `harness_worker_handoff_v1` and internal agent bus | Do not use provider-specific message semantics as canonical |
-| `failurePolicy` | backflow rules, retry metadata, or manual review | Automatic retry must be explicitly bounded |
+| `failurePolicy` | backflow rules, retry metadata, or manual review | Automatic retry must be explicit, bounded, and dependency-safe |
 | `runtimeTarget` | `AgentProfile.provider` or `remoteEndpointId` | Source package should not force unsafe local execution |
 
 ## 8. Claude and Codex Compatibility
@@ -477,7 +477,9 @@ source of the workflow should be visible as a package-derived harness definition
 
 ### Phase G: Backflow and review loops
 
-- Map explicit failure policies to bounded backflow rules only when safe.
+- Map explicit failure policies to bounded backflow rules only when
+  `targetStepId`, `retryStepId`, retry limit, ordering, and dependency path are
+  all valid.
 - Keep ambiguous retry instructions as manual-review guidance.
 - Preserve separation between local backflow and A2A refinement.
 

@@ -373,6 +373,7 @@ export interface HarnessFailureRule {
     | "backflow_to_step"
     | "continue_with_warning";
   targetStepId?: string;
+  retryStepId?: string;
   instruction?: string;
   maxAttempts?: number;
 }
@@ -380,10 +381,18 @@ export interface HarnessFailureRule {
 
 Mapping rules:
 
-- Explicit retry/backflow rules may map to existing `WorkerBackflowRule` only
-  after dependency reachability is validated.
+- Explicit `backflow_to_step` rules may map to existing
+  `AgentPipelineBackflowRule` entries only when all of these are present and
+  valid:
+  - `trigger` is `step_failed` or `quality_failed`
+  - `targetStepId` is present
+  - `retryStepId` is present
+  - `maxAttempts`, or the policy-level fallback, is an integer from 1 to 5
+  - `targetStepId` is earlier than `retryStepId`
+  - `targetStepId` is on the normal dependency path to `retryStepId`
 - Ambiguous prose like "ask the previous agent to fix it" should become
-  `pause_for_review` unless the target step is clear.
+  a `HARNESS_FAILURE_POLICY_REVIEW_REQUIRED` warning unless both replay
+  endpoints are clear.
 - Automatic retries require bounded `maxAttempts`.
 - A2A refinement is not pipeline backflow and must use the A2A refinement path
   when the failing worker is remote.

@@ -616,6 +616,14 @@ source-boundary rules:
   the user selects a target directory, HarnessAgentOS creates pending
   `file_write` approvals for every projected file, and the runner remains the
   only component that can write after approval.
+- Explicit package failure policies can now map into `AgentPipelineBackflowRule`
+  entries during `HarnessDefinition -> AgentPipeline` conversion, but only when
+  the source rule is bounded and unambiguous: `backflow_to_step`,
+  `step_failed`/`quality_failed`, clear `targetStepId`, clear `retryStepId`,
+  bounded `maxAttempts`, and a validated dependency path from target to retry.
+- Ambiguous failure prose remains review-only through
+  `HARNESS_FAILURE_POLICY_REVIEW_REQUIRED`; it is not guessed into a local
+  retry route.
 
 Verified commands for the latest checkpoint:
 
@@ -630,6 +638,8 @@ node --import tsx --test --test-force-exit apps/desktop/electron/harness-package
 node --import tsx --test packages/orchestration/src/harness-binding-readiness.test.mjs
 node --import tsx --test packages/orchestration/src/harness-package-service.test.mjs
 node --import tsx --test apps/desktop/electron/ipc/harness-package-ipc.test.mjs
+node --import tsx --test packages/orchestration/src/harness-pipeline-draft.test.mjs
+node --import tsx --test packages/core/src/types/harness-package.test.mjs
 npm run check
 npm run test
 npm run build
@@ -642,9 +652,11 @@ The current implementation is now suitable for reviewed package import,
 manual workflow repair, pipeline-template creation, and persisted repaired
 package snapshots. It now also has a closed approved-execution acceptance path,
 a service-level readiness gate for package-derived pipeline preview, and an
-approval-gated export projection path. It is still intentionally not a complete
-autonomous package runner: import, repair, binding, preview, save, plan approval,
-worker side effects, and export writes remain separate user-visible steps.
+explicit bounded failure-policy mapping path for safe local backflow rules, plus
+an approval-gated export projection path. It is still intentionally not a
+complete autonomous package runner: import, repair, binding, preview, save, plan
+approval, worker side effects, and export writes remain separate user-visible
+steps.
 
 ### 18.3 Remaining Uncertainty
 
@@ -661,14 +673,11 @@ worker side effects, and export writes remain separate user-visible steps.
 
 Proceed in this order:
 
-1. **Failure-policy/backflow mapping**: map only explicit, bounded package
-   failure rules into existing `AgentPipelineBackflowRule` entries. Ambiguous
-   retry prose should remain manual review.
-2. **Provider-status pass-through**: if non-UI preview callers need provider
+1. **Provider-status pass-through**: if non-UI preview callers need provider
    availability in the service result, pass a validated provider status map into
    `HarnessPackageService.previewPipelineDraft`; do not make provider probing a
    hidden side effect of package preview.
-3. **Export approval UX**: keep the current approval-gated file writes, then
+2. **Export approval UX**: keep the current approval-gated file writes, then
    consider a dedicated batch review/approve surface for export projections.
 
 The immediate user workflow is:
