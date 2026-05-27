@@ -800,6 +800,59 @@ test("readSchemaVersion reflects the current SCHEMA_VERSION", () => {
   }
 });
 
+test("v33 migration creates harness package snapshot table", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasTable(db, "harness_packages"), true);
+    for (const col of [
+      "id",
+      "name",
+      "source_format",
+      "root_dir",
+      "validation_status",
+      "definition_json",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "harness_packages", col),
+        true,
+        `harness_packages is missing column ${col}`,
+      );
+    }
+    assert.throws(() =>
+      db
+        .prepare(
+          `INSERT INTO harness_packages(
+             id, name, source_format, root_dir, validation_status,
+             definition_json, created_at, updated_at
+           ) VALUES(
+             'hp_bad', 'Bad', 'other', '/tmp/bad', 'needs_review',
+             '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+           )`,
+        )
+        .run(),
+    );
+    assert.throws(() =>
+      db
+        .prepare(
+          `INSERT INTO harness_packages(
+             id, name, source_format, root_dir, validation_status,
+             definition_json, created_at, updated_at
+           ) VALUES(
+             'hp_bad_status', 'Bad', 'claude', '/tmp/bad-status', 'maybe',
+             '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+           )`,
+        )
+        .run(),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v20 migration adds profile taxonomy columns", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

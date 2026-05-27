@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 32;
+export const SCHEMA_VERSION = 33;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -275,6 +275,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at TEXT NOT NULL,
     UNIQUE(root_dir)
   )`,
+
+  // v33 — imported harness package declarations. These rows store source
+  // package snapshots and validation diagnostics only; runtime execution state
+  // remains in TaskRun/Step/Approval/Artifact tables.
+  `CREATE TABLE IF NOT EXISTS harness_packages (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    source_format TEXT NOT NULL CHECK(source_format IN ('claude','codex','harness-native')),
+    root_dir TEXT NOT NULL,
+    validation_status TEXT NOT NULL CHECK(validation_status IN ('valid','valid_with_warnings','needs_review','unsupported')),
+    definition_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(root_dir)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_packages_format_status
+    ON harness_packages(source_format, validation_status, updated_at DESC)`,
 
   // v10 — encrypted secret vault. Each row holds an opaque BLOB produced
   // by Electron's safeStorage; plaintext lives only in the main process
