@@ -36,6 +36,7 @@ export * from "./settings.ts";
 export * from "./agent-profile.ts";
 export * from "./mcp.ts";
 export * from "./skill-source.ts";
+export * from "./harness-package.ts";
 export * from "./pipeline-backflow.ts";
 export * from "./agent-pipeline.ts";
 export * from "./a2a.ts";
