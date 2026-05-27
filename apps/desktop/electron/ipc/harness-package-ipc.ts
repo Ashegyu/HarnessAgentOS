@@ -1,11 +1,15 @@
 import {
+  HARNESS_BINDING_SET_NOT_FOUND,
   HARNESS_PACKAGE_NOT_FOUND,
   STATE_INVALID_INPUT,
   err,
   harnessError,
   ok,
   type AgentProviderStatusMap,
+  type CreateHarnessBindingSetInput,
   type HarnessAgentProfileBinding,
+  type HarnessBindingSet,
+  type HarnessBindingSetListInput,
   type HarnessDefinition,
   type HarnessPackageExportPreview,
   type HarnessPackageExportPreviewInput,
@@ -30,6 +34,10 @@ export interface HarnessPackageIpcContext {
     | "previewExportPackage"
     | "proposeExportPackage"
     | "previewPipelineDraft"
+    | "listBindingSets"
+    | "getBindingSet"
+    | "saveBindingSet"
+    | "removeBindingSet"
   >;
 }
 
@@ -128,6 +136,67 @@ const parseProfileBindings = (
     });
   }
   return { ok: true, value: bindings };
+};
+
+const parseBindingSetListInput = (
+  input: unknown,
+):
+  | { ok: true; value: HarnessBindingSetListInput }
+  | { ok: false; reason: string } => {
+  if (input === undefined || input === null) return { ok: true, value: {} };
+  if (typeof input !== "object" || Array.isArray(input)) {
+    return { ok: false, reason: "input must be an object" };
+  }
+  const packageId = optionalString(input, "packageId");
+  if (!packageId.ok) return { ok: false, reason: packageId.reason };
+  const workflowId = optionalString(input, "workflowId");
+  if (!workflowId.ok) return { ok: false, reason: workflowId.reason };
+  return {
+    ok: true,
+    value: {
+      ...(packageId.value !== undefined ? { packageId: packageId.value } : {}),
+      ...(workflowId.value !== undefined ? { workflowId: workflowId.value } : {}),
+    },
+  };
+};
+
+const parseBindingSetInput = (
+  input: unknown,
+):
+  | { ok: true; value: CreateHarnessBindingSetInput | HarnessBindingSet }
+  | { ok: false; reason: string } => {
+  const raw =
+    typeof input === "object" && input !== null
+      ? (input as Record<string, unknown>).bindingSet
+      : undefined;
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return { ok: false, reason: "bindingSet must be an object" };
+  }
+  const packageId = requiredString(raw, "packageId");
+  if (!packageId.ok) return { ok: false, reason: packageId.reason };
+  const workflowId = requiredString(raw, "workflowId");
+  if (!workflowId.ok) return { ok: false, reason: workflowId.reason };
+  const name = requiredString(raw, "name");
+  if (!name.ok) return { ok: false, reason: name.reason };
+  const bindings = parseProfileBindings(raw);
+  if (!bindings.ok) return { ok: false, reason: bindings.reason };
+  const record = raw as Record<string, unknown>;
+  const value: CreateHarnessBindingSetInput | HarnessBindingSet = {
+    ...(typeof record.id === "string" && record.id.trim().length > 0
+      ? { id: record.id.trim() }
+      : {}),
+    packageId: packageId.value,
+    workflowId: workflowId.value,
+    name: name.value,
+    bindings: bindings.value,
+    ...(typeof record.createdAt === "string" && record.createdAt.length > 0
+      ? { createdAt: record.createdAt }
+      : {}),
+    ...(typeof record.updatedAt === "string" && record.updatedAt.length > 0
+      ? { updatedAt: record.updatedAt }
+      : {}),
+  } as CreateHarnessBindingSetInput | HarnessBindingSet;
+  return { ok: true, value };
 };
 
 const parseProviderStatusMap = (
@@ -401,6 +470,62 @@ export const buildHarnessPackageHandlers = (
           ...(providers.value !== undefined ? { providers: providers.value } : {}),
         }),
       );
+    },
+
+    listBindingSets: async (
+      input?: HarnessBindingSetListInput,
+    ): Promise<HarnessResult<HarnessBindingSet[]>> => {
+      const parsed = parseBindingSetListInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      return wrap(() => harnessPackages.listBindingSets(parsed.value));
+    },
+
+    getBindingSet: async (input: {
+      bindingSetId: string;
+    }): Promise<HarnessResult<HarnessBindingSet>> => {
+      const id = requiredString(input, "bindingSetId");
+      if (!id.ok) return err(harnessError(STATE_INVALID_INPUT, id.reason));
+      const found = await harnessPackages.getBindingSet(id.value);
+      if (!found) {
+        return err(
+          harnessError(
+            HARNESS_BINDING_SET_NOT_FOUND,
+            `unknown harness binding set: ${id.value}`,
+          ),
+        );
+      }
+      return ok(found);
+    },
+
+    saveBindingSet: async (input: {
+      bindingSet: CreateHarnessBindingSetInput | HarnessBindingSet;
+    }): Promise<HarnessResult<HarnessBindingSet>> => {
+      const parsed = parseBindingSetInput(input);
+      if (!parsed.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, parsed.reason));
+      }
+      const found = await harnessPackages.getPackage(parsed.value.packageId);
+      if (!found) {
+        return err(
+          harnessError(
+            HARNESS_PACKAGE_NOT_FOUND,
+            `unknown harness package: ${parsed.value.packageId}`,
+          ),
+        );
+      }
+      return wrap(() => harnessPackages.saveBindingSet(parsed.value));
+    },
+
+    removeBindingSet: async (input: {
+      bindingSetId: string;
+    }): Promise<HarnessResult<void>> => {
+      const id = requiredString(input, "bindingSetId");
+      if (!id.ok) return err(harnessError(STATE_INVALID_INPUT, id.reason));
+      return wrap(async () => {
+        await harnessPackages.removeBindingSet(id.value);
+      });
     },
 
     remove: async (input: {

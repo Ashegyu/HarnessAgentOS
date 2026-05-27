@@ -8,6 +8,7 @@ import {
   closeDb,
   LocalStateService,
 } from "../../../packages/storage/src/index.ts";
+import { importHarnessPackageFromFiles } from "./harness-import.ts";
 import { OrchestrationPlanner } from "./orchestration-planner.ts";
 
 const tmp = () => {
@@ -70,6 +71,51 @@ const validEndpointInput = (overrides = {}) => ({
   trusted: true,
   ...overrides,
 });
+
+const sampleDefinition = () => {
+  const result = importHarnessPackageFromFiles({
+    rootDir: "C:/sample/youtube-production",
+    importedAt: "2026-05-27T00:00:00.000Z",
+    files: [
+      { relativePath: ".claude/CLAUDE.md", content: "# YouTube Production" },
+      {
+        relativePath: ".claude/agents/content-strategist.md",
+        content: "---\nname: content-strategist\ndescription: Strategy.\n---",
+      },
+      {
+        relativePath: ".claude/agents/scriptwriter.md",
+        content: "---\nname: scriptwriter\ndescription: Script.\n---",
+      },
+      {
+        relativePath: ".claude/agents/production-reviewer.md",
+        content: "---\nname: production-reviewer\ndescription: Review.\n---",
+      },
+      {
+        relativePath: ".claude/skills/youtube-production/skill.md",
+        content: [
+          "---",
+          "name: youtube-production",
+          "description: YouTube production workflow.",
+          "---",
+          "",
+          "## Execution Mode",
+          "",
+          "**Agent Team**",
+          "",
+          "## Workflow",
+          "",
+          "| Order | Task | Owner | Depends On | Deliverable |",
+          "|-------|------|-------|------------|-------------|",
+          "| 1 | Content strategy | strategist | None | `_workspace/brief.md` |",
+          "| 2 | Script writing | writer | Task 1 | `_workspace/script.md` |",
+          "| 3 | Production review | reviewer | Task 2 | `_workspace/review.md` |",
+        ].join("\n"),
+      },
+    ],
+  });
+  assert.equal(result.ok, true);
+  return result.definition;
+};
 
 test("draftPlan with mode falls back to hardcoded synthesizer (regression)", async () => {
   const t = tmp();
@@ -154,6 +200,91 @@ test("draftPlan with pipelineId synthesizes steps from the pipeline", async () =
       "Check for risks.",
     );
     assert.equal(drafted.plan.workerSteps[0].source, undefined);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("draftPlan with harness source synthesizes steps without saving an AgentPipeline", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const definition = sampleDefinition();
+    await state.harnessPackages.save(definition);
+    const strategist = await state.agentProfiles.create(
+      validProfileInput({ name: "Strategist", role: "planner" }),
+    );
+    const writer = await state.agentProfiles.create(
+      validProfileInput({ name: "Writer", role: "coder" }),
+    );
+    const reviewer = await state.agentProfiles.create(
+      validProfileInput({ name: "Reviewer", role: "reviewer" }),
+    );
+    const workflowId = definition.workflows[0].id;
+    const bindingSet = await state.harnessBindingSets.save({
+      packageId: definition.id,
+      workflowId,
+      name: "YouTube bindings",
+      bindings: [
+        {
+          harnessAgentRef: "content-strategist",
+          agentProfileId: strategist.id,
+        },
+        {
+          harnessAgentRef: "scriptwriter",
+          agentProfileId: writer.id,
+        },
+        {
+          harnessAgentRef: "production-reviewer",
+          agentProfileId: reviewer.id,
+        },
+      ],
+    });
+    const pipelineCountBefore = (await state.agentPipelines.list()).length;
+    const planner = new OrchestrationPlanner({ state });
+
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      harness: {
+        packageId: definition.id,
+        workflowId,
+        bindingSetId: bindingSet.id,
+      },
+    });
+
+    assert.equal((await state.agentPipelines.list()).length, pipelineCountBefore);
+    assert.equal(drafted.plan.workerSteps.length, 3);
+    assert.equal(drafted.plan.workerSteps[0].agentProfileId, strategist.id);
+    assert.equal(drafted.plan.workerSteps[1].agentProfileId, writer.id);
+    assert.equal(drafted.plan.workerSteps[2].agentProfileId, reviewer.id);
+    assert.equal(drafted.plan.sourcePipelineId, undefined);
+    assert.deepEqual(drafted.plan.sourceHarness, {
+      packageId: definition.id,
+      packageName: definition.name,
+      workflowId,
+      workflowName: definition.workflows[0].name,
+      bindingSetId: bindingSet.id,
+      bindingSetName: bindingSet.name,
+    });
+    assert.deepEqual(drafted.plan.workerSteps[0].source, {
+      kind: "harness_package",
+      packageId: definition.id,
+      packageName: definition.name,
+      sourceFormat: "claude",
+      workflowId,
+      workflowName: definition.workflows[0].name,
+      stepId: "step-1",
+      sourceRef: {
+        relativePath: ".claude/skills/youtube-production/skill.md",
+        heading: "Workflow",
+      },
+    });
+    assert.match(drafted.artifact.summary, /source harness: YouTube Production/);
+    assert.match(drafted.artifact.summary, /binding set: YouTube bindings/);
   } finally {
     closeDb(db);
     t.cleanup();

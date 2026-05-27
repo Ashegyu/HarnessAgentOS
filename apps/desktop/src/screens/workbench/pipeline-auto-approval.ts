@@ -4,7 +4,8 @@ import type {
   AutoApproveDecision,
 } from "@harness/core";
 
-const SOURCE_PIPELINE_RE = /"sourcePipelineId"\s*:\s*"[^"]+"/;
+const SOURCE_ORCHESTRATION_PICK_RE =
+  /"sourcePipelineId"\s*:\s*"[^"]+"|"sourceHarness"\s*:/;
 
 export const hasPipelineSourcePlanArtifact = (
   artifacts: readonly Pick<Artifact, "kind" | "summary">[],
@@ -12,7 +13,7 @@ export const hasPipelineSourcePlanArtifact = (
   artifacts.some(
     (artifact) =>
       artifact.kind === "orchestration_plan" &&
-      SOURCE_PIPELINE_RE.test(artifact.summary ?? ""),
+      SOURCE_ORCHESTRATION_PICK_RE.test(artifact.summary ?? ""),
   );
 
 export const pipelineAutoApproveDecision = (
@@ -29,6 +30,6 @@ export const pipelineAutoApproveDecision = (
     approved: true,
     decidedAt: "global_toggle",
     reason:
-      "Pipeline task was pre-approved by explicit pipeline selection; active profile block lists do not apply to pipeline worker approvals.",
+      "Orchestration task was pre-approved by explicit pipeline or harness selection; active profile block lists do not apply to worker approvals.",
   };
 };

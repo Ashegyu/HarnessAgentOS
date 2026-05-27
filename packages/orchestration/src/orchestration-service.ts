@@ -237,6 +237,9 @@ export class OrchestrationService {
       ...(plan.sourcePipelineId !== undefined
         ? { sourcePipelineId: plan.sourcePipelineId }
         : {}),
+      ...(plan.sourceHarness !== undefined
+        ? { sourceHarness: plan.sourceHarness }
+        : {}),
       ...(plan.backflowRules !== undefined
         ? { backflowRules: plan.backflowRules }
         : {}),
@@ -288,6 +291,9 @@ export class OrchestrationService {
       ...(parsed.sourcePipelineId !== undefined
         ? { sourcePipelineId: parsed.sourcePipelineId }
         : {}),
+      ...(parsed.sourceHarness !== undefined
+        ? { sourceHarness: parsed.sourceHarness }
+        : {}),
       ...(parsed.backflowRules !== undefined
         ? { backflowRules: parsed.backflowRules }
         : {}),
@@ -313,6 +319,7 @@ const parseEmbeddedPlanJson = (
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
       sourcePipelineId?: string;
+      sourceHarness?: OrchestrationPlan["sourceHarness"];
       backflowRules?: OrchestrationPlan["backflowRules"];
     }
   | null => {
@@ -324,6 +331,7 @@ const parseEmbeddedPlanJson = (
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
       sourcePipelineId?: unknown;
+      sourceHarness?: unknown;
       backflowRules?: unknown;
     };
     if (!parsed || !parsed.id || !parsed.mode || !Array.isArray(parsed.workerSteps))
@@ -339,6 +347,7 @@ const parseEmbeddedPlanJson = (
       mode: OrchestrationPlan["mode"];
       workerSteps: OrchestrationPlan["workerSteps"];
       sourcePipelineId?: string;
+      sourceHarness?: OrchestrationPlan["sourceHarness"];
       backflowRules?: OrchestrationPlan["backflowRules"];
     } = {
       id: parsed.id,
@@ -351,6 +360,9 @@ const parseEmbeddedPlanJson = (
     ) {
       out.sourcePipelineId = parsed.sourcePipelineId;
     }
+    if (isSourceHarnessMetadata(parsed.sourceHarness)) {
+      out.sourceHarness = parsed.sourceHarness;
+    }
     if (Array.isArray(parsed.backflowRules)) {
       out.backflowRules = parsed.backflowRules as OrchestrationPlan["backflowRules"];
     }
@@ -358,4 +370,27 @@ const parseEmbeddedPlanJson = (
   } catch {
     return null;
   }
+};
+
+const isSourceHarnessMetadata = (
+  value: unknown,
+): value is OrchestrationPlan["sourceHarness"] => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.packageId === "string" &&
+    record.packageId.length > 0 &&
+    typeof record.packageName === "string" &&
+    record.packageName.length > 0 &&
+    typeof record.workflowId === "string" &&
+    record.workflowId.length > 0 &&
+    typeof record.workflowName === "string" &&
+    record.workflowName.length > 0 &&
+    typeof record.bindingSetId === "string" &&
+    record.bindingSetId.length > 0 &&
+    typeof record.bindingSetName === "string" &&
+    record.bindingSetName.length > 0
+  );
 };

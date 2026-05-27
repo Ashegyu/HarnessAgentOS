@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 34;
+export const SCHEMA_VERSION = 35;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -291,6 +291,23 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_packages_format_status
     ON harness_packages(source_format, validation_status, updated_at DESC)`,
+
+  // v35 — reusable bindings from imported harness agents/roles to concrete
+  // AgentProfiles. Direct harness orchestration reads these rows at question
+  // time and does not need to create an AgentPipeline template.
+  `CREATE TABLE IF NOT EXISTS harness_binding_sets (
+    id TEXT PRIMARY KEY,
+    package_id TEXT NOT NULL CHECK(length(package_id) > 0),
+    workflow_id TEXT NOT NULL CHECK(length(workflow_id) > 0),
+    name TEXT NOT NULL CHECK(length(name) > 0),
+    bindings_json TEXT NOT NULL CHECK(json_valid(bindings_json) AND json_type(bindings_json) = 'array'),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY(package_id) REFERENCES harness_packages(id) ON DELETE CASCADE,
+    UNIQUE(package_id, workflow_id, name)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_binding_sets_package_workflow
+    ON harness_binding_sets(package_id, workflow_id, updated_at DESC)`,
 
   // v10 — encrypted secret vault. Each row holds an opaque BLOB produced
   // by Electron's safeStorage; plaintext lives only in the main process

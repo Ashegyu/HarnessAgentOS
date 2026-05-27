@@ -21,6 +21,7 @@ const PREFIXES = {
   agentProfile: "ap_",
   mcpServer: "mcp_",
   skillSource: "ss_",
+  harnessBindingSet: "hbs_",
   agentPipeline: "pipe_",
   pipelineBackflow: "pbf_",
   pipelineBackflowEvent: "pbfe_",

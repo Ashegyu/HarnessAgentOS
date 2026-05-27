@@ -92,9 +92,11 @@ interface OrchestrationPlan {
   sourcePipelineId?: string;
   sourceHarness?: {
     packageId: string;
-    workflowId: string;
     packageName: string;
+    workflowId: string;
     workflowName: string;
+    bindingSetId: string;
+    bindingSetName: string;
   };
 }
 ```
@@ -221,10 +223,8 @@ still goes through the same `WorkerRunner`.
 Required checks:
 
 ```powershell
-node --import tsx --test packages/orchestration/src/orchestration-planner.test.mjs
-node --import tsx --test packages/storage/src/repositories/harness-binding-set-repository.test.mjs
-node --import tsx --test apps/desktop/electron/ipc/orchestration-ipc.test.mjs
-node --import tsx --test apps/desktop/src/screens/workbench/ConversationInput.test.mjs
+node --import tsx --test --test-force-exit packages/storage/src/repositories/harness-binding-set-repository.test.mjs packages/storage/src/migrations.test.mjs packages/orchestration/src/orchestration-planner.test.mjs
+node --import tsx --test --test-force-exit packages/core/src/ipc-channels.test.mjs packages/core/src/ipc-contracts-surface.test.mjs apps/desktop/electron/ipc/harness-package-ipc.test.mjs apps/desktop/electron/ipc/orchestration-ipc.test.mjs apps/desktop/src/screens/workbench/pipeline-auto-approval.test.mjs
 npm run check
 npm run test
 npm run build
@@ -251,3 +251,21 @@ Manual smoke:
   mapping.
 - Decision: persist binding sets before adding question-composer direct harness
   selection.
+
+## Implementation Notes
+
+Implemented in this slice:
+
+- `HarnessBindingSet` core/storage model and SQLite `harness_binding_sets`
+  table (`SCHEMA_VERSION = 35`).
+- `harnessPackages.listBindingSets/getBindingSet/saveBindingSet/removeBindingSet`
+  IPC surface.
+- `orchestration.draftPlan({ harness })` direct source.
+- Testable orchestration IPC handlers covering harness payload validation,
+  `pipelineId` mutual exclusion, and planner error propagation.
+- Shared pipeline-like synthesis for saved `AgentPipeline` rows and in-memory
+  harness workflow drafts.
+- Question composer direct Harness selector backed only by saved binding sets.
+- Harnesses tab `Save Binding Set` action after readiness checks.
+- Plan provenance via `OrchestrationPlan.sourceHarness` and per-step
+  `WorkerStep.source`.

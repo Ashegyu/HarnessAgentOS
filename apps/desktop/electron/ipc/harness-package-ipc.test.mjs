@@ -159,6 +159,84 @@ test("harnessPackages.previewPipelineDraft returns a review-only pipeline draft"
   }
 });
 
+test("harnessPackages binding set handlers persist direct orchestration routes", async () => {
+  const { db, t, state, handlers } = setup();
+  const root = dirTmp();
+  try {
+    await writeFixture(root, ".claude/CLAUDE.md", "# YouTube Production");
+    await writeFixture(
+      root,
+      ".claude/agents/content-strategist.md",
+      "---\nname: content-strategist\ndescription: Strategy.\n---",
+    );
+    await writeFixture(
+      root,
+      ".claude/skills/youtube-production/skill.md",
+      [
+        "---",
+        "name: youtube-production",
+        "description: YouTube production workflow.",
+        "---",
+        "",
+        "## Workflow",
+        "",
+        "| Order | Task | Owner | Depends On | Deliverable |",
+        "|-------|------|-------|------------|-------------|",
+        "| 1 | Content strategy | strategist | None | `_workspace/brief.md` |",
+      ].join("\n"),
+    );
+    const imported = await handlers.importDirectory({ rootDir: root });
+    assert.equal(imported.ok, true);
+    assert.equal(imported.value.ok, true);
+    const definition = imported.value.definition;
+    const workflowId = definition.workflows[0].id;
+    const profile = await state.agentProfiles.create(
+      agentProfileInput({
+        name: "Content Strategist",
+        role: "planner",
+      }),
+    );
+
+    const saved = await handlers.saveBindingSet({
+      bindingSet: {
+        packageId: definition.id,
+        workflowId,
+        name: "Default route",
+        bindings: [
+          {
+            harnessAgentRef: "content-strategist",
+            agentProfileId: profile.id,
+          },
+        ],
+      },
+    });
+
+    assert.equal(saved.ok, true);
+    assert.ok(saved.value.id.startsWith("hbs_"));
+    const listed = await handlers.listBindingSets({
+      packageId: definition.id,
+      workflowId,
+    });
+    assert.equal(listed.ok, true);
+    assert.deepEqual(listed.value, [saved.value]);
+    const loaded = await handlers.getBindingSet({
+      bindingSetId: saved.value.id,
+    });
+    assert.equal(loaded.ok, true);
+    assert.deepEqual(loaded.value, saved.value);
+
+    const removed = await handlers.removeBindingSet({
+      bindingSetId: saved.value.id,
+    });
+    assert.equal(removed.ok, true);
+    assert.deepEqual((await handlers.listBindingSets()).value, []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("harnessPackages.previewPipelineDraft forwards caller provider status into readiness", async () => {
   const { db, t, state, handlers } = setup();
   const root = dirTmp();

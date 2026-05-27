@@ -887,6 +887,48 @@ test("v34 migration allows repaired harness snapshots to share root_dir", () => 
   }
 });
 
+test("v35 migration creates harness binding set table", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    assert.equal(hasTable(db, "harness_binding_sets"), true);
+    for (const col of [
+      "id",
+      "package_id",
+      "workflow_id",
+      "name",
+      "bindings_json",
+      "created_at",
+      "updated_at",
+    ]) {
+      assert.equal(
+        hasColumn(db, "harness_binding_sets", col),
+        true,
+        `harness_binding_sets is missing column ${col}`,
+      );
+    }
+    assert.equal(
+      hasIndex(db, "idx_harness_binding_sets_package_workflow"),
+      true,
+    );
+    assert.throws(() =>
+      db
+        .prepare(
+          `INSERT INTO harness_binding_sets(
+             id, package_id, workflow_id, name, bindings_json, created_at, updated_at
+           ) VALUES(
+             'hbs_bad', '', 'wf', 'Bad', '[]',
+             '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+           )`,
+        )
+        .run(),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v20 migration adds profile taxonomy columns", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

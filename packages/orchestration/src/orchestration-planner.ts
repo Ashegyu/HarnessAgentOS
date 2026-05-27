@@ -1,9 +1,12 @@
 import { newId, type LocalStateService } from "@harness/storage";
 import type {
   AgentPipeline,
+  AgentPipelineBackflowRule,
+  AgentPipelineStep,
   AgentProfile,
   Approval,
   Artifact,
+  OrchestrationHarnessSourceMetadata,
   WorkerBackflowRule,
   WorkerOutputContract,
   WorkerRole,
@@ -20,6 +23,7 @@ import {
   validateWorkerTopology,
   validateWorkerStep,
 } from "./orchestration-policy.ts";
+import { convertHarnessWorkflowToPipelineDraft } from "./harness-pipeline-draft.ts";
 
 /**
  * Phase 7 planner. Drafts a deterministic OrchestrationPlan and stores
@@ -57,13 +61,23 @@ export class OrchestrationPlanner {
       );
     }
 
-    // pipelineId path takes precedence; otherwise fall back to the
-    // hardcoded mode-driven synthesizer. When pipelineId is set, the
-    // mode-vs-step-count constraints don't apply (the pipeline author
-    // chose the step count); each step's shape is still validated.
     let workerSteps: WorkerStep[];
     let backflowRules: WorkerBackflowRule[] = [];
-    if (input.pipelineId) {
+    let sourceHarness: OrchestrationHarnessSourceMetadata | undefined;
+    if (input.harness && input.pipelineId) {
+      throw new OrchestrationError(
+        "ORCH_INVALID_PLAN",
+        "draftPlan cannot use both pipelineId and harness source",
+      );
+    }
+    if (input.harness) {
+      const synthesized = await this.synthesizeFromHarness(input.harness);
+      workerSteps = synthesized.workerSteps;
+      backflowRules = synthesized.backflowRules;
+      sourceHarness = synthesized.sourceHarness;
+      for (const step of workerSteps) validateWorkerStep(step);
+      validateWorkerTopology(workerSteps);
+    } else if (input.pipelineId) {
       const synthesized = await this.synthesizeFromPipeline(input.pipelineId);
       workerSteps = synthesized.workerSteps;
       backflowRules = synthesized.backflowRules;
@@ -89,6 +103,7 @@ export class OrchestrationPlanner {
     const markdown = formatPlanSummary({
       mode: input.mode,
       workerSteps,
+      ...(sourceHarness !== undefined ? { sourceHarness } : {}),
       ...(backflowRules.length > 0 ? { backflowRules } : {}),
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
@@ -102,6 +117,7 @@ export class OrchestrationPlanner {
       ...(input.pipelineId !== undefined
         ? { sourcePipelineId: input.pipelineId }
         : {}),
+      ...(sourceHarness !== undefined ? { sourceHarness } : {}),
     });
     // Summary embeds both the human-readable markdown AND a fenced JSON
     // block so the worker-runner can recover the exact plan (including
@@ -157,6 +173,7 @@ export class OrchestrationPlanner {
       ...(input.pipelineId !== undefined
         ? { sourcePipelineId: input.pipelineId }
         : {}),
+      ...(sourceHarness !== undefined ? { sourceHarness } : {}),
       ...(backflowRules.length > 0 ? { backflowRules } : {}),
     };
     return { plan, artifact, approval };
@@ -183,17 +200,108 @@ export class OrchestrationPlanner {
         `AgentPipeline ${pipelineId} not found`,
       );
     }
+    return this.synthesizeFromPipelineLike({
+      name: pipeline.name,
+      steps: pipeline.steps,
+      backflowRules: pipeline.backflowRules ?? [],
+      profileMissingCode: "PIPELINE_REFERENCED_PROFILE_MISSING",
+      remoteMissingCode: "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
+      remoteUnavailableCode: "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
+      label: "AgentPipeline",
+    });
+  }
+
+  private async synthesizeFromHarness(
+    source: NonNullable<OrchestrationDraftInput["harness"]>,
+  ): Promise<{
+    workerSteps: WorkerStep[];
+    backflowRules: WorkerBackflowRule[];
+    sourceHarness: OrchestrationHarnessSourceMetadata;
+  }> {
+    const definition = await this.deps.state.harnessPackages.get(source.packageId);
+    if (!definition) {
+      throw new OrchestrationError(
+        "HARNESS_PACKAGE_NOT_FOUND",
+        `Harness package ${source.packageId} not found`,
+      );
+    }
+    const bindingSet = await this.deps.state.harnessBindingSets.get(
+      source.bindingSetId,
+    );
+    if (!bindingSet) {
+      throw new OrchestrationError(
+        "HARNESS_BINDING_SET_NOT_FOUND",
+        `Harness binding set ${source.bindingSetId} not found`,
+      );
+    }
+    const workflowId = source.workflowId ?? bindingSet.workflowId;
+    if (
+      bindingSet.packageId !== definition.id ||
+      bindingSet.workflowId !== workflowId
+    ) {
+      throw new OrchestrationError(
+        "HARNESS_BINDING_SET_MISMATCH",
+        `Harness binding set ${bindingSet.id} does not match package ${definition.id} workflow ${workflowId}`,
+      );
+    }
+    const draft = convertHarnessWorkflowToPipelineDraft({
+      definition,
+      workflowId,
+      bindings: bindingSet.bindings,
+    });
+    if (!draft.ok) {
+      throw new OrchestrationError(
+        "HARNESS_DIRECT_DRAFT_INVALID",
+        draft.issues
+          .map((issue) => `${issue.code}: ${issue.message}`)
+          .join("; "),
+      );
+    }
+    const synthesized = await this.synthesizeFromPipelineLike({
+      name: draft.pipeline.name,
+      steps: draft.pipeline.steps,
+      backflowRules: draft.pipeline.backflowRules ?? [],
+      profileMissingCode: "HARNESS_BINDING_PROFILE_MISSING",
+      remoteMissingCode: "HARNESS_BINDING_REMOTE_ENDPOINT_MISSING",
+      remoteUnavailableCode: "HARNESS_BINDING_REMOTE_ENDPOINT_UNAVAILABLE",
+      label: "Harness package",
+    });
+    return {
+      ...synthesized,
+      sourceHarness: {
+        packageId: definition.id,
+        packageName: definition.name,
+        workflowId: draft.workflow.id,
+        workflowName: draft.workflow.name,
+        bindingSetId: bindingSet.id,
+        bindingSetName: bindingSet.name,
+      },
+    };
+  }
+
+  private async synthesizeFromPipelineLike(input: {
+    name: string;
+    steps: readonly AgentPipelineStep[];
+    backflowRules: readonly AgentPipelineBackflowRule[];
+    profileMissingCode: string;
+    remoteMissingCode: string;
+    remoteUnavailableCode: string;
+    label: string;
+  }): Promise<{
+    workerSteps: WorkerStep[];
+    backflowRules: WorkerBackflowRule[];
+  }> {
     const out: WorkerStep[] = [];
     const workerIdByPipelineStepId = new Map(
-      pipeline.steps.map((step) => [step.id, newId("step")] as const),
+      input.steps.map((step) => [step.id, newId("step")] as const),
     );
-    for (const [index, step] of pipeline.steps.entries()) {
+    for (const [index, step] of input.steps.entries()) {
       const profile: AgentProfile | null =
         await this.deps.state.agentProfiles.get(step.agentProfileId);
       if (!profile) {
         throw new OrchestrationError(
-          "PIPELINE_REFERENCED_PROFILE_MISSING",
-          `AgentPipeline ${pipeline.name} step "${step.title}" references missing profile ${step.agentProfileId}`,
+          input.profileMissingCode,
+          `${input.label} ${input.name} step "${step.title}" references missing profile ${step.agentProfileId}`,
         );
       }
       let remoteEndpointId: string | undefined;
@@ -203,14 +311,14 @@ export class OrchestrationPlanner {
         );
         if (!endpoint) {
           throw new OrchestrationError(
-            "PIPELINE_REFERENCED_REMOTE_ENDPOINT_MISSING",
-            `AgentPipeline ${pipeline.name} step "${step.title}" references missing remote endpoint ${step.remoteEndpointId}`,
+            input.remoteMissingCode,
+            `${input.label} ${input.name} step "${step.title}" references missing remote endpoint ${step.remoteEndpointId}`,
           );
         }
         if (!endpoint.enabled || !endpoint.trusted) {
           throw new OrchestrationError(
-            "PIPELINE_REMOTE_ENDPOINT_UNAVAILABLE",
-            `AgentPipeline ${pipeline.name} step "${step.title}" references unavailable remote endpoint ${step.remoteEndpointId}`,
+            input.remoteUnavailableCode,
+            `${input.label} ${input.name} step "${step.title}" references unavailable remote endpoint ${step.remoteEndpointId}`,
           );
         }
         remoteEndpointId = endpoint.id;
@@ -218,7 +326,7 @@ export class OrchestrationPlanner {
       const role = profile.role as WorkerRole;
       const workerStepId = workerIdByPipelineStepId.get(step.id)!;
       const defaultDependsOn =
-        index > 0 ? [pipeline.steps[index - 1]!.id] : [];
+        index > 0 ? [input.steps[index - 1]!.id] : [];
       const sourceDependsOn =
         step.dependsOn === undefined ? defaultDependsOn : step.dependsOn;
       const dependsOn = sourceDependsOn.map(
@@ -248,7 +356,7 @@ export class OrchestrationPlanner {
         ...(step.source !== undefined ? { source: step.source } : {}),
       });
     }
-    const backflowRules = (pipeline.backflowRules ?? []).map((rule) => ({
+    const backflowRules = input.backflowRules.map((rule) => ({
       ...rule,
       targetStepId: workerIdByPipelineStepId.get(rule.targetStepId)!,
       retryStepId: workerIdByPipelineStepId.get(rule.retryStepId)!,

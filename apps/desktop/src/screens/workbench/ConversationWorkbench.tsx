@@ -46,6 +46,14 @@ interface ConversationWorkbenchProps {
     targetDir?: string;
     mode: ConversationMode;
     followUpTaskRunId?: string;
+    orchMode?: import("@harness/core").OrchestrationMode;
+    orchInstruction?: string;
+    orchPipelineId?: string;
+    orchHarness?: {
+      packageId: string;
+      workflowId?: string;
+      bindingSetId: string;
+    };
   }) => Promise<void>;
   threadTargetDir: string | undefined;
   threadId: string | null;

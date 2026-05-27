@@ -26,6 +26,7 @@ import {
   type EvalRunListItem,
   type ExportApprovalResult,
   type HarnessDefinition,
+  type HarnessBindingSet,
   type HarnessPackageExportPreview,
   type HarnessPackageExportProposalResult,
   type HarnessSettings,
@@ -528,6 +529,27 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.harnessPackages.previewPipelineDraft,
         input,
       ),
+    listBindingSets: (input) =>
+      invokeUnwrapped<HarnessBindingSet[]>(
+        IPC_CHANNELS.harnessPackages.listBindingSets,
+        input ?? {},
+      ),
+    getBindingSet: (input) =>
+      invokeUnwrapped<HarnessBindingSet>(
+        IPC_CHANNELS.harnessPackages.getBindingSet,
+        input,
+      ),
+    saveBindingSet: (input) =>
+      invokeUnwrapped<HarnessBindingSet>(
+        IPC_CHANNELS.harnessPackages.saveBindingSet,
+        input,
+      ),
+    removeBindingSet: async (input) => {
+      await invokeUnwrapped<void>(
+        IPC_CHANNELS.harnessPackages.removeBindingSet,
+        input,
+      );
+    },
     remove: async (input) => {
       await invokeUnwrapped<void>(IPC_CHANNELS.harnessPackages.remove, input);
     },

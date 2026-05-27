@@ -138,6 +138,15 @@ export interface WorkerStep {
   source?: WorkerSourceMetadata;
 }
 
+export interface OrchestrationHarnessSourceMetadata {
+  packageId: string;
+  packageName: string;
+  workflowId: string;
+  workflowName: string;
+  bindingSetId: string;
+  bindingSetName: string;
+}
+
 export interface OrchestrationPlan {
   id: string;
   taskRunId: string;
@@ -151,6 +160,12 @@ export interface OrchestrationPlan {
    * NOT affect already-synthesized plans.
    */
   sourcePipelineId?: string;
+  /**
+   * If the plan was synthesized directly from an imported harness package
+   * plus a saved binding set, this preserves the source declaration and
+   * binding provenance. No AgentPipeline row is created for this path.
+   */
+  sourceHarness?: OrchestrationHarnessSourceMetadata;
   /**
    * Conditional runtime edges. These do not participate in the normal
    * dependsOn DAG cycle check; the runner uses them only after a failure

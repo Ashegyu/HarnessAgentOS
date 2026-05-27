@@ -1,4 +1,5 @@
 import type {
+  OrchestrationHarnessSourceMetadata,
   OrchestrationMode,
   WorkerBackflowRule,
   WorkerStep,
@@ -12,6 +13,7 @@ import type {
 export const formatPlanSummary = (input: {
   mode: OrchestrationMode;
   workerSteps: WorkerStep[];
+  sourceHarness?: OrchestrationHarnessSourceMetadata;
   backflowRules?: WorkerBackflowRule[];
   instruction?: string;
 }): string => {
@@ -22,6 +24,14 @@ export const formatPlanSummary = (input: {
   ];
   if (input.instruction) {
     lines.push("", `**Instruction**: ${input.instruction}`);
+  }
+  if (input.sourceHarness) {
+    lines.push(
+      "",
+      `source harness: ${input.sourceHarness.packageName}`,
+      `source workflow: ${input.sourceHarness.workflowName}`,
+      `binding set: ${input.sourceHarness.bindingSetName}`,
+    );
   }
   lines.push("", `## Steps`, "");
   input.workerSteps.forEach((step, idx) => {

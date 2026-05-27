@@ -1238,6 +1238,11 @@ orchestration.draftPlan(input: {
   mode: "single_worker" | "planner_worker" | "multi_worker";
   instruction?: string;
   pipelineId?: string;
+  harness?: {
+    packageId: string;
+    workflowId?: string;
+    bindingSetId: string;
+  };
 }): Promise<{
   plan: OrchestrationPlan;
   artifact: Artifact;
@@ -1257,6 +1262,7 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 - `ORCHESTRATION_INVALID_PLAN` — `mode`가 허용 enum이 아님
 - `ORCHESTRATION_TASK_NOT_FOUND` — taskRunId 미존재
 - `ORCHESTRATION_DIRECT_ACTION_BLOCKED` — worker가 approval 게이트를 우회하려 시도
+- `HARNESS_PACKAGE_NOT_FOUND` / `HARNESS_BINDING_SET_NOT_FOUND` / `HARNESS_BINDING_SET_MISMATCH` — direct harness source가 저장 snapshot 또는 binding set과 맞지 않음
 
 ## `window.harness.agent`
 
@@ -1660,6 +1666,15 @@ harnessPackages.previewPipelineDraft(input: {
   bindings: readonly HarnessAgentProfileBinding[];
   providers?: AgentProviderStatusMap;
 }): Promise<HarnessPipelineDraftPreviewResult>;
+harnessPackages.listBindingSets(input?: {
+  packageId?: string;
+  workflowId?: string;
+}): Promise<HarnessBindingSet[]>;
+harnessPackages.getBindingSet(input: { bindingSetId: string }): Promise<HarnessBindingSet>;
+harnessPackages.saveBindingSet(input: {
+  bindingSet: CreateHarnessBindingSetInput | HarnessBindingSet;
+}): Promise<HarnessBindingSet>;
+harnessPackages.removeBindingSet(input: { bindingSetId: string }): Promise<void>;
 harnessPackages.remove(input: { packageId: string }): Promise<void>;
 ```
 
@@ -1749,6 +1764,19 @@ interface HarnessPackageExportProposalResult {
   approvals: readonly Approval[];
   targetDir: string;
 }
+
+interface CreateHarnessBindingSetInput {
+  packageId: string;
+  workflowId: string;
+  name: string;
+  bindings: readonly HarnessAgentProfileBinding[];
+}
+
+interface HarnessBindingSet extends CreateHarnessBindingSetInput {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+}
 ```
 
 동작:
@@ -1765,6 +1793,8 @@ interface HarnessPackageExportProposalResult {
 - `previewPipelineDraft`는 저장된 snapshot과 명시적 AgentProfile binding만 사용해 `CreateAgentPipelineInput` 초안을 반환한다. pipeline row를 생성하지 않고 TaskRun, approval, runner를 만들지 않는다.
 - `previewPipelineDraft.providers`는 caller가 이미 조회한 provider readiness snapshot만 전달한다. 이 IPC handler는 provider probe를 새로 실행하지 않으며, 전달된 snapshot은 readiness warning 계산에만 사용한다.
 - `previewPipelineDraft`의 `ok=false`는 미바인딩 step, 누락 workflow처럼 사용자가 수정 가능한 변환 issue를 뜻한다. 알 수 없는 package id나 malformed input은 일반 IPC error로 반환한다.
+- `saveBindingSet`은 package/workflow별 AgentProfile binding 조합을 SQLite `harness_binding_sets`에 저장한다. 이 row는 질문 입력창에서 direct harness orchestration source로 선택할 수 있다.
+- 저장된 binding set을 `orchestration.draftPlan({ harness })`에 넘기면 planner는 `HarnessDefinition` snapshot과 binding set을 읽어 worker steps를 in-memory로 합성한다. `agent_pipelines` row는 생성하지 않는다.
 - `harnessPackages.run`, `harnessPackages.apply`, `harnessPackages.writeSource` 같은 직접 실행/source-write IPC는 없다.
 
 ## `window.harness.pipeline`

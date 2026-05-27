@@ -455,6 +455,24 @@ export interface HarnessAgentProfileBinding {
   remoteEndpointId?: string;
 }
 
+export interface CreateHarnessBindingSetInput {
+  packageId: string;
+  workflowId: string;
+  name: string;
+  bindings: readonly HarnessAgentProfileBinding[];
+}
+
+export interface HarnessBindingSet extends CreateHarnessBindingSetInput {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HarnessBindingSetListInput {
+  packageId?: string;
+  workflowId?: string;
+}
+
 export type HarnessPipelineDraftIssueCode =
   | "HARNESS_WORKFLOW_NOT_FOUND"
   | "HARNESS_WORKFLOW_TOO_LARGE"
@@ -930,6 +948,36 @@ export const isHarnessValidationResult = (
     isArrayOf(v.issues, isHarnessValidationIssue) &&
     isNonEmptyString(v.importedAt) &&
     isNonEmptyString(v.adapterVersion)
+  );
+};
+
+export const isHarnessAgentProfileBinding = (
+  v: unknown,
+): v is HarnessAgentProfileBinding => {
+  if (!isRecord(v)) return false;
+  if (!isNonEmptyString(v.harnessAgentRef)) return false;
+  if (!isNonEmptyString(v.agentProfileId)) return false;
+  if (
+    v.remoteEndpointId !== undefined &&
+    !isNonEmptyString(v.remoteEndpointId)
+  ) {
+    return false;
+  }
+  return true;
+};
+
+export const isHarnessBindingSet = (
+  v: unknown,
+): v is HarnessBindingSet => {
+  if (!isRecord(v)) return false;
+  return (
+    isNonEmptyString(v.id) &&
+    isNonEmptyString(v.packageId) &&
+    isNonEmptyString(v.workflowId) &&
+    isNonEmptyString(v.name) &&
+    isArrayOf(v.bindings, isHarnessAgentProfileBinding) &&
+    isNonEmptyString(v.createdAt) &&
+    isNonEmptyString(v.updatedAt)
   );
 };
 

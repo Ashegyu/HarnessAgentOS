@@ -713,6 +713,11 @@ export const WorkbenchShell = (): JSX.Element => {
       orchMode?: OrchestrationMode;
       orchInstruction?: string;
       orchPipelineId?: string;
+      orchHarness?: {
+        packageId: string;
+        workflowId?: string;
+        bindingSetId: string;
+      };
     }): Promise<void> => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
@@ -724,6 +729,11 @@ export const WorkbenchShell = (): JSX.Element => {
       // freely changes it for every submission.
       const usingPipeline =
         input.orchPipelineId !== undefined && input.orchPipelineId.length > 0;
+      const usingHarness =
+        input.orchHarness !== undefined &&
+        input.orchHarness.packageId.length > 0 &&
+        input.orchHarness.bindingSetId.length > 0;
+      const usingOrchestrationPick = usingPipeline || usingHarness;
       const payload: {
         threadId: string;
         userRequest: string;
@@ -749,7 +759,7 @@ export const WorkbenchShell = (): JSX.Element => {
       // plan 생성" button. Pre-marking lets RightPanel pass
       // `pipelineAutoLaunched` through to AgentPanel on the very
       // first render so the manual button never flashes.
-      if (usingPipeline) markPipelineAutoTaskRun(draft.taskRun.id);
+      if (usingOrchestrationPick) markPipelineAutoTaskRun(draft.taskRun.id);
       setSelectedTaskRunId(draft.taskRun.id);
       if (input.followUpTaskRunId !== undefined) {
         noteAgentProgress(
@@ -760,7 +770,7 @@ export const WorkbenchShell = (): JSX.Element => {
         );
       }
       let advisoryApprovalCount = 0;
-      if (input.mode === "agent" && !usingPipeline) {
+      if (input.mode === "agent" && !usingOrchestrationPick) {
         try {
           const capabilityCandidates =
             await window.harness.capability.proposeCandidates({
@@ -813,7 +823,7 @@ export const WorkbenchShell = (): JSX.Element => {
       // orchestration owns the response generation in that case.
       if (
         input.mode === "agent" &&
-        !usingPipeline &&
+        !usingOrchestrationPick &&
         advisoryApprovalCount === 0
       ) {
         noteAgentProgress(
@@ -839,10 +849,11 @@ export const WorkbenchShell = (): JSX.Element => {
           console.error("agent.generatePlan failed", e);
         }
       }
-      // Auto-draft orchestration plan when this message uses a
-      // pipeline OR the caller passed an explicit legacy orchMode
-      // (still possible from the side OrchestrationPanel).
-      const effectiveOrchMode: OrchestrationMode | undefined = usingPipeline
+      // Auto-draft orchestration plan when this message uses a pipeline,
+      // a saved direct-harness binding set, OR the caller passed an
+      // explicit legacy orchMode (still possible from the side
+      // OrchestrationPanel).
+      const effectiveOrchMode: OrchestrationMode | undefined = usingOrchestrationPick
         ? "single_worker"
         : input.orchMode;
       if (effectiveOrchMode) {
@@ -856,6 +867,7 @@ export const WorkbenchShell = (): JSX.Element => {
             ...(input.orchPipelineId
               ? { pipelineId: input.orchPipelineId }
               : {}),
+            ...(input.orchHarness ? { harness: input.orchHarness } : {}),
           });
           // Picking a pipeline from ConversationInput IS the user's
           // approval — they explicitly chose to run this pipeline for
@@ -873,7 +885,7 @@ export const WorkbenchShell = (): JSX.Element => {
           // executed". Always run for pipeline picks regardless of
           // global autoApprove: the user already opted in by selecting
           // a pipeline for this message.
-          if (usingPipeline) {
+          if (usingOrchestrationPick) {
             // The TaskRun was already marked pipeline-auto before
             // setSelectedTaskRunId (above) so AgentPanel could hide
             // the manual button on the very first render. Here we
@@ -889,7 +901,9 @@ export const WorkbenchShell = (): JSX.Element => {
                   approved: true,
                   decidedAt: "global_toggle",
                   reason:
-                    "Pipeline plan was pre-approved by explicit per-message pipeline selection.",
+                    usingPipeline
+                      ? "Pipeline plan was pre-approved by explicit per-message pipeline selection."
+                      : "Harness plan was pre-approved by explicit per-message harness selection.",
                 },
               });
               await window.harness.orchestration.runApproved({
@@ -915,14 +929,14 @@ export const WorkbenchShell = (): JSX.Element => {
                 e,
               );
               throw new Error(
-                `파이프라인 자동 실행 실패 (${drafted.approval.id.slice(0, 8)}…): ${message}`,
+                `${usingPipeline ? "파이프라인" : "Harness"} 자동 실행 실패 (${drafted.approval.id.slice(0, 8)}…): ${message}`,
               );
             }
           }
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error("orchestration.draftPlan failed", e);
-          if (usingPipeline) throw e;
+          if (usingOrchestrationPick) throw e;
         }
       }
       await refreshThreadDetail(selectedThreadId);

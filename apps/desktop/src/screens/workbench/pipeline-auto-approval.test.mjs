@@ -27,12 +27,25 @@ test("hasPipelineSourcePlanArtifact detects persisted pipeline orchestration pla
   );
 });
 
+test("hasPipelineSourcePlanArtifact detects direct harness orchestration plans", () => {
+  assert.equal(
+    hasPipelineSourcePlanArtifact([
+      {
+        kind: "orchestration_plan",
+        summary:
+          'Plan\n\n```json\n{"id":"orch_1","sourceHarness":{"packageId":"harness_youtube","packageName":"YouTube","workflowId":"wf","workflowName":"Workflow","bindingSetId":"hbs_1","bindingSetName":"Default"}}\n```',
+      },
+    ]),
+    true,
+  );
+});
+
 test("pipelineAutoApproveDecision bypasses active profile blocks but not hard policy blocks", () => {
   assert.deepEqual(pipelineAutoApproveDecision({}), {
     approved: true,
     decidedAt: "global_toggle",
     reason:
-      "Pipeline task was pre-approved by explicit pipeline selection; active profile block lists do not apply to pipeline worker approvals.",
+      "Orchestration task was pre-approved by explicit pipeline or harness selection; active profile block lists do not apply to worker approvals.",
   });
 
   assert.deepEqual(

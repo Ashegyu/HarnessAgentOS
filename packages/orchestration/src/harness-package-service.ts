@@ -1,7 +1,10 @@
 import type {
   Approval,
   AgentProviderStatusMap,
+  CreateHarnessBindingSetInput,
   HarnessAgentProfileBinding,
+  HarnessBindingSet,
+  HarnessBindingSetListInput,
   HarnessBindingReadinessSummary,
   HarnessDefinition,
   HarnessPackageExportPreview,
@@ -65,6 +68,48 @@ export class HarnessPackageService {
 
   async getPackage(id: string): Promise<HarnessDefinition | null> {
     return this.deps.state.harnessPackages.get(id);
+  }
+
+  async listBindingSets(
+    input?: HarnessBindingSetListInput,
+  ): Promise<HarnessBindingSet[]> {
+    return this.deps.state.harnessBindingSets.list(input);
+  }
+
+  async getBindingSet(id: string): Promise<HarnessBindingSet | null> {
+    return this.deps.state.harnessBindingSets.get(id);
+  }
+
+  async saveBindingSet(
+    input: CreateHarnessBindingSetInput | HarnessBindingSet,
+  ): Promise<HarnessBindingSet> {
+    const found = await this.getPackage(input.packageId);
+    if (!found) {
+      throw new Error(`unknown harness package: ${input.packageId}`);
+    }
+    if (!found.workflows.some((workflow) => workflow.id === input.workflowId)) {
+      throw new Error(
+        `unknown harness workflow: ${input.packageId}/${input.workflowId}`,
+      );
+    }
+    const readiness = await this.assessBindingReadiness({
+      packageId: input.packageId,
+      workflowId: input.workflowId,
+      bindings: input.bindings,
+    });
+    if (!readiness.ok) {
+      throw new Error(
+        readiness.issues
+          .filter((issue) => issue.severity === "error")
+          .map((issue) => `${issue.code}: ${issue.message}`)
+          .join("; ") || "Harness binding set is not ready",
+      );
+    }
+    return this.deps.state.harnessBindingSets.save(input);
+  }
+
+  async removeBindingSet(id: string): Promise<void> {
+    await this.deps.state.harnessBindingSets.remove(id);
   }
 
   async removePackage(id: string): Promise<void> {

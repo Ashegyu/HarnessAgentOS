@@ -32,6 +32,22 @@ export const registerHarnessPackageIpc = (
     IPC_CHANNELS.harnessPackages.previewPipelineDraft,
     async (_e, input) => h.previewPipelineDraft(input),
   );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.listBindingSets,
+    async (_e, input) => h.listBindingSets(input),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.getBindingSet,
+    async (_e, input) => h.getBindingSet(input),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.saveBindingSet,
+    async (_e, input) => h.saveBindingSet(input),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.harnessPackages.removeBindingSet,
+    async (_e, input) => h.removeBindingSet(input),
+  );
   ipcMain.handle(IPC_CHANNELS.harnessPackages.remove, async (_e, input) =>
     h.remove(input),
   );

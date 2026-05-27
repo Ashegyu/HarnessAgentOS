@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from "react";
-import type { AgentPipeline, OrchestrationMode } from "@harness/core";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+} from "react";
+import type {
+  AgentPipeline,
+  HarnessBindingSet,
+  HarnessDefinition,
+  OrchestrationMode,
+} from "@harness/core";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 
 export type ConversationMode = "template" | "agent";
@@ -47,6 +58,11 @@ interface ConversationInputProps {
      * AgentPipeline instead of the hardcoded `orchMode` synthesizer.
      */
     orchPipelineId?: string;
+    orchHarness?: {
+      packageId: string;
+      workflowId?: string;
+      bindingSetId: string;
+    };
   }) => Promise<void>;
 }
 
@@ -75,6 +91,11 @@ export const ConversationInput = ({
   const [orchEnabled, setOrchEnabled] = useState(false);
   const [orchPipelineId, setOrchPipelineId] = useState<string>("");
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
+  const [orchHarnessKey, setOrchHarnessKey] = useState<string>("");
+  const [harnessPackages, setHarnessPackages] = useState<HarnessDefinition[]>([]);
+  const [harnessBindingSets, setHarnessBindingSets] = useState<
+    HarnessBindingSet[]
+  >([]);
 
   const refreshPipelines = useCallback(
     async (preferredId?: string): Promise<void> => {
@@ -101,6 +122,50 @@ export const ConversationInput = ({
     },
     [],
   );
+
+  const refreshHarnessRoutes = useCallback(async (): Promise<void> => {
+    try {
+      const [packages, bindingSets] = await Promise.all([
+        window.harness.harnessPackages.list(),
+        window.harness.harnessPackages.listBindingSets(),
+      ]);
+      setHarnessPackages(packages);
+      setHarnessBindingSets(bindingSets);
+      setOrchHarnessKey((prev) => {
+        if (
+          prev.length > 0 &&
+          bindingSets.some((bindingSet) => harnessRouteKey(bindingSet) === prev)
+        ) {
+          return prev;
+        }
+        return "";
+      });
+    } catch {
+      setHarnessPackages([]);
+      setHarnessBindingSets([]);
+      setOrchHarnessKey("");
+    }
+  }, []);
+
+  const harnessRouteOptions = useMemo(() => {
+    const packageById = new Map(harnessPackages.map((pkg) => [pkg.id, pkg]));
+    return harnessBindingSets
+      .map((bindingSet) => {
+        const pkg = packageById.get(bindingSet.packageId);
+        const workflow = pkg?.workflows.find(
+          (item) => item.id === bindingSet.workflowId,
+        );
+        if (!pkg || !workflow) return null;
+        return {
+          key: harnessRouteKey(bindingSet),
+          packageId: pkg.id,
+          workflowId: workflow.id,
+          bindingSetId: bindingSet.id,
+          label: `${pkg.name} / ${workflow.name} / ${bindingSet.name}`,
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+  }, [harnessBindingSets, harnessPackages]);
 
   // Resolve the preferred initial pipeline:
   // 1. thread binding (the per-thread "remembered" choice) — wins
@@ -130,8 +195,9 @@ export const ConversationInput = ({
         // Settings unavailable — orch picker stays hidden.
       }
       await refreshPipelines(computePreferredId(settingsDefault));
+      await refreshHarnessRoutes();
     })();
-  }, [refreshPipelines, computePreferredId]);
+  }, [refreshPipelines, refreshHarnessRoutes, computePreferredId]);
 
   // Whenever the user switches to a different thread that carries its
   // own pipelineId, re-seed the dropdown to that thread's remembered
@@ -179,6 +245,11 @@ export const ConversationInput = ({
         orchMode?: OrchestrationMode;
         orchInstruction?: string;
         orchPipelineId?: string;
+        orchHarness?: {
+          packageId: string;
+          workflowId?: string;
+          bindingSetId: string;
+        };
       } = {
         userRequest: text.trim(),
         mode,
@@ -193,6 +264,18 @@ export const ConversationInput = ({
       // and the regular agent flow runs.
       if (orchEnabled && orchPipelineId.length > 0) {
         payload.orchPipelineId = orchPipelineId;
+      }
+      if (orchEnabled && orchHarnessKey.length > 0) {
+        const option = harnessRouteOptions.find(
+          (item) => item.key === orchHarnessKey,
+        );
+        if (option) {
+          payload.orchHarness = {
+            packageId: option.packageId,
+            workflowId: option.workflowId,
+            bindingSetId: option.bindingSetId,
+          };
+        }
       }
       await onSubmit(payload);
       setText("");
@@ -271,7 +354,10 @@ export const ConversationInput = ({
           <select
             className="conversation-input__pipeline-select"
             value={orchPipelineId}
-            onChange={(e) => setOrchPipelineId(e.target.value)}
+            onChange={(e) => {
+              setOrchPipelineId(e.target.value);
+              if (e.target.value.length > 0) setOrchHarnessKey("");
+            }}
             onFocus={() => void refreshPipelines()}
             disabled={submitting}
           >
@@ -287,6 +373,31 @@ export const ConversationInput = ({
               스레드 기본값
             </span>
           )}
+        </label>
+      )}
+      {orchEnabled && harnessRouteOptions.length > 0 && (
+        <label
+          className="conversation-input__pipeline"
+          title="저장된 Harness binding set으로 이번 메시지를 직접 오케스트레이션합니다."
+        >
+          <span className="conversation-input__pipeline-label">Harness</span>
+          <select
+            className="conversation-input__pipeline-select"
+            value={orchHarnessKey}
+            onChange={(e) => {
+              setOrchHarnessKey(e.target.value);
+              if (e.target.value.length > 0) setOrchPipelineId("");
+            }}
+            onFocus={() => void refreshHarnessRoutes()}
+            disabled={submitting}
+          >
+            <option value="">(없음)</option>
+            {harnessRouteOptions.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
       )}
       {followUpTaskRun ? (
@@ -340,3 +451,6 @@ export const ConversationInput = ({
     </div>
   );
 };
+
+const harnessRouteKey = (bindingSet: HarnessBindingSet): string =>
+  `${bindingSet.packageId}:${bindingSet.workflowId}:${bindingSet.id}`;

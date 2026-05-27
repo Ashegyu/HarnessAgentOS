@@ -31,6 +31,9 @@ import type {
   HarnessSettings,
   HarnessDefinition,
   HarnessAgentProfileBinding,
+  HarnessBindingSet,
+  CreateHarnessBindingSetInput,
+  HarnessBindingSetListInput,
   HarnessPackageExportPreview,
   HarnessPackageExportPreviewInput,
   HarnessPackageExportProposalInput,
@@ -336,6 +339,16 @@ export interface HarnessDesktopApi {
        * still stored on the plan row for audit).
        */
       pipelineId?: string;
+      /**
+       * Optional direct harness source. When supplied, orchestration uses
+       * the saved harness package plus binding set directly and does not
+       * create or require an AgentPipeline template.
+       */
+      harness?: {
+        packageId: string;
+        workflowId?: string;
+        bindingSetId: string;
+      };
     }): Promise<{
       plan: OrchestrationPlan;
       artifact: Artifact;
@@ -509,6 +522,12 @@ export interface HarnessDesktopApi {
       bindings: readonly HarnessAgentProfileBinding[];
       providers?: AgentProviderStatusMap;
     }): Promise<HarnessPipelineDraftPreviewResult>;
+    listBindingSets(input?: HarnessBindingSetListInput): Promise<HarnessBindingSet[]>;
+    getBindingSet(input: { bindingSetId: string }): Promise<HarnessBindingSet>;
+    saveBindingSet(input: {
+      bindingSet: CreateHarnessBindingSetInput | HarnessBindingSet;
+    }): Promise<HarnessBindingSet>;
+    removeBindingSet(input: { bindingSetId: string }): Promise<void>;
     remove(input: { packageId: string }): Promise<void>;
   };
   remoteAgents: {

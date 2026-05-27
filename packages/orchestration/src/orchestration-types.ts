@@ -29,6 +29,16 @@ export interface OrchestrationDraftInput {
    * affect step generation when `pipelineId` is supplied.
    */
   pipelineId?: string;
+  /**
+   * Direct harness source. When supplied, the planner reads the saved
+   * HarnessDefinition snapshot and HarnessBindingSet, converts the workflow
+   * to worker steps in memory, and does not persist an AgentPipeline row.
+   */
+  harness?: {
+    packageId: string;
+    workflowId?: string;
+    bindingSetId: string;
+  };
 }
 
 export interface OrchestrationApprovalInput {

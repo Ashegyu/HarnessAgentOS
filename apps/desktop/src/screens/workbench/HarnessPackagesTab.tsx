@@ -4,6 +4,7 @@ import type {
   AgentProviderStatusMap,
   Capability,
   HarnessAgentProfileBinding,
+  HarnessBindingSet,
   HarnessDefinition,
   HarnessPackageExportProposalResult,
   HarnessPackageExportPreview,
@@ -86,6 +87,8 @@ export const HarnessPackagesTab = (): JSX.Element => {
     null,
   );
   const [bindings, setBindings] = useState<Record<string, string>>({});
+  const [bindingSets, setBindingSets] = useState<HarnessBindingSet[]>([]);
+  const [bindingSetName, setBindingSetName] = useState("");
   const [preview, setPreview] =
     useState<HarnessPipelineDraftPreviewResult | null>(null);
   const [exportTarget, setExportTarget] =
@@ -140,6 +143,15 @@ export const HarnessPackagesTab = (): JSX.Element => {
     }
   }, []);
 
+  const refreshBindingSets = useCallback(async () => {
+    try {
+      const sets = await window.harness.harnessPackages.listBindingSets();
+      setBindingSets(sets);
+    } catch {
+      setBindingSets([]);
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -151,6 +163,10 @@ export const HarnessPackagesTab = (): JSX.Element => {
   useEffect(() => {
     void refreshReadiness();
   }, [refreshReadiness]);
+
+  useEffect(() => {
+    void refreshBindingSets();
+  }, [refreshBindingSets]);
 
   useEffect(() => {
     if (list.kind !== "ready") return;
@@ -185,6 +201,15 @@ export const HarnessPackagesTab = (): JSX.Element => {
       null
     );
   }, [selectedPackage, selectedWorkflowId]);
+
+  const selectedBindingSets = useMemo(() => {
+    if (!selectedPackage || !selectedWorkflow) return [];
+    return bindingSets.filter(
+      (set) =>
+        set.packageId === selectedPackage.id &&
+        set.workflowId === selectedWorkflow.id,
+    );
+  }, [bindingSets, selectedPackage, selectedWorkflow]);
 
   const bindingCandidates = useMemo(
     () =>
@@ -258,6 +283,14 @@ export const HarnessPackagesTab = (): JSX.Element => {
     setRepairDraft(
       selectedWorkflow ? repairDraftFromWorkflow(selectedWorkflow) : null,
     );
+  }, [selectedPackage?.id, selectedWorkflow?.id]);
+
+  useEffect(() => {
+    if (!selectedPackage || !selectedWorkflow) {
+      setBindingSetName("");
+      return;
+    }
+    setBindingSetName(`${selectedPackage.name} / ${selectedWorkflow.name}`);
   }, [selectedPackage?.id, selectedWorkflow?.id]);
 
   const updateWorkflowSelection = (workflowId: string): void => {
@@ -347,6 +380,52 @@ export const HarnessPackagesTab = (): JSX.Element => {
           message: result.issues.map((issue) => issue.message).join(" "),
         });
       }
+    } catch (e) {
+      setNotice({ kind: "error", message: errorMessage(e) });
+    } finally {
+      setPreviewBusy(false);
+    }
+  };
+
+  const handleSaveBindingSet = async (): Promise<void> => {
+    if (!selectedPackage || !selectedWorkflow) return;
+    const name = bindingSetName.trim();
+    if (name.length === 0) {
+      setNotice({ kind: "warning", message: "Binding set name is required." });
+      return;
+    }
+    if ((bindingReadiness?.errorCount ?? 0) > 0) {
+      setNotice({
+        kind: "warning",
+        message: "Resolve binding errors before saving a direct harness route.",
+      });
+      return;
+    }
+    setPreviewBusy(true);
+    setNotice(null);
+    try {
+      const existing = selectedBindingSets.find(
+        (set) => set.name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      const saved = await window.harness.harnessPackages.saveBindingSet({
+        bindingSet: existing
+          ? {
+              ...existing,
+              name,
+              bindings: previewBindings(),
+            }
+          : {
+              packageId: selectedPackage.id,
+              workflowId: selectedWorkflow.id,
+              name,
+              bindings: previewBindings(),
+            },
+      });
+      await refreshBindingSets();
+      setNotice({
+        kind: "success",
+        message: `${saved.name} binding set saved for direct harness orchestration.`,
+      });
     } catch (e) {
       setNotice({ kind: "error", message: errorMessage(e) });
     } finally {
@@ -473,6 +552,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
         });
       }
       await refresh();
+      await refreshBindingSets();
     } catch (e) {
       setNotice({ kind: "error", message: errorMessage(e) });
     } finally {
@@ -496,6 +576,7 @@ export const HarnessPackagesTab = (): JSX.Element => {
       });
       setSelectedId(null);
       await refresh();
+      await refreshBindingSets();
     } catch (e) {
       setNotice({ kind: "error", message: errorMessage(e) });
     } finally {
@@ -787,6 +868,18 @@ export const HarnessPackagesTab = (): JSX.Element => {
                     <button
                       type="button"
                       className="btn btn--secondary btn--sm"
+                      onClick={() => void handleSaveBindingSet()}
+                      disabled={
+                        previewBusy ||
+                        selectedWorkflow === null ||
+                        (bindingReadiness?.errorCount ?? 0) > 0
+                      }
+                    >
+                      {previewBusy ? "Saving..." : "Save Binding Set"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--sm"
                       onClick={() => void handlePreviewPipelineDraft()}
                       disabled={
                         previewBusy ||
@@ -827,6 +920,17 @@ export const HarnessPackagesTab = (): JSX.Element => {
                       </select>
                     </label>
 
+                    <label className="harness-packages-tab__field">
+                      <span>Binding set</span>
+                      <input
+                        value={bindingSetName}
+                        onChange={(event) =>
+                          setBindingSetName(event.currentTarget.value)
+                        }
+                        placeholder="Question-time route name"
+                      />
+                    </label>
+
                     {selectedWorkflow && (
                       <dl className="harness-packages-tab__draft-metrics">
                         <div>
@@ -842,6 +946,20 @@ export const HarnessPackagesTab = (): JSX.Element => {
                           <dd>{selectedWorkflow.parseConfidence}</dd>
                         </div>
                       </dl>
+                    )}
+
+                    {selectedBindingSets.length > 0 && (
+                      <ul className="harness-packages-tab__compact-list">
+                        {selectedBindingSets.map((set) => (
+                          <li key={set.id}>
+                            <strong>{set.name}</strong>
+                            <span>
+                              {set.bindings.length} bindings ·{" "}
+                              {formatTimestamp(set.updatedAt)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
                     )}
 
                     {workflowStepRows.length > 0 && (
