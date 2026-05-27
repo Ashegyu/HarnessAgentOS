@@ -8,6 +8,7 @@ export * from "./harness-import.ts";
 export * from "./harness-directory-import.ts";
 export * from "./harness-package-service.ts";
 export * from "./harness-package-export.ts";
+export * from "./harness-binding-readiness.ts";
 export * from "./harness-pipeline-draft.ts";
 export * from "./orchestration-planner.ts";
 export * from "./worker-runner.ts";
