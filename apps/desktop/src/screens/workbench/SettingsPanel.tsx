@@ -14,6 +14,7 @@ import { FeatureGuideTab } from "./FeatureGuideTab";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 import type { FeatureHelpId } from "./feature-help";
 import { SkillSourcesTab } from "./SkillSourcesTab";
+import { HarnessPackagesTab } from "./HarnessPackagesTab";
 import { EvalsTab } from "./EvalsTab";
 import { BudgetOverviewTab } from "./BudgetOverviewTab";
 import { ActivityLogTab } from "./ActivityLogTab";
@@ -35,6 +36,7 @@ type SettingsTabId =
   | "evals"
   | "mcp"
   | "skills"
+  | "harnessPackages"
   | "secrets"
   | "budget"
   | "activityLog"
@@ -56,6 +58,7 @@ const TABS: readonly SettingsTabDef[] = [
   { id: "evals", label: "Evals" },
   { id: "mcp", label: "MCP" },
   { id: "skills", label: "Skills" },
+  { id: "harnessPackages", label: "Harnesses" },
   { id: "secrets", label: "Secrets" },
   { id: "budget", label: "Budget" },
   { id: "activityLog", label: "Activity" },
@@ -73,6 +76,7 @@ const TAB_HELP: Record<SettingsTabId, FeatureHelpId> = {
   evals: "settings",
   mcp: "mcpServers",
   skills: "skills",
+  harnessPackages: "pipelines",
   secrets: "secrets",
   budget: "budget",
   activityLog: "activityLog",
@@ -296,6 +300,12 @@ export const SettingsPanel = ({
         {activeTab === "skills" && (
           <div className="settings-dialog__body">
             <SkillSourcesTab />
+          </div>
+        )}
+
+        {activeTab === "harnessPackages" && (
+          <div className="settings-dialog__body settings-dialog__body--flush">
+            <HarnessPackagesTab />
           </div>
         )}
 
