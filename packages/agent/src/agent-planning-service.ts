@@ -21,6 +21,7 @@ import {
   type AgentProposedAction,
   type AgentProvider,
   type AgentProviderStatusMap,
+  type AgentSettings,
   type AgentStreamEvent,
   type Approval,
   type Artifact,
@@ -40,6 +41,7 @@ import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
+import { modelInvokerFromCliAdapter } from "./model-invoker-adapter.ts";
 import {
   normalizeModelForProvider,
   providerForModel,
@@ -54,6 +56,7 @@ import type {
   ModelCliAdapter,
   ModelCliRequest,
 } from "./model-cli-types.ts";
+import type { ModelInvoker } from "./model-invoker-types.ts";
 
 export class AgentPlanningError extends Error {
   readonly code: string;
@@ -70,6 +73,8 @@ export interface AgentPlanningServiceDeps {
   getProviderStatus: () => AgentProviderStatusMap | null;
   /** Override the CLI adapter for tests / fake runs. */
   adapter?: ModelCliAdapter;
+  /** Provider-neutral model invocation seam. Preferred over legacy adapter. */
+  modelInvoker?: ModelInvoker;
   /** Forwarded to renderer via events:agentStreamEvent (already redacted). */
   emitStreamEvent?: (event: AgentStreamEvent) => void;
   /**
@@ -166,13 +171,15 @@ export interface GeneratePlanResult {
  */
 export class AgentPlanningService {
   private readonly deps: AgentPlanningServiceDeps;
-  private readonly adapter: ModelCliAdapter;
+  private readonly invoker: ModelInvoker;
   private readonly queue: AgentInvocationQueue;
   private readonly defaults: { timeoutMs: number; stallTimeoutMs: number };
 
   constructor(deps: AgentPlanningServiceDeps) {
     this.deps = deps;
-    this.adapter = deps.adapter ?? new DefaultModelCliAdapter();
+    this.invoker =
+      deps.modelInvoker ??
+      modelInvokerFromCliAdapter(deps.adapter ?? new DefaultModelCliAdapter());
     this.queue = deps.queue ?? new AgentInvocationQueue();
     this.defaults = {
       timeoutMs: deps.defaults?.timeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS,
@@ -200,7 +207,6 @@ export class AgentPlanningService {
         `TaskRun ${input.taskRunId} not found`,
       );
     }
-
     // Mode invariant: agent mode TaskRuns sit in `drafting` until
     // generatePlan resolves; anything else means the caller is layering
     // an agent plan on top of a template plan (we reject to keep the
@@ -264,6 +270,7 @@ export class AgentPlanningService {
       }
     }
     const model = resolveModel(provider, modelHint);
+    const codexRuntime = codexRuntimeOptions(settings.agent);
     const agentStepName = formatStepAgentName(resolved.profile?.name);
     assertProviderSupportsProfileBoundaries(provider, resolved.profile);
 
@@ -307,6 +314,8 @@ export class AgentPlanningService {
       persona: resolved.persona,
       systemPromptPrefix: resolved.systemPromptPrefix,
       systemPromptSuffix: resolved.systemPromptSuffix,
+      directFileEdits:
+        provider === "codex" && codexRuntime.sandboxMode === "workspace-write",
       ...(resolved.profile
         ? {
             profileMetadata: {
@@ -457,6 +466,8 @@ export class AgentPlanningService {
         },
         sandbox: {
           primaryDir: taskRun.targetDir,
+          mode: codexRuntime.sandboxMode,
+          autoReview: codexRuntime.autoReview,
           enforceInPrompt: true,
         },
         ...(resolved.profile?.cli.cliPathOverride
@@ -491,7 +502,7 @@ export class AgentPlanningService {
           invocationId: invocation.id,
           work: (signal) => {
             emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
-            return this.adapter.invoke(
+            return this.invoker.invoke(
               request,
               emitCaptured,
               signal,
@@ -899,6 +910,7 @@ export class AgentPlanningService {
         `TaskRun ${input.taskRunId} not found`,
       );
     }
+    const settings = await this.deps.state.getSettings();
 
     const providers = this.deps.getProviderStatus();
     let provider: AgentProvider;
@@ -929,6 +941,7 @@ export class AgentPlanningService {
     }
     const tuning = input.profile.tuning;
     const model = resolveModel(provider, tuning.model);
+    const codexRuntime = codexRuntimeOptions(settings.agent);
     assertProviderSupportsProfileBoundaries(provider, input.profile);
 
     // Worker invocations are independent pipeline steps. They receive
@@ -964,6 +977,8 @@ export class AgentPlanningService {
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
+      directFileEdits:
+        provider === "codex" && codexRuntime.sandboxMode === "workspace-write",
       profileMetadata: {
         name: input.profile.name,
         role: input.profile.role,
@@ -1068,6 +1083,8 @@ export class AgentPlanningService {
         },
         sandbox: {
           primaryDir: taskRun.targetDir,
+          mode: codexRuntime.sandboxMode,
+          autoReview: codexRuntime.autoReview,
           enforceInPrompt: true,
         },
         ...(input.profile.cli.cliPathOverride
@@ -1086,7 +1103,7 @@ export class AgentPlanningService {
         laneKey: `worker:${invocation.id}`,
         work: (signal) => {
           emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
-          return this.adapter.invoke(
+          return this.invoker.invoke(
             request,
             emitCaptured,
             signal,
@@ -1386,6 +1403,12 @@ const toProposedActionDetails = (
       filePatch: { path: raw.path, after: raw.after },
     };
   }
+  if (raw.type === "file_patch") {
+    return {
+      type: "file_patch",
+      unifiedPatch: { path: raw.path, patch: raw.patch },
+    };
+  }
   if (raw.args !== undefined) {
     return { type: "shell", command: raw.command, args: raw.args };
   }
@@ -1398,6 +1421,14 @@ const resolveModel = (
 ): string => {
   return normalizeModelForProvider(provider, preferred);
 };
+
+const codexRuntimeOptions = (
+  settings: AgentSettings,
+): { sandboxMode: "read-only" | "workspace-write"; autoReview: boolean } => ({
+  sandboxMode:
+    settings.codexWorkspaceWrite === true ? "workspace-write" : "read-only",
+  autoReview: settings.codexAutoReview === true,
+});
 
 const formatStepAgentName = (name: string | undefined): string | null => {
   const normalized = name
@@ -1424,6 +1455,8 @@ const shortRationale = (a: AgentProposedAction): string => {
   const head =
     a.type === "file_write"
       ? `file_write ${a.path}`
+      : a.type === "file_patch"
+        ? `file_patch ${a.path}`
       : `shell ${a.command.slice(0, 80)}`;
   return `${head} — ${a.rationale.slice(0, 160)}`;
 };
@@ -1452,6 +1485,8 @@ const renderPlanMarkdown = (
   for (const a of plan.proposedActions) {
     if (a.type === "file_write") {
       lines.push(`- \`file_write\` \`${a.path}\` — ${a.rationale}`);
+    } else if (a.type === "file_patch") {
+      lines.push(`- \`file_patch\` \`${a.path}\` — ${a.rationale}`);
     } else {
       lines.push(`- \`shell\` \`${a.command}\` — ${a.rationale}`);
     }

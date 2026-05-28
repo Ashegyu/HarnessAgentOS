@@ -15,6 +15,16 @@ export interface AgentSettings {
   timeoutMs: number;
   stallTimeoutMs: number;
   contextDepth: number;
+  /**
+   * When true, Codex CLI invocations use `--sandbox workspace-write`
+   * instead of the default `read-only` sandbox.
+   */
+  codexWorkspaceWrite?: boolean;
+  /**
+   * When true, Codex CLI invocations enable auto review for provider
+   * approval requests.
+   */
+  codexAutoReview?: boolean;
 }
 
 export interface WorkerProfile {
@@ -52,8 +62,8 @@ export interface OrchestrationSettings {
 export interface ApprovalSettings {
   autoApprove: boolean;
   /**
-   * Narrow automation for worker-proposed `file_write` approvals only.
-   * This does not approve general file_write approvals or any shell /
+   * Narrow automation for worker-proposed `file_write`/`file_patch` approvals only.
+   * This does not approve general file_write/file_patch approvals or any shell /
    * network / git / orchestration actions. The renderer still honors the
    * active AgentProfile block list before approving and executing.
    */
@@ -81,6 +91,8 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
       timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
       stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 5,
+      codexWorkspaceWrite: false,
+      codexAutoReview: false,
     }),
     orchestration: Object.freeze({
       enabled: false,

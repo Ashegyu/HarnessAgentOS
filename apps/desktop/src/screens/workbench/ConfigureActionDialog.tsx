@@ -3,6 +3,7 @@ import type {
   Approval,
   ProposedActionDetails,
   ProposedFilePatch,
+  ProposedUnifiedPatch,
 } from "@harness/core";
 
 interface ConfigureActionDialogProps {
@@ -26,9 +27,12 @@ export const ConfigureActionDialog = ({
 }: ConfigureActionDialogProps): JSX.Element => {
   const existing = approval.proposedAction;
   const [command, setCommand] = useState(existing?.command ?? "");
-  const [path, setPath] = useState(existing?.filePatch?.path ?? "");
+  const [path, setPath] = useState(
+    existing?.filePatch?.path ?? existing?.unifiedPatch?.path ?? "",
+  );
   const [before, setBefore] = useState(existing?.filePatch?.before ?? "");
   const [after, setAfter] = useState(existing?.filePatch?.after ?? "");
+  const [patch, setPatch] = useState(existing?.unifiedPatch?.patch ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +58,20 @@ export const ConfigureActionDialog = ({
         };
         if (before.length > 0) filePatch.before = before;
         details.filePatch = filePatch;
+      } else if (approval.actionType === "file_patch") {
+        if (path.trim().length === 0) {
+          setError("대상 파일 경로를 입력하세요");
+          return;
+        }
+        if (patch.trim().length === 0) {
+          setError("unified diff patch를 입력하세요");
+          return;
+        }
+        const unifiedPatch: ProposedUnifiedPatch = {
+          path: path.trim(),
+          patch,
+        };
+        details.unifiedPatch = unifiedPatch;
       } else {
         setError(`${approval.actionType} 타입은 Phase 3 MVP에서 실행 불가`);
         return;
@@ -106,7 +124,8 @@ export const ConfigureActionDialog = ({
             </label>
           )}
 
-          {approval.actionType === "file_write" && (
+          {(approval.actionType === "file_write" ||
+            approval.actionType === "file_patch") && (
             <>
               <label className="modal__field">
                 <span>대상 파일 경로 (targetDir 기준)</span>
@@ -146,22 +165,36 @@ export const ConfigureActionDialog = ({
                   </button>
                 </div>
               </label>
-              <label className="modal__field">
-                <span>before (선택, 비교 baseline)</span>
-                <textarea
-                  value={before}
-                  onChange={(e) => setBefore(e.target.value)}
-                  rows={4}
-                />
-              </label>
-              <label className="modal__field">
-                <span>after (필수, 새 내용)</span>
-                <textarea
-                  value={after}
-                  onChange={(e) => setAfter(e.target.value)}
-                  rows={6}
-                />
-              </label>
+              {approval.actionType === "file_write" ? (
+                <>
+                  <label className="modal__field">
+                    <span>before (선택, 비교 baseline)</span>
+                    <textarea
+                      value={before}
+                      onChange={(e) => setBefore(e.target.value)}
+                      rows={4}
+                    />
+                  </label>
+                  <label className="modal__field">
+                    <span>after (필수, 전체 교체 본문)</span>
+                    <textarea
+                      value={after}
+                      onChange={(e) => setAfter(e.target.value)}
+                      rows={6}
+                    />
+                  </label>
+                </>
+              ) : (
+                <label className="modal__field">
+                  <span>patch (필수, single-file unified diff)</span>
+                  <textarea
+                    value={patch}
+                    onChange={(e) => setPatch(e.target.value)}
+                    placeholder={"--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1,1 +1,1 @@\n-old\n+new"}
+                    rows={10}
+                  />
+                </label>
+              )}
             </>
           )}
 

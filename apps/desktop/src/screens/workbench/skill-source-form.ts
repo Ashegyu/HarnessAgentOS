@@ -63,6 +63,7 @@ export const SKILL_AUTHOR_RISK_CHOICES: readonly CapabilityRiskLevel[] = [
 ];
 
 export const SKILL_AUTHOR_ACTION_CHOICES: readonly ApprovalActionType[] = [
+  "file_patch",
   "file_write",
   "shell",
   "network",

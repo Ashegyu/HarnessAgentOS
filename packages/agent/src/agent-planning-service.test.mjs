@@ -933,6 +933,8 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
+          codexWorkspaceWrite: true,
+          codexAutoReview: true,
         },
         orchestration: {
           enabled: false,
@@ -984,6 +986,9 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
   });
   assert.equal(createAgentInvocationInput?.profileId, profile.id);
   assert.equal(lastRequest.modelConfig.reasoningEffort, "xhigh");
+  assert.equal(lastRequest.sandbox.mode, "workspace-write");
+  assert.equal(lastRequest.sandbox.autoReview, true);
+  assert.match(lastRequest.systemPrompt, /workspace-write sandbox/);
   assert.deepEqual(lastRequest.codexConfigOverrides, codexConfigOverrides);
   assert.equal(lastRequest.mcpConfigPath, undefined);
   assert.equal(cleanupCalled, true);
@@ -1518,6 +1523,118 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.ok(persisted.some((event) => event.type === "result"));
 });
 
+test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
+  const taskRun = {
+    id: "tr-worker-invoker",
+    threadId: "th-worker-invoker",
+    userRequest: "original request",
+    targetDir: "/tmp/project",
+    status: "running",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const profile = workerProfile({
+    id: "ap-worker-invoker",
+    name: "Invoker Worker",
+    provider: "claude",
+  });
+  const invocation = {
+    id: "inv-worker-invoker",
+    taskRunId: taskRun.id,
+    provider: "claude",
+    model: "claude-sonnet-4-6",
+    status: "queued",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const planOutput = {
+    summary: "Use invoker",
+    assumptions: [],
+    steps: [{ title: "Answer", rationale: "test", risk: "low" }],
+    proposedActions: [],
+    suggestedQualityChecks: [],
+    questions: [],
+  };
+  let artifactSeq = 0;
+  let invokerCalled = false;
+  let legacyAdapterCalled = false;
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      getThread: async () => ({
+        id: taskRun.threadId,
+        title: "thread",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async (input) => ({
+        ...invocation,
+        stepId: input.stepId,
+        promptArtifactId: input.promptArtifactId,
+      }),
+      updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    modelInvoker: {
+      invoke: async (request, onEvent, signal) => {
+        invokerCalled = true;
+        assert.equal(signal instanceof AbortSignal, true);
+        onEvent({
+          type: "tool_call",
+          invocationId: request.invocationId,
+          taskRunId: request.taskRunId,
+          provider: request.modelConfig.provider,
+          source: "stdout",
+          phase: "started",
+          toolName: "Read",
+          toolCallId: "tool-1",
+          input: { file_path: "README.md" },
+        });
+        return {
+          provider: request.modelConfig.provider,
+          model: request.modelConfig.model,
+          exitCode: 0,
+          stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+          rawStdout: "raw output",
+          stderr: "",
+          normalizedEvents: [],
+          latencyMs: 12,
+        };
+      },
+    },
+    adapter: {
+      invoke: async () => {
+        legacyAdapterCalled = true;
+        throw new Error("legacy adapter must not run when modelInvoker is set");
+      },
+    },
+  });
+
+  const result = await svc.invokeForWorker({
+    taskRunId: taskRun.id,
+    profile,
+    stepId: "step-worker-invoker",
+    userRequest: "answer only",
+  });
+
+  assert.equal(invokerCalled, true);
+  assert.equal(legacyAdapterCalled, false);
+  assert.deepEqual(result.proposedActions ?? [], []);
+});
+
 test("invokeForWorker runs same-provider workers on independent lanes", async () => {
   const taskRun = {
     id: "tr-parallel-workers",
@@ -1556,6 +1673,24 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
         agentSessionId: "shared-claude-session",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      getSettings: async () => ({
+        agent: {
+          provider: "auto",
+          model: "",
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+          contextDepth: 5,
+          codexWorkspaceWrite: true,
+          codexAutoReview: true,
+        },
+        orchestration: {
+          enabled: false,
+          defaultMode: "single_worker",
+          defaultInstructions: "",
+          workerProfiles: [],
+        },
+        approval: { autoApprove: false },
       }),
       createArtifact: async (input) => ({
         id: `art-${++artifactSeq}`,
@@ -1624,11 +1759,27 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
     userRequest: "worker two",
   });
 
-  for (let i = 0; i < 8; i += 1) await Promise.resolve();
+  for (let i = 0; i < 32 && starts.length < 2; i += 1) {
+    await Promise.resolve();
+  }
   assert.equal(starts.length, 2, "same-provider workers should start together");
   assert.equal(requests.some((request) => request.sessionId !== undefined), false);
   assert.equal(
     requests.every((request) => request.modelConfig.reasoningEffort === "high"),
+    true,
+  );
+  assert.equal(
+    requests.every((request) => request.sandbox.mode === "workspace-write"),
+    true,
+  );
+  assert.equal(
+    requests.every((request) => request.sandbox.autoReview === true),
+    true,
+  );
+  assert.equal(
+    requests.every((request) =>
+      /workspace-write sandbox/.test(request.systemPrompt),
+    ),
     true,
   );
 

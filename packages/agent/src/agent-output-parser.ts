@@ -163,6 +163,35 @@ const validateProposedAction = (
   if (!isObject(value)) {
     return { ok: false, reason: `proposedActions[${index}] must be an object.` };
   }
+  if (value.type === "file_patch") {
+    if (typeof value.path !== "string" || value.path.length === 0) {
+      return {
+        ok: false,
+        reason: `proposedActions[${index}].path must be a non-empty string.`,
+      };
+    }
+    if (typeof value.patch !== "string" || value.patch.trim().length === 0) {
+      return {
+        ok: false,
+        reason: `proposedActions[${index}].patch must be a non-empty string.`,
+      };
+    }
+    if (typeof value.rationale !== "string") {
+      return {
+        ok: false,
+        reason: `proposedActions[${index}].rationale must be a string.`,
+      };
+    }
+    return {
+      ok: true,
+      action: {
+        type: "file_patch",
+        path: value.path,
+        patch: value.patch,
+        rationale: value.rationale,
+      },
+    };
+  }
   if (value.type === "file_write") {
     if (typeof value.path !== "string" || value.path.length === 0) {
       return {
@@ -220,6 +249,6 @@ const validateProposedAction = (
   }
   return {
     ok: false,
-    reason: `proposedActions[${index}].type must be 'file_write' or 'shell'.`,
+    reason: `proposedActions[${index}].type must be 'file_patch', 'file_write', or 'shell'.`,
   };
 };

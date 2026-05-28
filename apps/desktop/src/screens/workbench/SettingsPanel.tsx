@@ -98,6 +98,8 @@ type Action =
   | { type: "setTimeoutMs"; value: number }
   | { type: "setStallTimeoutMs"; value: number }
   | { type: "setContextDepth"; value: number }
+  | { type: "setCodexWorkspaceWrite"; value: boolean }
+  | { type: "setCodexAutoReview"; value: boolean }
   | { type: "setOrchestrationEnabled"; value: boolean }
   | { type: "setDefaultMode"; value: OrchestrationMode }
   | { type: "setDefaultInstructions"; value: string }
@@ -130,6 +132,12 @@ const reducer = (state: FormState, action: Action): FormState => {
   }
   if (action.type === "setContextDepth") {
     return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, contextDepth: action.value } } };
+  }
+  if (action.type === "setCodexWorkspaceWrite") {
+    return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, codexWorkspaceWrite: action.value } } };
+  }
+  if (action.type === "setCodexAutoReview") {
+    return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, codexAutoReview: action.value } } };
   }
   if (action.type === "setOrchestrationEnabled") {
     return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, enabled: action.value } } };
@@ -456,6 +464,48 @@ export const SettingsPanel = ({
                   늘리면 맥락은 풍부해지지만 prompt 토큰 비용이 같이 증가합니다.
                 </span>
               </label>
+
+              <label className="settings-field settings-field--checkbox">
+                <input
+                  type="checkbox"
+                  checked={state.draft.agent.codexWorkspaceWrite === true}
+                  disabled={state.saving}
+                  onChange={(e) =>
+                    dispatch({
+                      type: "setCodexWorkspaceWrite",
+                      value: e.target.checked,
+                    })
+                  }
+                />
+                <span className="settings-field__label">
+                  Codex workspace-write sandbox
+                </span>
+              </label>
+              <p className="settings-field__hint">
+                켜면 Codex CLI 호출에 <code>--sandbox workspace-write</code>를
+                사용합니다. 끄면 기존처럼 <code>read-only</code>로 실행합니다.
+              </p>
+
+              <label className="settings-field settings-field--checkbox">
+                <input
+                  type="checkbox"
+                  checked={state.draft.agent.codexAutoReview === true}
+                  disabled={state.saving}
+                  onChange={(e) =>
+                    dispatch({
+                      type: "setCodexAutoReview",
+                      value: e.target.checked,
+                    })
+                  }
+                />
+                <span className="settings-field__label">
+                  Codex approval 자동 검토
+                </span>
+              </label>
+              <p className="settings-field__hint">
+                켜면 Codex CLI 호출에 approval auto-review 설정을 추가하고
+                provider approval 요청을 <code>on-request</code>로 허용합니다.
+              </p>
             </fieldset>
 
             <fieldset className="settings-fieldset">
@@ -594,9 +644,9 @@ export const SettingsPanel = ({
                 </span>
               </label>
               <p className="settings-field__hint">
-                Worker가 제안한 file_write approval만 자동 처리합니다. 일반 file_write,
-                shell, network, git_commit, orchestration_plan은 포함하지 않으며 Agent
-                Profile의 Block 설정이 계속 우선합니다.
+                Worker가 제안한 file_write/file_patch approval만 자동 처리합니다. 일반
+                file_write/file_patch, shell, network, git_commit, orchestration_plan은
+                포함하지 않으며 Agent Profile의 Block 설정이 계속 우선합니다.
               </p>
             </fieldset>
 

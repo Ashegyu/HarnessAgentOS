@@ -5,6 +5,7 @@ import {
   type A2ARegistryEntry,
   type AgentProfile,
   type AgentProposedAction,
+  type Artifact,
   type Approval,
   type ProposedActionDetails,
   workerActionCheckpointSummary,
@@ -33,6 +34,7 @@ import {
 } from "./internal-agent-bus.ts";
 import {
   buildWorkerHandoffPayload,
+  parseWorkerHandoffPayload,
   WORKER_HANDOFF_FENCE,
 } from "./worker-handoff.ts";
 import { planWorkerWaves } from "./worker-wave-planner.ts";
@@ -44,7 +46,7 @@ import { buildEffectiveWorkerDependencyMap } from "./worker-step-dependencies.ts
  * tests inject a fake that returns canned text without touching the CLI.
  *
  * Phase 2 policy (a): side-effect-free worker. The implementation MUST
- * NOT execute file_write / shell / dependency_install / git_commit /
+ * NOT execute file_patch / file_write / shell / dependency_install / git_commit /
  * network actions directly. If the model output proposes such an
  * action, the implementation either ignores it or surfaces it as a
  * separate pending approval — never as a side-effect inside this call.
@@ -204,7 +206,33 @@ export class WorkerRunner {
     const proposedApprovalIds: string[] = [];
     let approvalStepOffset = 0;
     let unresolvedFailure = false;
+    let pausedForWorkerApprovals = false;
     const latestStatusByStepId = new Map<string, WorkerStep["status"]>();
+    const completedHandoffsByStepId =
+      await this.loadCompletedWorkerHandoffs(input.plan);
+    const completedPlanStepIds = new Set(completedHandoffsByStepId.keys());
+    for (const [stepId, handoff] of completedHandoffsByStepId) {
+      latestStatusByStepId.set(stepId, "succeeded");
+      handoffsByStepId.set(stepId, handoff);
+      handoffMessages.push(handoff);
+    }
+
+    const unresolvedPriorApprovalIds =
+      await this.listUnresolvedWorkerActionApprovalIdsForPlan(input.plan);
+    if (unresolvedPriorApprovalIds.length > 0) {
+      await this.deps.state.setTaskRunStatus(
+        input.plan.taskRunId,
+        "waiting_for_approval",
+      );
+      return {
+        planId: input.plan.id,
+        taskRunId: input.plan.taskRunId,
+        workerStepArtifactIds: [],
+        workerSteps: [],
+        proposedApprovalIds: unresolvedPriorApprovalIds,
+        needsContinuation: true,
+      };
+    }
 
     const processWorkerResultSideEffects = async (
       result: WorkerStepExecutionResult,
@@ -267,8 +295,12 @@ export class WorkerRunner {
     };
 
     for (const wave of executionWaves) {
+      const runnableSteps = wave.steps.filter(
+        (step) => !completedPlanStepIds.has(step.id),
+      );
+      if (runnableSteps.length === 0) continue;
       const preparedWave = await Promise.all(
-        wave.steps.map((planStep) =>
+        runnableSteps.map((planStep) =>
           this.prepareWorkerStep(
             planStep,
             executionIndexByStepId.get(planStep.id)!,
@@ -291,6 +323,9 @@ export class WorkerRunner {
         );
         for (const result of results) {
           if (await handleResult(result)) unresolvedFailure = true;
+          if (result.acceptedActions.length > 0 && result.status === "succeeded") {
+            pausedForWorkerApprovals = true;
+          }
         }
       } else {
         for (const prepared of preparedWave) {
@@ -300,9 +335,13 @@ export class WorkerRunner {
             unresolvedFailure = true;
             break;
           }
+          if (result.acceptedActions.length > 0 && result.status === "succeeded") {
+            pausedForWorkerApprovals = true;
+            break;
+          }
         }
       }
-      if (unresolvedFailure) break;
+      if (unresolvedFailure || pausedForWorkerApprovals) break;
     }
     if (policyReport.length > 0 && lastDbStepId !== null) {
       const policyArtifact = await this.deps.state.createArtifact({
@@ -325,6 +364,15 @@ export class WorkerRunner {
       taskRunId: input.plan.taskRunId,
       approvalIds: proposedApprovalIds,
     });
+    const completedAfterRun = new Set([
+      ...completedPlanStepIds,
+      ...updatedSteps
+        .filter((step) => step.status === "succeeded")
+        .map((step) => step.id),
+    ]);
+    const needsContinuation =
+      pausedForWorkerApprovals &&
+      input.plan.workerSteps.some((step) => !completedAfterRun.has(step.id));
     await this.deps.state.setTaskRunStatus(
       input.plan.taskRunId,
       lifecycleInterruption !== null
@@ -334,7 +382,7 @@ export class WorkerRunner {
               (step) => latestStatusByStepId.get(step.id) === "failed",
             )
           ? "blocked"
-          : hasUnresolvedWorkerApprovals
+          : pausedForWorkerApprovals || hasUnresolvedWorkerApprovals
             ? "waiting_for_approval"
             : "ready_for_review",
     );
@@ -345,6 +393,7 @@ export class WorkerRunner {
       workerStepArtifactIds: stepArtifactIds,
       workerSteps: updatedSteps,
       proposedApprovalIds,
+      ...(needsContinuation ? { needsContinuation: true } : {}),
     };
   }
 
@@ -848,6 +897,62 @@ export class WorkerRunner {
     );
   }
 
+  private async listUnresolvedWorkerActionApprovalIdsForPlan(
+    plan: OrchestrationPlan,
+  ): Promise<string[]> {
+    const [approvals, checkpoints] = await Promise.all([
+      this.deps.state.listApprovalsByTaskRun(plan.taskRunId),
+      this.deps.state.listCheckpointsByTaskRun(plan.taskRunId),
+    ]);
+    const checkpointPlanIds = new Map<string, string>();
+    for (const checkpoint of checkpoints) {
+      try {
+        const parsed = JSON.parse(checkpoint.stateRef) as {
+          orchestrationPlanId?: string;
+        };
+        if (typeof parsed.orchestrationPlanId === "string") {
+          checkpointPlanIds.set(checkpoint.id, parsed.orchestrationPlanId);
+        }
+      } catch {
+        // Non-orchestration checkpoints are ignored.
+      }
+    }
+    return approvals
+      .filter(
+        (approval) =>
+          checkpointPlanIds.get(approval.checkpointId) === plan.id &&
+          approval.actionType !== "orchestration_plan" &&
+          isUnresolvedApprovalStatus(approval.status),
+      )
+      .map((approval) => approval.id);
+  }
+
+  private async loadCompletedWorkerHandoffs(
+    plan: OrchestrationPlan,
+  ): Promise<Map<string, InternalAgentMessage>> {
+    const artifacts = await this.deps.state.listArtifactsByTaskRun(plan.taskRunId);
+    const handoffs = new Map<string, InternalAgentMessage>();
+    for (const step of plan.workerSteps) {
+      const artifact = latestWorkerArtifactForStep(artifacts, plan.id, step.id);
+      if (!artifact) continue;
+      handoffs.set(
+        step.id,
+        createInternalAgentMessage({
+          taskRunId: plan.taskRunId,
+          planId: plan.id,
+          fromStepId: step.id,
+          fromRole: step.role,
+          fromTitle: step.title,
+          content: artifact.summary ?? "",
+          artifactId: artifact.id,
+          now: () => artifact.createdAt,
+          createId: () => `handoff_${artifact.id}`,
+        }),
+      );
+    }
+    return handoffs;
+  }
+
   private async notifyTaskRunChanged(taskRunId: string): Promise<void> {
     await this.deps.onTaskRunChanged?.(taskRunId);
   }
@@ -859,7 +964,7 @@ export class WorkerRunner {
    *      CLI with the profile's persona/tuning and the step's full
    *      instruction. Capture the agent's text output as the worker
    *      artifact body. Side-effect-free per policy (a): the invoker
-   *      MUST NOT execute file_write/shell directly.
+   *      MUST NOT execute file_patch/file_write/shell directly.
    *
    *   2. Anything missing (no profile, no invoker, no instruction)
    *      falls back to the Phase 7 deterministic role body so the
@@ -1020,6 +1125,12 @@ export class WorkerRunner {
         body = lifecycleBody(outcome.lifecycle, body);
         status = "failed";
         proposedActions = [];
+      }
+      if (status === "succeeded") {
+        proposedActions = mergeProposedActions(
+          proposedActions,
+          extractStructuredHandoffProposedActions(body),
+        );
       }
     } catch (e) {
       body = e instanceof Error ? e.message : String(e);
@@ -1330,12 +1441,19 @@ const composeWorkerUserRequest = (input: {
     "WORKER OUTPUT CONTRACT",
     `outputContract: ${outputContract}`,
     `allowedActions: ${allowedActions}`,
+    "- A file_patch proposal is allowed only when allowedActions includes file_patch.",
+    "- file_patch.patch must be a single-file unified diff for the target file.",
+    "- Prefer file_patch for partial edits to existing files.",
     "- A file_write proposal is allowed only when allowedActions includes file_write.",
-    "- file_write.after must be the complete replacement content for the target file.",
+    "- Use file_write only for new files or complete file replacement; file_write.after must be the complete replacement content for the target file.",
     "- Do not put natural-language edit instructions inside file_write.after.",
+    "- Do not answer that direct modification is impossible when an allowed action can express the change.",
+    "- For requested code changes, emit proposedActions using the allowed action types so Harness can create approvals.",
+    "- A prose sentence such as \"I propose file_patch\" is not an approval; include the actual proposedActions entry with path, patch, and rationale.",
     "",
     "STRUCTURED HANDOFF CONTRACT",
-    `- End the response with at most one fenced JSON block tagged \`${WORKER_HANDOFF_FENCE}\`.`,
+    `- Optionally end the response with at most one fenced JSON block tagged \`${WORKER_HANDOFF_FENCE}\` for downstream worker context.`,
+    `- Harness accepts proposedActions from either \`harness_agent_plan\` or \`${WORKER_HANDOFF_FENCE}\`; do not leave proposedActions only in prose.`,
     "- This handoff block is for downstream Harness workers; it does not authorize side effects.",
     "- Keep producer.taskRunId/planId/stepId/artifactId as placeholders if unknown; Harness overwrites producer identity.",
     "- Required fields: schemaVersion, status, outputContract, producer, summary, evidence, findings, proposedActions, changedFiles, verification, risks, nextActions.",
@@ -1377,11 +1495,42 @@ const toProposedActionDetails = (
       },
     };
   }
+  if (raw.type === "file_patch") {
+    return {
+      type: "file_patch",
+      unifiedPatch: {
+        path: raw.path,
+        patch: raw.patch,
+      },
+    };
+  }
   return {
     type: "shell",
     command: raw.command,
     ...(raw.args !== undefined ? { args: raw.args } : {}),
   };
+};
+
+const extractStructuredHandoffProposedActions = (
+  output: string,
+): AgentProposedAction[] => {
+  const parsed = parseWorkerHandoffPayload(output);
+  return parsed.ok ? [...parsed.payload.proposedActions] : [];
+};
+
+const mergeProposedActions = (
+  primary: readonly AgentProposedAction[],
+  secondary: readonly AgentProposedAction[],
+): AgentProposedAction[] => {
+  const merged: AgentProposedAction[] = [];
+  const seen = new Set<string>();
+  for (const action of [...primary, ...secondary]) {
+    const key = JSON.stringify(action);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(action);
+  }
+  return merged;
 };
 
 const resolveHandoffsForStep = (
@@ -1402,6 +1551,27 @@ const shortRationale = (
   const head =
     action.type === "file_write"
       ? `file_write ${action.path}`
+      : action.type === "file_patch"
+        ? `file_patch ${action.path}`
       : `shell ${action.command.slice(0, 80)}`;
   return `${workerTitle}: ${head} — ${action.rationale.slice(0, 160)}`;
+};
+
+const isUnresolvedApprovalStatus = (status: Approval["status"]): boolean =>
+  status === "pending" ||
+  status === "approved" ||
+  status === "always_approved_for_run";
+
+const latestWorkerArtifactForStep = (
+  artifacts: readonly Artifact[],
+  planId: string,
+  stepId: string,
+): Artifact | null => {
+  const uri = `harness:orchestration/${planId}/${stepId}`;
+  return (
+    artifacts
+      .filter((artifact) => artifact.kind === "log" && artifact.uri === uri)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .at(-1) ?? null
+  );
 };

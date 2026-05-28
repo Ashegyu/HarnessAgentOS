@@ -127,14 +127,16 @@ export class OrchestrationService {
       await this.markTaskBlocked(approval.taskRunId);
       throw e;
     }
-    try {
-      await this.deps.state.decideApproval(
-        input.approvalId,
-        "executed",
-        `Worker ${result.workerSteps.length}개 완료 — Artifacts 탭에서 결과 확인`,
-      );
-    } catch {
-      // non-fatal: status update is best-effort
+    if (!result.needsContinuation) {
+      try {
+        await this.deps.state.decideApproval(
+          input.approvalId,
+          "executed",
+          `Worker ${result.workerSteps.length}개 완료 — Artifacts 탭에서 결과 확인`,
+        );
+      } catch {
+        // non-fatal: status update is best-effort
+      }
     }
     return result;
   }

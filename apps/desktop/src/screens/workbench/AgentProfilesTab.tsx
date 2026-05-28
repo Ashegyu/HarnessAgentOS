@@ -49,6 +49,7 @@ type ListState =
 const ACTION_LABELS: Record<ApprovalActionType, string> = {
   capability_use: "Skill 후보 사용",
   model_use: "Learner 모델 추천",
+  file_patch: "파일 패치",
   file_write: "파일 쓰기",
   shell: "쉘 명령",
   dependency_install: "의존성 설치",

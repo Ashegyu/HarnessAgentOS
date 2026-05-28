@@ -40,9 +40,9 @@ test("shouldAutoApprove returns false when global autoApprove is off and no prof
   assertDecision(r, false, "global_toggle");
 });
 
-test("shouldAutoApprove can auto-run only worker-proposed file writes", () => {
+test("shouldAutoApprove can auto-run only worker-proposed file actions", () => {
   const r = shouldAutoApprove({
-    approval: makeApproval("file_write"),
+    approval: makeApproval("file_patch"),
     globalAutoApprove: false,
     activeProfile: null,
     workerFileActionAutoApprove: true,
@@ -81,8 +81,8 @@ test("shouldAutoApprove worker file auto-run stays under profile block list", ()
   assertDecision(r, false, "blocked_action");
 });
 
-test("isWorkerFileActionApproval recognizes worker checkpoint file writes", () => {
-  const approval = makeApproval("file_write");
+test("isWorkerFileActionApproval recognizes worker checkpoint file actions", () => {
+  const approval = makeApproval("file_patch");
   assert.equal(
     isWorkerFileActionApproval({
       approval,

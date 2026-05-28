@@ -111,9 +111,10 @@ const summarizeStep = (step: AutoApproveStep, approval: Approval): string => {
       : "allowAutoApprove=true 또는 policyEvaluation 없음";
   }
   if (step === "worker_file_action") {
-    return approval.actionType === "file_write"
-      ? "worker file_write 자동 실행 후보"
-      : "file_write가 아니므로 worker file action 아님";
+    return approval.actionType === "file_patch" ||
+      approval.actionType === "file_write"
+      ? "worker file action 자동 실행 후보"
+      : "file_write/file_patch가 아니므로 worker file action 아님";
   }
   return "settings.approval.autoApprove fallback";
 };

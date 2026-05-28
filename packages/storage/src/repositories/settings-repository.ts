@@ -62,6 +62,14 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
   if (!agent.stallTimeoutMs || agent.stallTimeoutMs < d.stallTimeoutMs) {
     agent.stallTimeoutMs = d.stallTimeoutMs;
   }
+  agent.codexWorkspaceWrite =
+    typeof agent.codexWorkspaceWrite === "boolean"
+      ? agent.codexWorkspaceWrite
+      : false;
+  agent.codexAutoReview =
+    typeof agent.codexAutoReview === "boolean"
+      ? agent.codexAutoReview
+      : false;
   const so = s.orchestration as Partial<OrchestrationSettings> | null | undefined;
   const od = DEFAULT_HARNESS_SETTINGS.orchestration;
   const orchestration: OrchestrationSettings = {

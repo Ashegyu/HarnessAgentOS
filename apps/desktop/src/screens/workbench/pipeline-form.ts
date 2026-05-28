@@ -169,6 +169,7 @@ export interface RankedPipeline {
 }
 
 export const PIPELINE_WORKER_ACTION_CHOICES: readonly ApprovalActionType[] = [
+  "file_patch",
   "file_write",
   "shell",
 ];
@@ -878,6 +879,16 @@ const visualDependsOn = (
   return index > 0 ? [steps[index - 1]!.id] : [];
 };
 
+const isDefaultLinearDependsOn = (
+  steps: readonly PipelineStepDraft[],
+  index: number,
+  dependsOn: readonly string[] | null | undefined,
+): boolean => {
+  if (dependsOn === null || dependsOn === undefined) return true;
+  if (index === 0) return dependsOn.length === 0;
+  return dependsOn.length === 1 && dependsOn[0] === steps[index - 1]!.id;
+};
+
 const hasVisualDependencyPath = (
   steps: readonly PipelineStepDraft[],
   targetStepId: string,
@@ -1013,9 +1024,21 @@ export const connectPipelineDependency = (
   if (hasVisualDependencyPath(draft.steps, toStepId, fromStepId)) {
     return { draft, changed: false, reason: "cycle" };
   }
-  current.add(fromStepId);
+  const toStep = draft.steps[toIndex]!;
+  const startingDependencies = isDefaultLinearDependsOn(
+    draft.steps,
+    toIndex,
+    toStep.dependsOn,
+  )
+    ? []
+    : toStep.dependsOn ?? [];
   const steps = draft.steps.map((step, index) =>
-    index === toIndex ? { ...step, dependsOn: [...current] } : step,
+    index === toIndex
+      ? {
+          ...step,
+          dependsOn: [...new Set([...startingDependencies, fromStepId])],
+        }
+      : step,
   );
   return { draft: { ...draft, steps }, changed: true };
 };

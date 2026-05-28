@@ -116,7 +116,45 @@ test("createPreview supports new files inside shadow only", async () => {
   }
 });
 
-test("createPreview rejects non file_write approvals", async () => {
+test("createPreview applies file_patch inside shadow only", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, shadow } = await setup(t);
+    try {
+      writeFileSync(join(t.target, "hello.txt"), "old\nkeep\n", "utf8");
+      const draft = await conversation.createTask({
+        userRequest: "patch hello",
+        targetDir: t.target,
+      });
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_patch",
+        actionSummary: "Patch hello",
+        status: "pending",
+        proposedAction: {
+          type: "file_patch",
+          unifiedPatch: {
+            path: "hello.txt",
+            patch: "--- a/hello.txt\n+++ b/hello.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n keep\n",
+          },
+        },
+      });
+
+      const preview = await shadow.createPreview({ approvalId: approval.id });
+
+      assert.equal(readFileSync(join(t.target, "hello.txt"), "utf8"), "old\nkeep\n");
+      assert.equal(readFileSync(preview.shadowPath, "utf8"), "new\nkeep\n");
+      assert.equal(preview.relativePath, "hello.txt");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("createPreview rejects non file write approvals", async () => {
   const t = tmp();
   try {
     const { db, state, conversation, shadow } = await setup(t);

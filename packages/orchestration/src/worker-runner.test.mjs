@@ -284,6 +284,8 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
     );
     assert.match(calls[0].userRequest, /WORKER OUTPUT CONTRACT/);
     assert.match(calls[0].userRequest, /file_write\.after/);
+    assert.match(calls[0].userRequest, /Do not answer that direct modification is impossible/);
+    assert.match(calls[0].userRequest, /emit proposedActions/);
 
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const workerArtifact = artifacts.find(
@@ -1234,7 +1236,250 @@ test("runApproved creates downstream approvals for worker file_write proposals",
   }
 });
 
-test("runApproved surfaces worker file_write approvals before later workers finish", async () => {
+test("runApproved creates downstream approvals for worker file_patch proposals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "PatchCoder", persona: "Patch precisely." }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Patch flow",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Patch",
+          instruction: "Patch one file.",
+          expectedArtifactKinds: ["log"],
+          allowedActions: ["file_patch"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const patch = "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "Worker proposed a patch.",
+          proposedActions: [
+            {
+              type: "file_patch",
+              path: "src/foo.ts",
+              patch,
+              rationale: "partial update",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 1);
+    const approval = await state.getApproval(result.proposedApprovalIds[0]);
+    assert.equal(approval.actionType, "file_patch");
+    assert.deepEqual(approval.proposedAction, {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch },
+    });
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved turns worker shell proposals into approvals without executing them", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "ShellPlanner", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Shell approval",
+      description: "",
+      steps: [
+        {
+          id: "s1",
+          agentProfileId: profile.id,
+          title: "Plan command",
+          instruction: "Suggest a verification command.",
+          expectedArtifactKinds: ["log"],
+          allowedActions: ["shell"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "Worker proposed a command.",
+          proposedActions: [
+            {
+              type: "shell",
+              command: "npm",
+              args: ["run", "check"],
+              rationale: "verify types before review",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 1);
+    const approvals = await state.listApprovalsByTaskRun(taskRun.id);
+    const shellApprovals = approvals.filter(
+      (approval) => approval.actionType === "shell",
+    );
+    assert.equal(shellApprovals.length, 1);
+    assert.deepEqual(shellApprovals[0].proposedAction, {
+      type: "shell",
+      command: "npm",
+      args: ["run", "check"],
+    });
+    const steps = await state.listStepsByTaskRun(taskRun.id);
+    assert.equal(
+      steps.some((step) => step.kind === "shell"),
+      false,
+      "worker shell proposals must not create shell runner steps before approval",
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved creates approvals from structured worker handoff proposedActions", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "StructuredCoder", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Structured handoff actions",
+      description: "",
+      steps: [
+        {
+          id: "patch",
+          agentProfileId: profile.id,
+          title: "Patch",
+          instruction: "Patch an existing file.",
+          expectedArtifactKinds: ["log"],
+          outputContract: "diff_proposal",
+          allowedActions: ["file_patch"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const patch = [
+      "--- a/src/render.ts",
+      "+++ b/src/render.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+    ].join("\n");
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: [
+            "Patch proposal.",
+            "",
+            "```harness_worker_handoff_v1",
+            JSON.stringify({
+              schemaVersion: 1,
+              status: "success",
+              outputContract: "diff_proposal",
+              producer: {
+                taskRunId: "spoofed",
+                planId: "spoofed",
+                stepId: "spoofed",
+                role: "coder",
+                title: "Spoofed",
+                artifactId: "spoofed",
+              },
+              summary: "Propose a single-file patch.",
+              evidence: [],
+              findings: [],
+              proposedActions: [
+                {
+                  type: "file_patch",
+                  path: "src/render.ts",
+                  patch,
+                  rationale: "update stale render order",
+                },
+              ],
+              changedFiles: [],
+              verification: { run: [], passed: [], failed: [], notRun: [] },
+              risks: [],
+              nextActions: [],
+            }),
+            "```",
+          ].join("\n"),
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 1);
+    const approvals = await state.listApprovalsByTaskRun(taskRun.id);
+    const patchApproval = approvals.find(
+      (approval) => approval.actionType === "file_patch",
+    );
+    assert.ok(patchApproval, "worker handoff file_patch should become an approval");
+    assert.deepEqual(patchApproval.proposedAction, {
+      type: "file_patch",
+      unifiedPatch: {
+        path: "src/render.ts",
+        patch,
+      },
+    });
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved pauses downstream workers until worker file approvals execute", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
@@ -1277,8 +1522,9 @@ test("runApproved surfaces worker file_write approvals before later workers fini
       pipelineId: pipeline.id,
     });
     const approved = await approvePlanApproval(state, drafted.approval);
-    const reviewGate = deferred();
     const starts = [];
+    const reviewerPrompts = [];
+    const reviewerHandoffs = [];
     const changedTaskRuns = [];
     const fakeInvoker = {
       async invokeForWorker(input) {
@@ -1296,7 +1542,8 @@ test("runApproved surfaces worker file_write approvals before later workers fini
             ],
           };
         }
-        await reviewGate.promise;
+        reviewerPrompts.push(input.userRequest);
+        reviewerHandoffs.push(...(input.handoffMessages ?? []));
         return { outputText: "Reviewer output" };
       },
     };
@@ -1306,15 +1553,15 @@ test("runApproved surfaces worker file_write approvals before later workers fini
       onTaskRunChanged: (taskRunId) => changedTaskRuns.push(taskRunId),
     });
 
-    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+    const firstResult = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
 
-    await waitFor(
-      () => starts.includes("Reviewer"),
-      "reviewer should start after the first worker has finished",
-    );
-    const approvalsBeforeReviewFinishes =
-      await state.listApprovalsByTaskRun(taskRun.id);
-    const workerFileApprovals = approvalsBeforeReviewFinishes.filter(
+    assert.deepEqual(starts, ["CliCoder"]);
+    assert.equal(firstResult.needsContinuation, true);
+    const approvalsAfterPause = await state.listApprovalsByTaskRun(taskRun.id);
+    const workerFileApprovals = approvalsAfterPause.filter(
       (approval) =>
         approval.actionType === "file_write" &&
         approval.proposedAction?.filePatch?.path === "created-early.txt",
@@ -1328,10 +1575,23 @@ test("runApproved surfaces worker file_write approvals before later workers fini
       changedTaskRuns.includes(taskRun.id),
       "approval creation should notify the renderer immediately",
     );
+    const pausedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(pausedTaskRun.status, "waiting_for_approval");
 
-    reviewGate.resolve();
-    const result = await run;
-    assert.deepEqual(result.proposedApprovalIds, [workerFileApprovals[0].id]);
+    await state.decideApproval(workerFileApprovals[0].id, "executed", "applied");
+    const secondResult = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+    assert.deepEqual(starts, ["CliCoder", "Reviewer"]);
+    assert.equal(secondResult.needsContinuation, undefined);
+    assert.deepEqual(secondResult.proposedApprovalIds, []);
+    assert.match(
+      reviewerHandoffs.map((message) => message.content).join("\n"),
+      /Worker proposed file changes\./,
+      "reviewer should receive the implementation handoff after resume",
+    );
+    assert.match(reviewerPrompts[0], /Review after the write proposal/);
   } finally {
     closeDb(db);
     t.cleanup();

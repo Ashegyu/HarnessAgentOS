@@ -45,6 +45,7 @@ interface ApprovalPanelProps {
 const ACTION_RISK_HINT: Record<string, "low" | "medium" | "high"> = {
   capability_use: "low",
   model_use: "medium",
+  file_patch: "medium",
   file_write: "medium",
   shell: "medium",
   dependency_install: "high",
@@ -210,10 +211,13 @@ export const ApprovalPanel = ({
     const blocked =
       policy?.decision === "blocked" || HIGH_RISK_BLOCKED.has(a.actionType);
     const canPreviewShadow =
-      a.actionType === "file_write" &&
-      a.proposedAction?.type === "file_write" &&
-      Boolean(a.proposedAction.filePatch) &&
-      !blocked;
+      !blocked &&
+      ((a.actionType === "file_write" &&
+        a.proposedAction?.type === "file_write" &&
+        Boolean(a.proposedAction.filePatch)) ||
+        (a.actionType === "file_patch" &&
+          a.proposedAction?.type === "file_patch" &&
+          Boolean(a.proposedAction.unifiedPatch)));
     const shadowPreview = shadowPreviews[a.id];
     return (
       <article
@@ -326,7 +330,7 @@ export const ApprovalPanel = ({
               title={
                 canPreviewShadow
                   ? "실제 workspace에 쓰기 전에 shadow workspace에서 diff를 생성합니다."
-                  : "file_write 세부 지정 후 사용할 수 있습니다."
+                  : "file_write/file_patch 세부 지정 후 사용할 수 있습니다."
               }
             >
               Shadow preview
@@ -385,7 +389,7 @@ export const ApprovalPanel = ({
               title={
                 canPreviewShadow
                   ? "실제 workspace에 쓰기 전에 shadow workspace에서 diff를 생성합니다."
-                  : "file_write 세부 지정 후 사용할 수 있습니다."
+                  : "file_write/file_patch 세부 지정 후 사용할 수 있습니다."
               }
             >
               Shadow preview

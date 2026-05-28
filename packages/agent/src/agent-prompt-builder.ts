@@ -65,6 +65,12 @@ export interface PromptBuildInput {
     category: string;
     tags: readonly string[];
   };
+  /**
+   * When true, the provider invocation is allowed to write inside targetDir
+   * directly (currently Codex workspace-write mode). When false/omitted,
+   * file changes must be proposed as Harness approvals.
+   */
+  directFileEdits?: boolean;
 }
 
 const trimmedOrNull = (s: string | undefined): string | null => {
@@ -78,6 +84,7 @@ const buildSystemBlock = (
   prefix: string | undefined,
   suffix: string | undefined,
   metadata: PromptBuildInput["profileMetadata"],
+  directFileEdits: boolean | undefined,
 ): string => {
   const parts: string[] = [];
   const trimmedPrefix = trimmedOrNull(prefix);
@@ -86,6 +93,11 @@ const buildSystemBlock = (
   const trimmedPersona = trimmedOrNull(persona);
   if (trimmedPersona) parts.push(`ROLE\n${trimmedPersona}`);
   parts.push(SYSTEM_PROMPT.trim());
+  parts.push(
+    directFileEdits === true
+      ? DIRECT_FILE_EDITS_ENABLED_POLICY.trim()
+      : DIRECT_FILE_EDITS_DISABLED_POLICY.trim(),
+  );
   parts.push(OUTPUT_CONTRACT.trim());
   const trimmedSuffix = trimmedOrNull(suffix);
   if (trimmedSuffix) parts.push(trimmedSuffix);
@@ -103,18 +115,18 @@ FINAL NON-INTERACTIVE POLICY
   assumptions, and keep progressing.
 - Never wait for a user reply inside the agent output.
 - The questions field must remain exactly questions: [].
+- For existing-file partial edits, prefer file_patch. file_patch.patch MUST be
+  a single-file unified diff whose headers match file_patch.path.
 - For file_write, file_write.after MUST be the exact complete file content
   to write after approval. Harness replaces the whole file with this string.
 - Do not put instructions, patch descriptions, TODO prose, or "add this to
-  the file" text inside file_write.after. If you cannot provide the complete
-  file content, do not propose file_write; explain the missing input in
-  assumptions or propose an allowed inspection/check instead.
+  the file" text inside file_write.after. Use file_write only for new files or
+  whole-file replacement where you have the complete content.
 `;
 
 const SYSTEM_PROMPT = `\
 SYSTEM
 - You are an agent planner inside HarnessAgentOS.
-- Do NOT modify files directly; you must only propose actions.
 - Every filesystem path must be relative to targetDir.
 - Reject absolute paths, drive paths, UNC paths, and ".." traversal.
 - Do not request or echo secrets, API keys, tokens, or credentials.
@@ -128,8 +140,35 @@ SYSTEM
 - If the user request is informational (no side effect needed), respond
   with proposedActions: [] and answer in summary.
 - The questions field must always be exactly questions: [].
-- Only propose file_write when you can provide the complete replacement
-  content for the file. The runner will not interpret instructions.
+`;
+
+const DIRECT_FILE_EDITS_DISABLED_POLICY = `\
+FILE CHANGE POLICY
+- Do NOT modify files directly; you must only propose actions.
+- A read-only provider sandbox means direct edits are blocked by design. It
+  does not block you from proposing file_patch/file_write actions for the
+  Harness runner to apply after approval.
+- Do not answer that you cannot modify files directly. When the request needs
+  a permitted side effect, produce proposedActions for Harness approval.
+- If the user request asks for code changes and a safe proposal is possible,
+  proposedActions must contain the file_patch/file_write/shell actions needed
+  for the Harness runner to apply after approval.
+- Prefer file_patch for partial edits to existing files. Only propose
+  file_write when you can provide the complete replacement content for the
+  file. The runner will not interpret instructions.
+`;
+
+const DIRECT_FILE_EDITS_ENABLED_POLICY = `\
+FILE CHANGE POLICY
+- The Codex provider may run with workspace-write sandbox for this invocation.
+- You may modify files directly inside targetDir when the user asks for code
+  changes. Keep changes narrow and never write outside targetDir.
+- If you modified files directly, set proposedActions to [] and summarize the
+  changed files and verification in the response.
+- If you cannot safely modify directly, propose file_patch/file_write actions
+  instead of saying file modification is impossible.
+- Prefer direct edits for implementation work in workspace-write mode, then
+  propose shell checks when verification is useful and allowed.
 `;
 
 const OUTPUT_CONTRACT = `\
@@ -143,6 +182,7 @@ interface AgentPlanOutput {
   assumptions: string[];
   steps: Array<{ title: string; rationale: string; risk: "low" | "medium" | "high" }>;
   proposedActions: Array<
+    | { type: "file_patch"; path: string; patch: string; rationale: string }
     | { type: "file_write"; path: string; before?: string; after: string; rationale: string }
     | { type: "shell"; command: string; args?: string[]; rationale: string }
   >;
@@ -151,6 +191,8 @@ interface AgentPlanOutput {
 }
 - questions MUST be [] in every response. Put missing-information handling in
   assumptions instead of asking the user.
+- For a file_patch action, patch is a single-file unified diff for path. Do not
+  include multiple files in one file_patch.
 - For a file_write action, after is not a diff and not a natural-language
   instruction. It is the complete UTF-8 text of the target file after the
   approval runs. Include unchanged existing content too. For new files, include
@@ -180,6 +222,7 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
     input.systemPromptPrefix,
     input.systemPromptSuffix,
     input.profileMetadata,
+    input.directFileEdits,
   );
   const userSections: string[] = [];
   userSections.push(

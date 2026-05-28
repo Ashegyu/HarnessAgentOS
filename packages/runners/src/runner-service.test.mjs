@@ -625,6 +625,156 @@ test("file_write modifies an existing file and records before/after diff", async
   }
 });
 
+test("file_patch applies a single-file unified diff and records the patch artifact", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, artifactStore, runner } = await setup(t);
+    try {
+      writeFileSync(join(t.target, "existing.txt"), "one\ntwo\nthree\n", "utf8");
+      const draft = await conversation.createTask({
+        userRequest: "patch file",
+        targetDir: t.target,
+      });
+      const patch = [
+        "--- a/existing.txt",
+        "+++ b/existing.txt",
+        "@@ -1,3 +1,3 @@",
+        " one",
+        "-two",
+        "+TWO",
+        " three",
+        "",
+      ].join("\n");
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_patch",
+        actionSummary: "Patch existing file",
+        status: "pending",
+        proposedAction: {
+          type: "file_patch",
+          unifiedPatch: { path: "existing.txt", patch },
+        },
+      });
+      await conversation.approve({ approvalId: approval.id });
+
+      const result = await runner.executeApproved(approval.id);
+
+      assert.equal(readFileSync(join(t.target, "existing.txt"), "utf8"), "one\nTWO\nthree\n");
+      assert.deepEqual(result.changedFiles, [join(t.target, "existing.txt")]);
+      const artifacts = await state.listArtifactsByTaskRun(approval.taskRunId);
+      const diff = artifacts.find((a) => a.kind === "diff" && a.title === "patch: existing.txt");
+      assert.ok(diff, "patch diff artifact must exist");
+      const content = await artifactStore.read({
+        taskRunId: diff.taskRunId,
+        artifactId: diff.id,
+        kind: diff.kind,
+      });
+      assert.match(content, /@@ -1,3 \+1,3 @@/);
+      assert.match(content, /\+TWO/);
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("file_patch rejects stale context without modifying the file", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      writeFileSync(join(t.target, "existing.txt"), "one\nTWO\nthree\n", "utf8");
+      const draft = await conversation.createTask({
+        userRequest: "patch file",
+        targetDir: t.target,
+      });
+      const patch = [
+        "--- a/existing.txt",
+        "+++ b/existing.txt",
+        "@@ -1,3 +1,3 @@",
+        " one",
+        "-two",
+        "+two updated",
+        " three",
+        "",
+      ].join("\n");
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_patch",
+        actionSummary: "Patch existing file",
+        status: "pending",
+        proposedAction: {
+          type: "file_patch",
+          unifiedPatch: { path: "existing.txt", patch },
+        },
+      });
+      await conversation.approve({ approvalId: approval.id });
+
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) =>
+          e instanceof RunnerError &&
+          e.code === "RUNNER_PATCH_CONTEXT_MISMATCH",
+      );
+      assert.equal(readFileSync(join(t.target, "existing.txt"), "utf8"), "one\nTWO\nthree\n");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("file_patch outside targetDir is rejected before disk write", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const outside = join(t.dir, "outside.txt");
+      writeFileSync(outside, "old\n", "utf8");
+      const draft = await conversation.createTask({
+        userRequest: "patch outside",
+        targetDir: t.target,
+      });
+      const patch = [
+        "--- a/../outside.txt",
+        "+++ b/../outside.txt",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "",
+      ].join("\n");
+      const approval = await state.createApproval({
+        taskRunId: draft.taskRun.id,
+        checkpointId: draft.checkpoint.id,
+        actionType: "file_patch",
+        actionSummary: "Patch outside file",
+        status: "pending",
+        proposedAction: {
+          type: "file_patch",
+          unifiedPatch: { path: "../outside.txt", patch },
+        },
+      });
+      await conversation.approve({ approvalId: approval.id });
+
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) =>
+          e instanceof RunnerError &&
+          e.code === "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+      );
+      assert.equal(readFileSync(outside, "utf8"), "old\n");
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("executeApproved refuses to re-run an executed approval directly", async () => {
   const t = tmp();
   try {

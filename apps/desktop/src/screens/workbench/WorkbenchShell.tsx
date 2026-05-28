@@ -37,6 +37,10 @@ import {
   hasPipelineSourcePlanArtifact,
   pipelineAutoApproveDecision,
 } from "./pipeline-auto-approval";
+import {
+  buildAutoApprovedExecutionPlan,
+  runAutoApprovedExecutionPlan,
+} from "./auto-execution-plan";
 import "./workbench.css";
 
 type ThreadsState =
@@ -80,6 +84,18 @@ const COMMAND_TAB_ITEMS: ReadonlyArray<{
 
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
+
+const continuationOrchestrationApprovalIds = (
+  detail: TaskRunDetail,
+): string[] =>
+  detail.approvals
+    .filter(
+      (approval) =>
+        approval.actionType === "orchestration_plan" &&
+        (approval.status === "approved" ||
+          approval.status === "always_approved_for_run"),
+    )
+    .map((approval) => approval.id);
 
 const taskRunTitle = (taskRun: TaskRun): string => {
   const trimmed = taskRun.userRequest.trim();
@@ -642,6 +658,7 @@ export const WorkbenchShell = (): JSX.Element => {
     );
     if (pending.length === 0) return;
     void (async () => {
+      const approvedIds = new Set<string>();
       for (const approval of pending) {
         inFlight.add(approval.id);
         try {
@@ -651,29 +668,47 @@ export const WorkbenchShell = (): JSX.Element => {
             autoApproveDecision:
               autoApproveDecisions.get(approval.id) ?? null,
           });
-          if (approval.actionType === "orchestration_plan") {
-            await window.harness.orchestration.runApproved({
-              approvalId: approval.id,
-            });
-          } else if (
-            approval.actionType === "capability_use" ||
-            approval.actionType === "model_use"
-          ) {
-            // capability_use/model_use are consent to include approved
-            // advisory context in a later agent prompt/invocation. There
-            // is no runner side effect to execute for these approval types.
-          } else {
-            await window.harness.runner.executeApproved({
-              approvalId: approval.id,
-            });
-          }
+          approvedIds.add(approval.id);
         } catch (e) {
           // eslint-disable-next-line no-console
           console.error("auto-approve failed", approval.id, e);
           // Drop from in-flight so a future refresh can retry rather than
-          // silently leaving the approval stuck in "approved but not run".
+          // silently leaving the approval stuck in pending.
           inFlight.delete(approval.id);
         }
+      }
+      const executionPlan = buildAutoApprovedExecutionPlan(
+        taskRunId,
+        pending.filter((approval) => approvedIds.has(approval.id)),
+      );
+      const runResult = await runAutoApprovedExecutionPlan({
+        executionPlan: {
+          ...executionPlan,
+          continuationOrchestrationApprovalIds:
+            isPipelineAutoTask || hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts)
+              ? continuationOrchestrationApprovalIds(taskRunDetail.detail)
+              : [],
+        },
+        isPipelineAutoTask,
+        api: {
+          runOrchestrationApproved: (input) =>
+            window.harness.orchestration.runApproved(input),
+          executeCodeChangeAttempt: (input) =>
+            window.harness.runner.executeCodeChangeAttempt(input),
+          createRepairPlan: (input) =>
+            window.harness.quality.createRepairPlan(input),
+          executeApproved: (input) =>
+            window.harness.runner.executeApproved(input),
+        },
+        onError: (context, error) => {
+          // eslint-disable-next-line no-console
+          console.error("auto execution failed", context, error);
+        },
+      });
+      for (const approvalId of runResult.failedApprovalIds) {
+        // Drop from in-flight so a future refresh can retry rather than
+        // silently leaving the approval stuck in "approved but not run".
+        inFlight.delete(approvalId);
       }
       if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
       if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
@@ -1133,7 +1168,15 @@ export const WorkbenchShell = (): JSX.Element => {
   const handleExecute = useCallback(
     async (input: { approvalId: string }): Promise<void> => {
       await window.harness.runner.executeApproved(input);
-      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
+      if (selectedTaskRunId) {
+        const detail = await window.harness.conversation.getTaskRunDetail({
+          taskRunId: selectedTaskRunId,
+        });
+        for (const approvalId of continuationOrchestrationApprovalIds(detail)) {
+          await window.harness.orchestration.runApproved({ approvalId });
+        }
+        await refreshTaskRunDetail(selectedTaskRunId);
+      }
       if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
     },
     [refreshTaskRunDetail, refreshThreadDetail, selectedTaskRunId, selectedThreadId],

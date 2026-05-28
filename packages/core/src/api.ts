@@ -25,6 +25,8 @@ import type {
   Capability,
   CapabilityCandidateApprovalResult,
   CapabilitySuggestion,
+  CodeChangeAttemptResult,
+  CodeChangeLoopRunInput,
   CreateAgentPipelineInput,
   CreateHarnessPackageInput,
   DecisionLogInput,
@@ -165,7 +167,8 @@ export interface HarnessDesktopApi {
     /**
      * Native file picker, optionally rooted at `defaultDir` and allowing
      * the user to type/create a new file name (so file_write approvals
-     * can target a not-yet-existent path). Returns the absolute file
+     * can target a not-yet-existent path, while file_patch targets an
+     * existing path). Returns the absolute file
      * path or null when the user cancels.
      */
     selectFile(input?: { defaultDir?: string }): Promise<string | null>;
@@ -214,6 +217,9 @@ export interface HarnessDesktopApi {
   };
   runner: {
     executeApproved(input: { approvalId: string }): Promise<RunnerResultPayload>;
+    executeCodeChangeAttempt(
+      input: CodeChangeLoopRunInput,
+    ): Promise<CodeChangeAttemptResult>;
     cancelExecution(input: {
       taskRunId: string;
     }): Promise<RunnerCancelExecutionResult>;

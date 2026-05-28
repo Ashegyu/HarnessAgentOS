@@ -770,6 +770,12 @@ interface PipelineBackflowActivityPage {
 
 ```ts
 runner.executeApproved(input: { approvalId: string }): Promise<RunnerResult>;
+runner.executeCodeChangeAttempt(input: {
+  taskRunId: string;
+  changeApprovalIds: string[];
+  verificationApprovalIds?: string[];
+  attemptNumber?: number;
+}): Promise<CodeChangeAttemptResult>;
 runner.cancelExecution(input: { taskRunId: string }): Promise<{ cancelled: boolean }>;
 runner.listArtifacts(input: { taskRunId: string }): Promise<Artifact[]>;
 runner.readArtifact(input: { artifactId: string }): Promise<{ artifact: Artifact; content: string }>;
@@ -778,6 +784,7 @@ runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 
 > `retryApproval`은 부모 TaskRun이 `blocked`/`quality_failed`일 때만 허용 (그 외는 `RUNNER_RETRY_NOT_BLOCKED`). 가장 최근 approved approval로 `executeApproved`와 같은 멱등 경로를 재실행한다.
 > `cancelExecution`은 현재 실행 중인 RunnerService 작업이 있을 때만 `{ cancelled: true }`를 반환하고 해당 TaskRun의 AbortSignal을 중단한다. 존재하지 않거나 실행 중이 아닌 `taskRunId`는 throw하지 않고 `{ cancelled: false }`를 반환한다.
+> `executeCodeChangeAttempt`는 이미 approved 상태인 `file_write` approval들을 순서대로 실행하고, 이미 approved 상태인 verification `shell` approval들을 순서대로 실행한다. 이 호출은 raw command나 raw patch를 받지 않으며 기존 approval/runner 정책을 우회하지 않는다. 성공/실패 결과는 attempt manifest artifact와 QualityGateResult로 남긴다.
 
 ```ts
 interface RunnerResult {
@@ -795,6 +802,33 @@ interface RunnerResult {
 }
 ```
 
+```ts
+interface CodeChangeAttemptResult {
+  attemptNumber: number;
+  taskRunId: string;
+  status:
+    | "verified"
+    | "applied_unverified"
+    | "verification_failed"
+    | "apply_failed"
+    | "no_changes";
+  nextAction: "ready_for_review" | "repair_required" | "blocked";
+  appliedApprovalIds: string[];
+  verificationApprovalIds: string[];
+  changedFiles: string[];
+  artifactIds: string[];
+  verificationResults: Array<{
+    approvalId: string;
+    commandSummary: string;
+    exitCode: number | null;
+    stdout?: string;
+    stderr?: string;
+    artifactIds: string[];
+  }>;
+  failureMessage?: string;
+}
+```
+
 오류:
 
 - `RUNNER_APPROVAL_REQUIRED`
@@ -804,6 +838,11 @@ interface RunnerResult {
 - `RUNNER_EXECUTION_FAILED`
 - `RUNNER_RETRY_NOT_BLOCKED`
 - `RUNNER_CANCELLED`
+- `CODE_CHANGE_TASK_NOT_FOUND`
+- `CODE_CHANGE_APPROVAL_NOT_FOUND`
+- `CODE_CHANGE_APPROVAL_TASK_MISMATCH`
+- `CODE_CHANGE_APPROVAL_TYPE_MISMATCH`
+- `CODE_CHANGE_APPROVAL_NOT_APPROVED`
 - `ARTIFACT_NOT_FOUND`
 
 ## `window.harness.shadow`
@@ -1899,7 +1938,7 @@ events.onDiagnosticsChanged(
 
 발생 조건:
 
-- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/retryApproval/cancelExecution`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다. `runner.executeApproved/retryApproval`은 runner가 실패/취소 상태를 DB에 기록한 뒤 에러를 반환하는 경우에도 발행한다.
+- `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/executeCodeChangeAttempt/retryApproval/cancelExecution`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다. `runner.executeApproved/executeCodeChangeAttempt/retryApproval`은 runner가 실패/취소/검증 실패 상태를 DB에 기록한 뒤 에러나 실패 결과를 반환하는 경우에도 발행한다.
 - 장시간 실행되는 `orchestration.runApproved`는 전체 run 종료 전에도 worker artifact 또는 worker action approval이 저장될 때 `events:taskRunChanged`를 발행할 수 있다. renderer는 이 이벤트를 받으면 fresh TaskRun detail을 pull해서 중간 worker 결과와 approval을 표시해야 한다.
 - `events:agentStreamEvent`: `agent.generatePlan`/worker invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. 각 이벤트는 가능한 경우 `taskRunId`를 포함해 renderer가 invocation row를 즉시 refetch할 수 있게 한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
 - `events:diagnosticsHeartbeat`: main process가 10초 interval로 발행하고, TaskRun status 변경, agent invocation 시작/종료, runner cancel 시점에는 즉시 발행한다. renderer는 `app.getDiagnostics()`로 initial fetch 후 이 이벤트만 구독한다.

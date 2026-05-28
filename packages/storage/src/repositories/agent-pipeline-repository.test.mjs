@@ -161,8 +161,12 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       [],
     );
     assert.deepEqual(
+      delivery.steps.find((step) => step.id === "implement")?.allowedActions,
+      ["file_patch", "file_write"],
+    );
+    assert.deepEqual(
       delivery.steps.find((step) => step.id === "build")?.allowedActions,
-      ["shell", "file_write"],
+      ["shell", "file_patch", "file_write"],
     );
     assert.match(
       delivery.steps.find((step) => step.id === "plan")?.instruction ?? "",
@@ -248,7 +252,7 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
     );
     assert.deepEqual(
       newProject.steps.find((step) => step.id === "build-recovery")?.allowedActions,
-      ["shell", "file_write"],
+      ["shell", "file_patch", "file_write"],
     );
     assert.deepEqual(
       newProject.steps.find((step) => step.id === "image-assets")?.allowedActions,
@@ -275,6 +279,10 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       investigation.steps.map((step) => profileRoles.get(step.agentProfileId)),
       ["planner", "planner", "coder", "tester", "reviewer"],
     );
+    assert.deepEqual(
+      investigation.steps.find((step) => step.id === "patch")?.allowedActions,
+      ["file_patch", "file_write"],
+    );
 
     const contract = all.find((p) => p.id === "pipe_template_docs_contract_reconciliation");
     assert.ok(contract, "Docs-First Contract Reconciliation template should exist");
@@ -286,12 +294,20 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       contract.steps.find((step) => step.id === "contract-audit")?.allowedActions,
       [],
     );
+    assert.deepEqual(
+      contract.steps.find((step) => step.id === "implement")?.allowedActions,
+      ["file_patch", "file_write"],
+    );
 
     const baseline = all.find((p) => p.id === "pipe_template_cross_harness_agent_baseline");
     assert.ok(baseline, "Cross-Harness Agent Baseline template should exist");
     assert.deepEqual(
       baseline.steps.map((step) => step.id),
       ["sources", "skill-memory", "topology", "implement", "verify", "security", "review"],
+    );
+    assert.deepEqual(
+      baseline.steps.find((step) => step.id === "implement")?.allowedActions,
+      ["file_patch", "file_write"],
     );
 
     const project3d = all.find((p) => p.id === "pipe_template_3d_new_project_delivery");
@@ -334,6 +350,11 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       project3d.steps.find((step) => step.id === "texture-generation")?.allowedActions,
       ["file_write"],
       "texture artifacts must be proposed as approval-gated files",
+    );
+    assert.deepEqual(
+      project3d.steps.find((step) => step.id === "implementation")?.allowedActions,
+      ["file_patch", "file_write"],
+      "3D integration edits should support partial patches after generated files exist",
     );
     assert.deepEqual(
       project3d.steps.find((step) => step.id === "execution-validation")?.allowedActions,
@@ -490,6 +511,11 @@ test("AgentPipelineRepository.ensureSeed localizes unmodified English templates"
     assert.match(refreshed.description, /집중 복구/);
     assert.match(refreshed.steps[0].title, /첫 실제 실패/);
     assert.match(refreshed.steps[0].instruction, /한국어/);
+    assert.deepEqual(refreshed.steps[0].allowedActions, [
+      "shell",
+      "file_patch",
+      "file_write",
+    ]);
   } finally {
     closeDb(db);
     t.cleanup();

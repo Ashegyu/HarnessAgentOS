@@ -210,6 +210,43 @@ test("buildCliInvocation passes verified Codex MCP config overrides through -c",
   assert.ok(!plan.args.includes("--mcp-config"));
 });
 
+test("buildCliInvocation maps Codex workspace-write and auto review options", () => {
+  const plan = buildCliInvocation(
+    baseRequest({
+      modelConfig: {
+        provider: "codex",
+        model: "gpt-5.5",
+        timeoutMs: 300_000,
+        stallTimeoutMs: 60_000,
+      },
+      sandbox: {
+        primaryDir: "C:\\repo",
+        mode: "workspace-write",
+        autoReview: true,
+        enforceInPrompt: true,
+      },
+    }),
+  );
+
+  assert.equal(plan.command, "codex");
+  assert.deepEqual(plan.args, [
+    "--model",
+    "gpt-5.5",
+    "--cd",
+    "C:\\repo",
+    "--sandbox",
+    "workspace-write",
+    "--ask-for-approval",
+    "on-request",
+    "-c",
+    'approvals_reviewer="auto_review"',
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "-",
+  ]);
+});
+
 test("buildCliInvocation does not pass unverified tool policy flags to Codex", () => {
   const plan = buildCliInvocation(
     baseRequest({

@@ -6,10 +6,15 @@ import {
   type ArtifactKind,
   type ArtifactStore,
   type CreateArtifactInput,
+  type ProposedActionDetails,
   type ShadowPreview,
 } from "@harness/core";
 import { newId, nowIso, type LocalStateService } from "@harness/storage";
 import { isWithin } from "./runner-policy.ts";
+import {
+  applySingleFileUnifiedPatch,
+  UnifiedPatchError,
+} from "./unified-patch.ts";
 
 export class ShadowWorkspaceError extends Error {
   readonly code: string;
@@ -47,19 +52,29 @@ export class ShadowWorkspaceService {
         `Approval ${approval.id} is ${approval.status}`,
       );
     }
-    if (approval.actionType !== "file_write") {
+    if (
+      approval.actionType !== "file_write" &&
+      approval.actionType !== "file_patch"
+    ) {
       throw new ShadowWorkspaceError(
         "SHADOW_UNSUPPORTED_ACTION",
-        `Shadow preview supports file_write only, got ${approval.actionType}`,
+        `Shadow preview supports file_write/file_patch only, got ${approval.actionType}`,
       );
     }
 
     const details = approval.proposedAction;
-    const patch = details?.filePatch;
-    if (!details || details.type !== "file_write" || !patch) {
+    const fileWritePatch = details?.filePatch;
+    const unifiedPatch = details?.unifiedPatch;
+    if (
+      !details ||
+      details.type !== approval.actionType ||
+      (details.type !== "file_write" && details.type !== "file_patch") ||
+      (details.type === "file_write" && !fileWritePatch) ||
+      (details.type === "file_patch" && !unifiedPatch)
+    ) {
       throw new ShadowWorkspaceError(
         "SHADOW_PATCH_REQUIRED",
-        "file_write approval must include proposedAction.filePatch",
+        "file_write approval must include proposedAction.filePatch and file_patch approval must include proposedAction.unifiedPatch",
       );
     }
 
@@ -71,13 +86,15 @@ export class ShadowWorkspaceService {
       );
     }
 
-    const targetPath = isAbsolute(patch.path)
-      ? patch.path
-      : resolve(taskRun.targetDir, patch.path);
+    const proposedPath =
+      details.type === "file_write" ? fileWritePatch!.path : unifiedPatch!.path;
+    const targetPath = isAbsolute(proposedPath)
+      ? proposedPath
+      : resolve(taskRun.targetDir, proposedPath);
     if (!isWithin(taskRun.targetDir, targetPath)) {
       throw new ShadowWorkspaceError(
         "SHADOW_TARGET_OUTSIDE_WORKSPACE",
-        `File path escapes targetDir: ${patch.path}`,
+        `File path escapes targetDir: ${proposedPath}`,
       );
     }
 
@@ -88,15 +105,20 @@ export class ShadowWorkspaceService {
     if (!isWithin(shadowDir, shadowPath)) {
       throw new ShadowWorkspaceError(
         "SHADOW_TARGET_OUTSIDE_WORKSPACE",
-        `File path escapes shadowDir: ${patch.path}`,
+        `File path escapes shadowDir: ${proposedPath}`,
       );
     }
 
     const before = await readExistingFile(targetPath);
+    const after = applyPreviewPatch({
+      relativePath,
+      before,
+      details,
+    });
     const baselineHash =
       before === null ? undefined : sha256Hex(Buffer.from(before, "utf8"));
     await mkdir(dirname(shadowPath), { recursive: true });
-    await writeFile(shadowPath, patch.after, "utf8");
+    await writeFile(shadowPath, after, "utf8");
 
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id)).length;
     const step = await this.deps.state.createStep({
@@ -113,11 +135,14 @@ export class ShadowWorkspaceService {
       stepId: step.id,
       kind: "diff",
       title: `shadow diff: ${relativePath}`,
-      content: formatSimpleDiff({
-        path: relativePath,
-        before: before ?? undefined,
-        after: patch.after,
-      }),
+      content:
+        details.type === "file_patch"
+          ? details.unifiedPatch!.patch
+          : formatSimpleDiff({
+              path: relativePath,
+              before: before ?? undefined,
+              after,
+            }),
       summary: `shadow preview for ${relativePath}`,
     });
     const snapshotArtifact = await this.persistArtifact({
@@ -187,6 +212,49 @@ export class ShadowWorkspaceService {
     return { id: stored.id, uri: stored.uri };
   }
 }
+
+const applyPreviewPatch = (input: {
+  relativePath: string;
+  before: string | null;
+  details: ProposedActionDetails;
+}): string => {
+  if (input.details.type === "file_write") {
+    const patch = input.details.filePatch;
+    if (!patch) {
+      throw new ShadowWorkspaceError(
+        "SHADOW_PATCH_REQUIRED",
+        "file_write approval must include proposedAction.filePatch",
+      );
+    }
+    return patch.after;
+  }
+
+  const patch = input.details.unifiedPatch;
+  if (!patch) {
+    throw new ShadowWorkspaceError(
+      "SHADOW_PATCH_REQUIRED",
+      "file_patch approval must include proposedAction.unifiedPatch",
+    );
+  }
+  if (input.before === null) {
+    throw new ShadowWorkspaceError(
+      "SHADOW_PATCH_CONTEXT_MISMATCH",
+      `Patch target does not exist: ${input.relativePath}`,
+    );
+  }
+  try {
+    return applySingleFileUnifiedPatch({
+      currentContent: input.before,
+      patch: patch.patch,
+      path: input.relativePath,
+    }).afterContent;
+  } catch (e) {
+    if (e instanceof UnifiedPatchError) {
+      throw new ShadowWorkspaceError(e.code, e.message);
+    }
+    throw e;
+  }
+};
 
 const readExistingFile = async (path: string): Promise<string | null> => {
   try {

@@ -158,6 +158,83 @@ test("v25 migration adds approvals decided_at index", () => {
   }
 });
 
+test("v36 migration allows file_patch approvals", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    db.exec(`ALTER TABLE approvals RENAME TO approvals_before_file_patch`);
+    db.exec(`CREATE TABLE approvals (
+      id TEXT PRIMARY KEY,
+      task_run_id TEXT NOT NULL,
+      checkpoint_id TEXT NOT NULL,
+      action_type TEXT NOT NULL CHECK(action_type IN ('capability_use','model_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan')),
+      action_summary TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','always_approved_for_run','executed')),
+      decision_message TEXT,
+      decided_at TEXT,
+      proposed_action_json TEXT,
+      policy_evaluation_json TEXT,
+      auto_approve_decision_json TEXT,
+      FOREIGN KEY(task_run_id) REFERENCES task_runs(id),
+      FOREIGN KEY(checkpoint_id) REFERENCES checkpoints(id)
+    )`);
+    db.exec(`INSERT INTO approvals
+      SELECT id, task_run_id, checkpoint_id, action_type, action_summary, status,
+        decision_message, decided_at, proposed_action_json, policy_evaluation_json,
+        auto_approve_decision_json
+      FROM approvals_before_file_patch`);
+    db.exec(`DROP TABLE approvals_before_file_patch`);
+
+    db.prepare(
+      `INSERT INTO threads(id, title, target_dir, created_at, updated_at)
+       VALUES('thr_file_patch', 'Thread', '/tmp/project', ?, ?)`,
+    ).run("2026-05-28T00:00:00.000Z", "2026-05-28T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO task_runs(id, thread_id, user_request, target_dir, status, current_step_id, created_at, updated_at)
+       VALUES('tsk_file_patch', 'thr_file_patch', 'Patch it', '/tmp/project', 'drafting', NULL, ?, ?)`,
+    ).run("2026-05-28T00:00:00.000Z", "2026-05-28T00:00:00.000Z");
+    db.prepare(
+      `INSERT INTO steps(id, task_run_id, step_index, kind, title, status)
+       VALUES('stp_file_patch', 'tsk_file_patch', 0, 'approval', 'Approval', 'pending')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO checkpoints(id, task_run_id, step_id, reason, state_ref, summary, created_at)
+       VALUES('ckp_file_patch', 'tsk_file_patch', 'stp_file_patch', 'before_edit', '{}', 'checkpoint', ?)`,
+    ).run("2026-05-28T00:00:00.000Z");
+
+    db.prepare(
+      `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+       VALUES('apv_old_write', 'tsk_file_patch', 'ckp_file_patch', 'file_write', 'Write file', 'pending')`,
+    ).run();
+    assert.throws(() =>
+      db.prepare(
+        `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+         VALUES('apv_rejected_patch', 'tsk_file_patch', 'ckp_file_patch', 'file_patch', 'Patch file', 'pending')`,
+      ).run(),
+    );
+
+    applyMigrations(db);
+
+    db.prepare(
+      `INSERT INTO approvals(id, task_run_id, checkpoint_id, action_type, action_summary, status)
+       VALUES('apv_file_patch', 'tsk_file_patch', 'ckp_file_patch', 'file_patch', 'Patch file', 'pending')`,
+    ).run();
+
+    const row = db
+      .prepare(`SELECT action_type FROM approvals WHERE id = ?`)
+      .get("apv_file_patch");
+    assert.equal(row.action_type, "file_patch");
+    const oldRow = db
+      .prepare(`SELECT action_type FROM approvals WHERE id = ?`)
+      .get("apv_old_write");
+    assert.equal(oldRow.action_type, "file_write");
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("v26 migration adds agent invocation profile budget columns and index", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

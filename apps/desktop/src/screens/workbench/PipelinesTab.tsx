@@ -842,6 +842,17 @@ export const PipelinesTab = ({
   ): string[] =>
     step.dependsOn ??
     (index > 0 && draft ? [draft.steps[index - 1]!.id] : []);
+  const hasDefaultLinearDependsOn = (
+    step: PipelineStepDraft,
+    index: number,
+  ): boolean => {
+    if (step.dependsOn === null || step.dependsOn === undefined) return true;
+    if (!draft || index === 0) return step.dependsOn.length === 0;
+    return (
+      step.dependsOn.length === 1 &&
+      step.dependsOn[0] === draft.steps[index - 1]!.id
+    );
+  };
   const toggleDependency = (
     index: number,
     dependencyId: string,
@@ -850,7 +861,14 @@ export const PipelinesTab = ({
     if (!draft) return;
     const step = draft.steps[index];
     if (!step) return;
-    const current = new Set(effectiveDependsOn(step, index));
+    const defaultDependencyId = index > 0 ? draft.steps[index - 1]!.id : null;
+    const replaceDefault =
+      checked &&
+      dependencyId !== defaultDependencyId &&
+      hasDefaultLinearDependsOn(step, index);
+    const current = new Set(
+      replaceDefault ? [] : effectiveDependsOn(step, index),
+    );
     if (checked) current.add(dependencyId);
     else current.delete(dependencyId);
     updateStep(index, { dependsOn: [...current] });

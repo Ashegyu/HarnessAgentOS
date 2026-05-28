@@ -1,0 +1,181 @@
+export interface ApplyUnifiedPatchInput {
+  path: string;
+  patch: string;
+  currentContent: string;
+}
+
+export interface ApplyUnifiedPatchResult {
+  afterContent: string;
+  normalizedPatch: string;
+}
+
+interface HunkHeader {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+}
+
+export class UnifiedPatchError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "UnifiedPatchError";
+    this.code = code;
+  }
+}
+
+export const applySingleFileUnifiedPatch = (
+  input: ApplyUnifiedPatchInput,
+): ApplyUnifiedPatchResult => {
+  const normalizedPatch = normalizeNewlines(input.patch);
+  const patchLines = normalizedPatch.split("\n");
+  if (patchLines.at(-1) === "") patchLines.pop();
+  const header = parseFileHeader(patchLines, input.path);
+  let patchIndex = header.nextIndex;
+  const currentLines = splitContentLines(input.currentContent);
+  const outputLines: string[] = [];
+  let currentIndex = 0;
+  let sawHunk = false;
+
+  while (patchIndex < patchLines.length) {
+    const line = patchLines[patchIndex] ?? "";
+    if (line.startsWith("--- ") || line.startsWith("diff --git ")) {
+      throw invalid("file_patch supports exactly one file per unified diff");
+    }
+    const hunk = parseHunkHeader(line);
+    if (!hunk) throw invalid(`Expected hunk header, got: ${line}`);
+    sawHunk = true;
+    patchIndex += 1;
+
+    const hunkStartIndex = Math.max(hunk.oldStart - 1, 0);
+    if (hunkStartIndex < currentIndex) {
+      throw contextMismatch("Hunk overlaps already-applied content");
+    }
+    while (currentIndex < hunkStartIndex) {
+      outputLines.push(currentLines[currentIndex] ?? "");
+      currentIndex += 1;
+    }
+
+    let oldSeen = 0;
+    let newSeen = 0;
+    while (patchIndex < patchLines.length) {
+      const hunkLine = patchLines[patchIndex] ?? "";
+      if (hunkLine.startsWith("@@ ")) break;
+      if (hunkLine.startsWith("--- ") || hunkLine.startsWith("diff --git ")) {
+        throw invalid("file_patch supports exactly one file per unified diff");
+      }
+      if (hunkLine.startsWith("\\ No newline at end of file")) {
+        patchIndex += 1;
+        continue;
+      }
+      if (hunkLine.length === 0) {
+        if (patchIndex === patchLines.length - 1) break;
+        throw invalid("Unified diff hunk line must start with space, +, or -");
+      }
+      const marker = hunkLine[0];
+      const content = hunkLine.slice(1);
+      if (marker === " ") {
+        assertCurrentLine(currentLines, currentIndex, content);
+        outputLines.push(content);
+        currentIndex += 1;
+        oldSeen += 1;
+        newSeen += 1;
+      } else if (marker === "-") {
+        assertCurrentLine(currentLines, currentIndex, content);
+        currentIndex += 1;
+        oldSeen += 1;
+      } else if (marker === "+") {
+        outputLines.push(content);
+        newSeen += 1;
+      } else {
+        throw invalid("Unified diff hunk line must start with space, +, or -");
+      }
+      patchIndex += 1;
+    }
+
+    if (oldSeen !== hunk.oldCount || newSeen !== hunk.newCount) {
+      throw invalid(
+        `Hunk line counts do not match header: expected -${hunk.oldCount}/+${hunk.newCount}, got -${oldSeen}/+${newSeen}`,
+      );
+    }
+  }
+
+  if (!sawHunk) throw invalid("Unified diff must contain at least one hunk");
+  outputLines.push(...currentLines.slice(currentIndex));
+  return {
+    afterContent: outputLines.join("\n"),
+    normalizedPatch,
+  };
+};
+
+const parseFileHeader = (
+  lines: readonly string[],
+  expectedPath: string,
+): { nextIndex: number } => {
+  if (!lines[0]?.startsWith("--- ") || !lines[1]?.startsWith("+++ ")) {
+    throw invalid("Unified diff must start with --- and +++ file headers");
+  }
+  const oldPath = parseHeaderPath(lines[0]);
+  const newPath = parseHeaderPath(lines[1]);
+  if (oldPath === "/dev/null" || newPath === "/dev/null") {
+    throw invalid("file_patch cannot create or delete files");
+  }
+  const expected = normalizePatchPath(expectedPath);
+  if (
+    normalizePatchPath(stripDiffPrefix(oldPath)) !== expected ||
+    normalizePatchPath(stripDiffPrefix(newPath)) !== expected
+  ) {
+    throw invalid(
+      `Unified diff headers must match target path ${expectedPath}`,
+    );
+  }
+  return { nextIndex: 2 };
+};
+
+const parseHeaderPath = (line: string): string =>
+  line.slice(4).trim().split(/\s+/)[0] ?? "";
+
+const stripDiffPrefix = (path: string): string =>
+  path.startsWith("a/") || path.startsWith("b/") ? path.slice(2) : path;
+
+const normalizePatchPath = (path: string): string =>
+  path.replace(/\\/g, "/").replace(/^\.\/+/, "");
+
+const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+const parseHunkHeader = (line: string): HunkHeader | null => {
+  const match = HUNK_RE.exec(line);
+  if (!match) return null;
+  return {
+    oldStart: Number.parseInt(match[1] ?? "0", 10),
+    oldCount: match[2] === undefined ? 1 : Number.parseInt(match[2], 10),
+    newStart: Number.parseInt(match[3] ?? "0", 10),
+    newCount: match[4] === undefined ? 1 : Number.parseInt(match[4], 10),
+  };
+};
+
+const splitContentLines = (content: string): string[] =>
+  normalizeNewlines(content).split("\n");
+
+const normalizeNewlines = (value: string): string =>
+  value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+const assertCurrentLine = (
+  currentLines: readonly string[],
+  index: number,
+  expected: string,
+): void => {
+  if (currentLines[index] !== expected) {
+    throw contextMismatch(
+      `Patch context mismatch at line ${index + 1}: expected ${JSON.stringify(expected)}`,
+    );
+  }
+};
+
+const invalid = (message: string): UnifiedPatchError =>
+  new UnifiedPatchError("RUNNER_PATCH_INVALID", message);
+
+const contextMismatch = (message: string): UnifiedPatchError =>
+  new UnifiedPatchError("RUNNER_PATCH_CONTEXT_MISMATCH", message);

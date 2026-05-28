@@ -230,20 +230,24 @@ PROJECT CONTRACT
 - Agent runs are non-interactive. Do not ask follow-up, clarification, or confirmation questions.
 - If information is missing, choose a safe default, record it as an assumption, and continue.
 - Keep the AgentPlanOutput questions field as [].
+- Prefer file_patch for existing-file partial edits. file_patch.patch is a
+  single-file unified diff whose headers match file_patch.path.
 - file_write.after is the complete replacement file content, not an instruction,
-  diff, TODO, or prose patch request. Harness writes it verbatim after approval.
+  diff, TODO, or prose patch request. Use it for new files or whole-file
+  replacement; Harness writes it verbatim after approval.
 `;
 
 const readOnlySuffix = (label: string): string => `\
 ${label} OUTPUT
-- Work read-only unless the pipeline step explicitly allows file_write or shell.
+- Work read-only unless the pipeline step explicitly allows file_patch,
+  file_write, or shell.
 - 한국어로 발견 사항, 위험, 가정, 다음 검증 단계를 보고한다.
 - Do not claim the task is complete; report what evidence would make it complete.
 `;
 
 const proposalSuffix = (label: string): string => `\
 ${label} OUTPUT
-- Propose the smallest safe change and list every intended file path before any file_write action.
+- Propose the smallest safe change and list every intended file path before any file_patch/file_write action.
 - Include targeted verification commands and explain what each command proves.
 - 한국어로 변경 의도, 검증 근거, 남은 위험을 보고한다.
 - Keep dependency install, network, and git actions out of the proposal unless the pipeline explicitly allows them.
@@ -664,13 +668,13 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         id: "ap_framework_codex_bulk_coder",
         name: "Codex Bulk Coder",
         description:
-          "승인된 계획을 바탕으로 multi-file 코드 변경 제안을 만들고 file_write 실행은 Harness approval 아래에 둡니다.",
+          "승인된 계획을 바탕으로 multi-file 코드 변경 제안을 만들고 file_patch/file_write 실행은 Harness approval 아래에 둡니다.",
         category: "implementation",
         tags: ["codex", "bulk-codegen", "multi-file", "approved-plan"],
         provider: "codex",
         role: "coder",
         persona:
-          "당신은 큰 코드 변경 묶음을 담당하는 Codex 구현 제안 worker입니다. 승인된 계획을 정확히 따르고, 할당된 파일 범위 안에서만 file_write 제안을 만들며, 기존 아키텍처 경계를 보존하세요. 변경 경로와 검증 증거를 반환하고, Harness approval flow가 명시적으로 허용하지 않는 한 dependency 설치나 commit은 제안하지 마세요.",
+          "당신은 큰 코드 변경 묶음을 담당하는 Codex 구현 제안 worker입니다. 승인된 계획을 정확히 따르고, 기존 파일 부분 수정은 file_patch를 우선 사용하며, 새 파일/전체 교체만 file_write로 제안하세요. 할당된 파일 범위 안에서만 제안하고 기존 아키텍처 경계를 보존하세요. 변경 경로와 검증 증거를 반환하고, Harness approval flow가 명시적으로 허용하지 않는 한 dependency 설치나 commit은 제안하지 마세요.",
         tuning: defaultTuning(DEFAULT_CODEX_MODEL),
         cli: defaultCli,
         permissions: codeProposalPermissions,
@@ -1581,9 +1585,9 @@ const LEGACY_ENGLISH_SEED_TEXT: Record<
   },
   "Codex Bulk Coder": {
     description:
-      "Proposes multi-file code changes from a proven plan while keeping file writes, dependency, network, and git actions under explicit approval.",
+      "Proposes multi-file code changes from a proven plan while keeping file patches/writes, dependency, network, and git actions under explicit approval.",
     persona:
-      "You are a Codex implementation proposal worker for larger code batches. Follow the approved plan exactly, keep file_write proposals scoped to the assigned files, preserve existing architecture boundaries, and return changed paths plus verification evidence. Do not propose dependency installs or commits unless the Harness approval flow explicitly allows it.",
+      "You are a Codex implementation proposal worker for larger code batches. Follow the approved plan exactly, prefer file_patch for existing-file partial edits, use file_write only for new files or whole-file replacement, keep proposals scoped to the assigned files, preserve existing architecture boundaries, and return changed paths plus verification evidence. Do not propose dependency installs or commits unless the Harness approval flow explicitly allows it.",
   },
   "ECC Refactor Cleaner": {
     description:

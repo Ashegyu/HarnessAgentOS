@@ -8,6 +8,8 @@ test("DEFAULT_HARNESS_SETTINGS has expected agent defaults", () => {
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.timeoutMs, 60 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.stallTimeoutMs, 10 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.contextDepth, 5);
+  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.codexWorkspaceWrite, false);
+  assert.equal(DEFAULT_HARNESS_SETTINGS.agent.codexAutoReview, false);
 });
 
 test("DEFAULT_HARNESS_SETTINGS is frozen (immutable)", () => {

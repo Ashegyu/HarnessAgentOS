@@ -433,6 +433,7 @@ const displayToolName = (name: string): string => {
   ) {
     return "Shell";
   }
+  if (name === "file_patch") return "Patch";
   if (name === "file_write") return "File";
   if (name === "quality_check") return "Check";
   return name;

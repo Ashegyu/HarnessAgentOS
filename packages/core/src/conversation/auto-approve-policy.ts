@@ -35,7 +35,12 @@ export const isWorkerFileActionApproval = (input: {
   approval: Pick<Approval, "actionType" | "checkpointId">;
   checkpoints: readonly Pick<Checkpoint, "id" | "summary">[];
 }): boolean => {
-  if (input.approval.actionType !== "file_write") return false;
+  if (
+    input.approval.actionType !== "file_patch" &&
+    input.approval.actionType !== "file_write"
+  ) {
+    return false;
+  }
   const checkpoint = input.checkpoints.find(
     (c) => c.id === input.approval.checkpointId,
   );
@@ -116,7 +121,8 @@ export const shouldAutoApprove = (
   if (
     input.workerFileActionAutoApprove === true &&
     input.isWorkerFileAction === true &&
-    approval.actionType === "file_write"
+    (approval.actionType === "file_patch" ||
+      approval.actionType === "file_write")
   ) {
     return decision(
       true,

@@ -16,6 +16,7 @@ import type { ProposedAction } from "./types.ts";
 const ACTIONS_REQUIRING_APPROVAL: ReadonlySet<ApprovalActionType> = new Set([
   "capability_use",
   "model_use",
+  "file_patch",
   "file_write",
   "shell",
   "dependency_install",
@@ -48,7 +49,12 @@ export const classifyRisk = (
   action: ApprovalActionType,
 ): "low" | "medium" | "high" => {
   if (HIGH_RISK_ACTIONS.has(action)) return "high";
-  if (action === "shell" || action === "file_write" || action === "model_use")
+  if (
+    action === "shell" ||
+    action === "file_patch" ||
+    action === "file_write" ||
+    action === "model_use"
+  )
     return "medium";
   return "low";
 };
@@ -118,6 +124,8 @@ const approvalActionReason = (actionType: ApprovalActionType): string => {
       return "Capability use can influence prompt context and must be confirmed.";
     case "model_use":
       return "Model selection can affect cost and quality and must be confirmed.";
+    case "file_patch":
+      return "File patches modify the workspace and must be confirmed.";
     case "file_write":
       return "File writes modify the workspace and must be confirmed.";
     case "shell":

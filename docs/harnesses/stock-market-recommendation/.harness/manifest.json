@@ -1,0 +1,79 @@
+{
+  "schema": "harness.agentos.package.v1",
+  "exportedAt": "2026-05-28T00:00:00.000Z",
+  "package": {
+    "id": "stock-market-recommendation-system",
+    "name": "Stock Market Recommendation System Harness",
+    "version": "1.0.0",
+    "overview": {
+      "title": "Stock Market Recommendation System Harness",
+      "summary": "Supervised harness for a real-time stock research and recommendation-candidate program.",
+      "usage": "Import the directory, bind four agent profiles, configure market-data and web-search credentials, then preview the workflow before running.",
+      "outputPolicy": "Outputs are timestamped research candidates with evidence and risk review, not trade execution or personalized advice."
+    },
+    "capabilities": [
+      {
+        "id": "market-data-api",
+        "kind": "network",
+        "required": true,
+        "description": "Approved access to equity quote, OHLCV, fundamentals, market status, and optional streaming feeds.",
+        "providerHint": "either",
+        "risk": "high"
+      },
+      {
+        "id": "financial-news-web-search",
+        "kind": "network",
+        "required": true,
+        "description": "Approved web search for current analysis methods, company catalysts, source validation, and scam/sentiment risk checks.",
+        "providerHint": "either",
+        "risk": "high"
+      },
+      {
+        "id": "macro-economic-data-api",
+        "kind": "network",
+        "required": false,
+        "description": "Optional FRED or equivalent macroeconomic data API for rates, inflation, labor, credit, and sector context.",
+        "providerHint": "either",
+        "risk": "medium"
+      },
+      {
+        "id": "recommendation-report-file-write",
+        "kind": "filesystem",
+        "required": true,
+        "description": "Approval-gated write of research reports, scorecards, source logs, and verification notes.",
+        "providerHint": "either",
+        "risk": "medium"
+      }
+    ],
+    "safetyPolicy": {
+      "noTradeExecution": true,
+      "personalizedAdvice": false,
+      "requiresHumanReview": true,
+      "requiresSourceCitations": true,
+      "requiresDataFreshnessLabels": true,
+      "prohibitedOutputs": [
+        "broker_order_payload",
+        "guaranteed_return_claim",
+        "personalized_asset_allocation",
+        "social_media_only_stock_tip"
+      ]
+    },
+    "scoreModel": {
+      "technicalTrendMomentum": 25,
+      "fundamentalQualityValuation": 25,
+      "newsCatalystSentiment": 20,
+      "riskLiquidityVolatility": 20,
+      "dataFreshnessConfidence": 10
+    },
+    "runtimeInputs": [
+      "market or region",
+      "candidate universe or symbol list",
+      "market-data provider and API key source",
+      "web-search or financial-news provider",
+      "refresh interval and stale-data threshold",
+      "risk constraints and excluded sectors",
+      "report output directory"
+    ]
+  }
+}
+

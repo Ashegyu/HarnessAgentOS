@@ -9,6 +9,12 @@
  */
 export type AgentProposedAction =
   | {
+      type: "file_patch";
+      path: string;
+      patch: string;
+      rationale: string;
+    }
+  | {
       type: "file_write";
       path: string;
       before?: string;

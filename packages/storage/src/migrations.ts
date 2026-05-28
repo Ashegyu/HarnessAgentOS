@@ -2,7 +2,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
 const APPROVAL_ACTION_TYPE_CHECK =
-  "'capability_use','model_use','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
+  "'capability_use','model_use','file_patch','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
 const AGENT_PROFILE_ROLE_CHECK =
   "'planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer','documenter'";
 
@@ -143,6 +143,11 @@ export const applyMigrations = (db: DatabaseType): void => {
     // Like capability_use, this is consent to shape the next agent
     // invocation, not a runner-executed side effect.
     if (!approvalActionTypeAllows(db, "model_use")) {
+      rebuildApprovals(db);
+    }
+
+    // v36 — add file_patch approvals for single-file unified diff changes.
+    if (!approvalActionTypeAllows(db, "file_patch")) {
       rebuildApprovals(db);
     }
 

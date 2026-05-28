@@ -16,6 +16,7 @@ import {
   connectPipelineDependency,
   disconnectPipelineBackflow,
   disconnectPipelineDependency,
+  PIPELINE_WORKER_ACTION_CHOICES,
   suggestBackflowRulesForDraft,
 } from "./pipeline-form.ts";
 
@@ -698,6 +699,58 @@ test("visual connection helpers update dependencies and backflow safely", () => 
   assert.deepEqual(withoutDependency.draft.steps[1].dependsOn, []);
 });
 
+test("connectPipelineDependency replaces default linear edge for fan-out links", () => {
+  const d = {
+    ...emptyPipelineDraft(),
+    name: "Fan-out Link",
+    steps: [
+      {
+        id: "plan",
+        agentProfileId: "ap_plan",
+        title: "Plan",
+        instruction: "",
+        expectedArtifactKinds: ["plan"],
+        dependsOn: [],
+        allowedActions: [],
+      },
+      {
+        id: "review",
+        agentProfileId: "ap_review",
+        title: "Review",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: ["plan"],
+        allowedActions: [],
+      },
+      {
+        id: "security",
+        agentProfileId: "ap_security",
+        title: "Security",
+        instruction: "",
+        expectedArtifactKinds: ["review"],
+        dependsOn: ["review"],
+        allowedActions: [],
+      },
+    ],
+    backflowRules: [],
+  };
+
+  const connected = connectPipelineDependency(d, "plan", "security");
+  assert.equal(connected.changed, true);
+  assert.deepEqual(connected.draft.steps[2].dependsOn, ["plan"]);
+
+  const preview = buildPipelineFanOutPreview(connected.draft, [
+    profile("ap_plan", "Planner", "planner"),
+    profile("ap_review", "Reviewer", "reviewer"),
+    profile("ap_security", "Security", "security-reviewer"),
+  ]);
+  assert.deepEqual(preview.waves.map((wave) => wave.stepIds), [
+    ["plan"],
+    ["review", "security"],
+  ]);
+  assert.equal(preview.waves[1].parallelizable, true);
+});
+
 test("validatePipelineDraft flags invalid backflow rules without treating them as dependency cycles", () => {
   const d = {
     ...emptyPipelineDraft(),
@@ -907,6 +960,14 @@ test("serializePipelineDraft preserves topology metadata when selected", () => {
   assert.deepEqual(out.steps[0].dependsOn, ["s0"]);
   assert.deepEqual(out.steps[0].allowedActions, ["file_write"]);
   assert.equal(out.steps[0].outputContract, "diff_proposal");
+});
+
+test("pipeline worker action choices include file_patch", () => {
+  assert.deepEqual(PIPELINE_WORKER_ACTION_CHOICES, [
+    "file_patch",
+    "file_write",
+    "shell",
+  ]);
 });
 
 test("serializePipelineDraft preserves structured source metadata", () => {

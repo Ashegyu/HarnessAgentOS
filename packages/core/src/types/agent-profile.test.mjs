@@ -25,6 +25,7 @@ test("AGENT_PROFILE_ACTION_TYPES matches the approval action types", () => {
   assert.deepEqual([...AGENT_PROFILE_ACTION_TYPES].sort(), [
     "capability_use",
     "dependency_install",
+    "file_patch",
     "file_write",
     "git_commit",
     "model_use",

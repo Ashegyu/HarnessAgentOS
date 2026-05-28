@@ -7,6 +7,8 @@ import {
   err,
   harnessError,
   ok,
+  type CodeChangeAttemptResult,
+  type CodeChangeLoopRunInput,
   type Artifact,
   type ArtifactStore,
   type HarnessResult,
@@ -23,6 +25,9 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
+const isStringArray = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every(isNonEmptyString);
+
 export interface RunnerIpcHooks {
   executeApprovedOverride?: (input: {
     approvalId: string;
@@ -31,11 +36,22 @@ export interface RunnerIpcHooks {
     approvalId: string;
     result: RunnerResultPayload;
   }) => Promise<void>;
+  executeCodeChangeAttempt?: (
+    input: CodeChangeLoopRunInput,
+  ) => Promise<CodeChangeAttemptResult>;
 }
 
 const wrapRunnerErr = <T>(e: unknown): HarnessResult<T> => {
   if (e instanceof RunnerError) {
     return err(harnessError(e.code, e.message));
+  }
+  if (
+    typeof e === "object" &&
+    e !== null &&
+    typeof (e as { code?: unknown }).code === "string"
+  ) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return err(harnessError((e as { code: string }).code, msg));
   }
   const msg = e instanceof Error ? e.message : String(e);
   return err(harnessError(RUNNER_EXECUTION_FAILED, msg));
@@ -81,6 +97,84 @@ export const registerRunnerIpc = (
       } catch (e) {
         await emitApprovalTaskRunChanged(cast.approvalId);
         return wrapRunnerErr<RunnerResultPayload>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.runner.executeCodeChangeAttempt,
+    async (_e, input: unknown): Promise<HarnessResult<CodeChangeAttemptResult>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as {
+        taskRunId?: unknown;
+        changeApprovalIds?: unknown;
+        verificationApprovalIds?: unknown;
+        attemptNumber?: unknown;
+      };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      if (!isStringArray(cast.changeApprovalIds)) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "changeApprovalIds must be an array of non-empty strings",
+          ),
+        );
+      }
+      if (
+        cast.verificationApprovalIds !== undefined &&
+        !isStringArray(cast.verificationApprovalIds)
+      ) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "verificationApprovalIds must be an array of non-empty strings",
+          ),
+        );
+      }
+      if (
+        cast.attemptNumber !== undefined &&
+        (typeof cast.attemptNumber !== "number" ||
+          !Number.isInteger(cast.attemptNumber) ||
+          cast.attemptNumber < 1)
+      ) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "attemptNumber must be a positive integer",
+          ),
+        );
+      }
+      if (!hooks.executeCodeChangeAttempt) {
+        return err(
+          harnessError(
+            RUNNER_EXECUTION_FAILED,
+            "Code change loop service is not configured",
+          ),
+        );
+      }
+      try {
+        const attemptNumber =
+          typeof cast.attemptNumber === "number" ? cast.attemptNumber : undefined;
+        const payload: CodeChangeLoopRunInput = {
+          taskRunId: cast.taskRunId,
+          changeApprovalIds: cast.changeApprovalIds,
+          ...(cast.verificationApprovalIds !== undefined
+            ? { verificationApprovalIds: cast.verificationApprovalIds }
+            : {}),
+          ...(attemptNumber !== undefined ? { attemptNumber } : {}),
+        };
+        const result = await hooks.executeCodeChangeAttempt(payload);
+        events.taskRunChanged(result.taskRunId);
+        return ok(result);
+      } catch (e) {
+        if (isNonEmptyString(cast.taskRunId)) events.taskRunChanged(cast.taskRunId);
+        return wrapRunnerErr<CodeChangeAttemptResult>(e);
       }
     },
   );

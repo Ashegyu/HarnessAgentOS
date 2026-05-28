@@ -103,3 +103,28 @@ test("parses shell action with args", () => {
     assert.deepEqual(r.plan.proposedActions[0].args, ["test", "--silent"]);
   }
 });
+
+test("parses file_patch action", () => {
+  const patch = "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
+  const withPatch = {
+    ...validPlan,
+    proposedActions: [
+      {
+        type: "file_patch",
+        path: "src/foo.ts",
+        patch,
+        rationale: "partial edit without whole-file replacement",
+      },
+    ],
+  };
+  const r = parseAgentPlan(wrap(withPatch));
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.deepEqual(r.plan.proposedActions[0], {
+      type: "file_patch",
+      path: "src/foo.ts",
+      patch,
+      rationale: "partial edit without whole-file replacement",
+    });
+  }
+});

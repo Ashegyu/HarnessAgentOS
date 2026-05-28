@@ -33,6 +33,7 @@ const ALLOWED_WORKER_ARTIFACT_KINDS = new Set([
 const FORBIDDEN_DIRECT_ACTIONS = new Set([
   // Listed for clarity; orchestration never invokes runners directly.
   "shell",
+  "file_patch",
   "file_write",
   "dependency_install",
   "git_commit",

@@ -14,6 +14,7 @@
 | `state-and-artifact-architecture.md` | SQLite canonical state, artifact 저장소, snapshot/export 정책 |
 | `security-and-approval-architecture.md` | 승인 모델, 권한 경계, 위험 action 정책 |
 | `runner-and-quality-architecture.md` | runner 계층과 quality gate 평가 흐름 |
+| `code-change-loop-architecture.md` | 여러 파일 수정, 검증, 재시도를 묶는 bounded code modification loop 설계 |
 | `capability-and-learning-architecture.md` | Skillify capability와 Learner advisor 구조 |
 | `ui-workbench-architecture.md` | 대화형 workbench UI 정보 구조와 상태 표현 |
 | `internal-agent-message-bus-plan.md` | 내부 에이전트 이벤트/메시지 버스 설계와 IPC push 경계 |

@@ -17,6 +17,7 @@ import {
   type Capability,
   type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
+  type CodeChangeAttemptResult,
   type EvolutionCandidate,
   type DecisionLogPage,
   type EvalCostTrendFilters,
@@ -187,6 +188,11 @@ const harnessApi: HarnessDesktopApi = {
     executeApproved: (input) =>
       invokeUnwrapped<RunnerResultPayload>(
         IPC_CHANNELS.runner.executeApproved,
+        input,
+      ),
+    executeCodeChangeAttempt: (input) =>
+      invokeUnwrapped<CodeChangeAttemptResult>(
+        IPC_CHANNELS.runner.executeCodeChangeAttempt,
         input,
       ),
     cancelExecution: (input) =>

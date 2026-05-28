@@ -39,6 +39,26 @@ test("buildSplitAgentPrompt forbids user-blocking questions", () => {
   assert.match(systemPrompt, /questions:\s*\[\]/);
 });
 
+test("buildSplitAgentPrompt tells agents to propose approvals instead of refusing direct edits", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
+  assert.match(systemPrompt, /Do NOT modify files directly/i);
+  assert.match(systemPrompt, /read-only provider sandbox/i);
+  assert.match(systemPrompt, /does not block you from proposing file_patch\/file_write/i);
+  assert.match(systemPrompt, /Do not answer that you cannot modify files directly/i);
+  assert.match(systemPrompt, /produce proposedActions/i);
+});
+
+test("buildSplitAgentPrompt allows direct edits when workspace-write is enabled", () => {
+  const { systemPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    directFileEdits: true,
+  });
+  assert.match(systemPrompt, /workspace-write sandbox/i);
+  assert.match(systemPrompt, /You may modify files directly inside targetDir/i);
+  assert.match(systemPrompt, /set proposedActions to \[\]/i);
+  assert.doesNotMatch(systemPrompt, /Do NOT modify files directly/i);
+});
+
 test("buildSplitAgentPrompt includes instruction when provided", () => {
   const { userPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,

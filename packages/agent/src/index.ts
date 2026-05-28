@@ -4,6 +4,8 @@ export * from "./agent-output-parser";
 export * from "./model-cli-types";
 export * from "./model-cli-errors";
 export * from "./model-cli-adapter";
+export * from "./model-invoker-types";
+export * from "./model-invoker-adapter";
 export * from "./fake-model-cli-adapter";
 export * from "./a2a-invocation-adapter";
 export * from "./a2a-refinement-policy";

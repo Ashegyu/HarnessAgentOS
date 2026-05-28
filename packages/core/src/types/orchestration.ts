@@ -180,6 +180,12 @@ export interface OrchestrationRunResult {
   workerStepArtifactIds: string[];
   workerSteps: WorkerStep[];
   proposedApprovalIds: string[];
+  /**
+   * True when execution paused after worker-proposed side-effect approvals and
+   * the same orchestration approval should be run again after those approvals
+   * are executed.
+   */
+  needsContinuation?: boolean;
 }
 
 const WORKER_SOURCE_FORMATS: ReadonlySet<string> = new Set([

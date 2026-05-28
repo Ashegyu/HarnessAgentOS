@@ -25,6 +25,7 @@ import type {
   TraceRecorder,
 } from "@harness/learner";
 import {
+  CodeChangeLoopService,
   HarnessPackageService,
   type OrchestrationService,
 } from "@harness/orchestration";
@@ -94,6 +95,16 @@ export interface IpcContext {
  * Single registration entry point.
  */
 export const registerAllIpc = (ctx: IpcContext): void => {
+  const codeChangeLoop = new CodeChangeLoopService({
+    state: ctx.state,
+    runner: {
+      executeApproved: async (approvalId) => {
+        const result = await ctx.runner.executeApproved(approvalId);
+        await refreshGeneratedSkillSourceAfterRunner(ctx, approvalId);
+        return result;
+      },
+    },
+  });
   const pipelineBackflow = new PipelineBackflowService({
     state: ctx.state,
     orchestration: ctx.orchestrationService,
@@ -117,6 +128,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
       }),
     afterExecuteApproved: ({ approvalId }) =>
       refreshGeneratedSkillSourceAfterRunner(ctx, approvalId),
+    executeCodeChangeAttempt: (input) => codeChangeLoop.runAttempt(input),
   });
   registerShadowIpc({ shadow: ctx.shadowWorkspace }, eventBus);
   registerQualityIpc(

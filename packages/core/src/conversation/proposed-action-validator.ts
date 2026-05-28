@@ -71,6 +71,8 @@ export const validateProposedActionDetails = (
   }
 
   switch (type) {
+    case "file_patch":
+      return validateFilePatch(raw);
     case "file_write":
       return validateFileWrite(raw);
     case "shell":
@@ -93,30 +95,38 @@ export const validateProposedActionDetails = (
   }
 };
 
-const validateFileWrite = (raw: Record<string, unknown>): ProposedActionValidation => {
-  const filePatch = raw.filePatch;
-  if (!isPlainObject(filePatch)) {
-    return { ok: false, reason: "file_write requires filePatch object" };
-  }
-  const path = filePatch.path;
+const validateRelativePath = (
+  fieldName: string,
+  path: unknown,
+): { ok: true; path: string } | { ok: false; reason: string } => {
   if (typeof path !== "string" || path.trim().length === 0) {
-    return { ok: false, reason: "filePatch.path must be a non-empty string" };
+    return { ok: false, reason: `${fieldName} must be a non-empty string` };
   }
   if (containsNul(path)) {
-    return { ok: false, reason: "filePatch.path must not contain NUL bytes" };
+    return { ok: false, reason: `${fieldName} must not contain NUL bytes` };
   }
   if (isAbsolutePath(path)) {
     return {
       ok: false,
-      reason: "filePatch.path must be relative to TaskRun.targetDir",
+      reason: `${fieldName} must be relative to TaskRun.targetDir`,
     };
   }
   if (path.split(/[\\/]/).some((seg) => seg === "..")) {
     return {
       ok: false,
-      reason: "filePatch.path must not traverse parent directories (..)",
+      reason: `${fieldName} must not traverse parent directories (..)`,
     };
   }
+  return { ok: true, path };
+};
+
+const validateFileWrite = (raw: Record<string, unknown>): ProposedActionValidation => {
+  const filePatch = raw.filePatch;
+  if (!isPlainObject(filePatch)) {
+    return { ok: false, reason: "file_write requires filePatch object" };
+  }
+  const parsedPath = validateRelativePath("filePatch.path", filePatch.path);
+  if (!parsedPath.ok) return parsedPath;
   const after = filePatch.after;
   if (typeof after !== "string") {
     return { ok: false, reason: "filePatch.after must be a string" };
@@ -133,12 +143,55 @@ const validateFileWrite = (raw: Record<string, unknown>): ProposedActionValidati
   const normalized: ProposedActionDetails = {
     type: "file_write",
     filePatch: {
-      path,
+      path: parsedPath.path,
       after,
       ...(before !== undefined ? { before } : {}),
     },
   };
   return { ok: true, details: normalized };
+};
+
+const validateFilePatch = (raw: Record<string, unknown>): ProposedActionValidation => {
+  const unifiedPatch = raw.unifiedPatch;
+  if (!isPlainObject(unifiedPatch)) {
+    return { ok: false, reason: "file_patch requires unifiedPatch object" };
+  }
+  const parsedPath = validateRelativePath("unifiedPatch.path", unifiedPatch.path);
+  if (!parsedPath.ok) return parsedPath;
+  const patch = unifiedPatch.patch;
+  if (typeof patch !== "string" || patch.trim().length === 0) {
+    return {
+      ok: false,
+      reason: "unifiedPatch.patch must be a non-empty string",
+    };
+  }
+  if (containsNul(patch)) {
+    return { ok: false, reason: "unifiedPatch.patch must not contain NUL bytes" };
+  }
+  if (!looksLikeUnifiedDiff(patch)) {
+    return {
+      ok: false,
+      reason:
+        "unifiedPatch.patch must be a unified diff with ---/+++ headers and at least one hunk",
+    };
+  }
+  const normalized: ProposedActionDetails = {
+    type: "file_patch",
+    unifiedPatch: {
+      path: parsedPath.path,
+      patch,
+    },
+  };
+  return { ok: true, details: normalized };
+};
+
+const looksLikeUnifiedDiff = (patch: string): boolean => {
+  const lines = patch.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  return (
+    lines[0]?.startsWith("--- ") === true &&
+    lines[1]?.startsWith("+++ ") === true &&
+    lines.some((line) => line.startsWith("@@ "))
+  );
 };
 
 const validateShell = (raw: Record<string, unknown>): ProposedActionValidation => {

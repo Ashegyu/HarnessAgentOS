@@ -8,7 +8,8 @@ import {
   toProposedAction,
 } from "./approval-policy.ts";
 
-test("file_write and shell are medium risk", () => {
+test("file_patch, file_write and shell are medium risk", () => {
+  assert.equal(classifyRisk("file_patch"), "medium");
   assert.equal(classifyRisk("file_write"), "medium");
   assert.equal(classifyRisk("shell"), "medium");
   assert.equal(classifyRisk("model_use"), "medium");
@@ -30,6 +31,7 @@ test("all listed action types require approval in Phase 2", () => {
   for (const a of [
     "capability_use",
     "model_use",
+    "file_patch",
     "file_write",
     "shell",
     "dependency_install",

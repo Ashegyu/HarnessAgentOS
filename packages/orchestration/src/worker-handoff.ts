@@ -499,6 +499,33 @@ const parseProposedActions = (
       });
       continue;
     }
+    if (item.type === "file_patch") {
+      if (typeof item.path !== "string" || item.path.trim().length === 0) {
+        return {
+          ok: false,
+          reason: `proposedActions[${index}].path must be non-empty.`,
+        };
+      }
+      if (typeof item.patch !== "string" || item.patch.trim().length === 0) {
+        return {
+          ok: false,
+          reason: `proposedActions[${index}].patch must be a non-empty string.`,
+        };
+      }
+      if (typeof item.rationale !== "string") {
+        return {
+          ok: false,
+          reason: `proposedActions[${index}].rationale must be a string.`,
+        };
+      }
+      out.push({
+        type: "file_patch",
+        path: item.path,
+        patch: item.patch,
+        rationale: item.rationale,
+      });
+      continue;
+    }
     if (item.type === "shell") {
       if (typeof item.command !== "string" || item.command.trim().length === 0) {
         return {
@@ -527,7 +554,7 @@ const parseProposedActions = (
     }
     return {
       ok: false,
-      reason: `proposedActions[${index}].type must be file_write or shell.`,
+      reason: `proposedActions[${index}].type must be file_patch, file_write, or shell.`,
     };
   }
   return { ok: true, value: out };

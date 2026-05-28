@@ -107,9 +107,9 @@ const ROLE_ARTIFACTS: Record<WorkerRole, readonly ArtifactKind[]> = {
 const ROLE_ACTIONS: Record<WorkerRole, readonly ApprovalActionType[]> = {
   orchestrator: [],
   planner: [],
-  coder: ["file_write"],
-  "refactor-cleaner": ["file_write"],
-  "build-error-resolver": ["shell", "file_write"],
+  coder: ["file_patch", "file_write"],
+  "refactor-cleaner": ["file_patch", "file_write"],
+  "build-error-resolver": ["shell", "file_patch", "file_write"],
   tester: ["shell"],
   "security-reviewer": [],
   "performance-reviewer": [],
@@ -487,11 +487,11 @@ const instructionForRole = (role: WorkerRole): string => {
     case "planner":
       return "Decompose the request, identify risks, and hand off a concrete implementation plan.";
     case "coder":
-      return "Implement the approved plan using the repository conventions. Propose side effects only through approvals.";
+      return "Implement the approved plan using the repository conventions. Prefer file_patch for existing partial edits and file_write only for new files or full-body replacements.";
     case "refactor-cleaner":
-      return "Refactor safely, preserve behavior, remove dead code only with evidence, and keep the diff reviewable.";
+      return "Refactor safely, preserve behavior, remove dead code only with evidence, and prefer file_patch for focused existing-file edits.";
     case "build-error-resolver":
-      return "Diagnose the first real build, type, lint, or test failure. Propose the smallest fix and targeted verification.";
+      return "Diagnose the first real build, type, lint, or test failure. Propose the smallest fix through file_patch for existing files or file_write when a new/full file is required, then targeted verification.";
     case "tester":
       return "Run or design focused verification for the implemented change and report concrete evidence.";
     case "security-reviewer":

@@ -58,6 +58,10 @@ const validateSettingsInput = (
       reason: "agent.contextDepth must be a positive integer",
     };
   }
+  const codexWorkspaceWrite =
+    typeof a.codexWorkspaceWrite === "boolean" ? a.codexWorkspaceWrite : false;
+  const codexAutoReview =
+    typeof a.codexAutoReview === "boolean" ? a.codexAutoReview : false;
   const orch =
     s.orchestration !== null && typeof s.orchestration === "object"
       ? (s.orchestration as Record<string, unknown>)
@@ -99,6 +103,8 @@ const validateSettingsInput = (
         timeoutMs: a.timeoutMs,
         stallTimeoutMs: a.stallTimeoutMs,
         contextDepth: a.contextDepth,
+        codexWorkspaceWrite,
+        codexAutoReview,
       },
       orchestration: {
         enabled: orchestrationEnabled,

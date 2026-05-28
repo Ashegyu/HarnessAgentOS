@@ -86,6 +86,100 @@ test("file_write strips disallowed extra fields", () => {
   assert.equal(r.details.command, undefined);
 });
 
+test("file_patch accepts relative unified diff payload", () => {
+  const patch = [
+    "--- a/src/foo.ts",
+    "+++ b/src/foo.ts",
+    "@@ -1,3 +1,3 @@",
+    " one",
+    "-two",
+    "+TWO",
+    " three",
+    "",
+  ].join("\n");
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch },
+      command: "ignored",
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, true);
+  assert.equal(r.details.type, "file_patch");
+  assert.deepEqual(r.details.unifiedPatch, { path: "src/foo.ts", patch });
+  assert.equal(r.details.command, undefined);
+});
+
+test("file_patch rejects parent traversal", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: {
+        path: "../src/foo.ts",
+        patch: "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      },
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /traverse parent/);
+});
+
+test("file_patch rejects absolute path", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: {
+        path: "C:\\src\\foo.ts",
+        patch: "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      },
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /relative to TaskRun.targetDir/);
+});
+
+test("file_patch rejects empty patch text", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch: "  " },
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /patch must be a non-empty string/);
+});
+
+test("file_patch rejects non-diff patch text", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch: "replace old with new" },
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /unified diff/);
+});
+
+test("file_patch rejects NUL bytes in patch text", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: {
+        path: "src/foo.ts",
+        patch: "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\u0000\n+new\n",
+      },
+    },
+    "file_patch",
+  );
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /NUL/);
+});
+
 test("shell requires non-empty command", () => {
   const r = validateProposedActionDetails(
     { type: "shell", command: "  " },

@@ -137,6 +137,49 @@ test("SettingsRepository defaults approval.autoApprove to false when missing", a
   }
 });
 
+test("SettingsRepository defaults Codex runtime options when missing", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run("harness_settings", JSON.stringify({ agent: { provider: "codex", timeoutMs: 300_000, stallTimeoutMs: 60_000, model: "", contextDepth: 5 } }));
+    const retrieved = await repo.get();
+    assert.equal(retrieved.agent.codexWorkspaceWrite, false);
+    assert.equal(retrieved.agent.codexAutoReview, false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository round-trips Codex runtime options", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    await repo.update({
+      agent: {
+        provider: "codex",
+        timeoutMs: 300_000,
+        stallTimeoutMs: 60_000,
+        model: "",
+        contextDepth: 5,
+        codexWorkspaceWrite: true,
+        codexAutoReview: true,
+      },
+      orchestration: { enabled: false, defaultMode: "single_worker", defaultInstructions: "", workerProfiles: [], defaultPipelineId: "" },
+      approval: { autoApprove: false, autoExecuteWorkerFileActions: false },
+    });
+    const retrieved = await repo.get();
+    assert.equal(retrieved.agent.codexWorkspaceWrite, true);
+    assert.equal(retrieved.agent.codexAutoReview, true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("SettingsRepository round-trips approval automation flags", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

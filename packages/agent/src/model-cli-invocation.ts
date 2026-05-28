@@ -92,16 +92,22 @@ const buildArgs = (request: ModelCliRequest): string[] => {
   // (`--ask-for-approval`, `-c`), so they must appear before the `exec`
   // subcommand. Use stdin (`-`) so prompts with spaces/non-ASCII never
   // become accidental argv segments.
+  const sandboxMode =
+    request.sandbox.mode === "workspace-write" ? "workspace-write" : "read-only";
+  const askForApproval = request.sandbox.autoReview === true ? "on-request" : "never";
   const args = [
     "--model",
     model,
     "--cd",
     request.cwd,
     "--sandbox",
-    "read-only",
+    sandboxMode,
     "--ask-for-approval",
-    "never",
+    askForApproval,
   ];
+  if (request.sandbox.autoReview === true) {
+    args.push("-c", 'approvals_reviewer="auto_review"');
+  }
   const reasoningEffort = normalizeReasoningEffort(
     request.modelConfig.reasoningEffort,
   );

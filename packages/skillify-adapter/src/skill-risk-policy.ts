@@ -14,7 +14,7 @@ const HIGH_RISK_ACTIONS = new Set([
   "orchestration_plan",
 ]);
 
-const MEDIUM_RISK_ACTIONS = new Set(["file_write"]);
+const MEDIUM_RISK_ACTIONS = new Set(["file_patch", "file_write"]);
 
 export const classifySkillRisk = (input: {
   declared: CapabilityRiskLevel;

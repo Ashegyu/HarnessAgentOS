@@ -269,6 +269,7 @@ test("runner namespace exposes Phase 3 + retry verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.runner).sort(), [
     "cancelExecution",
     "executeApproved",
+    "executeCodeChangeAttempt",
     "listArtifacts",
     "readArtifact",
     "retryApproval",

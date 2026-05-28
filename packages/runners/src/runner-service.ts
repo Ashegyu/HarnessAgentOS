@@ -18,11 +18,16 @@ import {
 } from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
+import { readFile, writeFile } from "node:fs/promises";
 import { relative as relativePath, resolve as resolveNodePath } from "node:path";
 import { FileRunner } from "./file-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { GitRunner } from "./git-runner.ts";
 import { TestRunner } from "./test-runner.ts";
+import {
+  applySingleFileUnifiedPatch,
+  UnifiedPatchError,
+} from "./unified-patch.ts";
 import {
   isWithin,
   classifyShellCommand,
@@ -225,6 +230,9 @@ export class RunnerService {
 
     try {
       switch (approval.actionType) {
+        case "file_patch":
+          await this.runFilePatch({ approval, taskRun, step, details, result });
+          break;
         case "file_write":
           await this.runFileWrite({ approval, taskRun, step, details, result });
           break;
@@ -386,6 +394,70 @@ export class RunnerService {
     result.artifactIds.push(diffArtifact.id);
   }
 
+  private async runFilePatch(args: {
+    approval: Approval;
+    taskRun: TaskRun;
+    step: Step;
+    details: ProposedActionDetails;
+    result: RunnerResult;
+  }): Promise<void> {
+    const { taskRun, step, details, result } = args;
+    const patch = details.unifiedPatch;
+    if (!patch) {
+      throw new RunnerError(
+        "RUNNER_EXECUTION_FAILED",
+        "file_patch requires proposedAction.unifiedPatch",
+      );
+    }
+    const executionPatch = {
+      ...patch,
+      path: normalizeFilePatchPath(taskRun.targetDir, patch.path),
+    };
+    const targetPath = resolvePath(taskRun.targetDir, executionPatch.path);
+    if (!isWithin(taskRun.targetDir, targetPath)) {
+      throw new RunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `File path escapes targetDir: ${patch.path}`,
+      );
+    }
+    let before: string;
+    try {
+      before = await readFile(targetPath, "utf8");
+    } catch {
+      throw new RunnerError(
+        "RUNNER_PATCH_CONTEXT_MISMATCH",
+        `file_patch target does not exist: ${patch.path}`,
+      );
+    }
+
+    let applied: ReturnType<typeof applySingleFileUnifiedPatch>;
+    try {
+      applied = applySingleFileUnifiedPatch({
+        path: executionPatch.path,
+        patch: executionPatch.patch,
+        currentContent: before,
+      });
+    } catch (e) {
+      if (e instanceof UnifiedPatchError) {
+        throw new RunnerError(e.code, e.message);
+      }
+      throw e;
+    }
+
+    await writeFile(targetPath, applied.afterContent, "utf8");
+    result.changedFiles = [targetPath];
+
+    const diffArtifact = await this.persistArtifact({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      kind: "diff",
+      title: `patch: ${executionPatch.path}`,
+      content: applied.normalizedPatch,
+      summary: `patch applied to ${targetPath}`,
+    });
+    result.artifactIds.push(diffArtifact.id);
+  }
+
   private async runDbSnapshotExport(args: {
     taskRun: TaskRun;
     step: Step;
@@ -541,6 +613,7 @@ const mapActionToStepKind = (
   action: string,
 ): "edit" | "shell" | "test" | "summarize" => {
   switch (action) {
+    case "file_patch":
     case "file_write":
       return "edit";
     case "shell":
@@ -555,6 +628,7 @@ const summarize = (details: ProposedActionDetails): string => {
     return `db snapshot: ${details.dbSnapshotExport.targetPath}`;
   }
   if (details.command) return `shell: ${details.command}`;
+  if (details.unifiedPatch) return `patch: ${details.unifiedPatch.path}`;
   if (details.filePatch) return `file: ${details.filePatch.path}`;
   return details.type;
 };
@@ -565,6 +639,7 @@ const summarizeStepInput = (
 ): string => {
   if (details.dbSnapshotExport) return details.dbSnapshotExport.targetPath;
   if (details.command) return details.command;
+  if (details.unifiedPatch) return details.unifiedPatch.path;
   if (details.filePatch) return details.filePatch.path;
   return approval.actionSummary;
 };

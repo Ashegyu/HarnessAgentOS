@@ -15,6 +15,8 @@ export interface ModelCliToolPolicy {
   toolDenylist: readonly string[];
 }
 
+export type ModelCliSandboxMode = "read-only" | "workspace-write";
+
 /**
  * Phase 8 — request envelope passed into ModelCliAdapter.invoke.
  * The adapter MUST treat `cwd` and `sandbox.primaryDir` as authoritative
@@ -28,6 +30,8 @@ export interface ModelCliRequest {
   modelConfig: AgentModelConfig;
   sandbox: {
     primaryDir: string;
+    mode?: ModelCliSandboxMode;
+    autoReview?: boolean;
     /**
      * Always true at Phase 8: the prompt MUST contain the sandbox
      * statement so the model can't claim it wasn't told. The flag is

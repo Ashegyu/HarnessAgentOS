@@ -712,6 +712,18 @@ const buildHarnessPlanToolUses = (
             contentLength:
               typeof action["after"] === "string"
                 ? (action["after"] as string).length
+              : undefined,
+          },
+        });
+      } else if (action["type"] === "file_patch") {
+        toolUses.push({
+          name: "file_patch",
+          input: {
+            path: action["path"],
+            rationale: action["rationale"],
+            patchLength:
+              typeof action["patch"] === "string"
+                ? (action["patch"] as string).length
                 : undefined,
           },
         });

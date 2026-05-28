@@ -134,6 +134,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
 
     const now = nowIso();
     this.localizeLegacySeedPipelines({ existing, updatedAt: now });
+    this.backfillSeedFilePatchActions({ existing, updatedAt: now });
     this.backfillSeedBackflowRules({ existing, updatedAt: now });
     for (const template of pipelineSeedTemplates) {
       if (existingIds.has(template.id)) continue;
@@ -355,6 +356,55 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
             WHERE id = ?`,
         )
         .run(JSON.stringify(backflowRules), input.updatedAt, pipeline.id);
+    }
+  }
+
+  private backfillSeedFilePatchActions(input: {
+    existing: readonly AgentPipeline[];
+    updatedAt: string;
+  }): void {
+    const desiredById = new Map(
+      pipelineSeedTemplates.map((template) => [template.id, template] as const),
+    );
+    const selectById = this.db.prepare<[string], PipelineRow>(
+      `${SELECT} WHERE id = ?`,
+    );
+    for (const existingPipeline of input.existing) {
+      const desired = desiredById.get(existingPipeline.id);
+      if (!desired) continue;
+      const row = selectById.get(existingPipeline.id);
+      if (!row) continue;
+      const pipeline = rowToPipeline(row);
+      const desiredSteps = new Map(
+        desired.steps.map((step) => [step.id, step] as const),
+      );
+      let changed = false;
+      const steps = pipeline.steps.map((step) => {
+        const desiredStep = desiredSteps.get(step.id);
+        const desiredActions = desiredStep?.allowedActions ?? [];
+        if (!desiredActions.includes("file_patch")) return step;
+        const legacyActions = desiredActions.filter(
+          (action) => action !== "file_patch",
+        );
+        if (!sameActionList(step.allowedActions ?? [], legacyActions)) {
+          return step;
+        }
+        changed = true;
+        return { ...step, allowedActions: [...desiredActions] };
+      });
+      if (!changed) continue;
+      this.db
+        .prepare(
+          `UPDATE agent_pipelines
+              SET steps_json = ?, backflow_rules_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          JSON.stringify(steps),
+          JSON.stringify(pipeline.backflowRules ?? []),
+          input.updatedAt,
+          pipeline.id,
+        );
     }
   }
 }
@@ -768,10 +818,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.coder,
         title: "최소 수정 제안",
         instruction:
-          "승인된 원인 후보와 범위만 바탕으로 최소 diff를 제안하세요. 파일 쓰기는 Harness approval을 통해서만 제안하고, unrelated cleanup은 피하세요.",
+          "승인된 원인 후보와 범위만 바탕으로 최소 diff를 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하고, unrelated cleanup은 피하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["hypothesis"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -842,10 +892,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.coder,
         title: "계약 정렬 diff 제안",
         instruction:
-          "승인된 계약 정렬 범위만 최소 diff로 제안하세요. docs/code/test가 서로 같은 계약을 말하도록 유지하세요.",
+          "승인된 계약 정렬 범위만 최소 diff로 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하고 docs/code/test가 서로 같은 계약을 말하도록 유지하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["runtime-design"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -905,10 +955,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.coder,
         title: "hardening 변경 제안",
         instruction:
-          "승인된 hardening 범위만 최소 diff로 제안하고, user-supervised workflow를 자동 실행/자동 저장으로 바꾸지 마세요.",
+          "승인된 hardening 범위만 최소 diff로 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하고, user-supervised workflow를 자동 실행/자동 저장으로 바꾸지 마세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["policy", "security"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1020,10 +1070,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.build,
         title: "release check 실행/복구",
         instruction:
-          "승인된 범위에서 check/test/build/smoke를 실행하고 첫 실제 실패가 있으면 최소 수정안을 제안하세요.",
+          "승인된 범위에서 check/test/build/smoke를 실행하고 첫 실제 실패가 있으면 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 최소 수정안을 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["eval-plan"],
-        allowedActions: ["shell", "file_write"],
+        allowedActions: ["shell", "file_patch", "file_write"],
         outputContract: "test_result",
       },
       {
@@ -1105,10 +1155,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.coder,
         title: "baseline seed 구현 제안",
         instruction:
-          "승인된 topology만 바탕으로 profile/pipeline seed, 추천 키워드, docs 변경을 최소 diff로 제안하세요.",
+          "승인된 topology만 바탕으로 profile/pipeline seed, 추천 키워드, docs 변경을 최소 diff로 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval을 사용하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["topology"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1269,10 +1319,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.frontend,
         title: "프론트엔드 구현 제안",
         instruction:
-          "승인된 PRD/UX/image prompt 산출물을 바탕으로 기존 UI 패턴에 맞춘 최소 frontend 변경을 제안하세요. 파일 쓰기는 Harness approval로만 제안하세요.",
+          "승인된 PRD/UX/image prompt 산출물을 바탕으로 기존 UI 패턴에 맞춘 최소 frontend 변경을 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로만 제안하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["ux-flow", "image-prompts"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1450,10 +1500,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.integration3d,
         title: "세부 구현",
         instruction:
-          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함해 file_write 제안을 만드세요.",
+          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함하고, 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하세요.",
         expectedArtifactKinds: ["diff", "file", "log"],
         dependsOn: ["class-generation"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1644,10 +1694,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.build,
         title: "빌드/실행 복구",
         instruction:
-          "승인된 프로젝트 파일 생성 후 build, typecheck, lint, test, smoke 실행 가능성을 확인하세요. 실패하면 첫 실제 원인을 추적하고 가장 작은 수정안을 Harness approval로만 제안하세요.",
+          "승인된 프로젝트 파일 생성 후 build, typecheck, lint, test, smoke 실행 가능성을 확인하세요. 실패하면 첫 실제 원인을 추적하고 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 가장 작은 수정안을 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["implementation"],
-        allowedActions: ["shell", "file_write"],
+        allowedActions: ["shell", "file_patch", "file_write"],
         outputContract: "test_result",
       },
       {
@@ -1740,10 +1790,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.frontend,
         title: "제품 UI 구현 제안",
         instruction:
-          "승인된 PRD/아키텍처/UX를 바탕으로 기존 패턴에 맞는 최소 frontend 변경을 제안하세요.",
+          "승인된 PRD/아키텍처/UX를 바탕으로 기존 패턴에 맞는 최소 frontend 변경을 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval을 사용하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["architecture", "ux"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1814,10 +1864,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.coder,
         title: "Agent/profile 변경 구현 제안",
         instruction:
-          "승인된 topology만 바탕으로 profile/pipeline seed 또는 UI 변경을 최소 diff로 제안하세요.",
+          "승인된 topology만 바탕으로 profile/pipeline seed 또는 UI 변경을 최소 diff로 제안하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval을 사용하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["topology"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1880,7 +1930,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
           "승인된 계획만 좁은 범위로 구현하세요. 파일 쓰기는 Harness approval을 통해서만 제안하고, 변경 경로와 검증 근거를 한국어로 보고하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["plan"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1891,7 +1941,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
           "승인된 범위에서 build, typecheck, lint, test 진단을 실행하세요. 실패가 있으면 첫 실제 원인을 추적하고 가장 작은 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["implement"],
-        allowedActions: ["shell", "file_write"],
+        allowedActions: ["shell", "file_patch", "file_write"],
         outputContract: "test_result",
       },
       {
@@ -1951,10 +2001,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.refactor,
         title: "집중 정리 적용",
         instruction:
-          "승인된 범위만 리팩터링하고 동작을 보존하세요. dead code는 증거가 있을 때만 제거하고 변경 이유를 한국어로 남기세요.",
+          "승인된 범위만 리팩터링하고 동작을 보존하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하고, dead code는 증거가 있을 때만 제거하세요.",
         expectedArtifactKinds: ["diff", "log"],
         dependsOn: ["plan"],
-        allowedActions: ["file_write"],
+        allowedActions: ["file_patch", "file_write"],
         outputContract: "diff_proposal",
       },
       {
@@ -1962,10 +2012,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.build,
         title: "리팩터링 후 빌드 확인",
         instruction:
-          "targeted diagnostics를 실행하고 build, type, lint, test 실패가 있으면 최소 수정안을 한국어로 제안하세요.",
+          "targeted diagnostics를 실행하고 build, type, lint, test 실패가 있으면 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 최소 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: ["refactor"],
-        allowedActions: ["shell", "file_write"],
+        allowedActions: ["shell", "file_patch", "file_write"],
         outputContract: "test_result",
       },
       {
@@ -2066,10 +2116,10 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.build,
         title: "첫 실제 실패 진단",
         instruction:
-          "build, typecheck, lint, test 로그에서 첫 실제 실패를 읽고 소유 모듈까지 추적하세요. 가장 작은 수정안을 한국어로 제안하세요.",
+          "build, typecheck, lint, test 로그에서 첫 실제 실패를 읽고 소유 모듈까지 추적하세요. 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 가장 작은 수정안을 한국어로 제안하세요.",
         expectedArtifactKinds: ["test_result", "diff", "log"],
         dependsOn: [],
-        allowedActions: ["shell", "file_write"],
+        allowedActions: ["shell", "file_patch", "file_write"],
         outputContract: "test_result",
       },
       {
@@ -2128,6 +2178,13 @@ const materializeSeedSteps = (input: {
   }
   return steps;
 };
+
+const sameActionList = (
+  left: readonly string[],
+  right: readonly string[],
+): boolean =>
+  left.length === right.length &&
+  left.every((action, index) => action === right[index]);
 
 const resolveSeedProfile = (input: {
   ref: SeedProfileRef;

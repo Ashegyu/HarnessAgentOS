@@ -21,6 +21,7 @@ export type ApprovalScope = "once" | "run_action_class";
 export type ApprovalActionType =
   | "capability_use"
   | "model_use"
+  | "file_patch"
   | "file_write"
   | "shell"
   | "dependency_install"
@@ -32,6 +33,7 @@ export type ApprovalActionType =
 export const APPROVAL_ACTION_TYPES: readonly ApprovalActionType[] = [
   "capability_use",
   "model_use",
+  "file_patch",
   "file_write",
   "shell",
   "dependency_install",
@@ -69,6 +71,11 @@ export interface ProposedFilePatch {
   after: string;
 }
 
+export interface ProposedUnifiedPatch {
+  path: string;
+  patch: string;
+}
+
 export interface ProposedCapabilityUse {
   capabilityId: string;
   capabilityName: string;
@@ -100,6 +107,7 @@ export interface ProposedActionDetails {
   args?: string[];
   cwd?: string;
   filePatch?: ProposedFilePatch;
+  unifiedPatch?: ProposedUnifiedPatch;
   capabilityUse?: ProposedCapabilityUse;
   modelUse?: ProposedModelUse;
   dbSnapshotExport?: ProposedDbSnapshotExport;

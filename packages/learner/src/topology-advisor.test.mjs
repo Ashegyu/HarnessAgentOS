@@ -167,6 +167,7 @@ test("recommend creates an explicit pipeline draft from capability metadata", as
     assert.ok(steps.length >= 3);
     assert.deepEqual(steps[0].dependsOn, []);
     assert.ok(steps.every((step) => Array.isArray(step.allowedActions)));
+    assert.ok(steps.some((step) => step.allowedActions.includes("file_patch")));
     assert.ok(steps.some((step) => step.allowedActions.includes("file_write")));
     assert.ok(steps.some((step) => step.allowedActions.includes("shell")));
     assert.ok(steps.every((step) => typeof step.outputContract === "string"));
