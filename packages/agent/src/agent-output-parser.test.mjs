@@ -128,3 +128,49 @@ test("parses file_patch action", () => {
     });
   }
 });
+
+test("parses file_patch action when model emits raw newlines inside JSON strings", () => {
+  const output = `요약: 설명
+
+\`\`\`harness_agent_plan
+{
+  "summary": "Patch proposal
+with multiline summary",
+  "assumptions": ["model wrapped
+one assumption"],
+  "steps": [
+    { "title": "Edit file", "rationale": "replace one line", "risk": "low" }
+  ],
+  "proposedActions": [
+    {
+      "type": "file_patch",
+      "path": "src/foo.ts",
+      "patch": "--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -1 +1 @@
+-old
++new
+",
+      "rationale": "partial edit
+without whole-file replacement"
+    }
+  ],
+  "suggestedQualityChecks": [
+    { "command": "npm run check", "reason": "verify types" }
+  ],
+  "questions": []
+}
+\`\`\`
+`;
+  const r = parseAgentPlan(output);
+  assert.equal(r.ok, true);
+  if (r.ok) {
+    assert.equal(r.plan.proposedActions.length, 1);
+    assert.deepEqual(r.plan.proposedActions[0], {
+      type: "file_patch",
+      path: "src/foo.ts",
+      patch: "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n",
+      rationale: "partial edit\nwithout whole-file replacement",
+    });
+  }
+});

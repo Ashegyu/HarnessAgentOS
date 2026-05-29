@@ -9,6 +9,7 @@ import type {
   WorkerHandoffVerification,
   WorkerOutputContract,
 } from "@harness/core";
+import { parseJsonAllowingMultilineStrings } from "@harness/core";
 
 export const WORKER_HANDOFF_FENCE = "harness_worker_handoff_v1";
 
@@ -75,17 +76,15 @@ export const parseWorkerHandoffPayload = (
       reason: `No fenced JSON block tagged \`${WORKER_HANDOFF_FENCE}\` found.`,
     };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (e) {
+  const parseResult = parseJsonAllowingMultilineStrings(json);
+  if (!parseResult.ok) {
     return {
       ok: false,
       missing: false,
-      reason: `Worker handoff JSON parse error: ${errorMessage(e)}`,
+      reason: `Worker handoff JSON parse error: ${parseResult.reason}`,
     };
   }
-  return validateWorkerHandoffPayload(parsed);
+  return validateWorkerHandoffPayload(parseResult.value);
 };
 
 export const buildWorkerHandoffPayload = (
@@ -569,6 +568,3 @@ const parseStringArray = (
   }
   return { ok: true, value: value.slice() };
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);

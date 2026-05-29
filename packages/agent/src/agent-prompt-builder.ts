@@ -193,6 +193,8 @@ interface AgentPlanOutput {
   assumptions instead of asking the user.
 - For a file_patch action, patch is a single-file unified diff for path. Do not
   include multiple files in one file_patch.
+- Use full hunk headers such as @@ -10,3 +10,4 @@. Bare @@ headers are
+  accepted only when Harness can uniquely match the surrounding context.
 - For a file_write action, after is not a diff and not a natural-language
   instruction. It is the complete UTF-8 text of the target file after the
   approval runs. Include unchanged existing content too. For new files, include

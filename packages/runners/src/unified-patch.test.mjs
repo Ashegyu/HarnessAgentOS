@@ -54,3 +54,45 @@ test("applySingleFileUnifiedPatch rejects stale context", () => {
       e.code === "RUNNER_PATCH_CONTEXT_MISMATCH",
   );
 });
+
+test("applySingleFileUnifiedPatch applies context-based bare hunk headers", () => {
+  const result = applySingleFileUnifiedPatch({
+    path: "src/foo.ts",
+    currentContent: ["alpha", "one", "two", "three", "omega"].join("\n"),
+    patch: [
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@",
+      " one",
+      "-two",
+      "+TWO",
+      " three",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.afterContent, ["alpha", "one", "TWO", "three", "omega"].join("\n"));
+});
+
+test("applySingleFileUnifiedPatch rejects ambiguous bare hunk context", () => {
+  assert.throws(
+    () =>
+      applySingleFileUnifiedPatch({
+        path: "src/foo.ts",
+        currentContent: ["one", "two", "three", "one", "two", "three"].join("\n"),
+        patch: [
+          "--- a/src/foo.ts",
+          "+++ b/src/foo.ts",
+          "@@",
+          " one",
+          "-two",
+          "+TWO",
+          " three",
+          "",
+        ].join("\n"),
+      }),
+    (e) =>
+      e instanceof UnifiedPatchError &&
+      e.code === "RUNNER_PATCH_CONTEXT_MISMATCH",
+  );
+});

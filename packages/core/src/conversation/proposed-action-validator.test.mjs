@@ -210,6 +210,32 @@ test("file_patch rejects multi-file git diff payloads", () => {
   assert.match(r.reason ?? "", /exactly one file diff/);
 });
 
+test("file_patch accepts context-based bare hunk headers", () => {
+  const patch = [
+    "--- a/src/foo.ts",
+    "+++ b/src/foo.ts",
+    "@@",
+    " one",
+    "-two",
+    "+TWO",
+    " three",
+    "",
+  ].join("\n");
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch },
+    },
+    "file_patch",
+  );
+
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.details.unifiedPatch, {
+    path: "src/foo.ts",
+    patch,
+  });
+});
+
 test("file_patch rejects parent traversal", () => {
   const r = validateProposedActionDetails(
     {

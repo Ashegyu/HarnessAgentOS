@@ -1443,6 +1443,7 @@ const composeWorkerUserRequest = (input: {
     `allowedActions: ${allowedActions}`,
     "- A file_patch proposal is allowed only when allowedActions includes file_patch.",
     "- file_patch.patch must be a single-file unified diff for the target file.",
+    "- Prefer full hunk headers like @@ -10,3 +10,4 @@; bare @@ headers are allowed only when Harness can uniquely match context.",
     "- Prefer file_patch for partial edits to existing files.",
     "- A file_write proposal is allowed only when allowedActions includes file_write.",
     "- Use file_write only for new files or complete file replacement; file_write.after must be the complete replacement content for the target file.",

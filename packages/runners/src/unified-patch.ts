@@ -45,11 +45,29 @@ export const applySingleFileUnifiedPatch = (
       throw invalid("file_patch supports exactly one file per unified diff");
     }
     const hunk = parseHunkHeader(line);
-    if (!hunk) throw invalid(`Expected hunk header, got: ${line}`);
+    const isBareHunk = isBareHunkHeader(line);
+    if (!hunk && !isBareHunk) throw invalid(`Expected hunk header, got: ${line}`);
     sawHunk = true;
     patchIndex += 1;
 
-    const hunkStartIndex = Math.max(hunk.oldStart - 1, 0);
+    const hunkLines: string[] = [];
+    while (patchIndex < patchLines.length) {
+      const hunkLine = patchLines[patchIndex] ?? "";
+      if (isHunkHeaderLine(hunkLine)) break;
+      if (hunkLine.startsWith("--- ") || hunkLine.startsWith("diff --git ")) {
+        throw invalid("file_patch supports exactly one file per unified diff");
+      }
+      hunkLines.push(hunkLine);
+      patchIndex += 1;
+    }
+
+    const hunkStartIndex = hunk
+      ? Math.max(hunk.oldStart - 1, 0)
+      : findBareHunkStartIndex({
+          currentLines,
+          hunkLines,
+          searchFromIndex: currentIndex,
+        });
     if (hunkStartIndex < currentIndex) {
       throw contextMismatch("Hunk overlaps already-applied content");
     }
@@ -60,18 +78,11 @@ export const applySingleFileUnifiedPatch = (
 
     let oldSeen = 0;
     let newSeen = 0;
-    while (patchIndex < patchLines.length) {
-      const hunkLine = patchLines[patchIndex] ?? "";
-      if (hunkLine.startsWith("@@ ")) break;
-      if (hunkLine.startsWith("--- ") || hunkLine.startsWith("diff --git ")) {
-        throw invalid("file_patch supports exactly one file per unified diff");
-      }
+    for (const hunkLine of hunkLines) {
       if (hunkLine.startsWith("\\ No newline at end of file")) {
-        patchIndex += 1;
         continue;
       }
       if (hunkLine.length === 0) {
-        if (patchIndex === patchLines.length - 1) break;
         throw invalid("Unified diff hunk line must start with space, +, or -");
       }
       const marker = hunkLine[0];
@@ -92,10 +103,9 @@ export const applySingleFileUnifiedPatch = (
       } else {
         throw invalid("Unified diff hunk line must start with space, +, or -");
       }
-      patchIndex += 1;
     }
 
-    if (oldSeen !== hunk.oldCount || newSeen !== hunk.newCount) {
+    if (hunk && (oldSeen !== hunk.oldCount || newSeen !== hunk.newCount)) {
       throw invalid(
         `Hunk line counts do not match header: expected -${hunk.oldCount}/+${hunk.newCount}, got -${oldSeen}/+${newSeen}`,
       );
@@ -145,6 +155,11 @@ const normalizePatchPath = (path: string): string =>
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+const isBareHunkHeader = (line: string): boolean => line.trim() === "@@";
+
+const isHunkHeaderLine = (line: string): boolean =>
+  isBareHunkHeader(line) || parseHunkHeader(line) !== null;
+
 const parseHunkHeader = (line: string): HunkHeader | null => {
   const match = HUNK_RE.exec(line);
   if (!match) return null;
@@ -161,6 +176,60 @@ const splitContentLines = (content: string): string[] =>
 
 const normalizeNewlines = (value: string): string =>
   value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+const findBareHunkStartIndex = (input: {
+  currentLines: readonly string[];
+  hunkLines: readonly string[];
+  searchFromIndex: number;
+}): number => {
+  const oldLines = oldLinesForBareHunk(input.hunkLines);
+  if (oldLines.length === 0) {
+    throw invalid("Bare hunk header requires at least one context or removed line");
+  }
+
+  let matchIndex = -1;
+  for (
+    let index = input.searchFromIndex;
+    index <= input.currentLines.length - oldLines.length;
+    index += 1
+  ) {
+    if (!sequenceMatches(input.currentLines, index, oldLines)) continue;
+    if (matchIndex !== -1) {
+      throw contextMismatch("Bare hunk context matched multiple locations");
+    }
+    matchIndex = index;
+  }
+  if (matchIndex === -1) {
+    throw contextMismatch("Bare hunk context did not match current file");
+  }
+  return matchIndex;
+};
+
+const oldLinesForBareHunk = (hunkLines: readonly string[]): string[] => {
+  const oldLines: string[] = [];
+  for (const line of hunkLines) {
+    if (line.startsWith("\\ No newline at end of file")) continue;
+    if (line.length === 0) {
+      throw invalid("Unified diff hunk line must start with space, +, or -");
+    }
+    const marker = line[0];
+    if (marker === " " || marker === "-") {
+      oldLines.push(line.slice(1));
+    } else if (marker !== "+") {
+      throw invalid("Unified diff hunk line must start with space, +, or -");
+    }
+  }
+  return oldLines;
+};
+
+const sequenceMatches = (
+  currentLines: readonly string[],
+  startIndex: number,
+  expectedLines: readonly string[],
+): boolean =>
+  expectedLines.every(
+    (line, offset) => currentLines[startIndex + offset] === line,
+  );
 
 const assertCurrentLine = (
   currentLines: readonly string[],

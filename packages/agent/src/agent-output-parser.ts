@@ -2,6 +2,7 @@ import type {
   AgentPlanOutput,
   AgentProposedAction,
 } from "@harness/core";
+import { parseJsonAllowingMultilineStrings } from "@harness/core";
 
 export interface ParsedAgentPlan {
   ok: true;
@@ -35,14 +36,14 @@ export const parseAgentPlan = (rawOutput: string): ParseAgentPlanResult => {
     };
   }
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (e) {
+  const parseResult = parseJsonAllowingMultilineStrings(json);
+  if (!parseResult.ok) {
     return {
       ok: false,
-      reason: `Agent JSON parse error: ${e instanceof Error ? e.message : String(e)}`,
+      reason: `Agent JSON parse error: ${parseResult.reason}`,
     };
   }
+  parsed = parseResult.value;
   const validated = validateAgentPlan(parsed);
   if (!validated.ok) return validated;
   return { ok: true, plan: validated.plan };

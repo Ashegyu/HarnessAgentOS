@@ -249,7 +249,7 @@ const normalizeSingleFileUnifiedDiff = (
   if (
     unifiedLines[0]?.startsWith("--- ") !== true ||
     unifiedLines[1]?.startsWith("+++ ") !== true ||
-    !unifiedLines.some((line) => line.startsWith("@@ "))
+    !unifiedLines.some(isHunkHeaderLike)
   ) {
     return {
       ok: false,
@@ -265,6 +265,9 @@ const normalizeSingleFileUnifiedDiff = (
   }
   return { ok: true, patch: unifiedLines.join("\n") };
 };
+
+const isHunkHeaderLike = (line: string): boolean =>
+  line.startsWith("@@ ") || line.trim() === "@@";
 
 const validateShell = (raw: Record<string, unknown>): ProposedActionValidation => {
   const command = raw.command;
