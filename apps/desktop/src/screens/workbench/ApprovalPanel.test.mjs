@@ -97,3 +97,83 @@ test("ApprovalPanel renders detailed A2A refinement approval metadata", () => {
   assert.match(html, /signature 2\/2/);
   assert.match(html, /task run 2\/4/);
 });
+
+test("ApprovalPanel exposes manual controls for pipeline runner approvals that cannot auto-execute", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ApprovalPanel, {
+      approvals: [
+        {
+          id: "appr_1",
+          taskRunId: "tsk_1",
+          checkpointId: "chk_1",
+          actionType: "file_write",
+          actionSummary: "Write missing file",
+          status: "pending",
+          policyEvaluation: {
+            decision: "allow",
+            riskLevel: "medium",
+            reason: "allowed",
+            allowAutoApprove: true,
+          },
+        },
+      ],
+      checkpoints: [],
+      refinementAttempts: [],
+      taskRunTargetDir: process.cwd(),
+      onApprove: async () => {},
+      onReject: async () => {},
+      onRedirect: async () => {},
+      onConfigure: async () => {},
+      onExecute: async () => {},
+      pipelineAutoLaunched: true,
+    }),
+  );
+
+  assert.match(html, /자동 처리 제외: Missing proposedAction/);
+  assert.match(html, /세부 지정/);
+  assert.match(html, /승인/);
+  assert.doesNotMatch(html, /자동 처리 중/);
+});
+
+test("ApprovalPanel keeps auto-processing hint for pipeline runner approvals that can auto-execute", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ApprovalPanel, {
+      approvals: [
+        {
+          id: "appr_1",
+          taskRunId: "tsk_1",
+          checkpointId: "chk_1",
+          actionType: "file_write",
+          actionSummary: "Write file",
+          status: "pending",
+          proposedAction: {
+            type: "file_write",
+            filePatch: {
+              path: "README.md",
+              before: "",
+              after: "hello\n",
+            },
+          },
+          policyEvaluation: {
+            decision: "allow",
+            riskLevel: "medium",
+            reason: "allowed",
+            allowAutoApprove: true,
+          },
+        },
+      ],
+      checkpoints: [],
+      refinementAttempts: [],
+      taskRunTargetDir: process.cwd(),
+      onApprove: async () => {},
+      onReject: async () => {},
+      onRedirect: async () => {},
+      onConfigure: async () => {},
+      onExecute: async () => {},
+      pipelineAutoLaunched: true,
+    }),
+  );
+
+  assert.match(html, /자동 처리 중/);
+  assert.doesNotMatch(html, /자동 처리 제외/);
+});

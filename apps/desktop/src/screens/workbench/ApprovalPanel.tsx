@@ -12,6 +12,10 @@ import {
 } from "@harness/core";
 import { ConfigureActionDialog } from "./ConfigureActionDialog";
 import { ApprovalDecisionTrace } from "./ApprovalDecisionTrace";
+import {
+  autoExecutableRunnerApprovalIssue,
+  isRunnerExecutionApproval,
+} from "./auto-execution-plan";
 
 interface ApprovalPanelProps {
   approvals: Approval[];
@@ -219,6 +223,12 @@ export const ApprovalPanel = ({
           a.proposedAction?.type === "file_patch" &&
           Boolean(a.proposedAction.unifiedPatch)));
     const shadowPreview = shadowPreviews[a.id];
+    const runnerAutoIssue = isRunnerExecutionApproval(a)
+      ? autoExecutableRunnerApprovalIssue(a)
+      : null;
+    const pipelineAutoCanHandle =
+      pipelineAutoLaunched &&
+      (!isRunnerExecutionApproval(a) || runnerAutoIssue === null);
     return (
       <article
         key={a.id}
@@ -247,6 +257,13 @@ export const ApprovalPanel = ({
           </pre>
         )}
         <ApprovalDecisionTrace approval={a} />
+        {pipelineAutoLaunched &&
+          isRunnerExecutionApproval(a) &&
+          runnerAutoIssue !== null && (
+            <p className="approval-card__auto-hint">
+              자동 처리 제외: {runnerAutoIssue}. 세부 지정 후 승인하세요.
+            </p>
+          )}
         {shadowPreview && (
           <p className="approval-card__auto-hint">
             Shadow preview 생성됨: <code>{shadowPreview.relativePath}</code> ·
@@ -265,7 +282,7 @@ export const ApprovalPanel = ({
             파일/명령 실행은 하지 않습니다.
           </p>
         )}
-        {mode === "pending" && pipelineAutoLaunched ? (
+        {mode === "pending" && pipelineAutoCanHandle ? (
           // Pipeline-pick consent already covers this approval; the
           // auto-approve useEffect will mark it approved+executed in
           // the next tick. Showing the manual buttons would race the
@@ -365,7 +382,7 @@ export const ApprovalPanel = ({
           <p className="approval-card__auto-hint">
             승인됨 — 다음 Agent 호출에서 추천 컨텍스트로 반영됩니다.
           </p>
-        ) : mode === "approved" && pipelineAutoLaunched ? (
+        ) : mode === "approved" && pipelineAutoCanHandle ? (
           <p className="approval-card__auto-hint">
             자동 실행 대기 중… (파이프라인 선택으로 사전 승인됨)
           </p>
