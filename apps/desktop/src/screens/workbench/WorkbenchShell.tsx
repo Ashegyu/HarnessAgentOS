@@ -40,6 +40,7 @@ import {
 import {
   autoExecutableRunnerApprovalIssue,
   buildAutoApprovedExecutionPlan,
+  isApprovedForPipelineAutoExecution,
   isRunnerExecutionApproval,
   runAutoApprovedExecutionPlan,
 } from "./auto-execution-plan";
@@ -89,11 +90,13 @@ const errorMessage = (e: unknown): string =>
 
 const continuationOrchestrationApprovalIds = (
   detail: TaskRunDetail,
+  excludeIds: ReadonlySet<string> = new Set(),
 ): string[] =>
   detail.approvals
     .filter(
       (approval) =>
         approval.actionType === "orchestration_plan" &&
+        !excludeIds.has(approval.id) &&
         (approval.status === "approved" ||
           approval.status === "always_approved_for_run"),
     )
@@ -661,7 +664,16 @@ export const WorkbenchShell = (): JSX.Element => {
         return decision.approved;
       },
     );
-    if (pending.length === 0) return;
+    const alreadyApprovedForAutoExecute = taskRunDetail.detail.approvals.filter(
+      (a: Approval): boolean => {
+        if (inFlight.has(a.id)) return false;
+        if (!isPipelineAutoTask) return false;
+        return isApprovedForPipelineAutoExecution(a);
+      },
+    );
+    if (pending.length === 0 && alreadyApprovedForAutoExecute.length === 0) {
+      return;
+    }
     void (async () => {
       const approvedIds = new Set<string>();
       for (const approval of pending) {
@@ -682,16 +694,30 @@ export const WorkbenchShell = (): JSX.Element => {
           inFlight.delete(approval.id);
         }
       }
+      for (const approval of alreadyApprovedForAutoExecute) {
+        inFlight.add(approval.id);
+        approvedIds.add(approval.id);
+      }
+      const approvalsForExecution = [
+        ...pending.filter((approval) => approvedIds.has(approval.id)),
+        ...alreadyApprovedForAutoExecute,
+      ];
+      const executionApprovalIds = new Set(
+        approvalsForExecution.map((approval) => approval.id),
+      );
       const executionPlan = buildAutoApprovedExecutionPlan(
         taskRunId,
-        pending.filter((approval) => approvedIds.has(approval.id)),
+        approvalsForExecution,
       );
       const runResult = await runAutoApprovedExecutionPlan({
         executionPlan: {
           ...executionPlan,
           continuationOrchestrationApprovalIds:
             isPipelineAutoTask || hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts)
-              ? continuationOrchestrationApprovalIds(taskRunDetail.detail)
+              ? continuationOrchestrationApprovalIds(
+                  taskRunDetail.detail,
+                  executionApprovalIds,
+                )
               : [],
         },
         isPipelineAutoTask,

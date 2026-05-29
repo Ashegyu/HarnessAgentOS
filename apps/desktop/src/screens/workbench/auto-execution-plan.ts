@@ -71,6 +71,20 @@ export const autoExecutableRunnerApprovalIssue = (
 export const isAutoExecutableRunnerApproval = (approval: Approval): boolean =>
   autoExecutableRunnerApprovalIssue(approval) === null;
 
+export const isApprovedForPipelineAutoExecution = (
+  approval: Approval,
+): boolean => {
+  if (
+    approval.status !== "approved" &&
+    approval.status !== "always_approved_for_run"
+  ) {
+    return false;
+  }
+  if (isAdvisoryApproval(approval)) return false;
+  if (isOrchestrationApproval(approval)) return true;
+  return isAutoExecutableRunnerApproval(approval);
+};
+
 const isCodeChangeLoopAction = (approval: Approval): boolean =>
   isChangeApproval(approval) || approval.actionType === "shell";
 

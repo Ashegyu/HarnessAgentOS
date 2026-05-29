@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   buildAutoApprovedExecutionPlan,
   CODE_CHANGE_REPAIR_INSTRUCTION,
+  isApprovedForPipelineAutoExecution,
   runAutoApprovedExecutionPlan,
   shouldAutoCreateRepairPlanAfterAttempt,
 } from "./auto-execution-plan.ts";
@@ -168,6 +169,62 @@ test("buildAutoApprovedExecutionPlan skips malformed runner proposedAction paylo
 
   assert.deepEqual(plan.skippedRunnerApprovalIds, ["malformed"]);
   assert.deepEqual(plan.individualRunnerApprovalIds, ["check"]);
+});
+
+test("isApprovedForPipelineAutoExecution resumes approved executable approvals", () => {
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...fileWriteApproval("write"),
+      status: "approved",
+    }),
+    true,
+  );
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...shellApproval("check"),
+      status: "always_approved_for_run",
+    }),
+    true,
+  );
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...approval("plan", "orchestration_plan"),
+      status: "approved",
+    }),
+    true,
+  );
+});
+
+test("isApprovedForPipelineAutoExecution excludes non-executable or malformed approved approvals", () => {
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...approval("pending", "file_write"),
+      status: "pending",
+    }),
+    false,
+  );
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...approval("cap", "capability_use"),
+      status: "approved",
+    }),
+    false,
+  );
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...approval("missing", "file_write"),
+      status: "approved",
+    }),
+    false,
+  );
+  assert.equal(
+    isApprovedForPipelineAutoExecution({
+      ...approval("network", "network"),
+      status: "approved",
+      proposedAction: { type: "network" },
+    }),
+    false,
+  );
 });
 
 test("shouldAutoCreateRepairPlanAfterAttempt requires pipeline consent and repair_required result", () => {
