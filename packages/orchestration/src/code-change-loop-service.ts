@@ -117,39 +117,58 @@ export class CodeChangeLoopService {
       });
     }
 
-    for (const approval of changeApprovals) {
+    for (let i = 0; i < changeApprovals.length; i += 1) {
+      const approval = changeApprovals[i]!;
       try {
         const executed = await this.runner.executeApproved(approval.id);
         base.appliedApprovalIds.push(approval.id);
         base.artifactIds.push(...executed.artifactIds);
         base.changedFiles.push(...(executed.changedFiles ?? []));
       } catch (e) {
+        const nextAction = nextActionForApplyFailure(e);
+        const failureMessage = errorMessage(e);
+        await this.resolveFailedAttemptApprovals({
+          failedApproval: approval,
+          skippedApprovals: [
+            ...changeApprovals.slice(i + 1),
+            ...verificationApprovals,
+          ],
+          failureMessage,
+        });
         return this.finishAttempt({
           stepId: step.id,
           result: {
             ...base,
             status: "apply_failed",
-            nextAction: "blocked",
-            failureMessage: errorMessage(e),
+            nextAction,
+            failureMessage,
           },
-          taskRunStatus: "blocked",
+          taskRunStatus:
+            nextAction === "repair_required" ? "quality_failed" : "blocked",
           stepStatus: "failed",
         });
       }
     }
 
-    for (const approval of verificationApprovals) {
+    for (let i = 0; i < verificationApprovals.length; i += 1) {
+      const approval = verificationApprovals[i]!;
       let executed: CodeChangeRunnerResult;
       try {
         executed = await this.runner.executeApproved(approval.id);
       } catch (e) {
+        const failureMessage = errorMessage(e);
+        await this.resolveFailedAttemptApprovals({
+          failedApproval: approval,
+          skippedApprovals: verificationApprovals.slice(i + 1),
+          failureMessage,
+        });
         return this.finishAttempt({
           stepId: step.id,
           result: {
             ...base,
             status: "verification_failed",
             nextAction: "repair_required",
-            failureMessage: errorMessage(e),
+            failureMessage,
           },
           taskRunStatus: "quality_failed",
           stepStatus: "failed",
@@ -159,16 +178,22 @@ export class CodeChangeLoopService {
       base.verificationResults.push(verification);
       base.artifactIds.push(...executed.artifactIds);
       if (verification.exitCode !== 0) {
+        const failureMessage =
+          verification.stderr ??
+          verification.stdout ??
+          `${verification.commandSummary} exited ${verification.exitCode}`;
+        await this.resolveFailedAttemptApprovals({
+          failedApproval: approval,
+          skippedApprovals: verificationApprovals.slice(i + 1),
+          failureMessage,
+        });
         return this.finishAttempt({
           stepId: step.id,
           result: {
             ...base,
             status: "verification_failed",
             nextAction: "repair_required",
-            failureMessage:
-              verification.stderr ??
-              verification.stdout ??
-              `${verification.commandSummary} exited ${verification.exitCode}`,
+            failureMessage,
           },
           taskRunStatus: "quality_failed",
           stepStatus: "failed",
@@ -230,6 +255,75 @@ export class CodeChangeLoopService {
     return approvals;
   }
 
+  private async resolveFailedAttemptApprovals(input: {
+    failedApproval: Approval;
+    skippedApprovals: readonly Approval[];
+    failureMessage: string;
+  }): Promise<void> {
+    const checkpointIds = new Set<string>();
+    await this.rejectIfUnresolved(
+      input.failedApproval,
+      `Execution failed: ${input.failureMessage}`,
+    );
+    checkpointIds.add(input.failedApproval.checkpointId);
+    for (const approval of input.skippedApprovals) {
+      await this.rejectIfUnresolved(
+        approval,
+        `Skipped because ${input.failedApproval.actionType} approval ${input.failedApproval.id} failed`,
+      );
+      checkpointIds.add(approval.checkpointId);
+    }
+    await this.closeFailedApprovalSteps({
+      taskRunId: input.failedApproval.taskRunId,
+      checkpointIds,
+      summary: input.failureMessage,
+    });
+  }
+
+  private async rejectIfUnresolved(
+    approval: Approval,
+    message: string,
+  ): Promise<void> {
+    const latest = await this.state.getApproval(approval.id);
+    if (!latest || !isUnresolvedApprovalStatus(latest.status)) return;
+    await this.state.decideApproval(
+      approval.id,
+      "rejected",
+      message.slice(0, 500),
+    );
+  }
+
+  private async closeFailedApprovalSteps(input: {
+    taskRunId: string;
+    checkpointIds: ReadonlySet<string>;
+    summary: string;
+  }): Promise<void> {
+    const [approvals, checkpoints] = await Promise.all([
+      this.state.listApprovalsByTaskRun(input.taskRunId),
+      this.state.listCheckpointsByTaskRun(input.taskRunId),
+    ]);
+    for (const checkpointId of input.checkpointIds) {
+      const checkpointApprovals = approvals.filter(
+        (approval) => approval.checkpointId === checkpointId,
+      );
+      if (
+        checkpointApprovals.length === 0 ||
+        checkpointApprovals.some((approval) =>
+          isUnresolvedApprovalStatus(approval.status),
+        )
+      ) {
+        continue;
+      }
+      const checkpoint = checkpoints.find(
+        (candidate) => candidate.id === checkpointId,
+      );
+      if (!checkpoint) continue;
+      await this.state.setStepStatus(checkpoint.stepId, "failed", {
+        outputSummary: input.summary.slice(0, 200),
+      });
+    }
+  }
+
   private async nextAttemptNumber(taskRunId: string): Promise<number> {
     const artifacts = await this.state.listArtifactsByTaskRun(taskRunId);
     let maxAttempt = 0;
@@ -278,7 +372,11 @@ export class CodeChangeLoopService {
     if (
       result.status !== "verified" &&
       result.status !== "verification_failed" &&
-      result.status !== "applied_unverified"
+      result.status !== "applied_unverified" &&
+      !(
+        result.status === "apply_failed" &&
+        result.nextAction === "repair_required"
+      )
     ) {
       return;
     }
@@ -287,7 +385,14 @@ export class CodeChangeLoopService {
       (verification) => verification.exitCode !== 0,
     );
     const knownRisks =
-      result.status === "verification_failed"
+      result.status === "apply_failed"
+        ? [
+            [
+              `attempt ${result.attemptNumber}`,
+              result.failureMessage ?? "apply failed",
+            ].join(": "),
+          ]
+        : result.status === "verification_failed"
         ? [
             [
               failedVerification?.commandSummary ??
@@ -380,3 +485,20 @@ const formatVerification = (
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const isUnresolvedApprovalStatus = (status: Approval["status"]): boolean =>
+  status === "pending" ||
+  status === "approved" ||
+  status === "always_approved_for_run";
+
+const nextActionForApplyFailure = (error: unknown): CodeChangeNextAction =>
+  errorCode(error) === "RUNNER_PATCH_CONTEXT_MISMATCH"
+    ? "repair_required"
+    : "blocked";
+
+const errorCode = (error: unknown): string | undefined =>
+  typeof error === "object" &&
+  error !== null &&
+  typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;

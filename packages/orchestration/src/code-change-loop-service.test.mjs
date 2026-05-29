@@ -258,6 +258,8 @@ test("marks the task quality_failed when approved verification fails", async () 
     assert.equal(gate?.testsPassed, false);
     assert.match(gate?.knownRisks.join("\n") ?? "", /npm test/);
     assert.ok(gate?.evidenceArtifactIds.includes("test-log"));
+    assert.equal((await state.getApproval(fail.id))?.status, "rejected");
+    assert.equal((await state.getApproval(skipped.id))?.status, "rejected");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -302,6 +304,52 @@ test("blocks the task when applying an approved change fails", async () => {
     assert.match(result.failureMessage ?? "", /write failed/);
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun?.status, "blocked");
+    assert.equal((await state.getApproval(b.id))?.status, "rejected");
+    assert.equal((await state.getApproval(check.id))?.status, "rejected");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("treats stale file_patch context as repairable apply failure", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const patch = await createFilePatchApproval(state, taskRun.id, "src/a.ts");
+    const check = await createShellApproval(state, taskRun.id, "npm run check");
+    const { calls, executor } = makeRunner({
+      [patch.id]: () => {
+        const error = new Error("Patch context mismatch at line 239: expected \"\"");
+        error.code = "RUNNER_PATCH_CONTEXT_MISMATCH";
+        throw error;
+      },
+      [check.id]: () => {
+        throw new Error("verification must not run after apply failure");
+      },
+    });
+    const service = new CodeChangeLoopService({ state, runner: executor });
+
+    const result = await service.runAttempt({
+      taskRunId: taskRun.id,
+      changeApprovalIds: [patch.id],
+      verificationApprovalIds: [check.id],
+    });
+
+    assert.deepEqual(calls, [patch.id]);
+    assert.equal(result.status, "apply_failed");
+    assert.equal(result.nextAction, "repair_required");
+    assert.match(result.failureMessage ?? "", /Patch context mismatch/);
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun?.status, "quality_failed");
+    const gate = await state.getLatestQualityGateResult(taskRun.id);
+    assert.equal(gate?.status, "failed");
+    assert.match(gate?.knownRisks.join("\n") ?? "", /Patch context mismatch/);
+    assert.equal(gate?.changedFilesReviewed, false);
+    assert.equal((await state.getApproval(patch.id))?.status, "rejected");
+    assert.equal((await state.getApproval(check.id))?.status, "rejected");
   } finally {
     closeDb(db);
     t.cleanup();
