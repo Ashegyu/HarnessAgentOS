@@ -96,3 +96,67 @@ test("applySingleFileUnifiedPatch rejects ambiguous bare hunk context", () => {
       e.code === "RUNNER_PATCH_CONTEXT_MISMATCH",
   );
 });
+
+test("applySingleFileUnifiedPatch tolerates stale hunk line counts when context matches", () => {
+  const result = applySingleFileUnifiedPatch({
+    path: "src/foo.ts",
+    currentContent: ["alpha", "one", "two", "three", "omega"].join("\n"),
+    patch: [
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -2,6 +2,7 @@",
+      " one",
+      "-two",
+      "+TWO",
+      " three",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.afterContent, ["alpha", "one", "TWO", "three", "omega"].join("\n"));
+});
+
+test("applySingleFileUnifiedPatch falls back to unique context when hunk line number is stale", () => {
+  const result = applySingleFileUnifiedPatch({
+    path: "src/foo.ts",
+    currentContent: ["header", "alpha", "one", "two", "three", "omega"].join("\n"),
+    patch: [
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -99,3 +99,3 @@",
+      " one",
+      "-two",
+      "+TWO",
+      " three",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(
+    result.afterContent,
+    ["header", "alpha", "one", "TWO", "three", "omega"].join("\n"),
+  );
+});
+
+test("applySingleFileUnifiedPatch rejects stale hunk line numbers with ambiguous context", () => {
+  assert.throws(
+    () =>
+      applySingleFileUnifiedPatch({
+        path: "src/foo.ts",
+        currentContent: ["one", "two", "three", "one", "two", "three"].join("\n"),
+        patch: [
+          "--- a/src/foo.ts",
+          "+++ b/src/foo.ts",
+          "@@ -99,3 +99,3 @@",
+          " one",
+          "-two",
+          "+TWO",
+          " three",
+          "",
+        ].join("\n"),
+      }),
+    (e) =>
+      e instanceof UnifiedPatchError &&
+      e.code === "RUNNER_PATCH_CONTEXT_MISMATCH",
+  );
+});

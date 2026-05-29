@@ -61,11 +61,17 @@ export const applySingleFileUnifiedPatch = (
       patchIndex += 1;
     }
 
+    const oldLines = oldLinesForHunk(hunkLines);
     const hunkStartIndex = hunk
-      ? Math.max(hunk.oldStart - 1, 0)
-      : findBareHunkStartIndex({
+      ? resolveNumberedHunkStartIndex({
           currentLines,
-          hunkLines,
+          hunk,
+          oldLines,
+          searchFromIndex: currentIndex,
+        })
+      : findContextHunkStartIndex({
+          currentLines,
+          oldLines,
           searchFromIndex: currentIndex,
         });
     if (hunkStartIndex < currentIndex) {
@@ -105,11 +111,8 @@ export const applySingleFileUnifiedPatch = (
       }
     }
 
-    if (hunk && (oldSeen !== hunk.oldCount || newSeen !== hunk.newCount)) {
-      throw invalid(
-        `Hunk line counts do not match header: expected -${hunk.oldCount}/+${hunk.newCount}, got -${oldSeen}/+${newSeen}`,
-      );
-    }
+    // Model-generated patches sometimes carry stale line counts. The explicit
+    // hunk body is still safe when every old/context line matched exactly.
   }
 
   if (!sawHunk) throw invalid("Unified diff must contain at least one hunk");
@@ -177,35 +180,54 @@ const splitContentLines = (content: string): string[] =>
 const normalizeNewlines = (value: string): string =>
   value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-const findBareHunkStartIndex = (input: {
+const resolveNumberedHunkStartIndex = (input: {
   currentLines: readonly string[];
-  hunkLines: readonly string[];
+  hunk: HunkHeader;
+  oldLines: readonly string[];
   searchFromIndex: number;
 }): number => {
-  const oldLines = oldLinesForBareHunk(input.hunkLines);
-  if (oldLines.length === 0) {
+  const headerStartIndex = Math.max(input.hunk.oldStart - 1, 0);
+  if (
+    input.oldLines.length === 0 ||
+    sequenceMatches(input.currentLines, headerStartIndex, input.oldLines)
+  ) {
+    return headerStartIndex;
+  }
+  return findContextHunkStartIndex({
+    currentLines: input.currentLines,
+    oldLines: input.oldLines,
+    searchFromIndex: input.searchFromIndex,
+  });
+};
+
+const findContextHunkStartIndex = (input: {
+  currentLines: readonly string[];
+  oldLines: readonly string[];
+  searchFromIndex: number;
+}): number => {
+  if (input.oldLines.length === 0) {
     throw invalid("Bare hunk header requires at least one context or removed line");
   }
 
   let matchIndex = -1;
   for (
     let index = input.searchFromIndex;
-    index <= input.currentLines.length - oldLines.length;
+    index <= input.currentLines.length - input.oldLines.length;
     index += 1
   ) {
-    if (!sequenceMatches(input.currentLines, index, oldLines)) continue;
+    if (!sequenceMatches(input.currentLines, index, input.oldLines)) continue;
     if (matchIndex !== -1) {
-      throw contextMismatch("Bare hunk context matched multiple locations");
+      throw contextMismatch("Patch hunk context matched multiple locations");
     }
     matchIndex = index;
   }
   if (matchIndex === -1) {
-    throw contextMismatch("Bare hunk context did not match current file");
+    throw contextMismatch("Patch hunk context did not match current file");
   }
   return matchIndex;
 };
 
-const oldLinesForBareHunk = (hunkLines: readonly string[]): string[] => {
+const oldLinesForHunk = (hunkLines: readonly string[]): string[] => {
   const oldLines: string[] = [];
   for (const line of hunkLines) {
     if (line.startsWith("\\ No newline at end of file")) continue;
