@@ -1,5 +1,6 @@
 import { ipcMain } from "electron";
 import {
+  DEFAULT_HARNESS_SETTINGS,
   IPC_CHANNELS,
   ORCHESTRATION_MODES,
   STATE_INVALID_INPUT,
@@ -90,10 +91,13 @@ const validateSettingsInput = (
       : {};
   const autoApprove =
     typeof ap.autoApprove === "boolean" ? ap.autoApprove : false;
-  const autoExecuteWorkerFileActions =
-    typeof ap.autoExecuteWorkerFileActions === "boolean"
-      ? ap.autoExecuteWorkerFileActions
+  const workerFileAutoExecutionConfigured =
+    typeof ap.workerFileAutoExecutionConfigured === "boolean"
+      ? ap.workerFileAutoExecutionConfigured
       : false;
+  const autoExecuteWorkerFileActions = workerFileAutoExecutionConfigured
+    ? ap.autoExecuteWorkerFileActions === true
+    : DEFAULT_HARNESS_SETTINGS.approval.autoExecuteWorkerFileActions;
   return {
     ok: true,
     value: {
@@ -116,6 +120,7 @@ const validateSettingsInput = (
       approval: {
         autoApprove,
         autoExecuteWorkerFileActions,
+        workerFileAutoExecutionConfigured,
       },
     },
   };

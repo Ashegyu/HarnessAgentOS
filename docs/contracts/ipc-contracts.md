@@ -1454,6 +1454,9 @@ settings.update(input: HarnessSettings): Promise<HarnessSettings>;
 - `agent`: legacy single-agent fallback 설정
 - `orchestration`: orchestration enable/default mode/default pipeline 설정
 - `approval`: auto approval 편의 설정. 실제 실행 가능 여부는 service-layer `PolicyEvaluation`이 최종 결정한다.
+  - `approval.autoApprove`: 일반 자동 승인/실행 토글. 기본값은 `false`.
+  - `approval.autoExecuteWorkerFileActions`: worker가 생성한 `file_write`/`file_patch` approval만 자동 승인 후 실행한다. 기본값은 `true`이며, approval row는 감사/실행 경계로 계속 생성된다.
+  - `approval.workerFileAutoExecutionConfigured`: 사용자가 worker 파일 자동 실행 토글을 명시적으로 변경했는지 나타내는 호환성 플래그다. 과거 설정 row의 `false` 기본값은 이 값이 `true`가 아닌 한 새 기본값 `true`로 승격된다.
 - `activeAgentProfileId`: 새 TaskRun에 사용할 active AgentProfile id
 
 ## `window.harness.evals`

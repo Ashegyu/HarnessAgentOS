@@ -81,12 +81,16 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
       typeof so?.defaultPipelineId === "string" ? so.defaultPipelineId : "",
   };
   const ap = s.approval as Partial<ApprovalSettings> | null | undefined;
+  const workerFileAutoExecutionConfigured =
+    typeof ap?.workerFileAutoExecutionConfigured === "boolean"
+      ? ap.workerFileAutoExecutionConfigured
+      : false;
   const approval: ApprovalSettings = {
     autoApprove: typeof ap?.autoApprove === "boolean" ? ap.autoApprove : false,
-    autoExecuteWorkerFileActions:
-      typeof ap?.autoExecuteWorkerFileActions === "boolean"
-        ? ap.autoExecuteWorkerFileActions
-        : false,
+    autoExecuteWorkerFileActions: workerFileAutoExecutionConfigured
+      ? ap?.autoExecuteWorkerFileActions === true
+      : DEFAULT_HARNESS_SETTINGS.approval.autoExecuteWorkerFileActions,
+    workerFileAutoExecutionConfigured,
   };
   return { ...s, agent, orchestration, approval };
 };

@@ -65,9 +65,17 @@ export interface ApprovalSettings {
    * Narrow automation for worker-proposed `file_write`/`file_patch` approvals only.
    * This does not approve general file_write/file_patch approvals or any shell /
    * network / git / orchestration actions. The renderer still honors the
-   * active AgentProfile block list before approving and executing.
+   * active AgentProfile block list before approving and executing. This is on
+   * by default so worker code changes can apply without a manual click while
+   * keeping approval rows as the audit/execution boundary.
    */
   autoExecuteWorkerFileActions: boolean;
+  /**
+   * False/undefined means an older settings row may still contain the previous
+   * default value. Once the user changes the worker-file toggle, the UI sets
+   * this to true so an explicit opt-out is preserved.
+   */
+  workerFileAutoExecutionConfigured?: boolean;
 }
 
 export interface HarnessSettings {
@@ -103,6 +111,7 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
     }),
     approval: Object.freeze({
       autoApprove: false,
-      autoExecuteWorkerFileActions: false,
+      autoExecuteWorkerFileActions: true,
+      workerFileAutoExecutionConfigured: false,
     }),
   });

@@ -30,10 +30,14 @@ test("DEFAULT_HARNESS_SETTINGS leaves activeAgentProfileId undefined", () => {
   assert.equal(DEFAULT_HARNESS_SETTINGS.activeAgentProfileId, undefined);
 });
 
-test("DEFAULT_HARNESS_SETTINGS keeps narrow worker file auto-run off", () => {
+test("DEFAULT_HARNESS_SETTINGS enables narrow worker file auto-run by default", () => {
   assert.equal(DEFAULT_HARNESS_SETTINGS.approval.autoApprove, false);
   assert.equal(
     DEFAULT_HARNESS_SETTINGS.approval.autoExecuteWorkerFileActions,
+    true,
+  );
+  assert.equal(
+    DEFAULT_HARNESS_SETTINGS.approval.workerFileAutoExecutionConfigured,
     false,
   );
 });

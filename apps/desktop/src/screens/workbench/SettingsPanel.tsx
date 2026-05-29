@@ -155,7 +155,17 @@ const reducer = (state: FormState, action: Action): FormState => {
     return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoApprove: action.value } } };
   }
   if (action.type === "setAutoExecuteWorkerFileActions") {
-    return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoExecuteWorkerFileActions: action.value } } };
+    return {
+      ...state,
+      draft: {
+        ...state.draft,
+        approval: {
+          ...state.draft.approval,
+          autoExecuteWorkerFileActions: action.value,
+          workerFileAutoExecutionConfigured: true,
+        },
+      },
+    };
   }
   if (action.type === "saving") {
     return { ...state, saving: true, error: null };
@@ -646,7 +656,7 @@ export const SettingsPanel = ({
               <p className="settings-field__hint">
                 Worker가 제안한 file_write/file_patch approval만 자동 처리합니다. 일반
                 file_write/file_patch, shell, network, git_commit, orchestration_plan은
-                포함하지 않으며 Agent Profile의 Block 설정이 계속 우선합니다.
+                포함하지 않으며 Agent Profile의 Block 설정이 계속 우선합니다. 기본값은 켜짐입니다.
               </p>
             </fieldset>
 
