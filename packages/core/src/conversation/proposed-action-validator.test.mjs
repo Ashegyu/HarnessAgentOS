@@ -144,6 +144,72 @@ test("file_patch accepts relative unified diff payload", () => {
   assert.equal(r.details.command, undefined);
 });
 
+test("file_patch accepts single-file git diff payload and normalizes headers", () => {
+  const rawPatch = [
+    "diff --git a/src/foo.ts b/src/foo.ts",
+    "index 2bb0f4f..7b1d2ce 100644",
+    "--- a/src/foo.ts",
+    "+++ b/src/foo.ts",
+    "@@ -1,3 +1,3 @@",
+    " one",
+    "-two",
+    "+TWO",
+    " three",
+    "",
+  ].join("\n");
+  const expectedPatch = [
+    "--- a/src/foo.ts",
+    "+++ b/src/foo.ts",
+    "@@ -1,3 +1,3 @@",
+    " one",
+    "-two",
+    "+TWO",
+    " three",
+    "",
+  ].join("\n");
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch: rawPatch },
+    },
+    "file_patch",
+  );
+
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.details.unifiedPatch, {
+    path: "src/foo.ts",
+    patch: expectedPatch,
+  });
+});
+
+test("file_patch rejects multi-file git diff payloads", () => {
+  const patch = [
+    "diff --git a/src/foo.ts b/src/foo.ts",
+    "--- a/src/foo.ts",
+    "+++ b/src/foo.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "diff --git a/src/bar.ts b/src/bar.ts",
+    "--- a/src/bar.ts",
+    "+++ b/src/bar.ts",
+    "@@ -1 +1 @@",
+    "-old",
+    "+new",
+    "",
+  ].join("\n");
+  const r = validateProposedActionDetails(
+    {
+      type: "file_patch",
+      unifiedPatch: { path: "src/foo.ts", patch },
+    },
+    "file_patch",
+  );
+
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /exactly one file diff/);
+});
+
 test("file_patch rejects parent traversal", () => {
   const r = validateProposedActionDetails(
     {

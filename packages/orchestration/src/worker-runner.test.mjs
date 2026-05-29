@@ -1266,7 +1266,17 @@ test("runApproved creates downstream approvals for worker file_patch proposals",
       pipelineId: pipeline.id,
     });
     const approved = await approvePlanApproval(state, drafted.approval);
-    const patch = "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
+    const rawPatch = [
+      "diff --git a/src/foo.ts b/src/foo.ts",
+      "index 2bb0f4f..7b1d2ce 100644",
+      "--- a/src/foo.ts",
+      "+++ b/src/foo.ts",
+      "@@ -1 +1 @@",
+      "-old",
+      "+new",
+      "",
+    ].join("\n");
+    const normalizedPatch = "--- a/src/foo.ts\n+++ b/src/foo.ts\n@@ -1 +1 @@\n-old\n+new\n";
     const fakeInvoker = {
       async invokeForWorker() {
         return {
@@ -1275,7 +1285,7 @@ test("runApproved creates downstream approvals for worker file_patch proposals",
             {
               type: "file_patch",
               path: "src/foo.ts",
-              patch,
+              patch: rawPatch,
               rationale: "partial update",
             },
           ],
@@ -1293,7 +1303,7 @@ test("runApproved creates downstream approvals for worker file_patch proposals",
     assert.equal(approval.actionType, "file_patch");
     assert.deepEqual(approval.proposedAction, {
       type: "file_patch",
-      unifiedPatch: { path: "src/foo.ts", patch },
+      unifiedPatch: { path: "src/foo.ts", patch: normalizedPatch },
     });
   } finally {
     closeDb(db);

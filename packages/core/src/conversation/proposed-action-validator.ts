@@ -203,30 +203,67 @@ const validateFilePatch = (raw: Record<string, unknown>): ProposedActionValidati
   if (containsNul(patch)) {
     return { ok: false, reason: "unifiedPatch.patch must not contain NUL bytes" };
   }
-  if (!looksLikeUnifiedDiff(patch)) {
+  const parsedPatch = normalizeSingleFileUnifiedDiff(patch);
+  if (!parsedPatch.ok) {
     return {
       ok: false,
-      reason:
-        "unifiedPatch.patch must be a unified diff with ---/+++ headers and at least one hunk",
+      reason: parsedPatch.reason,
     };
   }
   const normalized: ProposedActionDetails = {
     type: "file_patch",
     unifiedPatch: {
       path: parsedPath.path,
-      patch,
+      patch: parsedPatch.patch,
     },
   };
   return { ok: true, details: normalized };
 };
 
-const looksLikeUnifiedDiff = (patch: string): boolean => {
-  const lines = patch.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-  return (
-    lines[0]?.startsWith("--- ") === true &&
-    lines[1]?.startsWith("+++ ") === true &&
-    lines.some((line) => line.startsWith("@@ "))
-  );
+const normalizeSingleFileUnifiedDiff = (
+  patch: string,
+): { ok: true; patch: string } | { ok: false; reason: string } => {
+  const normalized = patch.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimStart();
+  const lines = normalized.split("\n");
+  const diffHeaders = lines
+    .map((line, index) => (line.startsWith("diff --git ") ? index : -1))
+    .filter((index) => index >= 0);
+  if (diffHeaders.length > 1) {
+    return {
+      ok: false,
+      reason: "unifiedPatch.patch must contain exactly one file diff",
+    };
+  }
+  const headerIndex =
+    diffHeaders.length === 1
+      ? lines.findIndex((line, index) => index > diffHeaders[0]! && line.startsWith("--- "))
+      : 0;
+  if (headerIndex < 0) {
+    return {
+      ok: false,
+      reason:
+        "unifiedPatch.patch must be a unified diff with ---/+++ headers and at least one hunk",
+    };
+  }
+  const unifiedLines = lines.slice(headerIndex);
+  if (
+    unifiedLines[0]?.startsWith("--- ") !== true ||
+    unifiedLines[1]?.startsWith("+++ ") !== true ||
+    !unifiedLines.some((line) => line.startsWith("@@ "))
+  ) {
+    return {
+      ok: false,
+      reason:
+        "unifiedPatch.patch must be a unified diff with ---/+++ headers and at least one hunk",
+    };
+  }
+  if (unifiedLines.slice(2).some((line) => line.startsWith("diff --git "))) {
+    return {
+      ok: false,
+      reason: "unifiedPatch.patch must contain exactly one file diff",
+    };
+  }
+  return { ok: true, patch: unifiedLines.join("\n") };
 };
 
 const validateShell = (raw: Record<string, unknown>): ProposedActionValidation => {
