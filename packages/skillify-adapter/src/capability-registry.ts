@@ -1,4 +1,8 @@
-import type { Capability, CreateCapabilityInput } from "@harness/core";
+import type {
+  Capability,
+  CreateCapabilityInput,
+  SkillSource,
+} from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import { loadSkills } from "./skill-loader.ts";
 import type { SkillMetadata } from "./skill-metadata.ts";
@@ -26,8 +30,15 @@ export interface CapabilityRegistryDeps {
   state: LocalStateService;
 }
 
+export interface CapabilityRefreshFailure {
+  failedAt: string;
+  message: string;
+}
+
 export class CapabilityRegistry {
   private readonly metadataCache = new Map<string, SkillMetadata>();
+  private lastRefreshFailure: CapabilityRefreshFailure | null = null;
+  private lastRefreshAt: string | null = null;
 
   private readonly deps: CapabilityRegistryDeps;
   constructor(deps: CapabilityRegistryDeps) {
@@ -42,30 +53,72 @@ export class CapabilityRegistry {
   async refresh(sources: SkillSourceConfig[]): Promise<Capability[]> {
     this.metadataCache.clear();
     const upserted: Capability[] = [];
-    for (const src of sources) {
-      const metas = await loadSkills({
-        rootDir: src.rootDir,
-        trusted: src.trusted,
-      });
-      const ids: string[] = [];
-      for (const meta of metas) {
-        this.metadataCache.set(meta.id, meta);
-        const input: CreateCapabilityInput = {
-          id: meta.id,
-          source: src.source,
-          name: meta.name,
-          description: meta.description,
-          triggerTerms: meta.triggerTerms,
-          riskLevel: meta.riskLevel,
-          requiresApproval: requiresApprovalFor(meta),
-        };
-        const cap = await this.deps.state.upsertCapability(input);
-        upserted.push(cap);
-        ids.push(cap.id);
+    try {
+      for (const src of sources) {
+        const metas = await loadSkills({
+          rootDir: src.rootDir,
+          trusted: src.trusted,
+        });
+        const ids: string[] = [];
+        for (const meta of metas) {
+          this.metadataCache.set(meta.id, meta);
+          const input: CreateCapabilityInput = {
+            id: meta.id,
+            source: src.source,
+            name: meta.name,
+            description: meta.description,
+            triggerTerms: meta.triggerTerms,
+            riskLevel: meta.riskLevel,
+            requiresApproval: requiresApprovalFor(meta),
+          };
+          const cap = await this.deps.state.upsertCapability(input);
+          upserted.push(cap);
+          ids.push(cap.id);
+        }
+        await this.deps.state.pruneCapabilities(src.source, ids);
       }
-      await this.deps.state.pruneCapabilities(src.source, ids);
+      this.lastRefreshAt = new Date().toISOString();
+      this.lastRefreshFailure = null;
+      return upserted;
+    } catch (error) {
+      this.recordRefreshFailure(error);
+      throw error;
     }
-    return upserted;
+  }
+
+  async refreshPersistedSources(): Promise<Capability[]> {
+    try {
+      const rows = await this.deps.state.skillSources.list();
+      const enabled = rows.filter((row) => row.enabled);
+      const upserted = await this.refresh(
+        enabled.map(skillSourceConfigFromSource),
+      );
+      for (const disabled of rows.filter((row) => !row.enabled)) {
+        await this.deps.state.pruneCapabilities(
+          skillSourceConfigFromSource(disabled).source,
+          [],
+        );
+      }
+      return upserted;
+    } catch (error) {
+      this.recordRefreshFailure(error);
+      throw error;
+    }
+  }
+
+  recordRefreshFailure(error: unknown): void {
+    this.lastRefreshFailure = {
+      failedAt: new Date().toISOString(),
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  getLastRefreshFailure(): CapabilityRefreshFailure | null {
+    return this.lastRefreshFailure;
+  }
+
+  getLastRefreshAt(): string | null {
+    return this.lastRefreshAt;
   }
 
   async list(): Promise<Capability[]> {
@@ -76,6 +129,19 @@ export class CapabilityRegistry {
     return this.metadataCache.get(id);
   }
 }
+
+export const skillSourceConfigFromSource = (
+  source: SkillSource,
+): SkillSourceConfig => ({
+  source:
+    source.origin === "project"
+      ? "skillify:project"
+      : source.origin === "user"
+        ? "skillify:user"
+        : `skillify:${source.id}`,
+  rootDir: source.rootDir,
+  trusted: source.trusted,
+});
 
 const requiresApprovalFor = (meta: SkillMetadata): boolean => {
   // Anything that proposes side-effecting actions, or is untrusted, must

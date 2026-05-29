@@ -38,7 +38,9 @@ import {
   pipelineAutoApproveDecision,
 } from "./pipeline-auto-approval";
 import {
+  autoExecutableRunnerApprovalIssue,
   buildAutoApprovedExecutionPlan,
+  isRunnerExecutionApproval,
   runAutoApprovedExecutionPlan,
 } from "./auto-execution-plan";
 import "./workbench.css";
@@ -166,13 +168,10 @@ export const WorkbenchShell = (): JSX.Element => {
   );
 
   // Tracks TaskRun IDs that were created via pipeline-pick at submit
-  // time. For these runs we auto-approve EVERY approval — the
-  // orchestration_plan one AND any downstream worker-proposed approvals
-  // (file_write, shell, …) — regardless of the global autoApprove flag
-  // or the active profile's per-action permissions. Picking a pipeline
-  // is itself the user's "yes, run everything this pipeline produces"
-  // consent. Persisted to localStorage so an in-progress pipeline run
-  // keeps auto-approving after a renderer reload.
+  // time. For these runs we auto-approve the orchestration_plan and any
+  // well-formed runner approvals that can actually execute. Picking a
+  // pipeline is itself the user's consent, but malformed runner payloads
+  // remain pending for manual repair.
   const pipelineAutoTaskRunIdsRef = useRef<Set<string>>(new Set());
   const PIPELINE_AUTO_LS_KEY = "harness.pipelineAutoTaskRunIds";
   // Initial load — pre-populate the Set from localStorage so reloads
@@ -633,6 +632,12 @@ export const WorkbenchShell = (): JSX.Element => {
       (a: Approval): boolean => {
         if (a.status !== "pending") return false;
         if (inFlight.has(a.id)) return false;
+        if (
+          isRunnerExecutionApproval(a) &&
+          autoExecutableRunnerApprovalIssue(a) !== null
+        ) {
+          return false;
+        }
         if (isPipelineAutoTask) {
           const decision = pipelineAutoApproveDecision(a);
           autoApproveDecisions.set(a.id, decision);
@@ -811,6 +816,7 @@ export const WorkbenchShell = (): JSX.Element => {
             await window.harness.capability.proposeCandidates({
               taskRunId: draft.taskRun.id,
               prompt: input.userRequest,
+              profileId: activeAgentProfile?.id ?? null,
             });
           advisoryApprovalCount += capabilityCandidates.approvals.length;
           if (capabilityCandidates.approvals.length > 0) {
@@ -984,6 +990,7 @@ export const WorkbenchShell = (): JSX.Element => {
       selectedTaskRunId,
       selectedThreadId,
       autoApprove,
+      activeAgentProfile,
       noteAgentProgress,
     ],
   );
@@ -1478,6 +1485,7 @@ export const WorkbenchShell = (): JSX.Element => {
           approvals={
             taskRunDetail.kind === "ready" ? taskRunDetail.detail.approvals : []
           }
+          profileId={activeAgentProfile?.id ?? null}
           onApprovalCreated={handleQualityChanged}
           onClose={() => setLearningOpen(false)}
         />

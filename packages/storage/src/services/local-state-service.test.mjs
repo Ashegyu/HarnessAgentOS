@@ -94,6 +94,26 @@ test("createThread treats empty-string pipelineId as 'no binding'", async () => 
   }
 });
 
+test("withTransaction rolls back writes when the work throws", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    await assert.rejects(
+      () =>
+        svc.withTransaction(async () => {
+          await svc.createThread({ title: "rolled back" });
+          throw new Error("boom");
+        }),
+      /boom/,
+    );
+    assert.deepEqual(await svc.listThreads(), []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("getThreadDetail returns thread with empty taskRuns array", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

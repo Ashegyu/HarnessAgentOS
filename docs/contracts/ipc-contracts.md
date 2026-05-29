@@ -41,6 +41,7 @@ export type ApprovalScope = "once" | "run_action_class";
 export type ApprovalActionType =
   | "capability_use"
   | "model_use"
+  | "file_patch"
   | "file_write"
   | "shell"
   | "dependency_install"
@@ -504,6 +505,12 @@ interface SystemDiagnostics {
     inflightCount: number;
     status: "ok" | "warning" | "error";
   };
+  capabilities: {
+    status: "ok" | "warning" | "error";
+    lastRefreshAt?: string;
+    lastRefreshFailureAt?: string;
+    warning?: string;
+  };
 }
 ```
 
@@ -587,6 +594,7 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 
 상태 전이 규칙:
 
+- `createTask`: thread resolution/creation 후 TaskRun, steps, artifacts, checkpoint, approvals는 storage transaction 안에서 생성된다. 중간 실패 시 해당 draft row들은 rollback된다.
 - `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`.
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
@@ -786,6 +794,8 @@ runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 > `cancelExecution`은 현재 실행 중인 RunnerService 작업이 있을 때만 `{ cancelled: true }`를 반환하고 해당 TaskRun의 AbortSignal을 중단한다. 존재하지 않거나 실행 중이 아닌 `taskRunId`는 throw하지 않고 `{ cancelled: false }`를 반환한다.
 > `executeCodeChangeAttempt`는 이미 approved 상태인 `file_write` approval들을 순서대로 실행하고, 이미 approved 상태인 verification `shell` approval들을 순서대로 실행한다. 이 호출은 raw command나 raw patch를 받지 않으며 기존 approval/runner 정책을 우회하지 않는다. 성공/실패 결과는 attempt manifest artifact와 QualityGateResult로 남긴다.
 
+Runner 실행 가능 approval은 `file_patch`, `file_write`, `shell`뿐이다. 자동 승인/자동 실행 경로는 approval에 `proposedAction`이 없거나 `proposedAction.type !== approval.actionType`이면 자동 approve하지 않고 pending으로 남긴다. RunnerService도 실행 직전에 같은 `validateProposedActionDetails` 검증을 수행하므로, 오래된 approved row나 DB에 남은 malformed payload는 실행되지 않는다.
+
 ```ts
 interface RunnerResult {
   id: string;
@@ -835,6 +845,7 @@ interface CodeChangeAttemptResult {
 - `RUNNER_APPROVAL_REJECTED`
 - `RUNNER_TARGET_OUTSIDE_WORKSPACE`
 - `RUNNER_BLOCKED_HIGH_RISK`
+- `RUNNER_POLICY_BLOCKED`
 - `RUNNER_EXECUTION_FAILED`
 - `RUNNER_RETRY_NOT_BLOCKED`
 - `RUNNER_CANCELLED`
@@ -883,10 +894,11 @@ quality.markDone(input: { taskRunId: string }): Promise<TaskRun>;
 
 `markDone` 정책 (`TaskRunCompletionService.markDone` 기준):
 
+- TaskRun status가 `ready_for_review`일 때만 허용된다. `running`에서 바로 `done`으로 전환하는 경로는 없다.
 - `passed` 게이트 → 항상 허용
 - `warning` 게이트 → `kind="quality_report"`이고 URI가 `/<gate.id>`로 끝나는 known-risk 승인 아티팩트가 있을 때만 허용. (canonical artifact kind는 `quality_report` 하나이며, URI suffix로 일반 quality 보고서와 known-risk 승인을 구분한다 — `quality.approveKnownRisks`가 `harness:quality/<taskRunId>/<gate.id>` URI로 작성한다.)
 - `failed`/`not_run` → 거부 (`QUALITY_DONE_BLOCKED`)
-- 성공 시 LearningTrace `recordOutcome`이 IPC 계층에서 자동 갱신된다 (renderer는 별도 호출 불필요).
+- 성공 시 LearningTrace `recordOutcome`이 IPC 계층에서 자동 갱신된다 (renderer는 별도 호출 불필요). outcome에는 최신 QualityGate, `success=true`, TaskRun 총 agent invocation 비용, 완료된 invocation의 대표 latency 집계값이 반영된다.
 
 ```ts
 interface QualityGateInput {
@@ -922,8 +934,8 @@ interface QualityGateResult {
 ```ts
 capability.list(): Promise<Capability[]>;
 capability.refresh(): Promise<Capability[]>;
-capability.suggest(input: { taskRunId: string; prompt: string }): Promise<CapabilitySuggestion[]>;
-capability.proposeCandidates(input: { taskRunId: string; prompt: string }): Promise<{
+capability.suggest(input: { taskRunId: string; prompt: string; profileId?: string | null }): Promise<CapabilitySuggestion[]>;
+capability.proposeCandidates(input: { taskRunId: string; prompt: string; profileId?: string | null }): Promise<{
   suggestions: CapabilitySuggestion[];
   approvals: Approval[];
   skipped: CapabilitySuggestion[];
@@ -943,8 +955,10 @@ capability.proposeScriptRun(input: { capabilityId: string; taskRunId: string; sc
 
 동작:
 
-- `suggest`는 TaskRun userRequest + 추가 prompt를 기준으로 triggerTerms를 매칭한다.
-- `proposeCandidates`는 매칭된 trusted capability를 `capability_use` approval로 자동 큐잉한다. 이 approval은 runner 실행 대상이 아니며, 승인된 후보만 이후 agent prompt의 Skill 컨텍스트로 들어간다.
+- `refresh`는 DB에 등록된 enabled `skill_sources` 전체를 기준으로 registry를 다시 스캔한다. 고정 project/user 2개 root만 스캔하지 않는다.
+- `suggest`는 TaskRun userRequest + 추가 prompt를 기준으로 triggerTerms를 매칭한다. `profileId`가 있으면 해당 profile의 `allowedSkillIds` 필터를 적용하고, `null`이면 profile 필터를 적용하지 않는다.
+- `proposeCandidates`는 매칭된 trusted capability를 `capability_use` approval로 자동 큐잉한다. 이 approval은 runner 실행 대상이 아니며, 승인된 후보만 이후 agent prompt의 Skill 컨텍스트로 들어간다. `profileId` 필터 의미는 `suggest`와 같다.
+- `readSkill`은 metadata cache miss 시 enabled skill source 전체 refresh를 1회 수행한 뒤 재시도한다.
 - `proposeScriptRun`은 script 실행 요청을 바로 실행하지 않고 `skill_script` approval을 만든다.
 
 오류:
@@ -1119,7 +1133,8 @@ learner.recordDecision(input: {
 
 `recordSelection`은 user/policy가 모델·capability를 골랐을 때 호출되어 LearningTrace의 `selectedModel`/`selectedCapabilities`를 갱신한다.
 `recordOutcome`은 `quality.markDone` 성공 직후 IPC 계층이 자동 호출하므로 renderer가 명시적으로 부르는 일은 드물지만, 외부 통합용으로 노출되어 있다.
-`proposeRecommendation`은 현재 TaskRun의 trace 기반 추천을 approval 후보로 올린다. 추천 모델은 `model_use`, 추천 capability는 `capability_use` approval이 되며 둘 다 runner 실행 대상이 아니다. 승인된 `model_use`만 다음 `agent.generatePlan` 호출의 모델 override로 반영된다.
+runner/agent 실패 outcome은 후속 작업 범위이며, hook 위치는 실패 상태와 diagnostic artifact를 저장한 service catch 블록 직후(`RunnerService.executeApprovedInternal`, `AgentPlanningService.generatePlan`)로 둔다.
+`proposeRecommendation`은 현재 TaskRun의 trace 기반 추천을 approval 후보로 올린다. 추천 모델은 `model_use`, 추천 capability는 `capability_use` approval이 되며 둘 다 runner 실행 대상이 아니다. 승인된 `model_use`만 다음 `agent.generatePlan` 호출의 모델 override로 반영된다. 추천 적용/무시 UI는 `recordDecision`으로 감사 로그를 남기되, 감사 로그 실패가 approval 생성 자체를 막지는 않는다.
 
 오류:
 
@@ -1657,8 +1672,7 @@ interface SkillProfileBindingApplyResult extends SkillProfileBindingProposalResu
 동작:
 
 - custom source는 기본 `trusted=false`이며, script 실행은 별도 `skill_script` approval을 요구한다.
-- `refresh`는 directory scan 결과를 capability registry에 반영하지만 script를 실행하지 않으며,
-  `scannedCount`, `updatedCount`, `skillCount`를 반환한다.
+- `refresh`는 요청 source 하나를 기준으로 scan count를 반환하지만, capability registry 반영은 DB에 등록된 enabled source 전체를 같은 변환 규칙으로 재계산한다. script는 실행하지 않으며 `scannedCount`, `updatedCount`, `skillCount`를 반환한다.
 - `generateSkillDraft`는 user intent를 `SkillAuthorDraft`로 구조화하고 같은 preview validation을 통과시킨다.
   파일 쓰기, profile binding, source trust 승격은 수행하지 않는다.
 - `previewSkillDraft`는 생성될 `SKILL.md`를 loader 기준으로 검증하고 preview만 반환한다.

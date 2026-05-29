@@ -13,6 +13,7 @@ interface CapabilityPanelProps {
   approvals?: Approval[];
   /** Latest user prompt to use for suggestion ranking. */
   prompt: string;
+  profileId?: string | null;
   /** Notify the parent when a script run approval is created. */
   onApprovalCreated: () => Promise<void>;
 }
@@ -35,6 +36,7 @@ export const CapabilityPanel = ({
   taskRun,
   approvals = [],
   prompt,
+  profileId = null,
   onApprovalCreated,
 }: CapabilityPanelProps): JSX.Element => {
   const [catalog, setCatalog] = useState<CatalogState>({ kind: "loading" });
@@ -78,12 +80,13 @@ export const CapabilityPanel = ({
       const result = await window.harness.capability.suggest({
         taskRunId: taskRun.id,
         prompt,
+        profileId,
       });
       setSuggestions({ kind: "ready", suggestions: result });
     } catch (e) {
       setSuggestions({ kind: "error", message: errorMessage(e) });
     }
-  }, [taskRun, prompt]);
+  }, [taskRun, prompt, profileId]);
 
   useEffect(() => {
     void fetchCatalog();
@@ -114,6 +117,7 @@ export const CapabilityPanel = ({
       await window.harness.capability.proposeCandidates({
         taskRunId: taskRun.id,
         prompt,
+        profileId,
       });
       await fetchSuggestions();
       await onApprovalCreated();
@@ -122,7 +126,7 @@ export const CapabilityPanel = ({
     } finally {
       setBusy(false);
     }
-  }, [fetchSuggestions, onApprovalCreated, prompt, taskRun]);
+  }, [fetchSuggestions, onApprovalCreated, profileId, prompt, taskRun]);
 
   const renderCatalog = (): JSX.Element => {
     if (catalog.kind === "loading") {

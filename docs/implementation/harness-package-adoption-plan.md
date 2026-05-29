@@ -1,7 +1,7 @@
 # Harness Package Adoption Plan
 
 Date: 2026-05-27
-Status: Draft
+Status: Active implementation. Core model, import, preview, binding, and approval-gated export/run flows are implemented; remaining work is focused on eval viewer drill-down, boundary latency reporting, and additional adoption fixtures.
 
 ## 1. Goal
 

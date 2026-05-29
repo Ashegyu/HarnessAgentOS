@@ -108,10 +108,7 @@ export class TaskRunCompletionService {
         );
       }
     }
-    if (
-      taskRun.status !== "ready_for_review" &&
-      taskRun.status !== "running"
-    ) {
+    if (taskRun.status !== "ready_for_review") {
       throw new TaskRunCompletionError(
         "QUALITY_DONE_BLOCKED",
         `TaskRun must be ready_for_review to mark done (current: ${taskRun.status})`,

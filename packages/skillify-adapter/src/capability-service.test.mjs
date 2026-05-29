@@ -124,6 +124,33 @@ test("registry refresh upserts capabilities and prunes stale ones", async () => 
   }
 });
 
+test("registry refreshPersistedSources scans enabled custom skill sources", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "custom-skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "custom", { id: "skill_custom" });
+    const source = await state.skillSources.add({
+      name: "Custom",
+      rootDir: skillsRoot,
+    });
+    const registry = new CapabilityRegistry({ state });
+
+    const refreshed = await registry.refreshPersistedSources();
+
+    assert.deepEqual(
+      refreshed.map((cap) => cap.id),
+      ["skill_custom"],
+    );
+    assert.equal(refreshed[0].source, `skillify:${source.id}`);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("suggest returns ranked capabilities for a TaskRun prompt", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
@@ -146,6 +173,30 @@ test("suggest returns ranked capabilities for a TaskRun prompt", async () => {
     assert.equal(suggestions.length, 1);
     assert.equal(suggestions[0].capability.name, "refactor");
     assert.ok(suggestions[0].matchedTerms.length > 0);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("readSkill refreshes enabled sources once when metadata cache is cold", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const skillsRoot = join(t.dir, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    seedSkill(skillsRoot, "refactor", { id: "skill_refactor" });
+    await state.skillSources.add({ name: "Custom", rootDir: skillsRoot });
+    const warmRegistry = new CapabilityRegistry({ state });
+    await warmRegistry.refreshPersistedSources();
+
+    const coldRegistry = new CapabilityRegistry({ state });
+    const service = new CapabilityService({ state, registry: coldRegistry });
+    const result = await service.readSkill({ capabilityId: "skill_refactor" });
+
+    assert.equal(result.capability.name, "refactor");
+    assert.match(result.instructions, /Body/);
   } finally {
     closeDb(db);
     t.cleanup();

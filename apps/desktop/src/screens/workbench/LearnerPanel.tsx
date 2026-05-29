@@ -10,6 +10,7 @@ import { RecommendationCard } from "./RecommendationCard";
 interface LearnerPanelProps {
   taskRun: TaskRun | null;
   approvals?: Approval[];
+  profileId?: string | null;
   onApprovalCreated?: () => Promise<void>;
 }
 
@@ -69,6 +70,27 @@ export const LearnerPanel = ({
     void refresh();
   }, [refresh]);
 
+  const recordDecision = useCallback(
+    async (
+      decision: "accepted" | "rejected",
+      reason: string,
+    ): Promise<string | null> => {
+      if (!taskRun || recState.kind !== "ready") return null;
+      try {
+        await window.harness.learner.recordDecision({
+          taskRunId: taskRun.id,
+          recommendationId: recState.recommendation.id,
+          decision,
+          reason,
+        });
+        return null;
+      } catch (e) {
+        return `감사 로그 기록 실패: ${errorMessage(e)}`;
+      }
+    },
+    [taskRun, recState],
+  );
+
   const handleProposeRecommendation = useCallback(
     async (): Promise<void> => {
       if (!taskRun || recState.kind !== "ready") return;
@@ -78,10 +100,16 @@ export const LearnerPanel = ({
         const result = await window.harness.learner.proposeRecommendation({
           taskRunId: taskRun.id,
         });
-        setProposalMessage(
+        const auditWarning = await recordDecision(
+          "accepted",
+          "user proposed learner recommendation approvals",
+        );
+        const message =
           result.approvals.length > 0
             ? `${result.approvals.length}개 Learner 추천 후보가 approval로 올라갔습니다.`
-            : "새로 올릴 Learner 추천 후보가 없습니다.",
+            : "새로 올릴 Learner 추천 후보가 없습니다.";
+        setProposalMessage(
+          auditWarning ? `${message} ${auditWarning}` : message,
         );
         await onApprovalCreated?.();
         await refresh();
@@ -91,7 +119,28 @@ export const LearnerPanel = ({
         setProposalBusy(false);
       }
     },
-    [taskRun, recState, refresh, onApprovalCreated],
+    [taskRun, recState, recordDecision, refresh, onApprovalCreated],
+  );
+
+  const handleRejectRecommendation = useCallback(
+    async (): Promise<void> => {
+      if (!taskRun || recState.kind !== "ready") return;
+      setProposalBusy(true);
+      setProposalMessage(null);
+      try {
+        const auditWarning = await recordDecision(
+          "rejected",
+          "user dismissed learner recommendation",
+        );
+        setProposalMessage(
+          auditWarning ?? "Learner 추천을 거절로 기록했습니다.",
+        );
+        await refresh();
+      } finally {
+        setProposalBusy(false);
+      }
+    },
+    [taskRun, recState, recordDecision, refresh],
   );
 
   if (!taskRun) {
@@ -116,6 +165,7 @@ export const LearnerPanel = ({
           approvals={approvals}
           disabled={proposalBusy}
           onPropose={handleProposeRecommendation}
+          onReject={handleRejectRecommendation}
         />
       ) : null}
       {proposalMessage ? (

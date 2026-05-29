@@ -143,7 +143,6 @@ export const registerAllIpc = (ctx: IpcContext): void => {
   registerCapabilityIpc(
     ctx.capabilityService,
     ctx.capabilityRegistry,
-    ctx.skillSources,
     eventBus,
   );
   registerLearnerIpc(ctx.learnerAdvisor, ctx.traceRecorder, eventBus);

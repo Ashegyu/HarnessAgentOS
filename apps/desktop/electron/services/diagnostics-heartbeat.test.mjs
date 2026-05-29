@@ -28,6 +28,7 @@ test("startDiagnosticsHeartbeat emits and cleans up interval", async () => {
         },
       },
       runner: { inflightCount: 0, status: "ok" },
+      capabilities: { status: "ok" },
     }),
     emit: (diagnostics) => emitted.push(diagnostics),
     setIntervalFn: (cb) => {

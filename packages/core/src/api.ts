@@ -254,10 +254,12 @@ export interface HarnessDesktopApi {
     suggest(input: {
       taskRunId: string;
       prompt: string;
+      profileId?: string | null;
     }): Promise<CapabilitySuggestion[]>;
     proposeCandidates(input: {
       taskRunId: string;
       prompt: string;
+      profileId?: string | null;
     }): Promise<CapabilityCandidateApprovalResult>;
     readSkill(input: {
       capabilityId: string;

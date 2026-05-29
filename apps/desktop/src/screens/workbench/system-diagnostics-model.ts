@@ -29,7 +29,8 @@ export const diagnosticsHasWarnings = (
   diagnostics.db.status !== "ok" ||
   diagnostics.queue.status !== "ok" ||
   diagnostics.providers.status !== "ok" ||
-  diagnostics.runner.status !== "ok";
+  diagnostics.runner.status !== "ok" ||
+  diagnostics.capabilities.status !== "ok";
 
 export const providerAvailabilityLabel = (
   available: boolean,

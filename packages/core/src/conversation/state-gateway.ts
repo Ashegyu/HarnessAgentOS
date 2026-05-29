@@ -24,6 +24,8 @@ import type {
  * and lets tests inject lightweight in-memory fakes.
  */
 export interface ConversationStateGateway {
+  withTransaction<T>(work: () => Promise<T>): Promise<T>;
+
   // Thread
   getThread(id: string): Promise<Thread | null>;
   createThread(input: CreateThreadInput): Promise<Thread>;

@@ -51,6 +51,29 @@ test("createTask emits TaskRun, plan artifact, before_edit checkpoint, approvals
   }
 });
 
+test("createTask rolls back draft rows when approval creation fails", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    state.createApproval = async () => {
+      throw new Error("injected approval failure");
+    };
+
+    await assert.rejects(
+      () =>
+        conversation.createTask({
+          userRequest: "리팩토링 진행",
+          targetDir: "/tmp/project",
+        }),
+      /injected approval failure/,
+    );
+    assert.deepEqual(await state.listThreads(), []);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("createTask rejects empty userRequest", async () => {
   const t = tmp();
   const { db, conversation } = makeService(t);

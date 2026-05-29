@@ -17,7 +17,6 @@ import {
   CapabilityRegistry,
   CapabilityService,
   CapabilityServiceError,
-  type SkillSourceConfig,
 } from "@harness/skillify-adapter";
 import type { HarnessEventBus } from "../event-bus";
 
@@ -26,6 +25,15 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
+
+const parseNullableProfileId = (
+  v: unknown,
+): string | null | undefined | Error => {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v === "string") return v;
+  return new Error("profileId must be a string or null");
+};
 
 const wrapErr = <T>(e: unknown, fallbackCode: string): HarnessResult<T> => {
   if (e instanceof CapabilityServiceError) {
@@ -38,7 +46,6 @@ const wrapErr = <T>(e: unknown, fallbackCode: string): HarnessResult<T> => {
 export const registerCapabilityIpc = (
   service: CapabilityService,
   registry: CapabilityRegistry,
-  sources: SkillSourceConfig[],
   events?: HarnessEventBus,
 ): void => {
   ipcMain.handle(
@@ -56,7 +63,7 @@ export const registerCapabilityIpc = (
     IPC_CHANNELS.capability.refresh,
     async (): Promise<HarnessResult<Capability[]>> => {
       try {
-        return ok(await registry.refresh(sources));
+        return ok(await registry.refreshPersistedSources());
       } catch (e) {
         return wrapErr<Capability[]>(e, CAPABILITY_REFRESH_FAILED);
       }
@@ -72,7 +79,11 @@ export const registerCapabilityIpc = (
       if (!isObject(input)) {
         return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
       }
-      const cast = input as { taskRunId?: unknown; prompt?: unknown };
+      const cast = input as {
+        taskRunId?: unknown;
+        prompt?: unknown;
+        profileId?: unknown;
+      };
       if (!isNonEmptyString(cast.taskRunId)) {
         return err(
           harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
@@ -81,10 +92,15 @@ export const registerCapabilityIpc = (
       if (typeof cast.prompt !== "string") {
         return err(harnessError(STATE_INVALID_INPUT, "prompt must be a string"));
       }
+      const profileId = parseNullableProfileId(cast.profileId);
+      if (profileId instanceof Error) {
+        return err(harnessError(STATE_INVALID_INPUT, profileId.message));
+      }
       try {
         const suggestions = await service.suggest({
           taskRunId: cast.taskRunId,
           prompt: cast.prompt,
+          ...(profileId !== undefined ? { profileId } : {}),
         });
         return ok(suggestions);
       } catch (e) {
@@ -138,7 +154,11 @@ export const registerCapabilityIpc = (
       if (!isObject(input)) {
         return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
       }
-      const cast = input as { taskRunId?: unknown; prompt?: unknown };
+      const cast = input as {
+        taskRunId?: unknown;
+        prompt?: unknown;
+        profileId?: unknown;
+      };
       if (!isNonEmptyString(cast.taskRunId)) {
         return err(
           harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
@@ -147,10 +167,15 @@ export const registerCapabilityIpc = (
       if (typeof cast.prompt !== "string") {
         return err(harnessError(STATE_INVALID_INPUT, "prompt must be a string"));
       }
+      const profileId = parseNullableProfileId(cast.profileId);
+      if (profileId instanceof Error) {
+        return err(harnessError(STATE_INVALID_INPUT, profileId.message));
+      }
       try {
         const result = await service.proposeCandidateApprovals({
           taskRunId: cast.taskRunId,
           prompt: cast.prompt,
+          ...(profileId !== undefined ? { profileId } : {}),
         });
         if (result.approvals.length > 0) {
           events?.taskRunChanged(cast.taskRunId);

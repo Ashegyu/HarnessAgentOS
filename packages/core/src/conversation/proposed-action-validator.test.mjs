@@ -86,6 +86,39 @@ test("file_write strips disallowed extra fields", () => {
   assert.equal(r.details.command, undefined);
 });
 
+test("file_write accepts db snapshot export payload", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_write",
+      dbSnapshotExport: { targetPath: "C:\\workspace\\snapshot.sqlite" },
+      command: "ignored",
+    },
+    "file_write",
+  );
+
+  assert.equal(r.ok, true);
+  assert.equal(r.details.type, "file_write");
+  assert.deepEqual(r.details.dbSnapshotExport, {
+    targetPath: "C:\\workspace\\snapshot.sqlite",
+  });
+  assert.equal(r.details.filePatch, undefined);
+  assert.equal(r.details.command, undefined);
+});
+
+test("file_write rejects ambiguous filePatch plus db snapshot export payload", () => {
+  const r = validateProposedActionDetails(
+    {
+      type: "file_write",
+      filePatch: { path: "x", after: "y" },
+      dbSnapshotExport: { targetPath: "snapshot.sqlite" },
+    },
+    "file_write",
+  );
+
+  assert.equal(r.ok, false);
+  assert.match(r.reason ?? "", /exactly one/);
+});
+
 test("file_patch accepts relative unified diff payload", () => {
   const patch = [
     "--- a/src/foo.ts",

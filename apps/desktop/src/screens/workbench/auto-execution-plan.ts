@@ -1,3 +1,4 @@
+import { validateProposedActionDetails } from "@harness/core";
 import type {
   Approval,
   CodeChangeAttemptResult,
@@ -15,6 +16,7 @@ export interface AutoApprovedExecutionPlan {
   continuationOrchestrationApprovalIds?: string[];
   advisoryApprovalIds: string[];
   individualRunnerApprovalIds: string[];
+  skippedRunnerApprovalIds: string[];
   codeChangeAttempt: CodeChangeAttemptExecution | null;
 }
 
@@ -41,6 +43,34 @@ export const CODE_CHANGE_REPAIR_INSTRUCTION =
 const isAdvisoryApproval = (approval: Approval): boolean =>
   approval.actionType === "capability_use" || approval.actionType === "model_use";
 
+const isOrchestrationApproval = (approval: Approval): boolean =>
+  approval.actionType === "orchestration_plan";
+
+export const isRunnerExecutionApproval = (approval: Approval): boolean =>
+  !isOrchestrationApproval(approval) && !isAdvisoryApproval(approval);
+
+export const autoExecutableRunnerApprovalIssue = (
+  approval: Approval,
+): string | null => {
+  if (!isCodeChangeLoopAction(approval)) {
+    return `Unsupported runner action type: ${approval.actionType}`;
+  }
+  if (!approval.proposedAction) {
+    return "Missing proposedAction";
+  }
+  const validation = validateProposedActionDetails(
+    approval.proposedAction,
+    approval.actionType,
+  );
+  if (!validation.ok) {
+    return validation.reason ?? "Invalid proposedAction";
+  }
+  return null;
+};
+
+export const isAutoExecutableRunnerApproval = (approval: Approval): boolean =>
+  autoExecutableRunnerApprovalIssue(approval) === null;
+
 const isCodeChangeLoopAction = (approval: Approval): boolean =>
   isChangeApproval(approval) || approval.actionType === "shell";
 
@@ -60,14 +90,17 @@ export const buildAutoApprovedExecutionPlan = (
   const orchestrationApprovalIds: string[] = [];
   const advisoryApprovalIds: string[] = [];
   const runnerApprovals: Approval[] = [];
+  const skippedRunnerApprovalIds: string[] = [];
 
   for (const approval of approvals) {
-    if (approval.actionType === "orchestration_plan") {
+    if (isOrchestrationApproval(approval)) {
       orchestrationApprovalIds.push(approval.id);
     } else if (isAdvisoryApproval(approval)) {
       advisoryApprovalIds.push(approval.id);
-    } else {
+    } else if (isAutoExecutableRunnerApproval(approval)) {
       runnerApprovals.push(approval);
+    } else {
+      skippedRunnerApprovalIds.push(approval.id);
     }
   }
 
@@ -81,6 +114,7 @@ export const buildAutoApprovedExecutionPlan = (
       orchestrationApprovalIds,
       advisoryApprovalIds,
       individualRunnerApprovalIds: runnerApprovals.map((approval) => approval.id),
+      skippedRunnerApprovalIds,
       codeChangeAttempt: null,
     };
   }
@@ -89,6 +123,7 @@ export const buildAutoApprovedExecutionPlan = (
     orchestrationApprovalIds,
     advisoryApprovalIds,
     individualRunnerApprovalIds: [],
+    skippedRunnerApprovalIds,
     codeChangeAttempt: {
       taskRunId,
       changeApprovalIds: runnerApprovals

@@ -43,4 +43,10 @@ export interface SystemDiagnostics {
     inflightCount: number;
     status: DiagnosticsStatus;
   };
+  capabilities: {
+    status: DiagnosticsStatus;
+    lastRefreshAt?: string;
+    lastRefreshFailureAt?: string;
+    warning?: string;
+  };
 }

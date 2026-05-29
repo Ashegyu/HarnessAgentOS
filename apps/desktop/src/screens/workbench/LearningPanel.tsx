@@ -10,6 +10,7 @@ import { SkillSourcesTab } from "./SkillSourcesTab";
 interface LearningPanelProps {
   taskRun: TaskRun | null;
   approvals?: Approval[];
+  profileId?: string | null;
   onApprovalCreated: () => Promise<void>;
   onClose: () => void;
 }
@@ -32,6 +33,7 @@ const TABS: readonly LearningTabDef[] = [
 export const LearningPanel = ({
   taskRun,
   approvals = [],
+  profileId = null,
   onApprovalCreated,
   onClose,
 }: LearningPanelProps): JSX.Element => {
@@ -104,6 +106,7 @@ export const LearningPanel = ({
               taskRun={taskRun}
               approvals={approvals}
               prompt={taskRun?.userRequest ?? ""}
+              profileId={profileId}
               onApprovalCreated={onApprovalCreated}
             />
           </div>
@@ -123,6 +126,7 @@ export const LearningPanel = ({
                   key={taskRunKey}
                   taskRun={taskRun}
                   approvals={approvals}
+                  profileId={profileId}
                   onApprovalCreated={onApprovalCreated}
                 />
               </section>

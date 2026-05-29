@@ -46,12 +46,9 @@ export interface ConversationServiceDeps {
  * (TaskRun, plan Artifact, Checkpoint, Approvals) without performing
  * any side effects. Approval/reject/redirect flows are also handled.
  *
- * Phase 2 does NOT wrap the multi-row creation in a single DB
- * transaction because LocalStateService repository methods return
- * Promise<T> while better-sqlite3 transactions require synchronous
- * bodies. If a mid-flow insert fails, the partial rows remain but are
- * inert (no consumer references them without a TaskRun reaching
- * waiting_for_approval). Phase 3 may refactor to strict atomicity.
+ * Task creation is wrapped in the state gateway transaction so the
+ * TaskRun, steps, artifacts, checkpoint, and approvals are committed
+ * together or rolled back together.
  */
 export class ConversationService {
   private readonly deps: ConversationServiceDeps;
@@ -121,6 +118,7 @@ export class ConversationService {
       );
     }
 
+    return this.deps.state.withTransaction(async () => {
     // Resolve or create the thread.
     let thread: Thread;
     if (input.threadId) {
@@ -302,6 +300,7 @@ export class ConversationService {
       checkpoint,
       approvals,
     };
+    });
   }
 
   async setProposedAction(

@@ -367,6 +367,13 @@ test("renderer cannot reach done without passing gate (end-to-end via service)",
       requireTests: true,
     });
     assert.equal(gate.status, "passed");
+    await state.setTaskRunStatus(taskRun.id, "running");
+    await assert.rejects(
+      () => completion.markDone({ taskRunId: taskRun.id }),
+      (e) =>
+        e.code === "QUALITY_DONE_BLOCKED" &&
+        /current: running/.test(e.message),
+    );
     await completion.applyQualityGateResult(gate);
     const done = await completion.markDone({ taskRunId: taskRun.id });
     assert.equal(done.status, "done");

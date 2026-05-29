@@ -139,6 +139,30 @@ const DiagnosticsCards = ({
     >
       <Metric label="Inflight" value={`${diagnostics.runner.inflightCount}`} />
     </DiagnosticsCard>
+
+    <DiagnosticsCard
+      title="Capabilities"
+      status={diagnostics.capabilities.status}
+      value={diagnostics.capabilities.status === "ok" ? "ok" : "warning"}
+      warning={diagnostics.capabilities.warning}
+    >
+      <Metric
+        label="Last scan"
+        value={
+          diagnostics.capabilities.lastRefreshAt
+            ? formatTime(diagnostics.capabilities.lastRefreshAt)
+            : "—"
+        }
+      />
+      <Metric
+        label="Last failure"
+        value={
+          diagnostics.capabilities.lastRefreshFailureAt
+            ? formatTime(diagnostics.capabilities.lastRefreshFailureAt)
+            : "—"
+        }
+      />
+    </DiagnosticsCard>
   </section>
 );
 

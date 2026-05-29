@@ -3,7 +3,7 @@ import type { LocalStateService } from "@harness/storage";
 import {
   loadSkills,
   type CapabilityRegistry,
-  type SkillSourceConfig,
+  skillSourceConfigFromSource,
 } from "@harness/skillify-adapter";
 
 export interface SkillSourceRefreshContext {
@@ -52,43 +52,26 @@ export const refreshSkillSourceCapabilities = async (
 ): Promise<SkillSourceRefreshResult> => {
   // Rebuild from persisted rows so custom sources added in Settings
   // participate in refresh without requiring a restart.
-  const rows = await ctx.state.skillSources.list();
-  const enabled = rows.filter((row) => row.enabled);
-  const configs = enabled.map(skillSourceConfigFromRow);
-  const scanned = source.enabled
-    ? await loadSkills({
-        rootDir: source.rootDir,
-        trusted: source.trusted,
-      })
-    : [];
-  const caps = await ctx.capabilityRegistry.refresh(configs);
-  for (const disabled of rows.filter((row) => !row.enabled)) {
-    await ctx.state.pruneCapabilities(
-      skillSourceConfigFromRow(disabled).source,
-      [],
-    );
+  try {
+    const scanned = source.enabled
+      ? await loadSkills({
+          rootDir: source.rootDir,
+          trusted: source.trusted,
+        })
+      : [];
+    const caps = await ctx.capabilityRegistry.refreshPersistedSources();
+    const sourceKey = skillSourceConfigFromSource(source).source;
+    return {
+      sourceId: source.id,
+      scannedCount: scanned.length,
+      updatedCount: caps.filter((cap) => cap.source === sourceKey).length,
+      skillCount: caps.length,
+    };
+  } catch (error) {
+    ctx.capabilityRegistry.recordRefreshFailure(error);
+    throw error;
   }
-  const sourceKey = skillSourceConfigFromRow(source).source;
-  return {
-    sourceId: source.id,
-    scannedCount: scanned.length,
-    updatedCount: caps.filter((cap) => cap.source === sourceKey).length,
-    skillCount: caps.length,
-  };
 };
-
-export const skillSourceConfigFromRow = (
-  source: SkillSource,
-): SkillSourceConfig => ({
-  source:
-    source.origin === "project"
-      ? "skillify:project"
-      : source.origin === "user"
-        ? "skillify:user"
-        : `skillify:${source.id}`,
-  rootDir: source.rootDir,
-  trusted: source.trusted,
-});
 
 const parseStateRef = (raw: string | undefined): Record<string, unknown> => {
   if (!raw) return {};

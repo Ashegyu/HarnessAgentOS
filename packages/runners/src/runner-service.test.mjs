@@ -532,6 +532,66 @@ test("executeApproved keeps approval step pending until sibling approvals resolv
   }
 });
 
+test("executeApproved rejects approved approvals with mismatched proposedAction type", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await state.setApprovalProposedAction(approval.id, {
+        type: "shell",
+        command: "npm run check",
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) =>
+          e instanceof RunnerError &&
+          e.code === "RUNNER_EXECUTION_FAILED" &&
+          e.message.includes("must match approval.actionType"),
+      );
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("executeApproved rejects approved approvals with malformed proposedAction payloads", async () => {
+  const t = tmp();
+  try {
+    const { db, state, conversation, runner } = await setup(t);
+    try {
+      const draft = await conversation.createTask({
+        userRequest: "x",
+        targetDir: t.target,
+      });
+      const approval = draft.approvals[0];
+      await state.setApprovalProposedAction(approval.id, {
+        type: "file_write",
+        filePatch: { path: "../escape.txt", after: "no\n" },
+      });
+      await conversation.approve({ approvalId: approval.id });
+      await assert.rejects(
+        () => runner.executeApproved(approval.id),
+        (e) =>
+          e instanceof RunnerError &&
+          e.code === "RUNNER_EXECUTION_FAILED" &&
+          e.message.includes("must not traverse parent directories"),
+      );
+    } finally {
+      closeDb(db);
+    }
+  } finally {
+    t.cleanup();
+  }
+});
+
 test("executeApproved ignores pending approvals from other checkpoints when settling TaskRun", async () => {
   const t = tmp();
   try {
@@ -764,7 +824,8 @@ test("file_patch outside targetDir is rejected before disk write", async () => {
         () => runner.executeApproved(approval.id),
         (e) =>
           e instanceof RunnerError &&
-          e.code === "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+          e.code === "RUNNER_EXECUTION_FAILED" &&
+          e.message.includes("must not traverse parent directories"),
       );
       assert.equal(readFileSync(outside, "utf8"), "old\n");
     } finally {
@@ -825,7 +886,8 @@ test("file_write outside targetDir is rejected before disk write", async () => {
         () => runner.executeApproved(approval.id),
         (e) =>
           e instanceof RunnerError &&
-          e.code === "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+          e.code === "RUNNER_EXECUTION_FAILED" &&
+          e.message.includes("must not traverse parent directories"),
       );
     } finally {
       closeDb(db);

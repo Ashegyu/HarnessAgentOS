@@ -4,6 +4,7 @@ interface RecommendationCardProps {
   recommendation: LearnerRecommendation;
   approvals: Approval[];
   onPropose: () => Promise<void>;
+  onReject: () => Promise<void>;
   disabled?: boolean;
 }
 
@@ -66,6 +67,7 @@ export const RecommendationCard = ({
   recommendation,
   approvals,
   onPropose,
+  onReject,
   disabled,
 }: RecommendationCardProps): JSX.Element => {
   const modelStatus = modelApprovalStatus(
@@ -164,6 +166,14 @@ export const RecommendationCard = ({
             : allProposed
               ? "후보 생성됨"
               : "후보 approval 생성"}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={() => void onReject()}
+          disabled={disabled}
+        >
+          추천 무시
         </button>
       </div>
     </article>

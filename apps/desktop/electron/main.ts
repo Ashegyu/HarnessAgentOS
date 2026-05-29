@@ -131,14 +131,38 @@ const initServices = (): {
   // Trace recorder is constructed first so the completion service can
   // stamp a LearningTrace as part of every markDone (Phase 6 acceptance).
   const traceRecorder = new TraceRecorder({ state });
+  const learnerAdvisor = new LearnerAdvisor({
+    state,
+    decisionLogDir: join(userData, "learner-decisions"),
+  });
   const qualityCompletion = new TaskRunCompletionService({
     state,
     onTaskRunDone: async (taskRunId) => {
       const gate = await state.getLatestQualityGateResult(taskRunId);
+      const costSummary = await learnerAdvisor.summarizeTaskRunCost({
+        taskRunId,
+      });
+      const completedLatencies = costSummary.invocations
+        .filter(
+          (invocation) =>
+            invocation.success !== undefined && invocation.latencyMs > 0,
+        )
+        .map((invocation) => invocation.latencyMs);
+      const latencyMs =
+        completedLatencies.length > 0
+          ? Math.round(
+              completedLatencies.reduce((sum, value) => sum + value, 0) /
+                completedLatencies.length,
+            )
+          : undefined;
       await traceRecorder.recordOutcome({
         taskRunId,
         success: true,
         qualityGate: gate ?? null,
+        ...(latencyMs !== undefined ? { latencyMs } : {}),
+        ...(costSummary.invocationCount > 0
+          ? { costEstimate: costSummary.totalCostUsd }
+          : {}),
       });
     },
   });
@@ -163,10 +187,6 @@ const initServices = (): {
       trusted: true,
     },
   ];
-  const learnerAdvisor = new LearnerAdvisor({
-    state,
-    decisionLogDir: join(userData, "learner-decisions"),
-  });
   const topologyAdvisor = new TopologyAdvisor({
     state,
     metadataForCapability: (id) => capabilityRegistry.getMetadata(id),
@@ -363,6 +383,7 @@ const initServices = (): {
     database: state,
     agentPlanning,
     runner,
+    capabilities: capabilityRegistry,
     probeProviders,
   });
 
@@ -485,10 +506,10 @@ app.whenReady().then(async () => {
   // non-fatal so first-run still succeeds.
   try {
     traceStartup("capabilities:start");
-    await services.capabilityRegistry.refresh(services.skillSources);
+    await services.capabilityRegistry.refreshPersistedSources();
     traceStartup("capabilities:done");
   } catch {
-    // capability.refresh IPC will surface a clearer error to the UI.
+    // capability diagnostics and capability.refresh IPC surface the failure.
   }
   traceStartup("ipc:start");
   registerAllIpc(services);

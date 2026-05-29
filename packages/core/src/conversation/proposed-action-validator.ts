@@ -122,6 +122,41 @@ const validateRelativePath = (
 
 const validateFileWrite = (raw: Record<string, unknown>): ProposedActionValidation => {
   const filePatch = raw.filePatch;
+  const dbSnapshotExport = raw.dbSnapshotExport;
+  if (filePatch !== undefined && dbSnapshotExport !== undefined) {
+    return {
+      ok: false,
+      reason: "file_write requires exactly one of filePatch or dbSnapshotExport",
+    };
+  }
+  if (dbSnapshotExport !== undefined) {
+    if (!isPlainObject(dbSnapshotExport)) {
+      return {
+        ok: false,
+        reason: "file_write dbSnapshotExport must be an object",
+      };
+    }
+    const targetPath = dbSnapshotExport.targetPath;
+    if (typeof targetPath !== "string" || targetPath.trim().length === 0) {
+      return {
+        ok: false,
+        reason: "dbSnapshotExport.targetPath must be a non-empty string",
+      };
+    }
+    if (containsNul(targetPath)) {
+      return {
+        ok: false,
+        reason: "dbSnapshotExport.targetPath must not contain NUL bytes",
+      };
+    }
+    return {
+      ok: true,
+      details: {
+        type: "file_write",
+        dbSnapshotExport: { targetPath },
+      },
+    };
+  }
   if (!isPlainObject(filePatch)) {
     return { ok: false, reason: "file_write requires filePatch object" };
   }

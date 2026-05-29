@@ -42,12 +42,20 @@ test("diagnosticsHasWarnings detects any non-ok subsystem", () => {
       },
     },
     runner: { inflightCount: 0, status: "ok" },
+    capabilities: { status: "ok" },
   };
   assert.equal(diagnosticsHasWarnings(base), false);
   assert.equal(
     diagnosticsHasWarnings({
       ...base,
       queue: { ...base.queue, status: "warning" },
+    }),
+    true,
+  );
+  assert.equal(
+    diagnosticsHasWarnings({
+      ...base,
+      capabilities: { status: "warning", warning: "capability scan failed" },
     }),
     true,
   );

@@ -17,6 +17,7 @@ import { promises as fs } from "node:fs";
 import { CapabilityRegistry } from "./capability-registry.ts";
 import { suggestCapabilities } from "./capability-suggester.ts";
 import { listSkillResources, readSkillInstructions } from "./skill-loader.ts";
+import type { SkillMetadata } from "./skill-metadata.ts";
 import { isScriptExecutionAllowed } from "./skill-risk-policy.ts";
 
 export class CapabilityServiceError extends Error {
@@ -113,7 +114,7 @@ export class CapabilityService {
 
     for (const suggestion of suggestions) {
       const capability = suggestion.capability;
-      const metadata = this.deps.registry.getMetadata(capability.id);
+      const metadata = await this.metadataAfterCacheRecovery(capability.id);
       if (!metadata?.trusted || alreadyProposed.has(capability.id)) {
         skipped.push(suggestion);
         continue;
@@ -207,7 +208,7 @@ export class CapabilityService {
       const capabilityId = approval.proposedAction?.capabilityUse?.capabilityId;
       if (!capabilityId || seen.has(capabilityId)) continue;
       if (!isCapabilityAllowedByProfile(capabilityId, profile)) continue;
-      const metadata = this.deps.registry.getMetadata(capabilityId);
+      const metadata = await this.metadataAfterCacheRecovery(capabilityId);
       if (!metadata?.trusted) continue;
       const capability = await this.requireCapability(capabilityId);
       const instructions = await readSkillInstructions(metadata);
@@ -231,13 +232,7 @@ export class CapabilityService {
     resources: SkillResources;
   }> {
     const capability = await this.requireCapability(input.capabilityId);
-    const metadata = this.deps.registry.getMetadata(capability.id);
-    if (!metadata) {
-      throw new CapabilityServiceError(
-        CAPABILITY_NOT_FOUND,
-        `Skill metadata for capability ${capability.id} is not loaded; refresh the registry first`,
-      );
-    }
+    const metadata = await this.requireMetadata(capability.id);
     const [instructions, resources] = await Promise.all([
       readSkillInstructions(metadata),
       listSkillResources(metadata),
@@ -256,13 +251,7 @@ export class CapabilityService {
     scriptName: string;
   }): Promise<Approval> {
     const capability = await this.requireCapability(input.capabilityId);
-    const metadata = this.deps.registry.getMetadata(capability.id);
-    if (!metadata) {
-      throw new CapabilityServiceError(
-        CAPABILITY_NOT_FOUND,
-        `Skill metadata for capability ${capability.id} is not loaded`,
-      );
-    }
+    const metadata = await this.requireMetadata(capability.id);
     if (
       !isScriptExecutionAllowed({
         trusted: metadata.trusted,
@@ -344,6 +333,33 @@ export class CapabilityService {
     return cap;
   }
 
+  private async requireMetadata(capabilityId: string): Promise<SkillMetadata> {
+    const metadata = await this.metadataAfterCacheRecovery(capabilityId);
+    if (!metadata) {
+      throw new CapabilityServiceError(
+        CAPABILITY_NOT_FOUND,
+        `Skill metadata for capability ${capabilityId} is not loaded after refreshing enabled skill sources`,
+      );
+    }
+    return metadata;
+  }
+
+  private async metadataAfterCacheRecovery(
+    capabilityId: string,
+  ): Promise<SkillMetadata | undefined> {
+    const cached = this.deps.registry.getMetadata(capabilityId);
+    if (cached) return cached;
+    try {
+      await this.deps.registry.refreshPersistedSources();
+    } catch (error) {
+      throw new CapabilityServiceError(
+        CAPABILITY_NOT_FOUND,
+        `Skill metadata for capability ${capabilityId} is not loaded and refresh failed: ${errorMessage(error)}`,
+      );
+    }
+    return this.deps.registry.getMetadata(capabilityId);
+  }
+
   private async resolvePolicyProfile(
     profileId: string | null | undefined,
   ): Promise<AgentProfile | null> {
@@ -379,6 +395,9 @@ const filterSuggestionsForProfile = (
   suggestions.filter((s) =>
     isCapabilityAllowedByProfile(s.capability.id, profile),
   );
+
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const resolveSkillScript = (sourceDir: string, scriptName: string): string => {
   const candidate = resolve(normalize(join(sourceDir, "scripts", scriptName)));

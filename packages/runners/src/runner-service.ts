@@ -15,6 +15,7 @@ import {
   RUNNER_CANCELLED,
   evaluateApprovalActionPolicy,
   formatSimpleDiff,
+  validateProposedActionDetails,
 } from "@harness/core";
 import { newId, nowIso } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
@@ -164,7 +165,7 @@ export class RunnerService {
       );
     }
 
-    const details = approval.proposedAction;
+    let details = approval.proposedAction;
     if (!details) {
       throw new RunnerError(
         "RUNNER_EXECUTION_FAILED",
@@ -190,6 +191,18 @@ export class RunnerService {
         `Action type ${approval.actionType} is blocked from MVP runner execution`,
       );
     }
+
+    const detailsValidation = validateProposedActionDetails(
+      details,
+      approval.actionType,
+    );
+    if (!detailsValidation.ok || !detailsValidation.details) {
+      throw new RunnerError(
+        "RUNNER_EXECUTION_FAILED",
+        `approval.proposedAction is invalid: ${detailsValidation.reason ?? "unknown validation error"}`,
+      );
+    }
+    details = detailsValidation.details;
 
     // Find or create a runner Step. shell + a recognised test command
     // surfaces as a "test" step in the timeline so the UI can mark

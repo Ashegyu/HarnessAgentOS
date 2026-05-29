@@ -176,6 +176,23 @@ export class LocalStateService implements ConversationStateGateway {
     this.a2aRefinements = new SqliteA2ARefinementAttemptRepository(db);
   }
 
+  async withTransaction<T>(work: () => Promise<T>): Promise<T> {
+    if (this.db.inTransaction) {
+      return work();
+    }
+    this.db.prepare("BEGIN IMMEDIATE").run();
+    try {
+      const result = await work();
+      this.db.prepare("COMMIT").run();
+      return result;
+    } catch (error) {
+      if (this.db.inTransaction) {
+        this.db.prepare("ROLLBACK").run();
+      }
+      throw error;
+    }
+  }
+
   getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     const dbPath =
       typeof (this.db as unknown as { name?: unknown }).name === "string"

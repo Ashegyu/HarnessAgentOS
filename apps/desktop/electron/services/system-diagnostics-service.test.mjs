@@ -41,6 +41,7 @@ test("SystemDiagnosticsService marks DB and queue thresholds as warnings", async
   assert.equal(diagnostics.queue.status, "warning");
   assert.equal(diagnostics.providers.status, "ok");
   assert.equal(diagnostics.runner.inflightCount, 2);
+  assert.equal(diagnostics.capabilities.status, "ok");
 });
 
 test("SystemDiagnosticsService marks providers warning when none are available", async () => {
@@ -68,6 +69,40 @@ test("SystemDiagnosticsService marks providers warning when none are available",
   const diagnostics = await service.collect();
   assert.equal(diagnostics.providers.status, "warning");
   assert.match(diagnostics.providers.warning ?? "", /No local agent provider/);
+});
+
+test("SystemDiagnosticsService exposes capability refresh failures", async () => {
+  const service = new SystemDiagnosticsService({
+    database: {
+      getDatabaseDiagnostics: () => ({
+        mainBytes: 1,
+        walBytes: 0,
+        shmBytes: 0,
+        totalBytes: 1,
+        walCheckpoint: { busy: 0, log: 0, checkpointed: 0 },
+      }),
+    },
+    agentPlanning: {
+      getQueueDepths: () => ({ claude: 0, codex: 0, total: 0 }),
+    },
+    runner: { getInflightCount: () => 0 },
+    capabilities: {
+      getLastRefreshAt: () => "2026-05-18T00:00:00.000Z",
+      getLastRefreshFailure: () => ({
+        failedAt: "2026-05-18T00:01:00.000Z",
+        message: "scan failed",
+      }),
+    },
+    probeProviders: async () => providers(),
+  });
+
+  const diagnostics = await service.collect();
+  assert.equal(diagnostics.capabilities.status, "warning");
+  assert.equal(
+    diagnostics.capabilities.lastRefreshFailureAt,
+    "2026-05-18T00:01:00.000Z",
+  );
+  assert.match(diagnostics.capabilities.warning ?? "", /scan failed/);
 });
 
 test("diagnosticsStatusTone maps status to UI tone", () => {

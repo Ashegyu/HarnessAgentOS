@@ -21,6 +21,10 @@ export interface SystemDiagnosticsServiceDeps {
   runner: {
     getInflightCount(): number;
   };
+  capabilities?: {
+    getLastRefreshAt(): string | null;
+    getLastRefreshFailure(): { failedAt: string; message: string } | null;
+  };
   probeProviders(): Promise<AgentProviderStatusMap>;
   now?: () => string;
   providerCacheMs?: number;
@@ -42,6 +46,10 @@ export class SystemDiagnosticsService {
     const queueDepths = this.deps.agentPlanning.getQueueDepths();
     const providers = await this.providerSnapshot();
     const providerWarning = providersWarning(providers);
+    const capabilityFailure =
+      this.deps.capabilities?.getLastRefreshFailure() ?? null;
+    const capabilityLastRefreshAt =
+      this.deps.capabilities?.getLastRefreshAt() ?? null;
     const dbWarning =
       dbSnapshot.totalBytes > SYSTEM_DIAGNOSTICS_THRESHOLDS.dbWarnBytes
         ? `SQLite files exceed ${formatBytes(
@@ -73,6 +81,18 @@ export class SystemDiagnosticsService {
       runner: {
         inflightCount: this.deps.runner.getInflightCount(),
         status: "ok",
+      },
+      capabilities: {
+        status: capabilityFailure ? "warning" : "ok",
+        ...(capabilityLastRefreshAt
+          ? { lastRefreshAt: capabilityLastRefreshAt }
+          : {}),
+        ...(capabilityFailure
+          ? {
+              lastRefreshFailureAt: capabilityFailure.failedAt,
+              warning: `Capability refresh failed: ${capabilityFailure.message}`,
+            }
+          : {}),
       },
     };
   }
