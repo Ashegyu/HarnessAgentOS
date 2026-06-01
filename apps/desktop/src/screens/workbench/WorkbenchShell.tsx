@@ -6,8 +6,6 @@ import type {
   AutoApproveDecision,
   OrchestrationMode,
   ProposedActionDetails,
-  Thread,
-  ThreadDetail,
   TaskRun,
   TaskRunDetail,
 } from "@harness/core";
@@ -44,24 +42,14 @@ import {
   isRunnerExecutionApproval,
   runAutoApprovedExecutionPlan,
 } from "./auto-execution-plan";
+import {
+  beginTaskRunDetailRefresh,
+  beginThreadDetailRefresh,
+  type DetailState,
+  type TaskRunDetailState,
+  type ThreadsState,
+} from "./workbench-refresh-state";
 import "./workbench.css";
-
-type ThreadsState =
-  | { kind: "loading" }
-  | { kind: "ready"; threads: Thread[] }
-  | { kind: "error"; message: string };
-
-type DetailState =
-  | { kind: "idle" }
-  | { kind: "loading"; threadId: string }
-  | { kind: "ready"; detail: ThreadDetail }
-  | { kind: "error"; threadId: string; message: string };
-
-type TaskRunDetailState =
-  | { kind: "idle" }
-  | { kind: "loading"; taskRunId: string }
-  | { kind: "ready"; detail: TaskRunDetail }
-  | { kind: "error"; taskRunId: string; message: string };
 
 interface RecentTaskRunCommand {
   taskRun: TaskRun;
@@ -402,7 +390,9 @@ export const WorkbenchShell = (): JSX.Element => {
 
   const refreshThreadDetail = useCallback(
     async (threadId: string) => {
-      setDetailState({ kind: "loading", threadId });
+      setDetailState((previous) =>
+        beginThreadDetailRefresh(previous, threadId),
+      );
       try {
         const detail = await window.harness.state.getThread({ threadId });
         setDetailState({ kind: "ready", detail });
@@ -418,7 +408,9 @@ export const WorkbenchShell = (): JSX.Element => {
   );
 
   const refreshTaskRunDetail = useCallback(async (taskRunId: string) => {
-    setTaskRunDetail({ kind: "loading", taskRunId });
+    setTaskRunDetail((previous) =>
+      beginTaskRunDetailRefresh(previous, taskRunId),
+    );
     try {
       const detail = await window.harness.conversation.getTaskRunDetail({
         taskRunId,
