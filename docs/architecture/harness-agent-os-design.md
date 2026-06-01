@@ -611,6 +611,7 @@ interface LearnerRecommendation {
   id: string;
   recommendedModel?: string;
   recommendedCapabilities: CapabilitySuggestion[];
+  recommendedContext: ObservationRecallResult[];
   rationale: string;
   costHint?: string;
   latencyHint?: string;
@@ -618,6 +619,12 @@ interface LearnerRecommendation {
 }
 
 window.harness.learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
+window.harness.learner.recordContextDecision(input: {
+  taskRunId: string;
+  observationId: string;
+  decision: "pinned" | "unpinned";
+  surface?: "recommended" | "recall";
+}): Promise<void>;
 window.harness.learner.recordDecision(input: {
   taskRunId: string;
   recommendationId: string; // LearnerRecommendation.id

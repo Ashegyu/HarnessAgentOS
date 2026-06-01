@@ -67,10 +67,13 @@ export const IPC_CHANNELS = {
     getTrace: "learner:getTrace",
     summarizeTaskRunCost: "learner:summarizeTaskRunCost",
     summarizeBudgetUsage: "learner:summarizeBudgetUsage",
+    recallContext: "learner:recallContext",
+    summarizeContextOutcomes: "learner:summarizeContextOutcomes",
     recommend: "learner:recommend",
     proposeRecommendation: "learner:proposeRecommendation",
     recordSelection: "learner:recordSelection",
     recordOutcome: "learner:recordOutcome",
+    recordContextDecision: "learner:recordContextDecision",
     recordDecision: "learner:recordDecision",
   },
   topology: {
@@ -80,6 +83,7 @@ export const IPC_CHANNELS = {
   instinct: {
     list: "instinct:list",
     listCandidates: "instinct:listCandidates",
+    getCandidateEvidence: "instinct:getCandidateEvidence",
     approveCandidate: "instinct:approveCandidate",
     rejectCandidate: "instinct:rejectCandidate",
     disable: "instinct:disable",

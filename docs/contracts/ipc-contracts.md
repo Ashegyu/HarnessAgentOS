@@ -977,10 +977,62 @@ interface LearnerRecommendation {
   recommendedModel?: string;
   estimatedCostUsd?: number;
   recommendedCapabilities: CapabilitySuggestion[];
+  recommendedContext: ObservationRecallResult[];
   rationale: string;
   costHint?: "low" | "medium" | "high";
   latencyHint?: "low" | "medium" | "high";
   confidence: number;
+}
+
+interface ObservationRecallResult {
+  observationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  projectKey?: string;
+  source: "approval" | "quality" | "learner" | "runner" | "skill" | "agent";
+  eventType: string;
+  signal: string;
+  summary: string;
+  score: number;
+  createdAt: string;
+  outcome?: {
+    usedCount: number;
+    passedCount: number;
+    warningCount: number;
+    failedCount: number;
+    lastStatus?: "passed" | "warning" | "failed";
+    lastOutcomeSource?: "quality" | "agent" | "runner" | "unknown";
+    lastSeenAt?: string;
+    qualityOutcomeCount: number;
+    agentOutcomeCount: number;
+    runnerOutcomeCount: number;
+    unknownOutcomeCount: number;
+    scoreAdjustment: number;
+    reuseRisk: "low" | "medium" | "high";
+  };
+}
+
+type LearnerContextDecisionSurface = "recommended" | "recall";
+
+interface LearnerContextDecisionRecord {
+  taskRunId: string;
+  observationId: string;
+  decision: "pinned" | "unpinned";
+  surface?: LearnerContextDecisionSurface;
+  score?: number;
+  reuseRisk?: "low" | "medium" | "high";
+}
+
+interface ContextDecisionRecentEvent {
+  decisionObservationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  observationId: string;
+  decision: "pinned" | "unpinned";
+  surface: LearnerContextDecisionSurface;
+  score?: number;
+  reuseRisk?: "low" | "medium" | "high";
+  createdAt: string;
 }
 
 interface TaskRunCostSummary {
@@ -1099,6 +1151,16 @@ learner.summarizeBudgetUsage(input?: {
   days?: number;
   profileId?: string;
 }): Promise<BudgetUsageSummary>;
+learner.recallContext(input: {
+  taskRunId: string;
+  query?: string;
+  source?: "approval" | "quality" | "learner" | "runner" | "skill" | "agent";
+  limit?: number;
+}): Promise<ObservationRecallResult[]>;
+learner.summarizeContextOutcomes(input: {
+  taskRunId: string;
+  limit?: number;
+}): Promise<ContextOutcomeSummary>;
 learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
 learner.proposeRecommendation(input: {
   taskRunId: string;
@@ -1123,6 +1185,7 @@ learner.recordOutcome(input: {
   success?: boolean;
   failureReason?: string;
 }): Promise<LearningTrace>;
+learner.recordContextDecision(input: LearnerContextDecisionRecord): Promise<void>;
 learner.recordDecision(input: {
   taskRunId: string;
   recommendationId: string; // LearnerRecommendation.id
@@ -1133,7 +1196,14 @@ learner.recordDecision(input: {
 
 `recordSelection`은 user/policy가 모델·capability를 골랐을 때 호출되어 LearningTrace의 `selectedModel`/`selectedCapabilities`를 갱신한다.
 `recordOutcome`은 `quality.markDone` 성공 직후 IPC 계층이 자동 호출하므로 renderer가 명시적으로 부르는 일은 드물지만, 외부 통합용으로 노출되어 있다.
-runner/agent 실패 outcome은 후속 작업 범위이며, hook 위치는 실패 상태와 diagnostic artifact를 저장한 service catch 블록 직후(`RunnerService.executeApprovedInternal`, `AgentPlanningService.generatePlan`)로 둔다.
+agent 계획 실패는 `AgentPlanningService.generatePlan`이 실패 상태와 diagnostic artifact를 저장한 직후 pinned context outcome(`learner/pinned_context_outcome`, signal `failed`)으로 기록한다. runner 실행 실패도 `RunnerService.executeApprovedInternal`이 실패 step, error artifact, blocked 상태를 저장한 직후 같은 outcome(`outcomeSource: "runner.executeApproved"`)으로 기록한다. 취소(`cancelled`)는 실패 학습으로 기록하지 않는다.
+`recommend`의 `recommendedContext`는 같은 projectKey에서 현재 TaskRun을 제외한 prior observation을 읽기 전용으로 검색한 최대 3개 후보다. `reuseRisk: "high"` context는 자동 추천에서 제외되며, agent prompt에는 사용자가 명시적으로 pin한 항목만 들어간다.
+`recordContextDecision`은 사용자가 추천/검색 context를 pin 또는 unpin할 때 `learner/pinned_context_decision` observation을 남긴다. payload는 observation id, surface, score, reuseRisk 같은 compact metadata만 포함하며 raw observation payload나 summary 원문은 복사하지 않는다. 이 기록은 observability와 감사용이며 approval, runner 권한, agent prompt 주입을 직접 바꾸지 않는다.
+`recallContext`는 같은 projectKey의 기존 observation을 읽기 전용으로 검색한다. 현재 TaskRun은 결과에서 제외하고, summary는 redaction 후 반환하며 payload나 prompt 원문은 반환하지 않는다. pinned context outcome 이력은 `outcome.scoreAdjustment`, `outcome.reuseRisk`, `lastOutcomeSource`, 출처별 compact counters(`qualityOutcomeCount`/`agentOutcomeCount`/`runnerOutcomeCount`/`unknownOutcomeCount`)로만 반영되어 실패 이력이 있는 context를 낮춰 보여주며, runner 권한이나 approval 상태를 바꾸지 않는다.
+`summarizeContextOutcomes`의 `verifiedContextPackCount`/`pendingContextPackCount`는 pinned context pack 중 이후 outcome으로 검증된 것과 아직 outcome이 없는 것을 구분한다. `contextDecisionCount`/`contextPinnedDecisionCount`/`contextUnpinnedDecisionCount`와 `recentContextDecisions`는 실행 전 context 선택 이력을 read-only로 보여준다. `topObservations`는 사용량/성과 중심, `riskObservations`는 실패/고위험 context 중심의 read-only 집계다. 두 목록 모두 redacted summary와 compact outcome counters만 포함하며 raw `payload_json`은 반환하지 않는다.
+`summarizeContextOutcomes`의 `qualityOutcomeCount`/`agentOutcomeCount`/`runnerOutcomeCount`/`unknownOutcomeCount`는 outcome 발생 지점을 정규화한 출처별 집계다. 저장된 payload의 `outcomeSource`는 `quality`, `agent.*`, `runner.*`만 enum으로 축약되어 반환되고, raw payload string은 노출하지 않는다.
+`summarizeContextOutcomes`의 `recentOutcomes`는 최신 pinned context outcome을 read-only drill-down으로 반환한다. 각 항목은 outcome observation id, redacted summary, status, normalized outcomeSource, pinned observation ids, timestamp만 포함하고 raw `payload_json`은 반환하지 않는다.
+`summarizeContextOutcomes`의 `recentContextPacks`는 context pack observation과 이후 pinned context outcome을 `contextPackObservationId`로 연결해 반환한다. 각 항목은 context pack observation id, optional artifact id, pinned observation ids, timestamp, linked outcome summary/status/source만 포함하고 raw context pack payload는 반환하지 않는다.
 `proposeRecommendation`은 현재 TaskRun의 trace 기반 추천을 approval 후보로 올린다. 추천 모델은 `model_use`, 추천 capability는 `capability_use` approval이 되며 둘 다 runner 실행 대상이 아니다. 승인된 `model_use`만 다음 `agent.generatePlan` 호출의 모델 override로 반영된다. 추천 적용/무시 UI는 `recordDecision`으로 감사 로그를 남기되, 감사 로그 실패가 approval 생성 자체를 막지는 않는다.
 
 오류:
@@ -1250,6 +1320,10 @@ instinct.list(input?: {
 instinct.listCandidates(input?: {
   projectKey?: string;
 }): Promise<EvolutionCandidate[]>;
+instinct.getCandidateEvidence(input: {
+  candidateId: string;
+  limit?: number;
+}): Promise<EvolutionCandidateEvidence>;
 instinct.approveCandidate(input: {
   candidateId: string;
   message?: string;
@@ -1329,6 +1403,7 @@ agent.generatePlan(input: {
   provider?: AgentProvider;
   model?: string;
   instruction?: string;
+  pinnedObservationContexts?: ObservationRecallResult[]; // max 5, explicit user selection only
 }): Promise<{
   invocation: AgentInvocation;
   planArtifact: Artifact;
@@ -1359,6 +1434,8 @@ agent.requestRefinement(input: {
   approval: Approval; // actionType="network", pending until the operator approves
 }>;
 ```
+
+`pinnedObservationContexts`는 `learner.recallContext` 결과 중 사용자가 명시적으로 선택한 항목만 받는다. agent prompt와 context pack artifact에는 redacted summary, provenance id, compact outcome metadata(`usedCount`/`failedCount`/`lastStatus`/`scoreAdjustment`/`reuseRisk`)만 들어간다. 실패 이력은 advisory warning으로만 노출되며 runner 권한이나 approval 상태를 바꾸지 않는다. handler는 배열 크기와 summary 길이, outcome shape를 제한한다.
 
 `agent.requestRefinement`은 즉시 원격 네트워크 요청을 실행하지 않는다. 먼저
 `A2ARefinementAttempt(status="pending_approval")`와 `network` approval을 만들고,

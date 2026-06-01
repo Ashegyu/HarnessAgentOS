@@ -9,6 +9,7 @@ import {
   LocalStateService,
 } from "../../../packages/storage/src/index.ts";
 import { LearnerAdvisor } from "./learner-advisor.ts";
+import { deriveProjectKey } from "./project-key.ts";
 import { TraceRecorder } from "./trace-recorder.ts";
 
 const tmp = () => {
@@ -120,8 +121,278 @@ test("recommend returns conservative fallback with no history", async () => {
     });
     const rec = await advisor.recommend({ taskRunId: taskRun.id });
     assert.deepEqual(rec.recommendedCapabilities, []);
+    assert.deepEqual(rec.recommendedContext, []);
     assert.match(rec.rationale, /No prior trace history/i);
     assert.ok(rec.confidence < 0.5);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("recallContext returns redacted prior observations for the same project", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const current = await seedTaskRun(state, "repair quality failed tests");
+    const prior = await seedTaskRun(state, "fix earlier quality failure");
+    const projectKey = await deriveProjectKey({ targetDir: current.targetDir });
+    await state.createObservation({
+      taskRunId: current.id,
+      threadId: current.threadId,
+      projectKey,
+      source: "quality",
+      eventType: "failed",
+      signal: "failed",
+      summary: "current quality failed and should be excluded",
+      payload: {},
+    });
+    const priorObservation = await state.createObservation({
+      taskRunId: prior.id,
+      threadId: prior.threadId,
+      projectKey,
+      source: "quality",
+      eventType: "failed",
+      signal: "failed",
+      summary: "quality failed because api_key=super-secret-value leaked in logs",
+      payload: { raw: "do not return payload" },
+    });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const results = await advisor.recallContext({
+      taskRunId: current.id,
+      query: "quality failed",
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].observationId, priorObservation.id);
+    assert.equal(results[0].taskRunId, prior.id);
+    assert.match(results[0].summary, /\[REDACTED\]/);
+    assert.equal(JSON.stringify(results).includes("super-secret-value"), false);
+    assert.equal(JSON.stringify(results).includes("do not return payload"), false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("recommend includes safe prior context candidates and excludes high-risk reuse", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const current = await seedTaskRun(
+      state,
+      "repair quality failed tests after native module mismatch",
+    );
+    const prior = await seedTaskRun(
+      state,
+      "repair quality failed tests after native module mismatch",
+    );
+    const projectKey = await deriveProjectKey({ targetDir: current.targetDir });
+    const helpful = await state.createObservation({
+      taskRunId: prior.id,
+      threadId: prior.threadId,
+      projectKey,
+      source: "quality",
+      eventType: "failed",
+      signal: "failed",
+      summary:
+        "quality failed because better-sqlite3 native module mismatch required npm run rebuild:node",
+      payload: { raw: "do not expose this payload" },
+    });
+    const risky = await state.createObservation({
+      taskRunId: prior.id,
+      threadId: prior.threadId,
+      projectKey,
+      source: "runner",
+      eventType: "failed",
+      signal: "failed",
+      summary:
+        "quality failed after deleting cache and retrying the same native module repair",
+      payload: {},
+    });
+    await state.createObservation({
+      taskRunId: prior.id,
+      threadId: prior.threadId,
+      projectKey,
+      source: "learner",
+      eventType: "pinned_context_outcome",
+      signal: "failed",
+      summary: "runner failed after risky pinned context",
+      payload: {
+        pinnedObservationIds: [risky.id],
+        outcomeSource: "runner.executeApproved",
+      },
+    });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const rec = await advisor.recommend({ taskRunId: current.id });
+
+    assert.ok(Array.isArray(rec.recommendedContext));
+    assert.equal(rec.recommendedContext[0].observationId, helpful.id);
+    assert.equal(
+      rec.recommendedContext.some((item) => item.observationId === risky.id),
+      false,
+    );
+    assert.match(rec.recommendedContext[0].summary, /rebuild:node/);
+    assert.equal(JSON.stringify(rec.recommendedContext).includes("do not expose"), false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("recordContextDecision stores bounded context pin decisions as observations", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, "repair quality failed tests");
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    const source = await state.createObservation({
+      taskRunId: taskRun.id,
+      threadId: taskRun.threadId,
+      projectKey,
+      source: "quality",
+      eventType: "failed",
+      signal: "failed",
+      summary: "quality failed because api_key=super-secret-value leaked",
+      payload: { raw: "do not copy" },
+    });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    await advisor.recordContextDecision({
+      taskRunId: taskRun.id,
+      observationId: source.id,
+      decision: "pinned",
+      surface: "recommended",
+      score: 0.42,
+      reuseRisk: "low",
+    });
+
+    const observations = await state.listObservations({ projectKey });
+    const decision = observations.find(
+      (item) => item.eventType === "pinned_context_decision",
+    );
+    assert.ok(decision, "context decision observation must be recorded");
+    assert.equal(decision.taskRunId, taskRun.id);
+    assert.equal(decision.threadId, taskRun.threadId);
+    assert.equal(decision.projectKey, projectKey);
+    assert.equal(decision.source, "learner");
+    assert.equal(decision.signal, "pinned");
+    assert.match(decision.summary, /user pinned recalled context/);
+    assert.equal(decision.payload.observationId, source.id);
+    assert.equal(decision.payload.surface, "recommended");
+    assert.equal(decision.payload.score, 0.42);
+    assert.equal(decision.payload.reuseRisk, "low");
+    assert.equal(JSON.stringify(decision).includes("super-secret-value"), false);
+    assert.equal(JSON.stringify(decision).includes("do not copy"), false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("summarizeContextOutcomes derives the current project outcome summary", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const current = await seedTaskRun(state, "repair with prior context");
+    const prior = await seedTaskRun(state, "prior quality failure");
+    const otherThread = await state.createThread({
+      title: "other",
+      targetDir: "/tmp/other",
+    });
+    const other = await state.createTaskRun({
+      threadId: otherThread.id,
+      userRequest: "other project",
+      targetDir: "/tmp/other",
+      status: "running",
+    });
+    const projectKey = await deriveProjectKey({ targetDir: current.targetDir });
+    const otherProjectKey = await deriveProjectKey({ targetDir: "/tmp/other" });
+    const source = await state.createObservation({
+      taskRunId: prior.id,
+      threadId: prior.threadId,
+      projectKey,
+      source: "quality",
+      eventType: "failed",
+      signal: "failed",
+      summary: "quality failed because rebuild:node was required",
+      payload: {},
+    });
+    await state.createObservation({
+      taskRunId: current.id,
+      threadId: current.threadId,
+      projectKey,
+      source: "agent",
+      eventType: "context_pack_created",
+      signal: "context_pack",
+      summary: "created agent context pack with pinned context",
+      payload: {
+        promptInclusion: {
+          pinnedObservationIds: [source.id],
+        },
+      },
+    });
+    await state.createObservation({
+      taskRunId: current.id,
+      threadId: current.threadId,
+      projectKey,
+      source: "learner",
+      eventType: "pinned_context_outcome",
+      signal: "passed",
+      summary: "quality gate passed after pinned context",
+      payload: {
+        pinnedObservationIds: [source.id],
+        qualityStatus: "passed",
+      },
+    });
+    await state.createObservation({
+      taskRunId: other.id,
+      threadId: other.threadId,
+      projectKey: otherProjectKey,
+      source: "learner",
+      eventType: "pinned_context_outcome",
+      signal: "failed",
+      summary: "other project failure",
+      payload: {
+        pinnedObservationIds: ["obs-other"],
+        qualityStatus: "failed",
+      },
+    });
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const summary = await advisor.summarizeContextOutcomes({
+      taskRunId: current.id,
+      limit: 5,
+    });
+
+    assert.equal(summary.taskRunId, current.id);
+    assert.equal(summary.projectKey, projectKey);
+    assert.equal(summary.contextPackCount, 1);
+    assert.equal(summary.pinnedContextPackCount, 1);
+    assert.equal(summary.outcomeCount, 1);
+    assert.equal(summary.passedCount, 1);
+    assert.equal(summary.failedCount, 0);
+    assert.equal(summary.topObservations[0].observationId, source.id);
+    assert.equal(summary.topObservations[0].usedCount, 1);
+    assert.equal(summary.topObservations[0].scoreAdjustment, 0.25);
   } finally {
     closeDb(db);
     t.cleanup();

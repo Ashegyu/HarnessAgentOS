@@ -374,6 +374,43 @@ test("executeApproved fails when proposedAction is missing", async () => {
   }
 });
 
+test("executeApproved records failed pinned context outcome when runner action fails", async () => {
+  const harness = fakeRunnerHarness({ command: "node -v" });
+  const outcomes = [];
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+    shellRunner: {
+      run: async () => {
+        throw new RunnerError(
+          "RUNNER_EXECUTION_FAILED",
+          "shell failed with SECRET_TOKEN=super-secret-value",
+        );
+      },
+    },
+    recordPinnedContextOutcome: async (input) => {
+      outcomes.push(input);
+    },
+  });
+
+  await assert.rejects(
+    () => runner.executeApproved(harness.approval.id),
+    (e) =>
+      e instanceof RunnerError &&
+      e.code === "RUNNER_EXECUTION_FAILED",
+  );
+
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].taskRun.id, harness.taskRun.id);
+  assert.equal(outcomes[0].approval.id, harness.approval.id);
+  assert.equal(outcomes[0].status, "failed");
+  assert.equal(outcomes[0].errorCode, "RUNNER_EXECUTION_FAILED");
+  assert.equal(typeof outcomes[0].errorArtifactId, "string");
+  assert.match(outcomes[0].summary, /runner shell failed/i);
+  assert.doesNotMatch(JSON.stringify(outcomes[0]), /super-secret-value/);
+  assert.doesNotMatch(JSON.stringify(outcomes[0]), /SECRET_TOKEN/);
+});
+
 test("file_write writes inside targetDir and emits diff artifact", async () => {
   const t = tmp();
   try {

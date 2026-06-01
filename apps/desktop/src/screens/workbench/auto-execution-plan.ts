@@ -3,6 +3,7 @@ import type {
   Approval,
   CodeChangeAttemptResult,
   CodeChangeNextAction,
+  TaskRunStatus,
 } from "@harness/core";
 
 export interface CodeChangeAttemptExecution {
@@ -36,6 +37,15 @@ export interface AutoExecutionRunResult {
   failedApprovalIds: string[];
   repairPlanTaskRunIds: string[];
 }
+
+export const canRunAutoApprovedExecutionForStatus = (
+  status: TaskRunStatus,
+): boolean =>
+  status !== "blocked" &&
+  status !== "quality_failed" &&
+  status !== "paused" &&
+  status !== "done" &&
+  status !== "cancelled";
 
 export const CODE_CHANGE_REPAIR_INSTRUCTION =
   "Repair the failed code-change verification and propose the next approval-gated file_patch/file_write and shell check set.";

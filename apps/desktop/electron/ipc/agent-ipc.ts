@@ -20,6 +20,9 @@ import {
   type Approval,
   type Artifact,
   type HarnessResult,
+  type ObservationRecallOutcome,
+  type ObservationRecallResult,
+  type ObservationReuseRisk,
 } from "@harness/core";
 import { AgentPlanningError, AgentPlanningService } from "@harness/agent";
 import type { LocalStateService } from "@harness/storage";
@@ -45,6 +48,173 @@ const isFeedbackSourceKind = (
 
 const isStringArray = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((item) => typeof item === "string");
+
+const isObservationSource = (
+  v: unknown,
+): v is ObservationRecallResult["source"] =>
+  v === "approval" ||
+  v === "quality" ||
+  v === "learner" ||
+  v === "runner" ||
+  v === "skill" ||
+  v === "agent";
+
+const isObservationReuseRisk = (v: unknown): v is ObservationReuseRisk =>
+  v === "low" || v === "medium" || v === "high";
+
+const isObservationOutcomeStatus = (
+  v: unknown,
+): v is NonNullable<ObservationRecallOutcome["lastStatus"]> =>
+  v === "passed" || v === "warning" || v === "failed";
+
+const isContextOutcomeSource = (
+  v: unknown,
+): v is NonNullable<ObservationRecallOutcome["lastOutcomeSource"]> =>
+  v === "quality" || v === "agent" || v === "runner" || v === "unknown";
+
+const isNonNegativeInteger = (v: unknown): v is number =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0;
+
+const validatePinnedObservationOutcome = (
+  value: unknown,
+): { ok: true; value: ObservationRecallOutcome | null } | { ok: false; reason: string } => {
+  if (value === undefined) return { ok: true, value: null };
+  if (!isObject(value)) {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts outcome must be an object",
+    };
+  }
+  if (
+    !isNonNegativeInteger(value.usedCount) ||
+    !isNonNegativeInteger(value.passedCount) ||
+    !isNonNegativeInteger(value.warningCount) ||
+    !isNonNegativeInteger(value.failedCount) ||
+    !isNonNegativeInteger(value.qualityOutcomeCount) ||
+    !isNonNegativeInteger(value.agentOutcomeCount) ||
+    !isNonNegativeInteger(value.runnerOutcomeCount) ||
+    !isNonNegativeInteger(value.unknownOutcomeCount) ||
+    typeof value.scoreAdjustment !== "number" ||
+    !Number.isFinite(value.scoreAdjustment) ||
+    !isObservationReuseRisk(value.reuseRisk)
+  ) {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts contains an invalid outcome",
+    };
+  }
+  if (
+    value.lastStatus !== undefined &&
+    !isObservationOutcomeStatus(value.lastStatus)
+  ) {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts contains an invalid outcome status",
+    };
+  }
+  if (
+    value.lastOutcomeSource !== undefined &&
+    !isContextOutcomeSource(value.lastOutcomeSource)
+  ) {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts contains an invalid outcome source",
+    };
+  }
+  if (value.lastSeenAt !== undefined && typeof value.lastSeenAt !== "string") {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts contains an invalid outcome timestamp",
+    };
+  }
+  const outcome: ObservationRecallOutcome = {
+    usedCount: value.usedCount,
+    passedCount: value.passedCount,
+    warningCount: value.warningCount,
+    failedCount: value.failedCount,
+    qualityOutcomeCount: value.qualityOutcomeCount,
+    agentOutcomeCount: value.agentOutcomeCount,
+    runnerOutcomeCount: value.runnerOutcomeCount,
+    unknownOutcomeCount: value.unknownOutcomeCount,
+    scoreAdjustment: value.scoreAdjustment,
+    reuseRisk: value.reuseRisk,
+  };
+  if (value.lastStatus !== undefined) {
+    outcome.lastStatus = value.lastStatus;
+  }
+  if (value.lastOutcomeSource !== undefined) {
+    outcome.lastOutcomeSource = value.lastOutcomeSource;
+  }
+  if (typeof value.lastSeenAt === "string") {
+    outcome.lastSeenAt = value.lastSeenAt;
+  }
+  return { ok: true, value: outcome };
+};
+
+const validatePinnedObservationContexts = (
+  value: unknown,
+): { ok: true; value: ObservationRecallResult[] } | { ok: false; reason: string } => {
+  if (value === undefined) return { ok: true, value: [] };
+  if (!Array.isArray(value)) {
+    return { ok: false, reason: "pinnedObservationContexts must be an array" };
+  }
+  if (value.length > 5) {
+    return {
+      ok: false,
+      reason: "pinnedObservationContexts supports at most 5 items",
+    };
+  }
+  const contexts: ObservationRecallResult[] = [];
+  for (const item of value) {
+    if (!isObject(item)) {
+      return {
+        ok: false,
+        reason: "pinnedObservationContexts entries must be objects",
+      };
+    }
+    if (
+      !isNonEmptyString(item.observationId) ||
+      !isObservationSource(item.source) ||
+      !isNonEmptyString(item.eventType) ||
+      !isNonEmptyString(item.signal) ||
+      !isNonEmptyString(item.summary) ||
+      typeof item.score !== "number" ||
+      !Number.isFinite(item.score) ||
+      !isNonEmptyString(item.createdAt)
+    ) {
+      return {
+        ok: false,
+        reason: "pinnedObservationContexts contains an invalid entry",
+      };
+    }
+    if (item.summary.length > 1_000) {
+      return {
+        ok: false,
+        reason: "pinnedObservationContexts summary is too long",
+      };
+    }
+    const outcomeValidation = validatePinnedObservationOutcome(item.outcome);
+    if (!outcomeValidation.ok) {
+      return { ok: false, reason: outcomeValidation.reason };
+    }
+    contexts.push({
+      observationId: item.observationId,
+      ...(typeof item.taskRunId === "string" ? { taskRunId: item.taskRunId } : {}),
+      ...(typeof item.threadId === "string" ? { threadId: item.threadId } : {}),
+      ...(typeof item.projectKey === "string" ? { projectKey: item.projectKey } : {}),
+      source: item.source,
+      eventType: item.eventType,
+      signal: item.signal,
+      summary: item.summary,
+      score: item.score,
+      createdAt: item.createdAt,
+      ...(outcomeValidation.value
+        ? { outcome: { ...outcomeValidation.value } }
+        : {}),
+    });
+  }
+  return { ok: true, value: contexts };
+};
 
 const wrapErr = <T>(
   e: unknown,
@@ -103,6 +273,7 @@ export const registerAgentIpc = (
         provider?: unknown;
         model?: unknown;
         instruction?: unknown;
+        pinnedObservationContexts?: unknown;
       };
       if (!isNonEmptyString(cast.taskRunId)) {
         return err(
@@ -127,11 +298,18 @@ export const registerAgentIpc = (
           harnessError(STATE_INVALID_INPUT, "instruction must be a string"),
         );
       }
+      const pinnedValidation = validatePinnedObservationContexts(
+        cast.pinnedObservationContexts,
+      );
+      if (!pinnedValidation.ok) {
+        return err(harnessError(STATE_INVALID_INPUT, pinnedValidation.reason));
+      }
       const settings = await ctx.state.getSettings();
       const payload: Parameters<typeof ctx.planning.generatePlan>[0] = {
         taskRunId: cast.taskRunId,
         timeoutMs: settings.agent.timeoutMs,
         stallTimeoutMs: settings.agent.stallTimeoutMs,
+        pinnedObservationContexts: pinnedValidation.value,
       };
       if (isProvider(cast.provider)) payload.provider = cast.provider;
       if (typeof cast.model === "string") payload.model = cast.model;

@@ -51,6 +51,50 @@ test("SlimRail exposes Learning without selected TaskRun gating", () => {
   assert.doesNotMatch(learningButton, /disabled=\{!hasSelectedTaskRun\}/);
 });
 
+test("LearnerPanel exposes read-only context recall", () => {
+  const source = readSource("LearnerPanel.tsx");
+  const recommendationSource = readSource("RecommendationCard.tsx");
+  const shellSource = readSource("WorkbenchShell.tsx");
+
+  assert.match(source, /window\.harness\.learner\.recallContext/);
+  assert.match(source, /window\.harness\.learner\.summarizeContextOutcomes/);
+  assert.match(shellSource, /window\.harness\.learner\.recordContextDecision/);
+  assert.match(source, /관련 context/);
+  assert.match(source, /context observability/);
+  assert.match(source, /contextDecisionCount/);
+  assert.match(source, /recentContextDecisions/);
+  assert.match(source, /verifiedContextPackCount/);
+  assert.match(source, /pendingContextPackCount/);
+  assert.match(source, /검증 context pack/);
+  assert.match(source, /pinnedObservationIds/);
+  assert.match(source, /onPinnedObservationToggle/);
+  assert.match(source, /outcome/);
+  assert.match(source, /성과/);
+  assert.match(source, /재사용 주의/);
+  assert.match(source, /reuseRiskText/);
+  assert.match(source, /최근 outcome/);
+  assert.match(source, /recentOutcomes/);
+  assert.match(source, /outcomeSource/);
+  assert.match(source, /출처: quality/);
+  assert.match(source, /주의 context/);
+  assert.match(source, /riskObservations/);
+  assert.match(source, /최근 context pack/);
+  assert.match(source, /recentContextPacks/);
+  assert.match(recommendationSource, /recommendedContext/);
+  assert.match(recommendationSource, /추천 context/);
+  assert.match(recommendationSource, /onPinnedObservationToggle/);
+  assert.doesNotMatch(source, /recordObservation/);
+});
+
+test("InstinctPanel exposes read-only candidate evidence", () => {
+  const source = readSource("InstinctPanel.tsx");
+
+  assert.match(source, /window\.harness\.instinct\.getCandidateEvidence/);
+  assert.match(source, /근거 observation/);
+  assert.match(source, /candidateEvidenceById/);
+  assert.doesNotMatch(source, /createObservation/);
+});
+
 test("WorkbenchShell wires the Learning overlay and command", () => {
   const source = readSource("WorkbenchShell.tsx");
 
@@ -60,6 +104,8 @@ test("WorkbenchShell wires the Learning overlay and command", () => {
   assert.match(source, /group: "learning"/);
   assert.match(source, /taskRun=\{\s*taskRunDetail\.kind === "ready"\s*\?\s*taskRunDetail\.detail\.taskRun\s*:\s*null\s*\}/);
   assert.match(source, /approvals=\{\s*taskRunDetail\.kind === "ready"\s*\?\s*taskRunDetail\.detail\.approvals\s*:\s*\[\]\s*\}/);
+  assert.match(source, /pinnedObservationContextsByTaskRunId/);
+  assert.match(source, /pinnedObservationContexts:\s*pinnedObservationContextsByTaskRunId\[taskRunId\]/);
   assert.match(source, /onApprovalCreated=\{handleQualityChanged\}/);
   assert.match(source, /onClose=\{\(\) => setLearningOpen\(false\)\}/);
 });

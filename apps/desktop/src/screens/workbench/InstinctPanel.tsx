@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { EvolutionCandidate, Instinct } from "@harness/core";
+import type {
+  EvolutionCandidate,
+  EvolutionCandidateEvidence,
+  Instinct,
+} from "@harness/core";
 
 type InstinctState =
   | { kind: "loading" }
@@ -8,6 +12,11 @@ type InstinctState =
       candidates: EvolutionCandidate[];
       instincts: Instinct[];
     }
+  | { kind: "error"; message: string };
+
+type CandidateEvidenceState =
+  | { kind: "loading" }
+  | { kind: "ready"; evidence: EvolutionCandidateEvidence }
   | { kind: "error"; message: string };
 
 const errorMessage = (e: unknown): string =>
@@ -20,6 +29,9 @@ export const InstinctPanel = (): JSX.Element => {
   const [candidateNotes, setCandidateNotes] = useState<Record<string, string>>(
     {},
   );
+  const [candidateEvidenceById, setCandidateEvidenceById] = useState<
+    Record<string, CandidateEvidenceState>
+  >({});
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -30,6 +42,7 @@ export const InstinctPanel = (): JSX.Element => {
         window.harness.instinct.list({ includeDisabled }),
       ]);
       setState({ kind: "ready", candidates, instincts });
+      setCandidateEvidenceById({});
     } catch (e) {
       setState({ kind: "error", message: errorMessage(e) });
     }
@@ -51,6 +64,31 @@ export const InstinctPanel = (): JSX.Element => {
   const setCandidateNote = useCallback((candidateId: string, note: string) => {
     setCandidateNotes((prev) => ({ ...prev, [candidateId]: note }));
   }, []);
+
+  const loadCandidateEvidence = useCallback(
+    async (candidate: EvolutionCandidate): Promise<void> => {
+      setCandidateEvidenceById((prev) => ({
+        ...prev,
+        [candidate.id]: { kind: "loading" },
+      }));
+      try {
+        const evidence = await window.harness.instinct.getCandidateEvidence({
+          candidateId: candidate.id,
+          limit: 8,
+        });
+        setCandidateEvidenceById((prev) => ({
+          ...prev,
+          [candidate.id]: { kind: "ready", evidence },
+        }));
+      } catch (e) {
+        setCandidateEvidenceById((prev) => ({
+          ...prev,
+          [candidate.id]: { kind: "error", message: errorMessage(e) },
+        }));
+      }
+    },
+    [],
+  );
 
   const approveCandidate = useCallback(
     async (candidate: EvolutionCandidate): Promise<void> => {
@@ -153,7 +191,9 @@ export const InstinctPanel = (): JSX.Element => {
               <div className="empty-state">대기 중인 후보 없음</div>
             ) : (
               <ul className="capability-list">
-                {state.candidates.map((candidate) => (
+                {state.candidates.map((candidate) => {
+                  const evidenceState = candidateEvidenceById[candidate.id];
+                  return (
                   <li key={candidate.id} className="capability-item">
                     <header className="capability-item__header">
                       <span className="capability-item__name">
@@ -175,6 +215,52 @@ export const InstinctPanel = (): JSX.Element => {
                       {candidate.rationale} · observations{" "}
                       {candidate.observationIds.length}
                     </p>
+                    {evidenceState?.kind === "ready" ? (
+                      <div className="capability-item__reason">
+                        <strong>근거 observation</strong>
+                        <ul className="capability-list">
+                          {evidenceState.evidence.observations.map(
+                            (observation) => (
+                              <li
+                                key={observation.observationId}
+                                className="capability-item"
+                              >
+                                <div className="capability-item__header">
+                                  <span className="capability-item__name">
+                                    {observation.source}:{observation.signal}
+                                  </span>
+                                  <span className="status-pill">
+                                    {observation.eventType}
+                                  </span>
+                                </div>
+                                <p className="capability-item__desc">
+                                  {observation.summary}
+                                </p>
+                                <p className="capability-item__reason">
+                                  {observation.createdAt}
+                                </p>
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                        {evidenceState.evidence.missingObservationIds.length >
+                        0 ? (
+                          <p className="capability-item__reason">
+                            누락 observation{" "}
+                            {evidenceState.evidence.missingObservationIds.length}
+                            개
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : evidenceState?.kind === "error" ? (
+                      <div className="error-message">
+                        {evidenceState.message}
+                      </div>
+                    ) : evidenceState?.kind === "loading" ? (
+                      <div className="empty-state">
+                        근거 observation 불러오는 중…
+                      </div>
+                    ) : null}
                     <textarea
                       className="textarea"
                       rows={2}
@@ -196,6 +282,17 @@ export const InstinctPanel = (): JSX.Element => {
                       <button
                         type="button"
                         className="btn"
+                        onClick={() => void loadCandidateEvidence(candidate)}
+                        disabled={
+                          busyId === candidate.id ||
+                          evidenceState?.kind === "loading"
+                        }
+                      >
+                        근거 보기
+                      </button>
+                      <button
+                        type="button"
+                        className="btn"
                         onClick={() => void rejectCandidate(candidate)}
                         disabled={busyId === candidate.id}
                       >
@@ -203,7 +300,8 @@ export const InstinctPanel = (): JSX.Element => {
                       </button>
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </section>

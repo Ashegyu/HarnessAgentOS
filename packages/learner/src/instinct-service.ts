@@ -1,6 +1,8 @@
 import type {
   Approval,
   EvolutionCandidate,
+  EvolutionCandidateEvidence,
+  EvolutionCandidateEvidenceObservation,
   Instinct,
   Observation,
   QualityGateResult,
@@ -8,6 +10,7 @@ import type {
 import type { LocalStateService } from "@harness/storage";
 import { scoreInstinctCandidates } from "./instinct-candidate-scorer.ts";
 import { ObservationCollector } from "./observation-collector.ts";
+import { redactSecrets } from "./redact-secrets.ts";
 
 export class InstinctServiceError extends Error {
   readonly code: string;
@@ -49,6 +52,53 @@ export class InstinctService {
     >[0] = { status: "pending" };
     if (input.projectKey) listInput.projectKey = input.projectKey;
     return this.deps.state.listEvolutionCandidates(listInput);
+  }
+
+  async getCandidateEvidence(input: {
+    candidateId: string;
+    limit?: number;
+  }): Promise<EvolutionCandidateEvidence> {
+    const candidate = await this.deps.state.getEvolutionCandidate(
+      input.candidateId,
+    );
+    if (!candidate) {
+      throw new InstinctServiceError(
+        "INSTINCT_CANDIDATE_NOT_FOUND",
+        `EvolutionCandidate ${input.candidateId} not found`,
+      );
+    }
+    const observationListInput: Parameters<
+      LocalStateService["listObservations"]
+    >[0] = { limit: 1000 };
+    if (candidate.projectKey) {
+      observationListInput.projectKey = candidate.projectKey;
+    }
+    const observations = await this.deps.state.listObservations(
+      observationListInput,
+    );
+    const byId = new Map(
+      observations.map((observation) => [observation.id, observation]),
+    );
+    const limit = clampEvidenceLimit(input.limit);
+    const selectedIds = candidate.observationIds.slice(0, limit);
+    const evidence: EvolutionCandidateEvidenceObservation[] = [];
+    const missingObservationIds: string[] = [];
+
+    for (const observationId of selectedIds) {
+      const observation = byId.get(observationId);
+      if (!observation) {
+        missingObservationIds.push(observationId);
+        continue;
+      }
+      evidence.push(toEvidenceObservation(observation));
+    }
+
+    return {
+      candidate,
+      observationCount: candidate.observationIds.length,
+      observations: evidence,
+      missingObservationIds,
+    };
   }
 
   async approveCandidate(input: {
@@ -204,3 +254,31 @@ const instinctRuleSignature = (
   instinct: Pick<Instinct, "projectKey" | "rule">,
 ): string =>
   [instinct.projectKey ?? "", instinct.rule].join("\u001f");
+
+const toEvidenceObservation = (
+  observation: Observation,
+): EvolutionCandidateEvidenceObservation => {
+  const evidence: EvolutionCandidateEvidenceObservation = {
+    observationId: observation.id,
+    source: observation.source,
+    eventType: observation.eventType,
+    signal: observation.signal,
+    summary: redactSecrets(observation.summary, 320),
+    createdAt: observation.createdAt,
+  };
+  if (observation.taskRunId !== undefined) {
+    evidence.taskRunId = observation.taskRunId;
+  }
+  if (observation.threadId !== undefined) {
+    evidence.threadId = observation.threadId;
+  }
+  if (observation.projectKey !== undefined) {
+    evidence.projectKey = observation.projectKey;
+  }
+  return evidence;
+};
+
+const clampEvidenceLimit = (value: number | undefined): number => {
+  if (value === undefined || !Number.isFinite(value)) return 8;
+  return Math.max(1, Math.min(Math.trunc(value), 25));
+};

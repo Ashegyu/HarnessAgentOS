@@ -46,6 +46,7 @@ import type {
   HarnessPackageRepairResult,
   HarnessPipelineDraftPreviewResult,
   EvolutionCandidate,
+  EvolutionCandidateEvidence,
   Instinct,
   McpServerConfig,
   McpServerHealth,
@@ -60,9 +61,14 @@ import type {
   SkillProfileBindingProposalResult,
   SkillSource,
   SkillSourceRefreshResult,
+  ContextOutcomeSummary,
+  ContextOutcomeSummaryInput,
   LearnerRecommendation,
   LearnerRecommendationApprovalResult,
+  LearnerContextDecisionRecord,
   LearningTrace,
+  Observation,
+  ObservationRecallResult,
   TaskRunCostSummary,
   RecordTopologyFeedbackInput,
   RecommendTopologyInput,
@@ -283,6 +289,15 @@ export interface HarnessDesktopApi {
       days?: number;
       profileId?: string;
     }): Promise<BudgetUsageSummary>;
+    recallContext(input: {
+      taskRunId: string;
+      query?: string;
+      source?: Observation["source"];
+      limit?: number;
+    }): Promise<ObservationRecallResult[]>;
+    summarizeContextOutcomes(
+      input: ContextOutcomeSummaryInput,
+    ): Promise<ContextOutcomeSummary>;
     recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
     proposeRecommendation(input: {
       taskRunId: string;
@@ -299,6 +314,7 @@ export interface HarnessDesktopApi {
       success?: boolean;
       failureReason?: string;
     }): Promise<LearningTrace>;
+    recordContextDecision(input: LearnerContextDecisionRecord): Promise<void>;
     recordDecision(input: {
       taskRunId: string;
       recommendationId: string;
@@ -320,6 +336,10 @@ export interface HarnessDesktopApi {
     listCandidates(input?: {
       projectKey?: string;
     }): Promise<EvolutionCandidate[]>;
+    getCandidateEvidence(input: {
+      candidateId: string;
+      limit?: number;
+    }): Promise<EvolutionCandidateEvidence>;
     approveCandidate(input: {
       candidateId: string;
       message?: string;
@@ -384,6 +404,7 @@ export interface HarnessDesktopApi {
       provider?: AgentProvider;
       model?: string;
       instruction?: string;
+      pinnedObservationContexts?: ObservationRecallResult[];
     }): Promise<{
       invocation: AgentInvocation;
       planArtifact: Artifact;

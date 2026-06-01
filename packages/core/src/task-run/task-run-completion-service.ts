@@ -29,6 +29,12 @@ export interface TaskRunCompletionDeps {
    * TaskRun row never reaches `done` without a trace stamp.
    */
   onTaskRunDone?: (taskRunId: string) => Promise<void>;
+  /**
+   * Called after a failed QualityGateResult has moved the TaskRun to
+   * `quality_failed`. This hook is advisory learning only: failures are
+   * swallowed so trace/learner storage cannot hide the real quality state.
+   */
+  onQualityGateFailed?: (result: QualityGateResult) => Promise<void>;
 }
 
 export interface CreateRepairPlanInput {
@@ -69,13 +75,29 @@ export class TaskRunCompletionService {
       return taskRun;
     }
     if (result.status === "failed") {
-      return this.deps.state.setTaskRunStatus(taskRun.id, "quality_failed");
+      const updated = await this.deps.state.setTaskRunStatus(
+        taskRun.id,
+        "quality_failed",
+      );
+      await this.observeFailedQualityGate(result);
+      return updated;
     }
     if (result.status === "passed" || result.status === "warning") {
       return this.deps.state.setTaskRunStatus(taskRun.id, "ready_for_review");
     }
     // not_run leaves the TaskRun in its current state.
     return taskRun;
+  }
+
+  private async observeFailedQualityGate(
+    result: QualityGateResult,
+  ): Promise<void> {
+    if (!this.deps.onQualityGateFailed) return;
+    try {
+      await this.deps.onQualityGateFailed(result);
+    } catch {
+      // Advisory learning cannot block the quality_failed state transition.
+    }
   }
 
   /**

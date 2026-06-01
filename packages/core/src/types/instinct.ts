@@ -78,6 +78,25 @@ export interface EvolutionCandidate {
   updatedAt: string;
 }
 
+export interface EvolutionCandidateEvidenceObservation {
+  observationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  projectKey?: string;
+  source: ObservationSource;
+  eventType: string;
+  signal: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface EvolutionCandidateEvidence {
+  candidate: EvolutionCandidate;
+  observationCount: number;
+  observations: EvolutionCandidateEvidenceObservation[];
+  missingObservationIds: string[];
+}
+
 export interface CreateEvolutionCandidateInput {
   projectKey?: string;
   title: string;

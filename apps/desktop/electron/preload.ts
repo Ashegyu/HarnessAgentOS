@@ -18,6 +18,7 @@ import {
   type CapabilityCandidateApprovalResult,
   type CapabilitySuggestion,
   type CodeChangeAttemptResult,
+  type ContextOutcomeSummary,
   type EvolutionCandidate,
   type DecisionLogPage,
   type EvalCostTrendFilters,
@@ -26,6 +27,7 @@ import {
   type EvalRunListFilters,
   type EvalRunListItem,
   type ExportApprovalResult,
+  type EvolutionCandidateEvidence,
   type HarnessDefinition,
   type HarnessBindingSet,
   type HarnessPackageExportPreview,
@@ -43,6 +45,7 @@ import {
   type LearnerRecommendationApprovalResult,
   type LearnerRecommendation,
   type LearningTrace,
+  type ObservationRecallResult,
   type OrchestrationPlan,
   type OrchestrationRunResult,
   type PipelineBackflowActivityPage,
@@ -289,6 +292,16 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.learner.summarizeBudgetUsage,
         input,
       ),
+    recallContext: (input) =>
+      invokeUnwrapped<ObservationRecallResult[]>(
+        IPC_CHANNELS.learner.recallContext,
+        input,
+      ),
+    summarizeContextOutcomes: (input) =>
+      invokeUnwrapped<ContextOutcomeSummary>(
+        IPC_CHANNELS.learner.summarizeContextOutcomes,
+        input,
+      ),
     recommend: (input) =>
       invokeUnwrapped<LearnerRecommendation>(
         IPC_CHANNELS.learner.recommend,
@@ -309,6 +322,12 @@ const harnessApi: HarnessDesktopApi = {
         IPC_CHANNELS.learner.recordOutcome,
         input,
       ),
+    recordContextDecision: async (input) => {
+      await invokeUnwrapped<null>(
+        IPC_CHANNELS.learner.recordContextDecision,
+        input,
+      );
+    },
     recordDecision: async (input) => {
       await invokeUnwrapped<null>(IPC_CHANNELS.learner.recordDecision, input);
     },
@@ -333,6 +352,11 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<EvolutionCandidate[]>(
         IPC_CHANNELS.instinct.listCandidates,
         input ?? {},
+      ),
+    getCandidateEvidence: (input) =>
+      invokeUnwrapped<EvolutionCandidateEvidence>(
+        IPC_CHANNELS.instinct.getCandidateEvidence,
+        input,
       ),
     approveCandidate: (input) =>
       invokeUnwrapped<Instinct>(

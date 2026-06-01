@@ -6,6 +6,7 @@ import {
   harnessError,
   ok,
   type EvolutionCandidate,
+  type EvolutionCandidateEvidence,
   type HarnessResult,
   type Instinct,
 } from "@harness/core";
@@ -16,6 +17,11 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
+
+const optionalPositiveInteger = (v: unknown): number | undefined =>
+  typeof v === "number" && Number.isFinite(v) && v > 0
+    ? Math.floor(v)
+    : undefined;
 
 const wrapErr = <T>(e: unknown): HarnessResult<T> => {
   if (e instanceof InstinctServiceError) {
@@ -78,6 +84,43 @@ export const registerInstinctIpc = (service: InstinctService): void => {
         );
       } catch (e) {
         return wrapErr<EvolutionCandidate[]>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.instinct.getCandidateEvidence,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<EvolutionCandidateEvidence>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as { candidateId?: unknown; limit?: unknown };
+      if (!isNonEmptyString(cast.candidateId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "candidateId must be non-empty string"),
+        );
+      }
+      const limit = optionalPositiveInteger(cast.limit);
+      if (cast.limit !== undefined && limit === undefined) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "limit must be a positive number when provided",
+          ),
+        );
+      }
+      try {
+        return ok(
+          await service.getCandidateEvidence({
+            candidateId: cast.candidateId,
+            ...(limit !== undefined ? { limit } : {}),
+          }),
+        );
+      } catch (e) {
+        return wrapErr<EvolutionCandidateEvidence>(e);
       }
     },
   );

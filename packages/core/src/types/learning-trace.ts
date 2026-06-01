@@ -1,6 +1,7 @@
 import type { Approval } from "./approval.ts";
 import type { AgentBudget } from "./agent-profile.ts";
 import type { CapabilitySuggestion } from "./capability.ts";
+import type { ObservationSource } from "./instinct.ts";
 
 export interface LearningTrace {
   id: string;
@@ -32,6 +33,7 @@ export interface LearnerRecommendation {
   recommendedModel?: string;
   estimatedCostUsd?: number;
   recommendedCapabilities: CapabilitySuggestion[];
+  recommendedContext: ObservationRecallResult[];
   rationale: string;
   costHint?: EffortHint;
   latencyHint?: EffortHint;
@@ -55,6 +57,145 @@ export interface LearnerRecommendationApprovalResult {
   recommendation: LearnerRecommendation;
   approvals: Approval[];
   skipped: LearnerRecommendationSkipped[];
+}
+
+export interface ObservationRecallInput {
+  taskRunId: string;
+  query?: string;
+  source?: ObservationSource;
+  limit?: number;
+}
+
+export interface ObservationRecallResult {
+  observationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  projectKey?: string;
+  source: ObservationSource;
+  eventType: string;
+  signal: string;
+  summary: string;
+  score: number;
+  createdAt: string;
+  outcome?: ObservationRecallOutcome;
+}
+
+export type ObservationReuseRisk = "low" | "medium" | "high";
+export type ContextOutcomeSource = "quality" | "agent" | "runner" | "unknown";
+
+export interface ObservationRecallOutcome {
+  usedCount: number;
+  passedCount: number;
+  warningCount: number;
+  failedCount: number;
+  lastStatus?: "passed" | "warning" | "failed";
+  lastOutcomeSource?: ContextOutcomeSource;
+  lastSeenAt?: string;
+  qualityOutcomeCount: number;
+  agentOutcomeCount: number;
+  runnerOutcomeCount: number;
+  unknownOutcomeCount: number;
+  scoreAdjustment: number;
+  reuseRisk: ObservationReuseRisk;
+}
+
+export interface ContextOutcomeSummaryInput {
+  taskRunId: string;
+  limit?: number;
+}
+
+export interface ContextOutcomeObservationSummary {
+  observationId: string;
+  summary?: string;
+  source?: ObservationSource;
+  signal?: string;
+  usedCount: number;
+  passedCount: number;
+  warningCount: number;
+  failedCount: number;
+  lastStatus?: "passed" | "warning" | "failed";
+  lastSeenAt?: string;
+  scoreAdjustment: number;
+  reuseRisk: ObservationReuseRisk;
+}
+
+export interface ContextOutcomeRecentEvent {
+  outcomeObservationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  status: "passed" | "warning" | "failed";
+  outcomeSource: ContextOutcomeSource;
+  summary: string;
+  pinnedObservationIds: string[];
+  createdAt: string;
+}
+
+export interface ContextOutcomePackLinkedOutcome {
+  outcomeObservationId: string;
+  status: "passed" | "warning" | "failed";
+  outcomeSource: ContextOutcomeSource;
+  summary: string;
+  createdAt: string;
+}
+
+export interface ContextOutcomePackSummary {
+  contextPackObservationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  contextPackArtifactId?: string;
+  pinnedObservationIds: string[];
+  createdAt: string;
+  outcome?: ContextOutcomePackLinkedOutcome;
+}
+
+export type LearnerContextDecision = "pinned" | "unpinned";
+export type LearnerContextDecisionSurface = "recommended" | "recall";
+
+export interface LearnerContextDecisionRecord {
+  taskRunId: string;
+  observationId: string;
+  decision: LearnerContextDecision;
+  surface?: LearnerContextDecisionSurface;
+  score?: number;
+  reuseRisk?: ObservationReuseRisk;
+}
+
+export interface ContextDecisionRecentEvent {
+  decisionObservationId: string;
+  taskRunId?: string;
+  threadId?: string;
+  observationId: string;
+  decision: LearnerContextDecision;
+  surface: LearnerContextDecisionSurface;
+  score?: number;
+  reuseRisk?: ObservationReuseRisk;
+  createdAt: string;
+}
+
+export interface ContextOutcomeSummary {
+  taskRunId: string;
+  projectKey?: string;
+  contextPackCount: number;
+  pinnedContextPackCount: number;
+  verifiedContextPackCount: number;
+  pendingContextPackCount: number;
+  outcomeCount: number;
+  pinnedObservationUseCount: number;
+  passedCount: number;
+  warningCount: number;
+  failedCount: number;
+  qualityOutcomeCount: number;
+  agentOutcomeCount: number;
+  runnerOutcomeCount: number;
+  unknownOutcomeCount: number;
+  contextDecisionCount: number;
+  contextPinnedDecisionCount: number;
+  contextUnpinnedDecisionCount: number;
+  topObservations: ContextOutcomeObservationSummary[];
+  riskObservations: ContextOutcomeObservationSummary[];
+  recentOutcomes: ContextOutcomeRecentEvent[];
+  recentContextDecisions: ContextDecisionRecentEvent[];
+  recentContextPacks: ContextOutcomePackSummary[];
 }
 
 export interface LearnerDecisionRecord {

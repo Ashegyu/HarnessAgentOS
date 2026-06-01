@@ -1,10 +1,21 @@
-import type { Approval, LearnerRecommendation } from "@harness/core";
+import type {
+  Approval,
+  LearnerContextDecisionSurface,
+  LearnerRecommendation,
+  ObservationRecallResult,
+  ObservationReuseRisk,
+} from "@harness/core";
 
 interface RecommendationCardProps {
   recommendation: LearnerRecommendation;
   approvals: Approval[];
   onPropose: () => Promise<void>;
   onReject: () => Promise<void>;
+  pinnedObservationIds?: string[];
+  onPinnedObservationToggle?: (
+    context: ObservationRecallResult,
+    surface?: LearnerContextDecisionSurface,
+  ) => void;
   disabled?: boolean;
 }
 
@@ -63,17 +74,27 @@ const capabilityApprovalStatus = (
       a.proposedAction?.capabilityUse?.capabilityId === capabilityId,
   )?.status ?? null;
 
+const reuseRiskLabel = (risk: ObservationReuseRisk | undefined): string => {
+  if (risk === "high") return "재사용 주의";
+  if (risk === "medium") return "재사용 검토";
+  if (risk === "low") return "재사용 우선";
+  return "신규 context";
+};
+
 export const RecommendationCard = ({
   recommendation,
   approvals,
   onPropose,
   onReject,
+  pinnedObservationIds = [],
+  onPinnedObservationToggle,
   disabled,
 }: RecommendationCardProps): JSX.Element => {
   const modelStatus = modelApprovalStatus(
     approvals,
     recommendation.recommendedModel,
   );
+  const pinnedObservationIdSet = new Set(pinnedObservationIds);
   const totalCandidates =
     (recommendation.recommendedModel ? 1 : 0) +
     recommendation.recommendedCapabilities.length;
@@ -136,6 +157,42 @@ export const RecommendationCard = ({
         </ul>
       ) : (
         <p className="muted">관련 capability가 없습니다.</p>
+      )}
+      {recommendation.recommendedContext.length > 0 ? (
+        <>
+          <p className="recommendation-card__row">
+            추천 context:{" "}
+            <strong>{recommendation.recommendedContext.length}</strong>
+          </p>
+          <ul className="recommendation-card__capabilities">
+            {recommendation.recommendedContext.slice(0, 3).map((context) => {
+              const pinned = pinnedObservationIdSet.has(context.observationId);
+              return (
+                <li key={context.observationId}>
+                  <span>{context.summary}</span>
+                  <span className="muted">
+                    {context.source} · score {context.score.toFixed(2)} ·{" "}
+                    {reuseRiskLabel(context.outcome?.reuseRisk)}
+                  </span>
+                  {onPinnedObservationToggle ? (
+                    <button
+                      type="button"
+                      className="btn"
+                      aria-pressed={pinned}
+                      onClick={() =>
+                        onPinnedObservationToggle(context, "recommended")
+                      }
+                    >
+                      {pinned ? "context 해제" : "context pin"}
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : (
+        <p className="muted">추천 context 없음</p>
       )}
       <p className="recommendation-card__rationale">
         판단 근거: {recommendation.rationale}

@@ -302,24 +302,33 @@ test("learner namespace exposes Phase 6 verbs", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.learner).sort(), [
     "getTrace",
     "proposeRecommendation",
+    "recallContext",
     "recommend",
+    "recordContextDecision",
     "recordDecision",
     "recordOutcome",
     "recordSelection",
     "summarizeBudgetUsage",
+    "summarizeContextOutcomes",
     "summarizeTaskRunCost",
   ]);
+  assert.equal(isAllowedChannel("learner:recallContext"), true);
+  assert.equal(isAllowedChannel("learner:summarizeContextOutcomes"), true);
+  assert.equal(isAllowedChannel("learner:recordContextDecision"), true);
+  assert.equal(isAllowedChannel("learner:recordObservation"), false);
 });
 
 test("instinct namespace exposes candidate review verbs only", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.instinct).sort(), [
     "approveCandidate",
     "disable",
+    "getCandidateEvidence",
     "list",
     "listCandidates",
     "rejectCandidate",
   ]);
   assert.equal(isAllowedChannel("instinct:listCandidates"), true);
+  assert.equal(isAllowedChannel("instinct:getCandidateEvidence"), true);
   assert.equal(isAllowedChannel("instinct:recordObservation"), false);
 });
 

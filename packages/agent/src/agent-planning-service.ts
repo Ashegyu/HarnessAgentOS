@@ -26,7 +26,11 @@ import {
   type Approval,
   type Artifact,
   type CapabilityPromptContext,
+  type ContextPack,
+  type Instinct,
   type LearnerModelContext,
+  type Observation,
+  type ObservationRecallResult,
   type ProposedActionDetails,
   type TaskRun,
 } from "@harness/core";
@@ -36,6 +40,10 @@ import {
   type AgentHandoffPromptMessage,
   type ThreadContextPromptTask,
 } from "./agent-prompt-builder.ts";
+import {
+  buildContextPack,
+  formatContextPackArtifactSummary,
+} from "./context-pack-builder.ts";
 import type { PackedRepoContext } from "./context-packer.ts";
 import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 import { parseAgentPlan } from "./agent-output-parser.ts";
@@ -123,6 +131,15 @@ export interface AgentPlanningServiceDeps {
     taskRunId: string;
   }) => Promise<LearnerModelContext | null>;
   /**
+   * Main-process hook: returns active user-approved Instincts relevant to
+   * this TaskRun. They shape planning context only and grant no execution
+   * permission.
+   */
+  getActiveInstincts?: (input: {
+    taskRun: TaskRun;
+    profileId?: string | null;
+  }) => Promise<Instinct[]>;
+  /**
    * Main-process hook: returns a deterministic repository map packed
    * from the persisted repo index. The agent package owns the packing
    * contract, while storage remains injected behind this interface.
@@ -140,6 +157,30 @@ export interface AgentPlanningServiceDeps {
     selectedModel?: string;
     selectedCapabilities?: string[];
   }) => Promise<unknown>;
+  /**
+   * Main-process hook: records a compact observability event for the
+   * context pack that shaped this invocation. Advisory only; failure must
+   * not block prompt creation or execution.
+   */
+  recordContextPackObservation?: (input: {
+    taskRun: TaskRun;
+    contextPack: ContextPack;
+    contextPackArtifactId: string;
+  }) => Promise<Pick<Observation, "id"> | null | undefined>;
+  /**
+   * Main-process hook: records whether pinned observations helped or hurt
+   * the invocation outcome. Advisory only; failures here must not block
+   * the agent failure path.
+   */
+  recordPinnedContextOutcome?: (input: {
+    taskRun: TaskRun;
+    status: "passed" | "warning" | "failed";
+    summary: string;
+    pinnedObservationIds: string[];
+    contextPackObservationId?: string;
+    contextPackArtifactId?: string;
+    errorCode?: string;
+  }) => Promise<unknown>;
 }
 
 export interface GeneratePlanInput {
@@ -151,6 +192,8 @@ export interface GeneratePlanInput {
   timeoutMs?: number;
   /** Override service-level default; injected from HarnessSettings at the IPC layer. */
   stallTimeoutMs?: number;
+  /** Recalled observations explicitly pinned by the user for this invocation. */
+  pinnedObservationContexts?: ObservationRecallResult[];
 }
 
 export interface GeneratePlanResult {
@@ -299,6 +342,10 @@ export class AgentPlanningService {
       taskRun.id,
       resolved.profile?.id ?? null,
     );
+    const instinctContexts = await this.loadActiveInstincts(
+      taskRun,
+      resolved.profile?.id ?? null,
+    );
     const repoContext = await this.loadRepoContext(
       taskRun,
       taskRun.userRequest,
@@ -326,10 +373,24 @@ export class AgentPlanningService {
             },
           }
         : {}),
+      instinctContexts,
       capabilityContexts,
+      pinnedObservationContexts: input.pinnedObservationContexts ?? [],
       ...(input.instruction !== undefined
         ? { instruction: input.instruction }
         : {}),
+    });
+    const contextPack = buildContextPack({
+      taskRun,
+      repoContext,
+      threadContext,
+      recentArtifacts,
+      qualityRisks,
+      instinctContexts,
+      capabilityContexts,
+      pinnedObservationContexts: input.pinnedObservationContexts ?? [],
+      profileId: resolved.profile?.id ?? null,
+      profileName: resolved.profile?.name ?? null,
     });
     const redactedSystemPrompt = redactSecrets(splitPrompt.systemPrompt, 80_000);
     const redactedUserPrompt = redactSecrets(splitPrompt.userPrompt, 80_000);
@@ -340,6 +401,19 @@ export class AgentPlanningService {
       title: "Agent prompt",
       uri: `harness:agent-prompt/${taskRun.id}/${Date.now()}`,
       summary: `[system]\n${redactedSystemPrompt}\n\n[user]\n${redactedUserPrompt}`,
+    });
+    const contextPackArtifact = await this.deps.state.createArtifact({
+      taskRunId: taskRun.id,
+      stepId: planStep.id,
+      kind: "snapshot",
+      title: "Agent context pack",
+      uri: `harness:agent-context-pack/${taskRun.id}/${Date.now()}`,
+      summary: redactSecrets(formatContextPackArtifactSummary(contextPack), 80_000),
+    });
+    const contextPackObservationId = await this.recordContextPackObservation({
+      taskRun,
+      contextPack,
+      contextPackArtifactId: contextPackArtifact.id,
     });
 
     // 3. invocation row
@@ -401,7 +475,7 @@ export class AgentPlanningService {
     emitProgress(
       "prompt",
       "프롬프트 구성 완료",
-      `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자, 승인 Skill ${capabilityContexts.length}개`,
+      `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자, 승인 Skill ${capabilityContexts.length}개, Instinct ${instinctContexts.length}개, pinned context ${(input.pinnedObservationContexts ?? []).length}개`,
     );
 
     // 4. invoke CLI through the per-provider queue. The queue serializes
@@ -580,6 +654,17 @@ export class AgentPlanningService {
         outputSummary: `${code}: ${message.slice(0, 200)}`,
       });
       await this.deps.state.setTaskRunStatus(taskRun.id, "blocked");
+      await this.recordPinnedContextOutcome({
+        taskRun,
+        status: "failed",
+        summary: `agent planning failed (${code}) after ${contextPack.promptInclusion.pinnedObservationIds.length} pinned observations`,
+        pinnedObservationIds: contextPack.promptInclusion.pinnedObservationIds,
+        ...(contextPackObservationId !== undefined
+          ? { contextPackObservationId }
+          : {}),
+        contextPackArtifactId: contextPackArtifact.id,
+        errorCode: code,
+      });
       throw new AgentPlanningError(code, message);
     }
 
@@ -1293,6 +1378,18 @@ export class AgentPlanningService {
     }
   }
 
+  private async loadActiveInstincts(
+    taskRun: TaskRun,
+    profileId?: string | null,
+  ): Promise<Instinct[]> {
+    if (!this.deps.getActiveInstincts) return [];
+    try {
+      return await this.deps.getActiveInstincts({ taskRun, profileId });
+    } catch {
+      return [];
+    }
+  }
+
   private async loadApprovedLearnerModel(
     taskRunId: string,
   ): Promise<LearnerModelContext | null> {
@@ -1384,6 +1481,54 @@ export class AgentPlanningService {
       await this.deps.recordLearnerSelection(input);
     } catch {
       // Advisory trace writes must not block a valid agent invocation.
+    }
+  }
+
+  private async recordContextPackObservation(input: {
+    taskRun: TaskRun;
+    contextPack: ContextPack;
+    contextPackArtifactId: string;
+  }): Promise<string | undefined> {
+    if (!this.deps.recordContextPackObservation) return undefined;
+    try {
+      const observation = await this.deps.recordContextPackObservation(input);
+      return observation?.id;
+    } catch {
+      // Context observability is advisory and must not grant or block execution.
+      return undefined;
+    }
+  }
+
+  private async recordPinnedContextOutcome(input: {
+    taskRun: TaskRun;
+    status: "passed" | "warning" | "failed";
+    summary: string;
+    pinnedObservationIds: readonly string[];
+    contextPackObservationId?: string;
+    contextPackArtifactId?: string;
+    errorCode?: string;
+  }): Promise<void> {
+    if (!this.deps.recordPinnedContextOutcome) return;
+    const pinnedObservationIds = normalizePinnedObservationIds(
+      input.pinnedObservationIds,
+    );
+    if (pinnedObservationIds.length === 0) return;
+    try {
+      await this.deps.recordPinnedContextOutcome({
+        taskRun: input.taskRun,
+        status: input.status,
+        summary: redactSecrets(input.summary, 1_000),
+        pinnedObservationIds,
+        ...(input.contextPackObservationId !== undefined
+          ? { contextPackObservationId: input.contextPackObservationId }
+          : {}),
+        ...(input.contextPackArtifactId !== undefined
+          ? { contextPackArtifactId: input.contextPackArtifactId }
+          : {}),
+        ...(input.errorCode !== undefined ? { errorCode: input.errorCode } : {}),
+      });
+    } catch {
+      // Pinned-context outcome tracking is advisory.
     }
   }
 }
@@ -1562,6 +1707,19 @@ const normalizeToolPolicyList = (patterns: readonly string[]): string[] => {
     if (!value || seen.has(value)) continue;
     seen.add(value);
     normalized.push(value);
+  }
+  return normalized;
+};
+
+const normalizePinnedObservationIds = (ids: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const id of ids) {
+    const value = id.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    normalized.push(value);
+    if (normalized.length === 5) break;
   }
   return normalized;
 };

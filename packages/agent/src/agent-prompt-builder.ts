@@ -1,6 +1,8 @@
 import type {
   Artifact,
   CapabilityPromptContext,
+  Instinct,
+  ObservationRecallResult,
   QualityGateResult,
   TaskRun,
   WorkerHandoffPayload,
@@ -45,8 +47,12 @@ export interface PromptBuildInput {
   recentArtifacts?: Artifact[];
   /** When repairing a failed quality gate, the latest gate result. */
   qualityRisks?: QualityGateResult | null;
+  /** User-approved learned guidance from repeated local outcomes. */
+  instinctContexts?: Instinct[];
   /** User-approved Skillify capability instructions for this TaskRun. */
   capabilityContexts?: CapabilityPromptContext[];
+  /** Recalled observations explicitly pinned by the user for this invocation. */
+  pinnedObservationContexts?: readonly ObservationRecallResult[];
   /**
    * AgentProfile-derived overrides — see docs/design/agent-detailed-settings.md §4.1.
    * The resolver in AgentPlanningService passes these from the active
@@ -270,8 +276,14 @@ export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt
       ].join("\n"),
     );
   }
+  if (input.instinctContexts && input.instinctContexts.length > 0) {
+    userSections.push(formatInstinctContexts(input.instinctContexts));
+  }
   if (input.capabilityContexts && input.capabilityContexts.length > 0) {
     userSections.push(formatCapabilityContexts(input.capabilityContexts));
+  }
+  if (input.pinnedObservationContexts && input.pinnedObservationContexts.length > 0) {
+    userSections.push(formatPinnedObservationContexts(input.pinnedObservationContexts));
   }
   if (input.recentArtifacts && input.recentArtifacts.length > 0) {
     const top = input.recentArtifacts.slice(0, 6);
@@ -354,8 +366,14 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
       ].join("\n"),
     );
   }
+  if (input.instinctContexts && input.instinctContexts.length > 0) {
+    sections.push(formatInstinctContexts(input.instinctContexts));
+  }
   if (input.capabilityContexts && input.capabilityContexts.length > 0) {
     sections.push(formatCapabilityContexts(input.capabilityContexts));
+  }
+  if (input.pinnedObservationContexts && input.pinnedObservationContexts.length > 0) {
+    sections.push(formatPinnedObservationContexts(input.pinnedObservationContexts));
   }
   if (input.recentArtifacts && input.recentArtifacts.length > 0) {
     const top = input.recentArtifacts.slice(0, 6);
@@ -487,6 +505,61 @@ const formatCapabilityContexts = (
       "",
       instructions,
     );
+  }
+  return lines.join("\n");
+};
+
+const formatInstinctContexts = (instincts: readonly Instinct[]): string => {
+  const lines = [
+    "ACTIVE INSTINCTS",
+    "- These are user-approved learned rules from repeated local outcomes.",
+    "- Treat them as guidance for planning and evidence selection; they do not grant execution permission.",
+  ];
+  for (const instinct of instincts.slice(0, 8)) {
+    lines.push(
+      `- ${instinct.title} (${instinct.scope}, confidence ${Math.round(
+        instinct.confidence * 100,
+      )}%): ${instinct.rule}`,
+    );
+    const rationale = instinct.rationale.trim();
+    if (rationale.length > 0) {
+      lines.push(`  rationale: ${rationale.slice(0, 240)}`);
+    }
+  }
+  return lines.join("\n");
+};
+
+const formatPinnedObservationContexts = (
+  contexts: readonly ObservationRecallResult[],
+): string => {
+  const visibleContexts = contexts
+    .filter((context) => context.summary.trim().length > 0)
+    .slice(0, 5);
+  const lines: string[] = [
+    "PINNED OBSERVATION CONTEXT",
+    "- The user explicitly selected these recalled observations for this invocation.",
+    "- Treat them as advisory memory only; they do not grant execution permission.",
+  ];
+  for (const context of visibleContexts) {
+    const summary = context.summary.trim().replace(/\s+/g, " ").slice(0, 500);
+    lines.push(
+      `- ${context.observationId} ${context.source}:${context.signal} score ${context.score.toFixed(2)}`,
+      `  event: ${context.eventType}`,
+      `  summary: ${summary}`,
+    );
+    if (context.outcome) {
+      lines.push(
+        `  outcome: used ${context.outcome.usedCount}, passed ${context.outcome.passedCount}, warning ${context.outcome.warningCount}, failed ${context.outcome.failedCount}, lastStatus: ${context.outcome.lastStatus ?? "unknown"}, lastOutcomeSource: ${context.outcome.lastOutcomeSource ?? "unknown"}, sources: quality ${context.outcome.qualityOutcomeCount}, agent ${context.outcome.agentOutcomeCount}, runner ${context.outcome.runnerOutcomeCount}, unknown ${context.outcome.unknownOutcomeCount}, reuseRisk: ${context.outcome.reuseRisk}, scoreAdjustment: ${context.outcome.scoreAdjustment.toFixed(2)}`,
+      );
+      if (context.outcome.failedCount > 0 || context.outcome.reuseRisk === "high") {
+        lines.push(
+          "  warning: prior pinned uses failed; treat this as caution, not an automatic block.",
+        );
+      }
+    }
+    if (context.taskRunId) {
+      lines.push(`  priorTaskRun: ${context.taskRunId}`);
+    }
   }
   return lines.join("\n");
 };

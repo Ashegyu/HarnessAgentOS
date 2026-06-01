@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { Approval, TaskRun } from "@harness/core";
+import type {
+  Approval,
+  LearnerContextDecisionSurface,
+  ObservationRecallResult,
+  TaskRun,
+} from "@harness/core";
 import { CapabilityPanel } from "./CapabilityPanel";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 import type { FeatureHelpId } from "./feature-help";
@@ -13,6 +18,11 @@ interface LearningPanelProps {
   profileId?: string | null;
   onApprovalCreated: () => Promise<void>;
   onClose: () => void;
+  pinnedObservationIds?: string[];
+  onPinnedObservationToggle?: (
+    context: ObservationRecallResult,
+    surface?: LearnerContextDecisionSurface,
+  ) => void;
 }
 
 type LearningTabId = "instincts" | "capabilities" | "learner" | "skills";
@@ -36,6 +46,8 @@ export const LearningPanel = ({
   profileId = null,
   onApprovalCreated,
   onClose,
+  pinnedObservationIds = [],
+  onPinnedObservationToggle,
 }: LearningPanelProps): JSX.Element => {
   const [activeTab, setActiveTab] = useState<LearningTabId>("instincts");
   const active = TABS.find((tab) => tab.id === activeTab) ?? TABS[0]!;
@@ -128,6 +140,8 @@ export const LearningPanel = ({
                   approvals={approvals}
                   profileId={profileId}
                   onApprovalCreated={onApprovalCreated}
+                  pinnedObservationIds={pinnedObservationIds}
+                  onPinnedObservationToggle={onPinnedObservationToggle}
                 />
               </section>
             </div>

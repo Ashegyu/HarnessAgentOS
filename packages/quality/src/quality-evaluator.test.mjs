@@ -67,8 +67,14 @@ test("evaluate marks failed when test step failed and reflects status via comple
     });
     await state.setStepStatus(testStep.id, "failed");
 
+    let failedGateObserved = null;
     const evaluator = new QualityEvaluator({ state });
-    const completion = new TaskRunCompletionService({ state });
+    const completion = new TaskRunCompletionService({
+      state,
+      onQualityGateFailed: async (gate) => {
+        failedGateObserved = gate;
+      },
+    });
     const result = await evaluator.evaluate({
       taskRunId: taskRun.id,
       requireTests: true,
@@ -78,6 +84,8 @@ test("evaluate marks failed when test step failed and reflects status via comple
 
     const updated = await completion.applyQualityGateResult(result);
     assert.equal(updated.status, "quality_failed");
+    assert.equal(failedGateObserved?.id, result.id);
+    assert.equal(failedGateObserved?.status, "failed");
   } finally {
     closeDb(db);
     t.cleanup();

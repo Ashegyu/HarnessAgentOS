@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HarnessAgentOS 종합 감사 — 2026-05-29</title>
+<style>
+  :root {
+    --bg: #0f1114;
+    --bg2: #171a1f;
+    --bg3: #1f242c;
+    --ink: #e8eaed;
+    --ink2: #a8b0bd;
+    --ink3: #6b7280;
+    --line: #2d3440;
+    --accent: #60a5fa;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --orange: #fb923c;
+    --mono: "JetBrains Mono", "Consolas", monospace;
+    --sans: system-ui, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.65;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 24px 80px; }
+  header {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 8px; }
+  header .meta { color: var(--ink2); font-size: 0.9rem; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+  }
+  .badge.ok { background: rgba(52, 211, 153, 0.12); color: var(--green); border-color: rgba(52, 211, 153, 0.35); }
+  .badge.warn { background: rgba(251, 191, 36, 0.12); color: var(--yellow); border-color: rgba(251, 191, 36, 0.35); }
+  .badge.fail { background: rgba(248, 113, 113, 0.12); color: var(--red); border-color: rgba(248, 113, 113, 0.35); }
+  .badge.info { background: rgba(96, 165, 250, 0.12); color: var(--accent); border-color: rgba(96, 165, 250, 0.35); }
+  h2 {
+    font-size: 1.25rem;
+    margin: 40px 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+    color: var(--ink);
+  }
+  h3 { font-size: 1.05rem; margin: 24px 0 10px; color: var(--accent); }
+  p { margin-bottom: 12px; color: var(--ink2); }
+  p strong { color: var(--ink); }
+  ul, ol { margin: 0 0 16px 1.25rem; color: var(--ink2); }
+  li { margin-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 0.88rem;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--bg2); color: var(--ink); font-weight: 600; }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+  .sev-high { color: var(--red); font-weight: 600; }
+  .sev-med { color: var(--orange); font-weight: 600; }
+  .sev-low { color: var(--yellow); font-weight: 600; }
+  .sev-ok { color: var(--green); font-weight: 600; }
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink3); margin-bottom: 6px; }
+  .card .value { font-size: 1.5rem; font-weight: 700; }
+  .card .sub { font-size: 0.85rem; color: var(--ink2); margin-top: 4px; }
+  pre, code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+  pre {
+    background: var(--bg3);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    overflow-x: auto;
+    margin: 12px 0 20px;
+    color: var(--ink2);
+  }
+  .verdict {
+    background: linear-gradient(135deg, rgba(96,165,250,0.08), rgba(52,211,153,0.06));
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 24px 0;
+  }
+  .verdict h2 { border: none; margin-top: 0; padding: 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 0.8rem;
+    color: var(--ink3);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>HarnessAgentOS 종합 감사 보고서</h1>
+  <p class="meta">생성일: 2026-05-29 · 대상: <code>c:\Users\GC\Desktop\Works\Personal\Study\HarnessAgentOS</code> · 분석 범위: 아키텍처, IPC, 실행 흐름, 에이전트/파이프라인/하네스 설정, 검증 결과</p>
+  <div class="badge-row">
+    <span class="badge ok">TypeScript check 통과</span>
+    <span class="badge fail">로컬 테스트 452건 실패 (환경)</span>
+    <span class="badge warn">문서·계약 일부 드리프트</span>
+    <span class="badge info">Phase 0–8 구현 완료</span>
+    <span class="badge warn">오케스트레이션 기본 OFF</span>
+    <span class="badge ok">Capabilities DB 누적</span>
+    <span class="badge warn">Learner trace cost 분리</span>
+  </div>
+</header>
+
+<section class="verdict">
+  <h2>총평</h2>
+  <p><strong>HarnessAgentOS는 “사용자 감독형 개발 워크벤치” 설계 의도에 맞게 잘 구축된 프로젝트입니다.</strong> Thread → TaskRun → Approval → Runner → QualityGate → Done 흐름이 코드·IPC·테스트에 일관되게 반영되어 있으며, <code>packages/core</code>가 storage를 import하지 않는 등 핵심 제약도 준수합니다.</p>
+  <p><strong>“최적의 하네스” 관점:</strong> 감독·승인·증거 기반 완료라는 목표에는 <strong>매우 적합</strong>합니다. 다만 (1) 오케스트레이션이 기본 비활성, (2) in-repo 하네스 패키지가 예제 1개뿐, (3) Cursor/GAN/YAML 파이프라인 같은 외부 하네스 생태계와의 직접 연동이 없으며, (4) 자동 승인 경로의 <code>proposedAction</code> 검증 공백은 운영 시 혼란·실패를 유발할 수 있습니다.</p>
+  <p><strong>기능 오류 가능성:</strong> 타입·계약 표면은 양호하나, 전역 자동 승인+실행 ON 시 템플릿 태스크에서 승인만 되고 실행이 실패하는 경로가 있습니다. 로컬 <code>npm test</code>는 better-sqlite3 ABI 불일치(또는 파일 잠금)로 대량 실패 — <strong>코드 결함이라기보다 현재 머신의 네이티브 모듈 빌드 상태 문제</strong>로 판단됩니다.</p>
+</section>
+
+<nav class="toc">
+  <h2>목차</h2>
+  <ol>
+    <li><a href="#verification">검증 결과</a></li>
+    <li><a href="#architecture">아키텍처·실행 흐름</a></li>
+    <li><a href="#harness">하네스·에이전트·파이프라인</a></li>
+    <li><a href="#issues">발견 이슈 (심각도별)</a></li>
+    <li><a href="#gaps">부족한 점·로드맵 갭</a></li>
+    <li><a href="#optimal">최적 하네스 적합성</a></li>
+    <li><a href="#capabilities">Capabilities (Skillify)</a></li>
+    <li><a href="#learner">Learner · Topology · Instincts</a></li>
+    <li><a href="#data-accumulation">데이터 적재 요약</a></li>
+    <li><a href="#recommendations">권장 조치</a></li>
+  </ol>
+</nav>
+
+<h2 id="verification">1. 검증 결과</h2>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="label">npm run check</div>
+    <div class="value" style="color:var(--green)">PASS</div>
+    <div class="sub">전 워크스페이스 tsc --noEmit</div>
+  </div>
+  <div class="card">
+    <div class="label">npm test (로컬)</div>
+    <div class="value" style="color:var(--red)">889 / 1341</div>
+    <div class="sub">452 fail — better-sqlite3 NODE_MODULE_VERSION</div>
+  </div>
+  <div class="card">
+    <div class="label">npm run rebuild:node</div>
+    <div class="value" style="color:var(--red)">FAIL</div>
+    <div class="sub">EBUSY / EPERM — .node 파일 잠금</div>
+  </div>
+  <div class="card">
+    <div class="label">SCHEMA_VERSION</div>
+    <div class="value">36</div>
+    <div class="sub">SQLite WAL canonical state</div>
+  </div>
+</div>
+
+<h3>1.1 TypeScript</h3>
+<p>모든 패키지(<code>@harness/core</code>, <code>storage</code>, <code>runners</code>, <code>quality</code>, <code>orchestration</code>, <code>agent</code>, <code>evals</code>, <code>desktop</code> 등)에서 <code>tsc --noEmit</code> 성공. 컴파일 수준의 구조적 오류는 발견되지 않았습니다.</p>
+
+<h3>1.2 테스트 (환경 이슈)</h3>
+<p>실패 원인 예시:</p>
+<pre>ERR_DLOPEN_FAILED: better_sqlite3.node was compiled against NODE_MODULE_VERSION 145.
+This version of Node.js requires NODE_MODULE_VERSION 127.</pre>
+<p>Electron용(145)과 현재 Node 22(127) ABI가 섞여 있습니다. <code>rebuild:node</code> 재시도 시 <code>EBUSY/EPERM</code>으로 <code>better_sqlite3.node</code> 삭제 불가 — Electron dev 서버 또는 다른 프로세스가 파일을 점유 중일 가능성이 큽니다.</p>
+<p><strong>조치:</strong> Electron/데스크톱 앱 종료 → <code>npm run rebuild:node</code> → <code>npm run test</code>. CI에서는 별도 스크립트로 Node/Electron 각각 rebuild하는 패턴이 문서화되어 있습니다.</p>
+
+<h2 id="architecture">2. 아키텍처·실행 흐름</h2>
+
+<h3>2.1 레이어 (준수 여부)</h3>
+<table>
+  <thead><tr><th>제약</th><th>상태</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>Renderer → window.harness.* 만</td><td class="sev-ok">OK</td><td>nodeIntegration 비활성, preload allowlist</td></tr>
+    <tr><td>core ⊄ storage import</td><td class="sev-ok">OK</td><td>게이트웨이 타입만 core에 존재</td></tr>
+    <tr><td>테스트 *.test.mjs</td><td class="sev-ok">OK</td><td>.test.ts 없음</td></tr>
+    <tr><td>Express/WS 서버 없음</td><td class="sev-ok">OK</td><td>IPC only</td></tr>
+    <tr><td>SQLite WAL = SoT</td><td class="sev-ok">OK</td><td>JSON은 _json 컬럼 보조</td></tr>
+    <tr><td>승인 없이 side effect 금지</td><td class="sev-ok">대체로 OK</td><td>자동 승인 경로는 사용자 설정에 의존</td></tr>
+  </tbody>
+</table>
+
+<h3>2.2 IPC vs ipc-contracts.md</h3>
+<p>20개 네임스페이스 + push events가 <code>IPC_CHANNELS</code>, <code>HarnessDesktopApi</code>, preload, main 등록과 <code>ipc-contracts-surface.test.mjs</code>로 정렬됨.</p>
+<table>
+  <thead><tr><th>드리프트</th><th>심각도</th></tr></thead>
+  <tbody>
+    <tr><td><code>ApprovalActionType</code>에 <code>file_patch</code> — 계약 문서 미기재</td><td class="sev-low">낮음</td></tr>
+    <tr><td><code>RUNNER_POLICY_BLOCKED</code> 에러 코드 문서 누락</td><td class="sev-low">낮음</td></tr>
+    <tr><td>Phase 16 문서: eval IPC 미노출 가정 vs 실제 <code>window.harness.evals</code> 존재</td><td class="sev-med">중간 (문서)</td></tr>
+  </tbody>
+</table>
+
+<h3>2.3 핵심 실행 경로</h3>
+<pre>사용자 입력 → Thread → TaskRun → Step → Checkpoint
+  → Approval (pending → approved) → Runner → Artifact
+  → QualityGate → markDone → LearningTrace</pre>
+<p>Runner는 미승인 실행을 거부하고, 고위험 actionType은 차단합니다. <code>markDone</code>은 passed/warning QualityGate + (warning 시) known-risk 승인을 요구합니다.</p>
+
+<h2 id="harness">3. 하네스·에이전트·파이프라인 설정</h2>
+
+<h3>3.1 패키지 구조</h3>
+<table>
+  <thead><tr><th>패키지</th><th>역할</th><th>구현 상태</th></tr></thead>
+  <tbody>
+    <tr><td>packages/core</td><td>타입, 정책, IPC, HarnessDesktopApi</td><td class="sev-ok">완료</td></tr>
+    <tr><td>packages/storage</td><td>SQLite, repository, LocalStateService</td><td class="sev-ok">완료</td></tr>
+    <tr><td>packages/runners</td><td>Approval-gated 실행</td><td class="sev-ok">완료</td></tr>
+    <tr><td>packages/quality</td><td>QualityEvaluator, repair loop</td><td class="sev-ok">완료</td></tr>
+    <tr><td>packages/orchestration</td><td>플래너, harness import, worker</td><td class="sev-ok">완료 (기본 OFF)</td></tr>
+    <tr><td>packages/agent</td><td>CLI planning, A2A, MCP</td><td class="sev-ok">Phase 8 완료</td></tr>
+    <tr><td>packages/evals</td><td>메타 eval fixtures + runner</td><td class="sev-warn">7.4b/7.6b 일부 대기</td></tr>
+    <tr><td>apps/desktop</td><td>Electron UI + IPC</td><td class="sev-ok">완료</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 기본 설정 (운영자가 알아야 할 값)</h3>
+<table>
+  <thead><tr><th>설정</th><th>기본값</th><th>영향</th></tr></thead>
+  <tbody>
+    <tr><td><code>orchestration.enabled</code></td><td><strong>false</strong></td><td>파이프라인/워커 오케스트레이션 UI·실행이 꺼짐 → “파이프라인이 안 됨”으로 오해 가능</td></tr>
+    <tr><td><code>approval.autoApprove</code></td><td>false</td><td>true 시 프로필/설정 기반 자동 승인</td></tr>
+    <tr><td><code>approval.autoExecuteWorkerFileActions</code></td><td>false</td><td>워커 파일 액션 자동 실행</td></tr>
+    <tr><td><code>agent.provider</code></td><td>codex</td><td>CLI 프로바이더 기본</td></tr>
+  </tbody>
+</table>
+
+<h3>3.3 In-repo 하네스 패키지</h3>
+<p>문서 예제 1종: <code>docs/harnesses/stock-market-recommendation/.harness/</code> (manifest v1, 에이전트 4개 MD, 스킬 1개). 런타임은 import 후 SQLite에 persist.</p>
+<p><strong>없는 것:</strong> repo 루트 <code>harnesses/</code> 카탈로그, harness YAML, GAN Generator–Evaluator 하네스, <code>.cursor/</code> 프로젝트 규칙/에이전트 정의, in-repo <code>harness-100</code> (형제 디렉터리 가정).</p>
+
+<h3>3.4 에이전트 프로필·파이프라인</h3>
+<ul>
+  <li><strong>AgentProfile</strong>: DB + IPC <code>agents:*</code>, UI <code>AgentProfilesTab</code></li>
+  <li><strong>AgentPipeline</strong>: SQLite 템플릿, <code>PipelinesTab</code>, backflow 지원</li>
+  <li><strong>Harness binding</strong>: 패키지 → 프로필 바인딩 → <code>harness-pipeline-draft</code>로 파이프라인 초안</li>
+  <li><strong>WorkerRunner</strong>: CLI 주입 시 실제 호출; 미주입 시 테스트용 stub fallback (운영 시 실수 가능)</li>
+  <li><strong>A2A</strong>: outbound only, <code>network</code> approval은 전용 IPC 경로</li>
+</ul>
+
+<h3>3.5 루프·품질</h3>
+<ul>
+  <li>Repair loop (<code>packages/quality</code>)</li>
+  <li>Code change loop (<code>packages/orchestration</code>)</li>
+  <li>Pipeline backflow (조건부 재시도)</li>
+  <li>Eval fixtures (<code>packages/evals/fixtures/**/*.eval.json</code>, CI <code>eval.yml</code>)</li>
+</ul>
+
+<h3>3.6 개발자 하네스 (Claude/Codex)</h3>
+<p><code>.claude/instincts/</code> 7개, <code>AGENTS.md</code>, <code>CLAUDE.md</code> — <strong>앱 런타임이 아닌 저장소 개발 가이드</strong>. Cursor 전용 <code>.cursor/rules</code>는 없음.</p>
+
+<h2 id="issues">4. 발견 이슈 (심각도별)</h2>
+
+<table>
+  <thead>
+    <tr><th>심각도</th><th>이슈</th><th>설명</th><th>권장</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="sev-high">높음</td>
+      <td>자동 승인 후 proposedAction 없이 execute</td>
+      <td>템플릿 <code>createTask</code>는 승인 행만 만들고 <code>proposedAction</code>은 UI가 채움. <code>ApprovalPanel</code>은 수동 실행 시 검사하나, <code>WorkbenchShell</code> 자동 실행 경로는 동일 검사가 없을 수 있음 → RUNNER_EXECUTION_FAILED / approved 정체</td>
+      <td>자동 실행 전 proposedAction 필수 검사 (서버 또는 renderer 공통)</td>
+    </tr>
+    <tr>
+      <td class="sev-med">중간</td>
+      <td>createTask 비트랜잭션</td>
+      <td>중간 실패 시 orphan step/artifact 가능</td>
+      <td>DB transaction 또는 보상 삭제</td>
+    </tr>
+    <tr>
+      <td class="sev-med">중간</td>
+      <td>markDone이 running 허용</td>
+      <td>ready_for_review 우회 가능</td>
+      <td>정책 명확화 또는 UI 가드</td>
+    </tr>
+    <tr>
+      <td class="sev-med">중간</td>
+      <td>파이프라인 자동 승인 vs 프로필 block list</td>
+      <td>의도적 bypass이나 사용자 기대와 불일치</td>
+      <td>설정/문서에 명시, 옵션으로 통일</td>
+    </tr>
+    <tr>
+      <td class="sev-med">중간</td>
+      <td>로컬 테스트 대량 실패</td>
+      <td>better-sqlite3 ABI + 파일 잠금</td>
+      <td>앱 종료 후 rebuild:node, verify 재실행</td>
+    </tr>
+    <tr>
+      <td class="sev-low">낮음</td>
+      <td>Worker stub fallback</td>
+      <td>에이전트 미연결 시 가짜 진행처럼 보임</td>
+      <td>운영 빌드에서 stub 비활성 또는 명확한 에러</td>
+    </tr>
+    <tr>
+      <td class="sev-low">낮음</td>
+      <td>IPC/Phase 문서 드리프트</td>
+      <td>file_patch, eval IPC, 구 Phase 16 텍스트</td>
+      <td>ipc-contracts.md 및 phase 문서 동기화</td>
+    </tr>
+    <tr>
+      <td class="sev-low">낮음</td>
+      <td>harness-package-adoption-plan Status: Draft</td>
+      <td>§18 체크포인트는 구현 상당 부분 완료</td>
+      <td>문서 상태를 Implemented/Partial로 갱신</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="gaps">5. 부족한 점·로드맵 갭</h2>
+
+<table>
+  <thead><tr><th>영역</th><th>현재</th><th>갭</th></tr></thead>
+  <tbody>
+    <tr><td>하네스 카탈로그</td><td>예제 1개</td><td>다중 패키지, harness-100 in-repo 또는 CI fixture</td></tr>
+    <tr><td>Cursor IDE 통합</td><td>없음</td><td>.cursor/rules, 프로젝트 에이전트 export만 (승인형 export는 있음)</td></tr>
+    <tr><td>GAN / 자율 루프</td><td>없음</td><td>의도적 제외(감독형) — 자율 루프 원하면 별도 모듈</td></tr>
+    <tr><td>YAML 파이프라인</td><td>없음</td><td>SQLite + UI 폼; GitOps형 YAML은 미지원</td></tr>
+    <tr><td>Phase 16 UI</td><td>EvalsTab 존재</td><td>7.4b drill-down, 7.6b latency 이벤트 대기</td></tr>
+    <tr><td>오케스트레이션 UX</td><td>기능 있음</td><td>기본 OFF → 온보딩/가이드 부족 시 기능 미발견</td></tr>
+    <tr><td>계약 테스트 깊이</td><td>메서드명만</td><td>enum/에러코드 parity 테스트 확장 여지</td></tr>
+  </tbody>
+</table>
+
+<h2 id="optimal">6. “최적의 하네스” 적합성 평가</h2>
+
+<table>
+  <thead><tr><th>목표</th><th>적합도</th><th>근거</th></tr></thead>
+  <tbody>
+    <tr><td>사용자 감독·승인·중단</td><td class="sev-ok">★★★★★</td><td>설계 철학과 구현 일치</td></tr>
+    <tr><td>증거 기반 완료·품질 게이트</td><td class="sev-ok">★★★★☆</td><td>QualityEvaluator + markDone 게이트</td></tr>
+    <tr><td>멀티 에이전트 파이프라인</td><td class="sev-med">★★★☆☆</td><td>구현됨, 기본 OFF, stub/바인딩 복잡도</td></tr>
+    <tr><td>Claude/Codex 문서 하네스 이식</td><td class="sev-med">★★★★☆</td><td>import/export/binding 경로 있음, 샘플 적음</td></tr>
+    <tr><td>완전 자율 에이전트 OS</td><td class="sev-low">★★☆☆☆</td><td>의도적으로 비목표</td></tr>
+    <tr><td>Cursor/ECC 번들 그대로</td><td class="sev-low">★★☆☆☆</td><td>별도 IDE 하네스; export로 부분 연동</td></tr>
+  </tbody>
+</table>
+
+<p><strong>결론:</strong> HarnessAgentOS는 <strong>“개발자가 통제하는 승인형 에이전트 워크벤치”</strong>로는 최적에 가깝습니다. <strong>“설정만 켜면 끝까지 돌아가는 자율 멀티에이전트 하네스”</strong>를 원한다면 기본값·가드·문서를 바꾸거나 ECC/GAN류 패턴을 명시적으로 추가해야 합니다.</p>
+
+<h2 id="capabilities">7. Capabilities (Skillify) — 동작·데이터 적재</h2>
+
+<p><strong>결론:</strong> SKILL.md 스캔 → SQLite <code>capabilities</code> 적재는 <strong>정상 설계·구현</strong>입니다. 세션을 넘어 카탈로그·승인·학습 trace의 capability 목록은 <strong>DB에 누적</strong>됩니다. 다만 <strong>재스캔 경로가 두 갈래</strong>이고, <strong>메타데이터 캐시는 메모리 전용</strong>이라 재시작 직후 상세/프롬프트 주입이 깨질 수 있으며, <code>skill_script</code>는 승인만 되고 실행은 막혀 있습니다.</p>
+
+<h3>7.1 데이터가 쌓이는 곳</h3>
+<table>
+  <thead><tr><th>저장소</th><th>테이블/파일</th><th>언제 쌓임</th><th>재시작 후</th></tr></thead>
+  <tbody>
+    <tr><td>SQLite</td><td><code>capabilities</code></td><td><code>CapabilityRegistry.refresh()</code> — SKILL.md upsert, 소스별 prune</td><td class="sev-ok">유지</td></tr>
+    <tr><td>SQLite</td><td><code>skill_sources</code></td><td>Learning → Skills에서 사용자 루트 등록</td><td class="sev-ok">유지</td></tr>
+    <tr><td>SQLite</td><td><code>approvals</code> (<code>capability_use</code>, <code>skill_script</code>)</td><td>제안·승인·거절 시 TaskRun별</td><td class="sev-ok">유지</td></tr>
+    <tr><td>SQLite</td><td><code>learning_traces.selected_capabilities_json</code></td><td>에이전트 invoke 시 <code>recordSelection</code></td><td class="sev-ok">유지</td></tr>
+    <tr><td>메모리</td><td><code>CapabilityRegistry.metadataCache</code></td><td>refresh 시 SKILL 본문·리소스</td><td class="sev-med">소실 — refresh 필요</td></tr>
+  </tbody>
+</table>
+
+<h3>7.2 동작 흐름</h3>
+<pre>SKILL.md (project skills / userData/skills / skill_sources 루트)
+  → loadSkills() → upsert capabilities (SQLite)
+  → suggestCapabilities(prompt) → UI 제안
+  → proposeCandidateApprovals → capability_use 승인 행
+  → 승인 후 approvedPromptContexts → AgentPlanningService 프롬프트 주입</pre>
+
+<p>UI: <strong>Learning</strong> 오버레이 → 탭 <strong>Capabilities</strong> (<code>CapabilityPanel.tsx</code>). Skills 탭은 <code>skillSource.refresh</code>로 DB에 등록된 모든 enabled 루트를 스캔합니다.</p>
+
+<h3>7.3 제대로 동작하는지</h3>
+<table>
+  <thead><tr><th>기능</th><th>판정</th><th>비고</th></tr></thead>
+  <tbody>
+    <tr><td>카탈로그 list / DB persist</td><td class="sev-ok">OK</td><td><code>capability-service.test.mjs</code>, schema 테스트</td></tr>
+    <tr><td>프롬프트 기반 suggest</td><td class="sev-ok">OK</td><td>순수 함수 + 프로필 <code>allowedSkillIds</code> (서비스 레이어)</td></tr>
+    <tr><td>승인 후 에이전트 컨텍스트 주입</td><td class="sev-ok">OK</td><td>main에서만 <code>approvedPromptContexts</code> — IPC 없음 (의도)</td></tr>
+    <tr><td>신규 agent TaskRun 시 proposeCandidates</td><td class="sev-ok">OK</td><td><code>WorkbenchShell</code> 자동 호출</td></tr>
+    <tr><td>Capabilities 탭 「재스캔」</td><td class="sev-med">부분</td><td><code>capability.refresh</code> = 하드코딩 2경로만</td></tr>
+    <tr><td>커스텀 skill 루트</td><td class="sev-med">주의</td><td>Skills 탭 <code>skillSource.refresh</code> 필요</td></tr>
+    <tr><td>readSkill / 상세 drawer</td><td class="sev-med">조건부</td><td>metadataCache 없으면 실패 — startup refresh 실패 시 조용히 깨짐</td></tr>
+    <tr><td>skill_script 실행</td><td class="sev-high">미구현</td><td>Runner가 <code>RUNNER_BLOCKED_HIGH_RISK</code></td></tr>
+    <tr><td>IPC에 profileId</td><td class="sev-med">갭</td><td>비활성 프로필 allowlist를 UI에서 suggest에 못 넘김</td></tr>
+  </tbody>
+</table>
+
+<h3>7.4 이중 refresh (운영 시 혼란 포인트)</h3>
+<table>
+  <thead><tr><th>경로</th><th>스캔 대상</th><th>호출처</th></tr></thead>
+  <tbody>
+    <tr><td><code>capability.refresh</code></td><td><code>apps/desktop/skills</code> + <code>userData/skills</code> 고정</td><td>CapabilityPanel 재스캔, 앱 startup</td></tr>
+    <tr><td><code>skillSource.refresh</code></td><td><code>skill_sources</code> 테이블의 enabled 루트 전부</td><td>Learning → Skills</td></tr>
+  </tbody>
+</table>
+<p>커스텀 디렉터리만 추가하고 Capabilities 탭에서만 재스캔하면 <strong>DB 목록과 캐시가 어긋날 수 있습니다.</strong></p>
+
+<h2 id="learner">8. Learner · Topology · Instincts — 동작·데이터 적재</h2>
+
+<p><strong>결론:</strong> 완료된 TaskRun에 대해 <strong>learning trace는 markDone과 함께 쌓입니다</strong> (reward, success, 선택 모델/스킬). <strong>Observations → evolution_candidates → instincts</strong> 경로도 품질 게이트·승인 이벤트로 데이터가 쌓입니다. 다만 <strong>trace의 cost/latency 필드는 비어 있는 경우가 많고</strong>, 실제 비용 UI는 <code>agent_invocations</code>를 봅니다. 취소·실패 run, topology만 피드백한 경우는 학습 데이터가 불완전할 수 있습니다.</p>
+
+<h3>8.1 SQLite 테이블</h3>
+<table>
+  <thead><tr><th>테이블</th><th>역할</th><th>누적</th></tr></thead>
+  <tbody>
+    <tr><td><code>learning_traces</code></td><td>TaskRun당 1행 — 모델/스킬 선택, reward, success</td><td class="sev-ok">markDone 완료 시 증가</td></tr>
+    <tr><td><code>agent_invocations</code></td><td>CLI 호출 ledger (토큰/비용)</td><td class="sev-ok">invoke마다 증가 — CostPanel 소스</td></tr>
+    <tr><td><code>observations</code></td><td>승인/품질/topology 피드백 신호</td><td class="sev-ok">append-only (최근 1000건 스캔)</td></tr>
+    <tr><td><code>evolution_candidates</code></td><td>본능 후보 (pending)</td><td class="sev-ok">신호 ≥ minSignals(기본 3) 시</td></tr>
+    <tr><td><code>instincts</code></td><td>승인된 본능 규칙</td><td class="sev-ok">사용자 approve 후</td></tr>
+  </tbody>
+</table>
+<p>추가: <code>{userData}/learner-decisions/decisions.jsonl</code> — <code>recordDecision</code> 전용 (SQLite 아님).</p>
+
+<h3>8.2 LearningTrace 생명주기</h3>
+<pre>1) AgentPlanningService.invoke
+     → recordLearnerSelection → TraceRecorder.recordSelection
+     → selected_model, selected_capabilities_json (에이전트·승인된 스킬 있을 때)
+
+2) quality.markDone
+     → TaskRunCompletionService (onTaskRunDone 먼저, 실패 시 done 취소)
+     → TraceRecorder.recordOutcome({ success: true, qualityGate })
+     → reward = computeReward(gate, …) — cost_estimate/latency_ms는 미전달
+
+3) quality.evaluate (별도)
+     → InstinctService.recordQualityGate → observations
+
+4) approval decide
+     → InstinctService.recordApprovalDecision → observations → refreshCandidates</pre>
+
+<h3>8.3 UI에서 확인하는 방법</h3>
+<table>
+  <thead><tr><th>화면</th><th>보이는 데이터</th><th>IPC</th></tr></thead>
+  <tbody>
+    <tr><td>Learning → Learner</td><td>recommend(), getTrace()</td><td><code>learner.recommend</code>, <code>getTrace</code></td></tr>
+    <tr><td>Learning → Instincts</td><td>후보·본능 목록</td><td><code>instinct.*</code></td></tr>
+    <tr><td>Settings → Pipelines</td><td>topology 추천 (파이프라인 초안)</td><td><code>topology.recommend</code>, <code>recordFeedback</code></td></tr>
+    <tr><td>Right panel / Cost</td><td>TaskRun 비용</td><td><code>learner.summarizeTaskRunCost</code> → agent_invocations</td></tr>
+    <tr><td>Quality → markDone</td><td>trace outcome 트리거</td><td><code>quality.markDone</code></td></tr>
+  </tbody>
+</table>
+
+<h3>8.4 데이터가 안 쌓이거나 비는 경우</h3>
+<table>
+  <thead><tr><th>상황</th><th>learning_traces</th><th>observations / instincts</th></tr></thead>
+  <tbody>
+    <tr><td>TaskRun을 markDone까지 완료</td><td class="sev-ok">행 생성·reward 갱신</td><td>품질/승인 이벤트 있으면 증가</td></tr>
+    <tr><td>에이전트 없이 template-only</td><td class="sev-med">selection 없을 수 있음</td><td>이벤트에 따라</td></tr>
+    <tr><td>취소·중단 (markDone 없음)</td><td class="sev-high">outcome 없음</td><td>부분 observation만</td></tr>
+    <tr><td>invoke 실패</td><td class="sev-high">자동 failure outcome 없음</td><td>—</td></tr>
+    <tr><td>topology 피드백만</td><td>—</td><td class="sev-med">observation만; 후보 갱신은 다음 approval/quality 때</td></tr>
+  </tbody>
+</table>
+
+<h3>8.5 LearnerAdvisor recommend — 데이터 사용</h3>
+<p><code>recommend()</code>는 <strong>DB의 전체 <code>learning_traces</code> + capabilities</strong>를 읽어 in-memory로 재랭킹합니다. 프로젝트/기간 필터 없음 — TaskRun이 많아지면 비용·노이즈 증가 가능. <strong>데이터는 쌓이지만 추천 품질은 이력 품질에 의존</strong>합니다.</p>
+
+<h3>8.6 알려진 갭</h3>
+<ul>
+  <li><strong>비용 이중 모델:</strong> LearnerPanel trace의 cost vs CostPanel의 invocation 합 — 필드가 다름.</li>
+  <li><strong>recordDecision:</strong> IPC·preload 있으나 <strong>React UI 미호출</strong> → JSONL 감사 로그 거의 비어 있음.</li>
+  <li><strong>markDone outcome:</strong> 항상 <code>success: true</code> 전달; warning gate는 reward(+0.25)로만 반영.</li>
+  <li><strong>Learner vs Capability suggest:</strong> LearnerAdvisor가 suggester를 직접 import — CapabilityService와 profileId 전달 경로 불일치 가능.</li>
+</ul>
+
+<h2 id="data-accumulation">9. Capabilities + Learner 데이터 적재 — 한눈에</h2>
+
+<div class="card-grid">
+  <div class="card">
+    <div class="label">Capabilities DB</div>
+    <div class="value" style="color:var(--green)">누적 O</div>
+    <div class="sub">refresh 시 upsert + prune</div>
+  </div>
+  <div class="card">
+    <div class="label">Learning traces</div>
+    <div class="value" style="color:var(--green)">누적 O</div>
+    <div class="sub">markDone + selection</div>
+  </div>
+  <div class="card">
+    <div class="label">Trace cost 필드</div>
+    <div class="value" style="color:var(--orange)">often empty</div>
+    <div class="sub">invocations 테이블 참고</div>
+  </div>
+  <div class="card">
+    <div class="label">Instincts</div>
+    <div class="value" style="color:var(--green)">누적 O</div>
+    <div class="sub">승인된 후보만</div>
+  </div>
+</div>
+
+<p><strong>수동 검증 체크리스트:</strong></p>
+<ol>
+  <li>Learning → Capabilities: 재스캔 후 목록 증가 확인 (userData/app.db <code>capabilities</code>)</li>
+  <li>커스텀 skill 루트 추가 시 <strong>Skills 탭 refresh</strong> 후 Capabilities에 반영되는지</li>
+  <li>에이전트 TaskRun 완료 → Learning → Learner에서 해당 TaskRun trace·reward 확인</li>
+  <li>동일 프로젝트에서 반복 reject / quality fail → Instincts 후보 증가 (≥3 신호)</li>
+  <li>CostPanel 금액과 Learner trace cost 컬럼 불일치 시 — 정상(다른 소스)인지 인지</li>
+</ol>
+
+<h2 id="recommendations">10. 권장 조치 (우선순위)</h2>
+
+<ol>
+  <li><strong>즉시 (환경):</strong> Electron/dev 프로세스 종료 → <code>npm run rebuild:node</code> → <code>npm run test</code> / <code>npm run verify</code></li>
+  <li><strong>높음 (동작):</strong> 자동 승인·자동 실행 경로에 <code>proposedAction</code> 필수 검사 추가</li>
+  <li><strong>중간 (신뢰):</strong> <code>createTask</code> 트랜잭션화 또는 실패 시 롤백</li>
+  <li><strong>중간 (운영):</strong> Settings에 “오케스트레이션 활성화” 온보딩 또는 첫 실행 마법사</li>
+  <li><strong>낮음 (문서):</strong> ipc-contracts.md (file_patch, RUNNER_POLICY_BLOCKED, evals), Phase 16, adoption plan 상태 갱신</li>
+  <li><strong>Capabilities:</strong> <code>capability.refresh</code>를 skill_sources와 통합하거나 Capabilities 재스캔이 전체 루트를 스캔하도록 통일</li>
+  <li><strong>Learner:</strong> <code>markDone</code> 시 <code>agent_invocations</code>에서 cost/latency를 trace에 복사</li>
+  <li><strong>Learner UI:</strong> recommendation accept/reject 시 <code>recordDecision</code> 호출</li>
+  <li><strong>로드맵:</strong> harness-100 스모크를 CI optional job으로; Phase 16 7.4b/7.6b; export batch UX</li>
+</ol>
+
+<h3>10.1 수동 스모크 체크리스트 (앱 실행 시)</h3>
+<ul>
+  <li>Settings → Orchestration enabled ON</li>
+  <li>stock-market harness import → binding → pipeline draft → 승인 → worker 실행</li>
+  <li>Template task + global autoApprove OFF/ON 각각 proposedAction·runner 결과 확인</li>
+  <li><code>npm --workspace=@harness/desktop run smoke:agent-fake</code> (CLI 없이 경로 검증)</li>
+</ul>
+
+<footer>
+  <p>이 보고서는 정적 코드 분석, 문서 대조, <code>npm run check</code>, 로컬 <code>npm test</code> 결과, capabilities/learner 패키지·IPC·UI 경로 검토를 바탕으로 생성·갱신되었습니다. 테스트 실패는 재현 환경에서 better-sqlite3 재빌드 후 재검증하세요.</p>
+  <p>파일: docs/analysis/harness-agent-os-audit-2026-05-29.html</p>
+</footer>
+
+</div>
+</body>
+</html>

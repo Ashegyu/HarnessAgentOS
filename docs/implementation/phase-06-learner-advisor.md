@@ -47,6 +47,7 @@ export interface LearnerRecommendation {
   id: string;
   recommendedModel?: string;
   recommendedCapabilities: CapabilitySuggestion[];
+  recommendedContext: ObservationRecallResult[];
   rationale: string;
   costHint?: "low" | "medium" | "high";
   latencyHint?: "low" | "medium" | "high";
@@ -59,6 +60,14 @@ IPC:
 ```ts
 learner.getTrace(input: { taskRunId: string }): Promise<LearningTrace | null>;
 learner.recommend(input: { taskRunId: string }): Promise<LearnerRecommendation>;
+learner.recordContextDecision(input: {
+  taskRunId: string;
+  observationId: string;
+  decision: "pinned" | "unpinned";
+  surface?: "recommended" | "recall";
+  score?: number;
+  reuseRisk?: "low" | "medium" | "high";
+}): Promise<void>;
 learner.recordDecision(input: {
   taskRunId: string;
   recommendationId: string; // LearnerRecommendation.id
@@ -78,6 +87,8 @@ Runner/Quality completes
   -> reward evaluator computes score
 Future TaskRun
   -> learner.recommend reads similar traces
+  -> recommendedContext surfaces safe prior observations
+  -> user pin/unpin decisions are recorded as context decision observations
   -> recommendation shown in UI
   -> user accepts or rejects
   -> decision recorded as trace metadata

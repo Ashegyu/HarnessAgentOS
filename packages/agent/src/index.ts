@@ -21,4 +21,5 @@ export * from "./agent-profile-binding-generator";
 export * from "./mcp-scaffold-generator";
 export * from "./repo-index-service";
 export * from "./context-packer";
+export * from "./context-pack-builder";
 export * from "./model-usage-estimator";

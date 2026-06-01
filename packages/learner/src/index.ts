@@ -8,4 +8,6 @@ export * from "./instinct-candidate-scorer.ts";
 export * from "./redact-secrets.ts";
 export * from "./project-key.ts";
 export * from "./observation-collector.ts";
+export * from "./observation-recall.ts";
+export * from "./context-observability.ts";
 export * from "./instinct-service.ts";

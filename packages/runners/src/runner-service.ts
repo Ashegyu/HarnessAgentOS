@@ -53,6 +53,14 @@ export interface RunnerServiceDeps {
   shellRunner?: ShellRunner;
   gitRunner?: GitRunner;
   testRunner?: TestRunner;
+  recordPinnedContextOutcome?: (input: {
+    taskRun: TaskRun;
+    approval: Approval;
+    status: "failed";
+    summary: string;
+    errorCode: string;
+    errorArtifactId: string;
+  }) => Promise<unknown>;
 }
 
 /**
@@ -283,6 +291,9 @@ export class RunnerService {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const cancelled = isRunnerCancelled(e);
+      const errorCode = e instanceof RunnerError
+        ? e.code
+        : "RUNNER_EXECUTION_FAILED";
       const errorArtifact = await this.persistArtifact({
         taskRunId: taskRun.id,
         stepId: step.id,
@@ -301,6 +312,16 @@ export class RunnerService {
         taskRun.id,
         cancelled ? "cancelled" : "blocked",
       );
+      if (!cancelled) {
+        await this.recordPinnedContextOutcome({
+          taskRun,
+          approval,
+          status: "failed",
+          summary: `runner ${approval.actionType} failed (${errorCode})`,
+          errorCode,
+          errorArtifactId: errorArtifact.id,
+        });
+      }
       // Re-throw so IPC layer maps to HarnessError, but with state already
       // recorded so the UI shows the failure even if the call rejects.
       if (cancelled) throw new RunnerError(RUNNER_CANCELLED, message);
@@ -619,6 +640,22 @@ export class RunnerService {
     if (input.summary !== undefined) dbInput.summary = input.summary;
     const stored = await this.deps.state.createArtifact(dbInput);
     return { id: stored.id, uri: stored.uri };
+  }
+
+  private async recordPinnedContextOutcome(input: {
+    taskRun: TaskRun;
+    approval: Approval;
+    status: "failed";
+    summary: string;
+    errorCode: string;
+    errorArtifactId: string;
+  }): Promise<void> {
+    if (!this.deps.recordPinnedContextOutcome) return;
+    try {
+      await this.deps.recordPinnedContextOutcome(input);
+    } catch {
+      // Context outcome tracking is advisory and must not affect runner state.
+    }
   }
 }
 

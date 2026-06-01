@@ -87,6 +87,106 @@ test("scoreInstinctCandidates ignores non-failing quality gates", () => {
   assert.deepEqual(candidates, []);
 });
 
+test("scoreInstinctCandidates proposes a review candidate for repeated passed pinned context outcomes", () => {
+  const candidates = scoreInstinctCandidates({
+    observations: [
+      observation({
+        id: "obs_context",
+        source: "quality",
+        eventType: "failed",
+        signal: "failed",
+        summary: "quality failed until rebuild:node was run",
+      }),
+      observation({
+        id: "obs_outcome_a",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "passed",
+        summary: "quality gate passed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "passed",
+        },
+      }),
+      observation({
+        id: "obs_outcome_b",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "passed",
+        summary: "quality gate passed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "passed",
+        },
+      }),
+      observation({
+        id: "obs_outcome_c",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "passed",
+        summary: "quality gate passed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "passed",
+        },
+      }),
+    ],
+  });
+
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].projectKey, "proj_a");
+  assert.match(candidates[0].title, /pinned context/i);
+  assert.match(candidates[0].proposedRule, /surface proven context/i);
+  assert.deepEqual(candidates[0].observationIds, [
+    "obs_context",
+    "obs_outcome_a",
+    "obs_outcome_b",
+    "obs_outcome_c",
+  ]);
+});
+
+test("scoreInstinctCandidates does not promote failed pinned context outcomes", () => {
+  const candidates = scoreInstinctCandidates({
+    observations: [
+      observation({
+        id: "obs_outcome_a",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "failed",
+        summary: "quality gate failed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "failed",
+        },
+      }),
+      observation({
+        id: "obs_outcome_b",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "failed",
+        summary: "quality gate failed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "failed",
+        },
+      }),
+      observation({
+        id: "obs_outcome_c",
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: "failed",
+        summary: "quality gate failed after 1 pinned observations",
+        payload: {
+          pinnedObservationIds: ["obs_context"],
+          qualityStatus: "failed",
+        },
+      }),
+    ],
+  });
+
+  assert.deepEqual(candidates, []);
+});
+
 test("scoreInstinctCandidates keeps project scopes separate", () => {
   const candidates = scoreInstinctCandidates({
     observations: [

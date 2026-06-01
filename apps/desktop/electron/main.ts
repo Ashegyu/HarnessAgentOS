@@ -22,6 +22,8 @@ import type {
   AgentProvider,
   McpServerConfig,
   McpServerHealth,
+  Observation,
+  QualityGateResult,
 } from "@harness/core";
 import type { SkillRootPolicy } from "./ipc/skill-source-ipc";
 import { RunnerService, ShadowWorkspaceService } from "@harness/runners";
@@ -32,6 +34,7 @@ import {
   type SkillSourceConfig,
 } from "@harness/skillify-adapter";
 import {
+  deriveProjectKey,
   InstinctService,
   LearnerAdvisor,
   TopologyAdvisor,
@@ -45,6 +48,7 @@ import {
   buildCodexMcpConfigOverrides,
   buildClaudeMcpConfig,
   checkProviders as probeAgentProviders,
+  formatContextPackObservationPayload,
   packRepoContext,
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
@@ -73,6 +77,59 @@ const traceStartup = (step: string): void => {
     console.log(`[harness:start] ${step}`);
   }
 };
+
+const latestPinnedContextPackObservation = async (
+  state: LocalStateService,
+  taskRunId: string,
+): Promise<Observation | null> => {
+  const observations = await state.listObservations({ taskRunId, limit: 50 });
+  return (
+    observations.find(
+      (observation) =>
+        observation.source === "agent" &&
+        observation.eventType === "context_pack_created" &&
+        observation.signal === "context_pack" &&
+        pinnedObservationIdsFromContextPackPayload(observation.payload).length >
+          0,
+    ) ?? null
+  );
+};
+
+const pinnedObservationIdsFromContextPackPayload = (
+  payload: Record<string, unknown>,
+): string[] => {
+  const promptInclusion = payload.promptInclusion;
+  if (!isRecord(promptInclusion)) return [];
+  return normalizeObservationIds(promptInclusion.pinnedObservationIds);
+};
+
+const contextPackArtifactIdFromPayload = (
+  payload: Record<string, unknown>,
+): string | undefined => {
+  const contextPackArtifactId = payload.contextPackArtifactId;
+  return typeof contextPackArtifactId === "string" &&
+    contextPackArtifactId.length > 0
+    ? contextPackArtifactId
+    : undefined;
+};
+
+const normalizeObservationIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const id = item.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    if (ids.length === 5) break;
+  }
+  return ids;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 const initServices = (): {
   state: LocalStateService;
@@ -118,7 +175,51 @@ const initServices = (): {
       }
     },
   });
-  const runner = new RunnerService({ state, artifactStore });
+  const runner = new RunnerService({
+    state,
+    artifactStore,
+    recordPinnedContextOutcome: async ({
+      taskRun,
+      approval,
+      status,
+      summary,
+      errorCode,
+      errorArtifactId,
+    }) => {
+      const contextPack = await latestPinnedContextPackObservation(
+        state,
+        taskRun.id,
+      );
+      if (!contextPack) return;
+      const pinnedObservationIds = pinnedObservationIdsFromContextPackPayload(
+        contextPack.payload,
+      );
+      if (pinnedObservationIds.length === 0) return;
+      const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+      await state.createObservation({
+        taskRunId: taskRun.id,
+        threadId: taskRun.threadId,
+        projectKey,
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: status,
+        summary,
+        payload: {
+          outcomeSource: "runner.executeApproved",
+          outcomeStatus: status,
+          qualityStatus: status,
+          runnerErrorCode: errorCode,
+          approvalId: approval.id,
+          approvalActionType: approval.actionType,
+          errorArtifactId,
+          contextPackObservationId: contextPack.id,
+          contextPackArtifactId:
+            contextPackArtifactIdFromPayload(contextPack.payload) ?? null,
+          pinnedObservationIds,
+        },
+      });
+    },
+  });
   const shadowWorkspace = new ShadowWorkspaceService({
     state,
     artifactStore,
@@ -159,6 +260,37 @@ const initServices = (): {
         taskRunId,
         success: true,
         qualityGate: gate ?? null,
+        ...(latencyMs !== undefined ? { latencyMs } : {}),
+        ...(costSummary.invocationCount > 0
+          ? { costEstimate: costSummary.totalCostUsd }
+          : {}),
+      });
+    },
+    onQualityGateFailed: async (gate: QualityGateResult) => {
+      const costSummary = await learnerAdvisor.summarizeTaskRunCost({
+        taskRunId: gate.taskRunId,
+      });
+      const completedLatencies = costSummary.invocations
+        .filter(
+          (invocation) =>
+            invocation.success !== undefined && invocation.latencyMs > 0,
+        )
+        .map((invocation) => invocation.latencyMs);
+      const latencyMs =
+        completedLatencies.length > 0
+          ? Math.round(
+              completedLatencies.reduce((sum, value) => sum + value, 0) /
+                completedLatencies.length,
+            )
+          : undefined;
+      await traceRecorder.recordOutcome({
+        taskRunId: gate.taskRunId,
+        success: false,
+        qualityGate: gate,
+        failureReason:
+          gate.knownRisks.length > 0
+            ? gate.knownRisks.slice(0, 3).join("; ")
+            : "quality gate failed",
         ...(latencyMs !== undefined ? { latencyMs } : {}),
         ...(costSummary.invocationCount > 0
           ? { costEstimate: costSummary.totalCostUsd }
@@ -316,6 +448,67 @@ const initServices = (): {
       capabilityService.approvedPromptContexts({ taskRunId, profileId }),
     getApprovedLearnerModel: ({ taskRunId }) =>
       learnerAdvisor.approvedModelContext({ taskRunId }),
+    getActiveInstincts: async ({ taskRun }) => {
+      const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+      return instinctService.list({ projectKey });
+    },
+    recordContextPackObservation: async ({
+      taskRun,
+      contextPack,
+      contextPackArtifactId,
+    }) => {
+      const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+      return state.createObservation({
+        taskRunId: taskRun.id,
+        threadId: taskRun.threadId,
+        projectKey,
+        source: "agent",
+        eventType: "context_pack_created",
+        signal: "context_pack",
+        summary: `agent context pack prepared (${contextPack.sources.length} sources)`,
+        payload: formatContextPackObservationPayload(
+          contextPack,
+          contextPackArtifactId,
+        ),
+      });
+    },
+    recordPinnedContextOutcome: async ({
+      taskRun,
+      status,
+      summary,
+      pinnedObservationIds,
+      contextPackObservationId,
+      contextPackArtifactId,
+      errorCode,
+    }) => {
+      const normalizedPinnedObservationIds = [
+        ...new Set(
+          pinnedObservationIds
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0),
+        ),
+      ].slice(0, 5);
+      if (normalizedPinnedObservationIds.length === 0) return;
+      const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+      await state.createObservation({
+        taskRunId: taskRun.id,
+        threadId: taskRun.threadId,
+        projectKey,
+        source: "learner",
+        eventType: "pinned_context_outcome",
+        signal: status,
+        summary,
+        payload: {
+          outcomeSource: "agent.generatePlan",
+          outcomeStatus: status,
+          qualityStatus: status,
+          agentErrorCode: errorCode ?? null,
+          contextPackObservationId: contextPackObservationId ?? null,
+          contextPackArtifactId: contextPackArtifactId ?? null,
+          pinnedObservationIds: normalizedPinnedObservationIds,
+        },
+      });
+    },
     getRepoContext: async ({ taskRun, prompt }) => {
       const files = await repoIndexService.refresh({
         projectKey: taskRun.targetDir,

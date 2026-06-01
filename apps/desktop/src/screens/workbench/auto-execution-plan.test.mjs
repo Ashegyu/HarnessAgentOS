@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildAutoApprovedExecutionPlan,
+  canRunAutoApprovedExecutionForStatus,
   CODE_CHANGE_REPAIR_INSTRUCTION,
   isApprovedForPipelineAutoExecution,
   runAutoApprovedExecutionPlan,
@@ -52,6 +53,18 @@ const shellApproval = (id, command = "npm run check") => ({
     type: "shell",
     command,
   },
+});
+
+test("canRunAutoApprovedExecutionForStatus stops auto execution after blocked outcomes", () => {
+  assert.equal(canRunAutoApprovedExecutionForStatus("drafting"), true);
+  assert.equal(canRunAutoApprovedExecutionForStatus("waiting_for_approval"), true);
+  assert.equal(canRunAutoApprovedExecutionForStatus("running"), true);
+  assert.equal(canRunAutoApprovedExecutionForStatus("ready_for_review"), true);
+  assert.equal(canRunAutoApprovedExecutionForStatus("paused"), false);
+  assert.equal(canRunAutoApprovedExecutionForStatus("blocked"), false);
+  assert.equal(canRunAutoApprovedExecutionForStatus("quality_failed"), false);
+  assert.equal(canRunAutoApprovedExecutionForStatus("done"), false);
+  assert.equal(canRunAutoApprovedExecutionForStatus("cancelled"), false);
 });
 
 test("buildAutoApprovedExecutionPlan batches file writes and trailing shell checks", () => {

@@ -8,9 +8,13 @@ import {
   harnessError,
   ok,
   type HarnessResult,
+  type ContextOutcomeSummary,
+  type LearnerContextDecisionRecord,
   type LearnerRecommendationApprovalResult,
   type LearnerRecommendation,
   type LearningTrace,
+  type Observation,
+  type ObservationRecallResult,
   type BudgetUsageSummary,
   type TaskRunCostSummary,
 } from "@harness/core";
@@ -31,6 +35,32 @@ const optionalPositiveInteger = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) && v > 0
     ? Math.floor(v)
     : undefined;
+
+const OBSERVATION_SOURCES = new Set<Observation["source"]>([
+  "approval",
+  "quality",
+  "learner",
+  "runner",
+  "skill",
+  "agent",
+]);
+
+const isObservationSource = (v: unknown): v is Observation["source"] =>
+  typeof v === "string" &&
+  OBSERVATION_SOURCES.has(v as Observation["source"]);
+
+const CONTEXT_DECISION_REUSE_RISKS = new Set(["low", "medium", "high"]);
+const CONTEXT_DECISION_SURFACES = new Set(["recommended", "recall"]);
+
+const isContextDecisionReuseRisk = (
+  v: unknown,
+): v is NonNullable<LearnerContextDecisionRecord["reuseRisk"]> =>
+  typeof v === "string" && CONTEXT_DECISION_REUSE_RISKS.has(v);
+
+const isContextDecisionSurface = (
+  v: unknown,
+): v is NonNullable<LearnerContextDecisionRecord["surface"]> =>
+  typeof v === "string" && CONTEXT_DECISION_SURFACES.has(v);
 
 const wrapErr = <T>(e: unknown, code = LEARNER_TASK_NOT_FOUND): HarnessResult<T> => {
   if (e instanceof LearnerAdvisorError) {
@@ -134,6 +164,102 @@ export const registerLearnerIpc = (
         );
       } catch (e) {
         return wrapErr<BudgetUsageSummary>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.recallContext,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<ObservationRecallResult[]>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as {
+        taskRunId?: unknown;
+        query?: unknown;
+        source?: unknown;
+        limit?: unknown;
+      };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      if (cast.query !== undefined && typeof cast.query !== "string") {
+        return err(harnessError(STATE_INVALID_INPUT, "query must be a string"));
+      }
+      if (cast.source !== undefined && !isObservationSource(cast.source)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "source must be a known observation source"),
+        );
+      }
+      const source =
+        cast.source !== undefined && isObservationSource(cast.source)
+          ? cast.source
+          : undefined;
+      const limit = optionalPositiveInteger(cast.limit);
+      if (cast.limit !== undefined && limit === undefined) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "limit must be a positive number when provided",
+          ),
+        );
+      }
+      try {
+        return ok(
+          await advisor.recallContext({
+            taskRunId: cast.taskRunId,
+            ...(typeof cast.query === "string" ? { query: cast.query } : {}),
+            ...(source !== undefined ? { source } : {}),
+            ...(limit !== undefined ? { limit } : {}),
+          }),
+        );
+      } catch (e) {
+        return wrapErr<ObservationRecallResult[]>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.summarizeContextOutcomes,
+    async (
+      _e,
+      input: unknown,
+    ): Promise<HarnessResult<ContextOutcomeSummary>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as {
+        taskRunId?: unknown;
+        limit?: unknown;
+      };
+      if (!isNonEmptyString(cast.taskRunId)) {
+        return err(
+          harnessError(STATE_INVALID_INPUT, "taskRunId must be non-empty string"),
+        );
+      }
+      const limit = optionalPositiveInteger(cast.limit);
+      if (cast.limit !== undefined && limit === undefined) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "limit must be a positive number when provided",
+          ),
+        );
+      }
+      try {
+        return ok(
+          await advisor.summarizeContextOutcomes({
+            taskRunId: cast.taskRunId,
+            ...(limit !== undefined ? { limit } : {}),
+          }),
+        );
+      } catch (e) {
+        return wrapErr<ContextOutcomeSummary>(e);
       }
     },
   );
@@ -296,6 +422,57 @@ export const registerLearnerIpc = (
       if (typeof cast.reason === "string") payload.reason = cast.reason;
       try {
         await advisor.recordDecision(payload);
+        return ok(null);
+      } catch (e) {
+        return wrapErr<null>(e);
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.learner.recordContextDecision,
+    async (_e, input: unknown): Promise<HarnessResult<null>> => {
+      if (!isObject(input)) {
+        return err(harnessError(STATE_INVALID_INPUT, "input must be an object"));
+      }
+      const cast = input as {
+        taskRunId?: unknown;
+        observationId?: unknown;
+        decision?: unknown;
+        surface?: unknown;
+        score?: unknown;
+        reuseRisk?: unknown;
+      };
+      if (!isNonEmptyString(cast.taskRunId) || !isNonEmptyString(cast.observationId)) {
+        return err(
+          harnessError(
+            STATE_INVALID_INPUT,
+            "taskRunId and observationId are required",
+          ),
+        );
+      }
+      if (cast.decision !== "pinned" && cast.decision !== "unpinned") {
+        return err(
+          harnessError(
+            LEARNER_INVALID_DECISION,
+            "decision must be 'pinned' or 'unpinned'",
+          ),
+        );
+      }
+      const payload: LearnerContextDecisionRecord = {
+        taskRunId: cast.taskRunId,
+        observationId: cast.observationId,
+        decision: cast.decision,
+      };
+      if (isContextDecisionSurface(cast.surface)) payload.surface = cast.surface;
+      if (typeof cast.score === "number" && Number.isFinite(cast.score)) {
+        payload.score = cast.score;
+      }
+      if (isContextDecisionReuseRisk(cast.reuseRisk)) {
+        payload.reuseRisk = cast.reuseRisk;
+      }
+      try {
+        await advisor.recordContextDecision(payload);
         return ok(null);
       } catch (e) {
         return wrapErr<null>(e);

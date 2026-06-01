@@ -6,16 +6,22 @@ import {
   type BudgetUsageProfileSummary,
   type BudgetUsageSummary,
   type CapabilitySuggestion,
+  type ContextOutcomeSummary,
+  type ContextOutcomeSummaryInput,
   type EffortHint,
   type TaskRunCostBudgetProgress,
   type TaskRunCostBudgetScope,
   type TaskRunCostStatusCounts,
   type TaskRunCostSummary,
   type LearnerDecisionRecord,
+  type LearnerContextDecisionRecord,
   type LearnerModelContext,
   type LearnerRecommendation,
   type LearnerRecommendationApprovalResult,
   type LearningTrace,
+  type ObservationRecallInput,
+  type ObservationRecallResult,
+  type TaskRun,
   evaluateApprovalActionPolicy,
 } from "@harness/core";
 
@@ -36,6 +42,9 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { newId } from "@harness/storage";
 import { redactSecrets } from "./redact-secrets.ts";
+import { deriveProjectKey } from "./project-key.ts";
+import { ObservationRecallService } from "./observation-recall.ts";
+import { ContextObservabilityService } from "./context-observability.ts";
 
 /**
  * Phase 6 advisor. Composes capability suggestions (Phase 5) with
@@ -46,6 +55,8 @@ import { redactSecrets } from "./redact-secrets.ts";
  * captures accept/reject, mirrored on disk so we can audit recommendations
  * even if the user clears the SQLite database.
  */
+
+const RECOMMENDED_CONTEXT_LIMIT = 3;
 
 export interface LearnerAdvisorDeps {
   state: LocalStateService;
@@ -72,9 +83,13 @@ export class LearnerAdvisor {
         `TaskRun ${input.taskRunId} not found`,
       );
     }
-    const [capabilities, traces] = await Promise.all([
+    const [capabilities, traces, recommendedContext] = await Promise.all([
       this.deps.state.listCapabilities(),
       this.deps.state.listLearningTraces(),
+      recommendedContextForTaskRun({
+        state: this.deps.state,
+        taskRun,
+      }),
     ]);
     const baseSuggestions = suggestCapabilities({
       prompt: taskRun.userRequest,
@@ -102,6 +117,7 @@ export class LearnerAdvisor {
     const recommendation: LearnerRecommendation = {
       id: newId("learningTrace"),
       recommendedCapabilities: reranked,
+      recommendedContext,
       rationale,
       confidence,
     };
@@ -112,6 +128,52 @@ export class LearnerAdvisor {
     if (costHint) recommendation.costHint = costHint;
     if (latencyHint) recommendation.latencyHint = latencyHint;
     return recommendation;
+  }
+
+  async recallContext(
+    input: ObservationRecallInput,
+  ): Promise<ObservationRecallResult[]> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const query =
+      typeof input.query === "string" && input.query.trim().length > 0
+        ? input.query
+        : taskRun.userRequest;
+    const recall = new ObservationRecallService({ state: this.deps.state });
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    return recall.recall({
+      projectKey,
+      query,
+      excludeTaskRunId: taskRun.id,
+      ...(input.source !== undefined ? { source: input.source } : {}),
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    });
+  }
+
+  async summarizeContextOutcomes(
+    input: ContextOutcomeSummaryInput,
+  ): Promise<ContextOutcomeSummary> {
+    const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${input.taskRunId} not found`,
+      );
+    }
+    const observability = new ContextObservabilityService({
+      state: this.deps.state,
+    });
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    return observability.summarize({
+      taskRunId: taskRun.id,
+      projectKey,
+      ...(input.limit !== undefined ? { limit: input.limit } : {}),
+    });
   }
 
   async summarizeTaskRunCost(input: {
@@ -476,6 +538,42 @@ export class LearnerAdvisor {
     const file = join(this.deps.decisionLogDir, "decisions.jsonl");
     await fs.appendFile(file, `${line}\n`, "utf8");
   }
+
+  async recordContextDecision(
+    record: LearnerContextDecisionRecord,
+  ): Promise<void> {
+    const taskRun = await this.deps.state.getTaskRun(record.taskRunId);
+    if (!taskRun) {
+      throw new LearnerAdvisorError(
+        LEARNER_TASK_NOT_FOUND,
+        `TaskRun ${record.taskRunId} not found`,
+      );
+    }
+    const observationId = record.observationId.trim();
+    if (observationId.length === 0) return;
+    const decision = record.decision;
+    const surface = record.surface ?? "recall";
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    const payload: Record<string, unknown> = {
+      observationId,
+      decision,
+      surface,
+    };
+    if (typeof record.score === "number" && Number.isFinite(record.score)) {
+      payload.score = Number(record.score.toFixed(6));
+    }
+    if (record.reuseRisk !== undefined) payload.reuseRisk = record.reuseRisk;
+    await this.deps.state.createObservation({
+      taskRunId: taskRun.id,
+      threadId: taskRun.threadId,
+      projectKey,
+      source: "learner",
+      eventType: "pinned_context_decision",
+      signal: decision,
+      summary: `user ${decision} recalled context ${observationId}`,
+      payload,
+    });
+  }
 }
 
 const resolveActiveProfile = (input: {
@@ -487,6 +585,27 @@ const resolveActiveProfile = (input: {
     : null) ??
   input.profiles.find((profile) => profile.isDefault) ??
   null;
+
+const recommendedContextForTaskRun = async (input: {
+  state: LocalStateService;
+  taskRun: TaskRun;
+}): Promise<ObservationRecallResult[]> => {
+  const query = input.taskRun.userRequest;
+  if (query.trim().length === 0) return [];
+  const projectKey = await deriveProjectKey({
+    targetDir: input.taskRun.targetDir,
+  });
+  const recall = new ObservationRecallService({ state: input.state });
+  const candidates = await recall.recall({
+    projectKey,
+    query,
+    excludeTaskRunId: input.taskRun.id,
+    limit: RECOMMENDED_CONTEXT_LIMIT * 2,
+  });
+  return candidates
+    .filter((candidate) => candidate.outcome?.reuseRisk !== "high")
+    .slice(0, RECOMMENDED_CONTEXT_LIMIT);
+};
 
 const buildBudgetProgress = (input: {
   budget: NonNullable<AgentProfile["permissions"]["budget"]>;

@@ -410,6 +410,120 @@ test("generatePlan persists a diagnostic log artifact when CLI invocation fails"
   assert.doesNotMatch(diagnostic.summary ?? "", /super-secret-value/);
 });
 
+test("generatePlan records failed pinned context outcome when CLI invocation fails", async () => {
+  const draftingTaskRun = {
+    id: "tr-cli-fail-context",
+    threadId: "th-1",
+    userRequest: "do something",
+    targetDir: "/tmp",
+    status: "drafting",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  const baseInvocation = {
+    id: "inv-cli-fail-context",
+    taskRunId: "tr-cli-fail-context",
+    provider: "claude",
+    model: "claude-opus-4-5",
+    status: "running",
+    promptArtifactId: "art-prompt",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:01.000Z",
+  };
+  let artifactSeq = 0;
+  const outcomes = [];
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => draftingTaskRun,
+      createStep: async () => ({
+        id: "step-cli-fail-context",
+        taskRunId: "tr-cli-fail-context",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status: "running",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createArtifact: async (input) => ({
+        id: `art-${++artifactSeq}`,
+        taskRunId: input.taskRunId,
+        stepId: input.stepId,
+        kind: input.kind,
+        title: input.title,
+        uri: input.uri,
+        summary: input.summary,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+      createAgentInvocation: async () => baseInvocation,
+      updateAgentInvocation: async (_id, patch) => ({
+        ...baseInvocation,
+        ...patch,
+      }),
+      setStepStatus: async () => ({
+        id: "step-cli-fail-context",
+        taskRunId: "tr-cli-fail-context",
+        index: 0,
+        kind: "plan",
+        title: "Agent plan",
+        status: "failed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+      }),
+      setTaskRunStatus: async () => {},
+    }),
+    getProviderStatus: () =>
+      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    recordContextPackObservation: async () => ({ id: "obs-context-pack" }),
+    recordPinnedContextOutcome: async (input) => {
+      outcomes.push(input);
+    },
+    adapter: {
+      invoke: async () => {
+        throw new Error("spawn failed with api_key=super-secret-value");
+      },
+    },
+    defaults: { timeoutMs: 100, stallTimeoutMs: 50 },
+  });
+
+  await assert.rejects(
+    () =>
+      svc.generatePlan({
+        taskRunId: "tr-cli-fail-context",
+        provider: "claude",
+        pinnedObservationContexts: [
+          {
+            observationId: "obs-prior-failure",
+            taskRunId: "tr-prior",
+            threadId: "th-prior",
+            projectKey: "proj_context",
+            source: "quality",
+            eventType: "failed",
+            signal: "failed",
+            summary: "Prior failure included SECRET_TOKEN=abc123.",
+            score: 0.91,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    (err) =>
+      err.constructor.name === "AgentPlanningError" &&
+      err.code === "AGENT_PROVIDER_UNAVAILABLE",
+  );
+
+  assert.equal(outcomes.length, 1);
+  assert.equal(outcomes[0].taskRun.id, "tr-cli-fail-context");
+  assert.equal(outcomes[0].status, "failed");
+  assert.equal(outcomes[0].errorCode, "AGENT_PROVIDER_UNAVAILABLE");
+  assert.equal(outcomes[0].contextPackObservationId, "obs-context-pack");
+  assert.equal(outcomes[0].contextPackArtifactId, "art-2");
+  assert.deepEqual(outcomes[0].pinnedObservationIds, ["obs-prior-failure"]);
+  assert.match(outcomes[0].summary, /agent planning failed/i);
+  assert.doesNotMatch(JSON.stringify(outcomes[0]), /super-secret-value/);
+  assert.doesNotMatch(JSON.stringify(outcomes[0]), /SECRET_TOKEN/);
+});
+
 test("generatePlan emits progress events before and after CLI invocation", async () => {
   const draftingTaskRun = {
     id: "tr-progress",
@@ -436,6 +550,8 @@ test("generatePlan emits progress events before and after CLI invocation", async
   const events = [];
   const artifacts = [];
   let capabilityContextInput = null;
+  let activeInstinctInput = null;
+  let contextPackObservationInput = null;
   const activeProfile = {
     id: "ap-progress",
     name: "LocalPlanner",
@@ -563,6 +679,28 @@ test("generatePlan emits progress events before and after CLI invocation", async
       capabilityContextInput = input;
       return [];
     },
+    getActiveInstincts: async (input) => {
+      activeInstinctInput = input;
+      return [
+        {
+          id: "instinct_quality_evidence",
+          projectKey: "proj_progress",
+          scope: "project",
+          title: "Prevent repeated quality gate failures",
+          rule: "Require stronger evidence before marking similar work ready for review.",
+          rationale: "3 matching observations for quality:failed:failed.",
+          confidence: 0.7,
+          status: "active",
+          sourceObservationIds: ["obs_1", "obs_2", "obs_3"],
+          tags: ["evolved"],
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ];
+    },
+    recordContextPackObservation: async (input) => {
+      contextPackObservationInput = input;
+    },
     emitStreamEvent: (event) => events.push(event),
     adapter: {
       invoke: async (request, onEvent, signal) => {
@@ -588,11 +726,61 @@ test("generatePlan emits progress events before and after CLI invocation", async
     },
   });
 
-  await svc.generatePlan({ taskRunId: "tr-progress", provider: "claude" });
+  await svc.generatePlan({
+    taskRunId: "tr-progress",
+    provider: "claude",
+    pinnedObservationContexts: [
+      {
+        observationId: "obs-quality-repair",
+        taskRunId: "tr-prior",
+        threadId: "th-prior",
+        projectKey: "proj_progress",
+        source: "quality",
+        eventType: "quality_gate",
+        signal: "failed",
+        summary: "A previous repair succeeded only after rebuilding better-sqlite3.",
+        score: 0.91,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  });
 
   assert.deepEqual(capabilityContextInput, {
     taskRunId: "tr-progress",
     profileId: activeProfile.id,
+  });
+  assert.deepEqual(activeInstinctInput, {
+    taskRun: draftingTaskRun,
+    profileId: activeProfile.id,
+  });
+  assert.match(lastRequest.prompt, /ACTIVE INSTINCTS/);
+  assert.match(lastRequest.prompt, /Prevent repeated quality gate failures/);
+  assert.match(lastRequest.prompt, /PINNED OBSERVATION CONTEXT/);
+  assert.match(lastRequest.prompt, /obs-quality-repair/);
+  const contextPackArtifact = artifacts.find(
+    (artifact) => artifact.title === "Agent context pack",
+  );
+  assert.equal(contextPackArtifact?.kind, "snapshot");
+  assert.match(contextPackArtifact?.summary ?? "", /# Agent Context Pack/);
+  assert.match(contextPackArtifact?.summary ?? "", /active instincts: 1/);
+  assert.match(contextPackArtifact?.summary ?? "", /approved capabilities: 0/);
+  assert.match(contextPackArtifact?.summary ?? "", /pinned observations: 1/);
+  assert.match(contextPackArtifact?.summary ?? "", /instinct_quality_evidence/);
+  assert.match(contextPackArtifact?.summary ?? "", /obs-quality-repair/);
+  assert.equal(contextPackObservationInput?.taskRun.id, "tr-progress");
+  assert.equal(contextPackObservationInput?.contextPack.taskRunId, "tr-progress");
+  assert.equal(
+    contextPackObservationInput?.contextPackArtifactId,
+    contextPackArtifact?.id,
+  );
+  assert.deepEqual(contextPackObservationInput?.contextPack.counts, {
+    instincts: 1,
+    capabilities: 0,
+    qualityRisks: 0,
+    threadTasks: 0,
+    recentArtifacts: 0,
+    repoFiles: 0,
+    pinnedObservations: 1,
   });
   assert.equal(createAgentInvocationInput?.profileId, activeProfile.id);
   assert.deepEqual(lastRequest.toolPolicy, {

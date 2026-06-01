@@ -4,6 +4,8 @@ import type {
   AgentProviderStatusMap,
   Approval,
   AutoApproveDecision,
+  LearnerContextDecisionSurface,
+  ObservationRecallResult,
   OrchestrationMode,
   ProposedActionDetails,
   TaskRun,
@@ -38,6 +40,7 @@ import {
 import {
   autoExecutableRunnerApprovalIssue,
   buildAutoApprovedExecutionPlan,
+  canRunAutoApprovedExecutionForStatus,
   isApprovedForPipelineAutoExecution,
   isRunnerExecutionApproval,
   runAutoApprovedExecutionPlan,
@@ -125,6 +128,10 @@ export const WorkbenchShell = (): JSX.Element => {
   const [agentProgressByTaskRunId, setAgentProgressByTaskRunId] = useState<
     Record<string, AgentProgressItem[]>
   >({});
+  const [
+    pinnedObservationContextsByTaskRunId,
+    setPinnedObservationContextsByTaskRunId,
+  ] = useState<Record<string, ObservationRecallResult[]>>({});
   // Tracks approval IDs that the auto-approver has already kicked off so
   // the effect doesn't double-fire on the eventual taskRunChanged event
   // before the row's status flips out of "pending".
@@ -407,6 +414,41 @@ export const WorkbenchShell = (): JSX.Element => {
     [],
   );
 
+  const handlePinnedObservationToggle = useCallback(
+    (
+      taskRunId: string,
+      context: ObservationRecallResult,
+      surface: LearnerContextDecisionSurface = "recall",
+    ): void => {
+      const current = pinnedObservationContextsByTaskRunId[taskRunId] ?? [];
+      const exists = current.some(
+        (item) => item.observationId === context.observationId,
+      );
+      const decision = exists ? "unpinned" : "pinned";
+      setPinnedObservationContextsByTaskRunId((prev) => {
+        const latest = prev[taskRunId] ?? [];
+        const stillExists = latest.some(
+          (item) => item.observationId === context.observationId,
+        );
+        const next = stillExists
+          ? latest.filter((item) => item.observationId !== context.observationId)
+          : [...latest, context].slice(-5);
+        return { ...prev, [taskRunId]: next };
+      });
+      void window.harness.learner.recordContextDecision({
+        taskRunId,
+        observationId: context.observationId,
+        decision,
+        surface,
+        score: context.score,
+        ...(context.outcome?.reuseRisk
+          ? { reuseRisk: context.outcome.reuseRisk }
+          : {}),
+      });
+    },
+    [pinnedObservationContextsByTaskRunId],
+  );
+
   const refreshTaskRunDetail = useCallback(async (taskRunId: string) => {
     setTaskRunDetail((previous) =>
       beginTaskRunDetailRefresh(previous, taskRunId),
@@ -586,6 +628,11 @@ export const WorkbenchShell = (): JSX.Element => {
     if (taskRunDetail.kind !== "ready") return;
     const inFlight = autoInFlightRef.current;
     const taskRunId = taskRunDetail.detail.taskRun.id;
+    if (
+      !canRunAutoApprovedExecutionForStatus(taskRunDetail.detail.taskRun.status)
+    ) {
+      return;
+    }
     const isPipelineAutoTask =
       pipelineAutoTaskRunIdsRef.current.has(taskRunId) ||
       hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts);
@@ -894,6 +941,8 @@ export const WorkbenchShell = (): JSX.Element => {
         try {
           await window.harness.agent.generatePlan({
             taskRunId: draft.taskRun.id,
+            pinnedObservationContexts:
+              pinnedObservationContextsByTaskRunId[draft.taskRun.id] ?? [],
           });
         } catch (e) {
           noteAgentProgress(
@@ -1010,6 +1059,7 @@ export const WorkbenchShell = (): JSX.Element => {
       autoApprove,
       activeAgentProfile,
       noteAgentProgress,
+      pinnedObservationContextsByTaskRunId,
     ],
   );
 
@@ -1036,7 +1086,11 @@ export const WorkbenchShell = (): JSX.Element => {
     );
     void (async () => {
       try {
-        await window.harness.agent.generatePlan({ taskRunId: taskRun.id });
+        await window.harness.agent.generatePlan({
+          taskRunId: taskRun.id,
+          pinnedObservationContexts:
+            pinnedObservationContextsByTaskRunId[taskRun.id] ?? [],
+        });
       } catch (e) {
         noteAgentProgress(
           taskRun.id,
@@ -1056,6 +1110,7 @@ export const WorkbenchShell = (): JSX.Element => {
     refreshThreadDetail,
     selectedThreadId,
     taskRunDetail,
+    pinnedObservationContextsByTaskRunId,
   ]);
 
   const handleAgentGenerate = useCallback(
@@ -1066,10 +1121,19 @@ export const WorkbenchShell = (): JSX.Element => {
         "에이전트 시작 준비",
         "Provider 상태, 프로필, 최근 컨텍스트를 확인하는 중",
       );
-      await window.harness.agent.generatePlan({ taskRunId });
+      await window.harness.agent.generatePlan({
+        taskRunId,
+        pinnedObservationContexts:
+          pinnedObservationContextsByTaskRunId[taskRunId] ?? [],
+      });
       if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
     },
-    [noteAgentProgress, refreshTaskRunDetail, selectedTaskRunId],
+    [
+      noteAgentProgress,
+      pinnedObservationContextsByTaskRunId,
+      refreshTaskRunDetail,
+      selectedTaskRunId,
+    ],
   );
 
   const handleAgentRetry = useCallback(
@@ -1120,6 +1184,12 @@ export const WorkbenchShell = (): JSX.Element => {
   const handleDeleteTask = useCallback(
     async (id: string): Promise<void> => {
       await window.harness.conversation.deleteTask({ taskRunId: id });
+      setPinnedObservationContextsByTaskRunId((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       if (selectedTaskRunId === id) setSelectedTaskRunId(null);
       if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
     },
@@ -1505,6 +1575,23 @@ export const WorkbenchShell = (): JSX.Element => {
           }
           profileId={activeAgentProfile?.id ?? null}
           onApprovalCreated={handleQualityChanged}
+          pinnedObservationIds={
+            taskRunDetail.kind === "ready"
+              ? (
+                  pinnedObservationContextsByTaskRunId[
+                    taskRunDetail.detail.taskRun.id
+                  ] ?? []
+                ).map((context) => context.observationId)
+              : []
+          }
+          onPinnedObservationToggle={(context, surface) => {
+            if (taskRunDetail.kind !== "ready") return;
+            handlePinnedObservationToggle(
+              taskRunDetail.detail.taskRun.id,
+              context,
+              surface,
+            );
+          }}
           onClose={() => setLearningOpen(false)}
         />
       )}

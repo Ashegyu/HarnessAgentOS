@@ -196,6 +196,101 @@ test("buildSplitAgentPrompt includes approved capability context", () => {
   assert.ok(userPrompt.includes("Keep edits small."));
 });
 
+test("buildSplitAgentPrompt includes active instinct context", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    instinctContexts: [
+      {
+        id: "instinct_quality_evidence",
+        projectKey: "proj_1",
+        scope: "project",
+        title: "Prevent repeated quality gate failures",
+        rule: "Require stronger evidence before marking similar work ready for review.",
+        rationale: "3 matching observations for quality:failed:failed.",
+        confidence: 0.7,
+        status: "active",
+        sourceObservationIds: ["obs_1", "obs_2", "obs_3"],
+        tags: ["evolved"],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  assert.ok(userPrompt.includes("ACTIVE INSTINCTS"));
+  assert.ok(userPrompt.includes("Prevent repeated quality gate failures"));
+  assert.ok(userPrompt.includes("Require stronger evidence"));
+  assert.ok(userPrompt.includes("confidence 70%"));
+});
+
+test("buildSplitAgentPrompt includes only explicitly pinned observation context", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    pinnedObservationContexts: [
+      {
+        observationId: "obs-quality-repair",
+        taskRunId: "tr-prior",
+        threadId: "th-prior",
+        projectKey: "proj_1",
+        source: "quality",
+        eventType: "quality_gate",
+        signal: "failed",
+        summary: "A previous repair succeeded only after rebuilding better-sqlite3.",
+        score: 0.91,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  });
+
+  assert.ok(userPrompt.includes("PINNED OBSERVATION CONTEXT"));
+  assert.ok(userPrompt.includes("obs-quality-repair"));
+  assert.ok(userPrompt.includes("quality:failed"));
+  assert.ok(userPrompt.includes("previous repair succeeded"));
+  assert.ok(!buildSplitAgentPrompt({ taskRun: baseTaskRun }).userPrompt.includes("PINNED OBSERVATION CONTEXT"));
+});
+
+test("buildSplitAgentPrompt warns when pinned observation context has failed outcomes", () => {
+  const { userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    pinnedObservationContexts: [
+      {
+        observationId: "obs-noisy-context",
+        taskRunId: "tr-prior",
+        threadId: "th-prior",
+        projectKey: "proj_1",
+        source: "quality",
+        eventType: "quality_gate",
+        signal: "failed",
+        summary: "This context looked relevant but caused another failed quality gate.",
+        score: 0.88,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        outcome: {
+          usedCount: 2,
+          passedCount: 0,
+          warningCount: 0,
+          failedCount: 2,
+          lastStatus: "failed",
+          lastOutcomeSource: "runner",
+          lastSeenAt: "2026-01-02T00:00:00.000Z",
+          qualityOutcomeCount: 0,
+          agentOutcomeCount: 0,
+          runnerOutcomeCount: 2,
+          unknownOutcomeCount: 0,
+          scoreAdjustment: -0.7,
+          reuseRisk: "high",
+        },
+      },
+    ],
+  });
+
+  assert.match(userPrompt, /reuseRisk: high/);
+  assert.match(userPrompt, /lastStatus: failed/);
+  assert.match(userPrompt, /lastOutcomeSource: runner/);
+  assert.match(userPrompt, /runner 2/);
+  assert.match(userPrompt, /failed 2/);
+  assert.match(userPrompt, /prior pinned uses failed/);
+  assert.match(userPrompt, /not an automatic block/);
+});
+
 test("buildSplitAgentPrompt includes packed repository context", () => {
   const { userPrompt } = buildSplitAgentPrompt({
     taskRun: baseTaskRun,
