@@ -148,6 +148,13 @@ FILE CHANGE POLICY
 - A read-only provider sandbox means direct edits are blocked by design. It
   does not block you from proposing file_patch/file_write actions for the
   Harness runner to apply after approval.
+- In worker/pipeline runs, valid file_patch/file_write proposedActions may be
+  auto-approved and executed by Harness when worker file automation is enabled.
+  Do not describe this as a manual-only approval handoff; emit the concrete
+  proposedActions so Harness can validate and apply them.
+- Avoid prose like "I will not apply changes directly." It creates the wrong
+  UX; say that you will emit concrete Harness actions that can be applied after
+  validation.
 - Do not answer that you cannot modify files directly. When the request needs
   a permitted side effect, produce proposedActions for Harness approval.
 - If the user request asks for code changes and a safe proposal is possible,

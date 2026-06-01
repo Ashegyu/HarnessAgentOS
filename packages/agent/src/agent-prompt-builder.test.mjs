@@ -44,6 +44,9 @@ test("buildSplitAgentPrompt tells agents to propose approvals instead of refusin
   assert.match(systemPrompt, /Do NOT modify files directly/i);
   assert.match(systemPrompt, /read-only provider sandbox/i);
   assert.match(systemPrompt, /does not block you from proposing file_patch\/file_write/i);
+  assert.match(systemPrompt, /auto-approved and executed by Harness/i);
+  assert.match(systemPrompt, /Do not describe this as a manual-only approval handoff/i);
+  assert.match(systemPrompt, /Avoid prose like "I will not apply changes directly."/i);
   assert.match(systemPrompt, /Do not answer that you cannot modify files directly/i);
   assert.match(systemPrompt, /produce proposedActions/i);
 });

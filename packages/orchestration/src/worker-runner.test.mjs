@@ -286,6 +286,9 @@ test("runApproved invokes the CLI invoker with profile+instruction and persists 
     assert.match(calls[0].userRequest, /file_write\.after/);
     assert.match(calls[0].userRequest, /Do not answer that direct modification is impossible/);
     assert.match(calls[0].userRequest, /emit proposedActions/);
+    assert.match(calls[0].userRequest, /auto-approved and executed/);
+    assert.match(calls[0].userRequest, /manual-only approval work/);
+    assert.match(calls[0].userRequest, /I will not apply changes directly/);
 
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const workerArtifact = artifacts.find(

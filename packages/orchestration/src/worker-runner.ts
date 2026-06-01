@@ -1450,6 +1450,8 @@ const composeWorkerUserRequest = (input: {
     "- Do not put natural-language edit instructions inside file_write.after.",
     "- Do not answer that direct modification is impossible when an allowed action can express the change.",
     "- For requested code changes, emit proposedActions using the allowed action types so Harness can create approvals.",
+    "- Worker-created file_patch/file_write approvals may be auto-approved and executed after validation when worker file automation is enabled; do not describe them as manual-only approval work.",
+    "- Avoid prose like \"I will not apply changes directly\"; it creates the wrong UX. Emit concrete Harness actions instead.",
     "- A prose sentence such as \"I propose file_patch\" is not an approval; include the actual proposedActions entry with path, patch, and rationale.",
     "",
     "STRUCTURED HANDOFF CONTRACT",
