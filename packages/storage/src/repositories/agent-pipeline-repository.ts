@@ -135,6 +135,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     const now = nowIso();
     this.localizeLegacySeedPipelines({ existing, updatedAt: now });
     this.backfillSeedFilePatchActions({ existing, updatedAt: now });
+    this.backfillSeed3dAssetInstructions({ existing, updatedAt: now });
     this.backfillSeedBackflowRules({ existing, updatedAt: now });
     for (const template of pipelineSeedTemplates) {
       if (existingIds.has(template.id)) continue;
@@ -407,7 +408,74 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         );
     }
   }
+
+  private backfillSeed3dAssetInstructions(input: {
+    existing: readonly AgentPipeline[];
+    updatedAt: string;
+  }): void {
+    if (
+      !input.existing.some(
+        (pipeline) => pipeline.id === "pipe_template_3d_new_project_delivery",
+      )
+    ) {
+      return;
+    }
+    const desired = pipelineSeedTemplates.find(
+      (template) => template.id === "pipe_template_3d_new_project_delivery",
+    );
+    if (!desired) return;
+    const row = this.db
+      .prepare<[string], PipelineRow>(`${SELECT} WHERE id = ?`)
+      .get("pipe_template_3d_new_project_delivery");
+    if (!row) return;
+    const pipeline = rowToPipeline(row);
+    const desiredSteps = new Map(
+      desired.steps.map((step) => [step.id, step] as const),
+    );
+    let changed = false;
+    const steps = pipeline.steps.map((step) => {
+      const desiredStep = desiredSteps.get(step.id);
+      const legacyInstruction = LEGACY_3D_ASSET_STEP_INSTRUCTIONS[step.id];
+      if (
+        !desiredStep ||
+        legacyInstruction === undefined ||
+        step.instruction !== legacyInstruction
+      ) {
+        return step;
+      }
+      changed = true;
+      return { ...step, instruction: desiredStep.instruction };
+    });
+    if (!changed) return;
+    this.db
+      .prepare(
+        `UPDATE agent_pipelines
+            SET steps_json = ?, backflow_rules_json = ?, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify(steps),
+        JSON.stringify(pipeline.backflowRules ?? []),
+        input.updatedAt,
+        pipeline.id,
+      );
+  }
 }
+
+const LEGACY_3D_ASSET_STEP_INSTRUCTIONS: Record<string, string> = {
+  "texture-generation":
+    "3D 모델링에 씌울 텍스처를 생성하세요. 현재 runner는 텍스트 파일 쓰기만 지원하므로 SVG, CSS, JSON, procedural texture script 같은 텍스트 기반 산출물로 제안하고, material/UV/해상도/검수 기준을 함께 남기세요.",
+  modeling:
+    "텍스처 산출물을 실제 material로 참조하는 3D 모델을 생성하세요. 가능한 경우 텍스트 기반 .gltf, .obj/.mtl, Three.js geometry/module 코드로 제안하고 scale, origin, asset path, fallback을 명확히 하세요.",
+  "file-composition":
+    "PRD, 아키텍처, 계획, 텍스처, 3D 모델 산출물을 바탕으로 새 프로젝트의 폴더와 초기 파일을 구성하세요. source/assets/tests/docs/config 경계를 분리하고 targetDir 밖으로 쓰지 마세요.",
+  "class-generation":
+    "파일 구성과 아키텍처를 바탕으로 핵심 class/component skeleton을 생성하세요. 3D asset loader, scene/controller, texture/model registry, UI 또는 runtime entry class의 책임과 public contract를 명확히 하세요.",
+  implementation:
+    "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함하고, 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하세요.",
+  "execution-validation":
+    "새 프로젝트가 실제로 실행 가능한지 build/test/smoke 또는 가장 좁은 검증 명령을 실행하거나 증거를 정리하세요. 3D 모델과 텍스처 로딩 경로 검증을 포함하고, 실행하지 못한 검증은 이유와 남은 위험을 분리하세요.",
+};
 
 const LEGACY_ENGLISH_PIPELINE_SEED_TEXT: Record<
   string,
@@ -1456,7 +1524,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.texture3d,
         title: "이미지 생성: 3D 텍스처",
         instruction:
-          "3D 모델링에 씌울 텍스처를 생성하세요. 현재 runner는 텍스트 파일 쓰기만 지원하므로 SVG, CSS, JSON, procedural texture script 같은 텍스트 기반 산출물로 제안하고, material/UV/해상도/검수 기준을 함께 남기세요.",
+          "3D 모델링에 씌울 텍스처 파일을 생성하세요. 현재 runner는 텍스트 파일 쓰기만 지원하므로 SVG, CSS, JSON, procedural texture script 중 하나 이상을 실제 파일 본문으로 만들고, 반드시 proposedActions에 file_write를 포함하세요. file_write.after에는 자연어 설명이 아니라 완전한 파일 내용을 넣고 material/UV/해상도/검수 기준은 주석 또는 별도 문서 파일로 남기세요.",
         expectedArtifactKinds: ["file", "snapshot", "log"],
         dependsOn: ["plan"],
         allowedActions: ["file_write"],
@@ -1467,7 +1535,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.model3d,
         title: "3D 모델링",
         instruction:
-          "텍스처 산출물을 실제 material로 참조하는 3D 모델을 생성하세요. 가능한 경우 텍스트 기반 .gltf, .obj/.mtl, Three.js geometry/module 코드로 제안하고 scale, origin, asset path, fallback을 명확히 하세요.",
+          "텍스처 산출물을 실제 material로 참조하는 3D 모델 파일을 생성하세요. 텍스트 기반 .gltf, .obj/.mtl, 또는 Three.js geometry/module 코드 중 하나 이상을 실제 파일 본문으로 만들고 반드시 proposedActions에 file_write를 포함하세요. 모델 파일은 texture-generation 단계의 파일 경로를 참조해야 하며 scale, origin, asset path, fallback을 파일 내용 또는 인접 문서에 명확히 남기세요.",
         expectedArtifactKinds: ["file", "diff", "log"],
         dependsOn: ["texture-generation"],
         allowedActions: ["file_write"],
@@ -1478,7 +1546,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.fileComposer,
         title: "파일 구성",
         instruction:
-          "PRD, 아키텍처, 계획, 텍스처, 3D 모델 산출물을 바탕으로 새 프로젝트의 폴더와 초기 파일을 구성하세요. source/assets/tests/docs/config 경계를 분리하고 targetDir 밖으로 쓰지 마세요.",
+          "PRD, 아키텍처, 계획, 텍스처, 3D 모델 산출물을 바탕으로 새 프로젝트의 폴더와 초기 파일을 구성하세요. source/assets/tests/docs/config 경계를 분리하고 targetDir 밖으로 쓰지 마세요. 말로만 구조를 설명하지 말고 package/config/source/docs/tests 초기 파일을 반드시 proposedActions의 file_write로 제안하세요.",
         expectedArtifactKinds: ["diff", "file", "log"],
         dependsOn: ["modeling"],
         allowedActions: ["file_write"],
@@ -1489,7 +1557,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.classSkeleton,
         title: "클래스 생성",
         instruction:
-          "파일 구성과 아키텍처를 바탕으로 핵심 class/component skeleton을 생성하세요. 3D asset loader, scene/controller, texture/model registry, UI 또는 runtime entry class의 책임과 public contract를 명확히 하세요.",
+          "파일 구성과 아키텍처를 바탕으로 핵심 class/component skeleton 파일을 생성하세요. 3D asset loader, scene/controller, texture/model registry, UI 또는 runtime entry class를 실제 source 파일 본문으로 만들고 반드시 proposedActions에 file_write를 포함하세요. public contract와 책임은 코드 주석 또는 문서 파일로 남기세요.",
         expectedArtifactKinds: ["diff", "file", "log"],
         dependsOn: ["file-composition"],
         allowedActions: ["file_write"],
@@ -1500,7 +1568,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.integration3d,
         title: "세부 구현",
         instruction:
-          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함하고, 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하세요.",
+          "생성된 3D 모델과 텍스처를 실제 프로젝트 기능에서 반드시 사용하도록 세부 구현하세요. 모델/텍스처 asset path, loading state, fallback, runtime integration, 테스트 가능한 경계를 포함하고, 기존 파일 부분 수정은 file_patch, 새 파일이나 전체 본문 교체는 file_write approval로 제안하세요. proposedActions에는 최소 하나 이상의 file_patch 또는 file_write가 있어야 하며 산출된 3D asset을 import/load하지 않는 구현은 실패로 보고하세요.",
         expectedArtifactKinds: ["diff", "file", "log"],
         dependsOn: ["class-generation"],
         allowedActions: ["file_patch", "file_write"],
@@ -1522,7 +1590,7 @@ const pipelineSeedTemplates: readonly SeedPipelineTemplate[] = [
         profile: PROFILE_REFS.executionVerification,
         title: "실행 검증",
         instruction:
-          "새 프로젝트가 실제로 실행 가능한지 build/test/smoke 또는 가장 좁은 검증 명령을 실행하거나 증거를 정리하세요. 3D 모델과 텍스처 로딩 경로 검증을 포함하고, 실행하지 못한 검증은 이유와 남은 위험을 분리하세요.",
+          "새 프로젝트가 실제로 실행 가능한지 build/test/smoke 또는 가장 좁은 검증 명령을 실행하도록 반드시 proposedActions에 shell proposedAction을 포함하세요. 명령은 3D 모델과 텍스처 로딩 경로를 확인해야 하며, 실행할 수 있는 명령을 만들 수 없으면 성공으로 보고하지 말고 차단 이유와 남은 위험을 분리하세요.",
         expectedArtifactKinds: ["test_result", "snapshot", "log"],
         dependsOn: ["review"],
         allowedActions: ["shell"],

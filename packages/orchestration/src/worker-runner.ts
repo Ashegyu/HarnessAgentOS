@@ -1137,23 +1137,6 @@ export class WorkerRunner {
       status = "failed";
     }
 
-    const artifact = await this.deps.state.createArtifact({
-      taskRunId: input.plan.taskRunId,
-      stepId: dbStep.id,
-      kind: "log",
-      title: `Worker output: ${planStep.title}`,
-      uri: `harness:orchestration/${input.plan.id}/${planStep.id}`,
-      summary: formatWorkerStepArtifact({
-        step: { ...planStep, status },
-        output: body,
-        ...(profile ? { profileName: profile.name } : {}),
-        ...(remoteEndpoint ? { remoteEndpointName: remoteEndpoint.name } : {}),
-      }),
-    });
-    await this.deps.state.setStepStatus(dbStep.id, status, {
-      outputSummary: `worker artifact ${artifact.id}`,
-    });
-
     const acceptedActions: WorkerStepExecutionResult["acceptedActions"] = [];
     const policyReport: string[] = [];
     if (status === "succeeded" && proposedActions.length > 0) {
@@ -1181,6 +1164,50 @@ export class WorkerRunner {
         });
       }
     }
+    if (
+      status === "succeeded" &&
+      requiresFileActionForDiffProposal(planStep) &&
+      !acceptedActions.some(({ details }) => isFileChangeAction(details.type))
+    ) {
+      status = "failed";
+      acceptedActions.length = 0;
+      body = [
+        body.trimEnd(),
+        "",
+        "Harness validation failed: diff_proposal worker did not produce a file_write or file_patch approval.",
+      ].join("\n");
+    }
+    if (
+      status === "succeeded" &&
+      requiresShellActionForTestResult(planStep) &&
+      !acceptedActions.some(({ details }) => details.type === "shell")
+    ) {
+      status = "failed";
+      acceptedActions.length = 0;
+      body = [
+        body.trimEnd(),
+        "",
+        "Harness validation failed: test_result worker did not produce a shell approval.",
+      ].join("\n");
+    }
+
+    const artifact = await this.deps.state.createArtifact({
+      taskRunId: input.plan.taskRunId,
+      stepId: dbStep.id,
+      kind: "log",
+      title: `Worker output: ${planStep.title}`,
+      uri: `harness:orchestration/${input.plan.id}/${planStep.id}`,
+      summary: formatWorkerStepArtifact({
+        step: { ...planStep, status },
+        output: body,
+        ...(profile ? { profileName: profile.name } : {}),
+        ...(remoteEndpoint ? { remoteEndpointName: remoteEndpoint.name } : {}),
+      }),
+    });
+    await this.deps.state.setStepStatus(dbStep.id, status, {
+      outputSummary: `worker artifact ${artifact.id}`,
+    });
+
     const handoff =
       status === "succeeded"
         ? createInternalAgentMessage({
@@ -1450,6 +1477,8 @@ const composeWorkerUserRequest = (input: {
     "- Do not put natural-language edit instructions inside file_write.after.",
     "- Do not answer that direct modification is impossible when an allowed action can express the change.",
     "- For requested code changes, emit proposedActions using the allowed action types so Harness can create approvals.",
+    "- When outputContract is diff_proposal and file_write/file_patch is allowed, emit at least one concrete file_write or file_patch proposedAction.",
+    "- When outputContract is test_result and shell is allowed, emit at least one concrete shell proposedAction for the narrowest useful verification command.",
     "- Worker-created file_patch/file_write approvals may be auto-approved and executed after validation when worker file automation is enabled; do not describe them as manual-only approval work.",
     "- Avoid prose like \"I will not apply changes directly\"; it creates the wrong UX. Emit concrete Harness actions instead.",
     "- A prose sentence such as \"I propose file_patch\" is not an approval; include the actual proposedActions entry with path, patch, and rationale.",
@@ -1463,6 +1492,17 @@ const composeWorkerUserRequest = (input: {
     "- findings[].basis must be one of evidence, inference, uncertainty.",
   ].join("\n");
 };
+
+const requiresFileActionForDiffProposal = (step: WorkerStep): boolean =>
+  step.outputContract === "diff_proposal" &&
+  step.allowedActions?.some(isFileChangeAction) === true;
+
+const requiresShellActionForTestResult = (step: WorkerStep): boolean =>
+  step.outputContract === "test_result" &&
+  step.allowedActions?.includes("shell") === true;
+
+const isFileChangeAction = (type: string): boolean =>
+  type === "file_write" || type === "file_patch";
 
 const roleToActionIntent = (role: WorkerRole): string => {
   // None of the deterministic roles request side effects; this mapping

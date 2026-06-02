@@ -366,6 +366,26 @@ test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", 
       /3D 모델|텍스처/,
       "implementation step must explicitly consume the generated 3D model and texture outputs",
     );
+    for (const stepId of [
+      "texture-generation",
+      "modeling",
+      "file-composition",
+      "class-generation",
+      "implementation",
+    ]) {
+      const step = project3d.steps.find((candidate) => candidate.id === stepId);
+      assert.match(
+        step?.instruction ?? "",
+        /proposedActions|file_write|file_patch/,
+        `${stepId} must require concrete file proposedActions, not prose-only output`,
+      );
+    }
+    assert.match(
+      project3d.steps.find((step) => step.id === "execution-validation")
+        ?.instruction ?? "",
+      /shell proposedAction|shell approval|proposedActions/,
+      "execution validation must require a concrete shell proposedAction",
+    );
     assert.ok(
       project3d.backflowRules?.some(
         (rule) =>
@@ -445,6 +465,40 @@ test("AgentPipelineRepository.ensureSeed backfills missing seed backflow rules",
           rule.id === "bf_implement_from_plan_step_failed" &&
           rule.trigger === "step_failed",
       ),
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.ensureSeed backfills 3D asset action instructions", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    await pipelines.ensureSeed();
+    const seeded = await pipelines.get("pipe_template_3d_new_project_delivery");
+    assert.ok(seeded, "3D New Project Delivery template should exist");
+    await pipelines.update({
+      ...seeded,
+      steps: seeded.steps.map((step) =>
+        step.id === "texture-generation"
+          ? {
+              ...step,
+              instruction:
+                "3D 모델링에 씌울 텍스처를 생성하세요. 현재 runner는 텍스트 파일 쓰기만 지원하므로 SVG, CSS, JSON, procedural texture script 같은 텍스트 기반 산출물로 제안하고, material/UV/해상도/검수 기준을 함께 남기세요.",
+            }
+          : step,
+      ),
+    });
+
+    await pipelines.ensureSeed();
+
+    const refreshed = await pipelines.get("pipe_template_3d_new_project_delivery");
+    assert.match(
+      refreshed?.steps.find((step) => step.id === "texture-generation")
+        ?.instruction ?? "",
+      /proposedActions.*file_write|file_write.*proposedActions/s,
     );
   } finally {
     closeDb(db);

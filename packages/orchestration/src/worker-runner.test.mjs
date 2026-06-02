@@ -1492,6 +1492,139 @@ test("runApproved creates approvals from structured worker handoff proposedActio
   }
 });
 
+test("runApproved fails diff_proposal worker steps with no file action approvals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "AssetBuilder", role: "coder" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "3D asset flow",
+      description: "",
+      steps: [
+        {
+          id: "modeling",
+          agentProfileId: profile.id,
+          title: "3D modeling",
+          instruction: "Create model files.",
+          expectedArtifactKinds: ["file", "log"],
+          outputContract: "diff_proposal",
+          allowedActions: ["file_write", "file_patch"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText:
+            "I described the model and texture layout, but emitted no file action.",
+          proposedActions: [],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 0);
+    assert.equal(result.workerSteps.length, 1);
+    assert.equal(result.workerSteps[0].status, "failed");
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun.status, "blocked");
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const workerArtifact = artifacts.find((artifact) =>
+      artifact.title.startsWith("Worker output: 3D modeling"),
+    );
+    assert.ok(workerArtifact, "worker output artifact should be persisted");
+    assert.match(
+      workerArtifact.summary,
+      /diff_proposal worker did not produce a file_write or file_patch approval/,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved fails test_result worker steps with no shell approval", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(
+      validProfileInput({ name: "Verifier", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "3D validation flow",
+      description: "",
+      steps: [
+        {
+          id: "execution-validation",
+          agentProfileId: profile.id,
+          title: "Execution validation",
+          instruction: "Run the narrow smoke check.",
+          expectedArtifactKinds: ["test_result", "log"],
+          outputContract: "test_result",
+          allowedActions: ["shell"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "single_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const fakeInvoker = {
+      async invokeForWorker() {
+        return {
+          outputText: "I recommend running npm test later.",
+          proposedActions: [],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const result = await runner.runApproved({
+      approval: approved,
+      plan: drafted.plan,
+    });
+
+    assert.equal(result.proposedApprovalIds.length, 0);
+    assert.equal(result.workerSteps.length, 1);
+    assert.equal(result.workerSteps[0].status, "failed");
+    const updatedTaskRun = await state.getTaskRun(taskRun.id);
+    assert.equal(updatedTaskRun.status, "blocked");
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    const workerArtifact = artifacts.find((artifact) =>
+      artifact.title.startsWith("Worker output: Execution validation"),
+    );
+    assert.ok(workerArtifact, "worker output artifact should be persisted");
+    assert.match(
+      workerArtifact.summary,
+      /test_result worker did not produce a shell approval/,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("runApproved pauses downstream workers until worker file approvals execute", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
