@@ -399,6 +399,12 @@ interface TaskRun {
 }
 ```
 
+상태 값만 DB CHECK로 검증하는 것으로는 충분하지 않다. 모든 상태 변경은
+`LocalStateService.setTaskRunStatus`의 순수 전이표를 통과하며, skip 전이와
+terminal 역행은 거부한다. 품질 평가는 실행과 독립적으로 끝날 수 있으므로
+비종료 상태에서 `quality_failed`/`ready_for_review`로의 전이는 허용하고,
+`done` 진입은 QualityGate가 보장하는 `ready_for_review -> done`으로 제한한다.
+
 ### 6.3 Step
 
 TaskRun을 구성하는 실행 단계다.
@@ -783,8 +789,9 @@ Skillify와 Learner는 사용자가 볼 수 있는 추천 근거로 표시된다
 - node-test-runner: 테스트 실행 추천, risk medium
 
 추천 모델:
-- GPT-5.5 xhigh: 코딩 변경 성공률 높음, 예상 비용 높음
-- Claude Opus 4.7 max: 복잡한 설계 검토에 적합
+- GPT-5.6 Sol xhigh/max: 복잡한 코딩 및 설계 작업
+- GPT-5.6 Terra medium/high: 품질·속도 균형 작업
+- GPT-5.6 Luna none/low/medium: 빠르고 경제적인 반복 작업
 ```
 
 ---
@@ -888,7 +895,7 @@ Learner는 다음 형태로 추천한다.
 
 ```json
 {
-  "recommendedModel": "gpt-5.5",
+  "recommendedModel": "gpt-5.6-sol",
   "effort": "xhigh",
   "reason": "최근 유사 TypeScript 수정 작업에서 테스트 통과율이 높고 재시도 횟수가 낮음",
   "costHint": "high",
@@ -972,6 +979,11 @@ Runner 실행 전 Harness Core는 다음을 확인한다.
 - dependency install 또는 network 호출인지
 - 이전 checkpoint가 존재하는지
 - 결과 artifact를 저장할 수 있는지
+
+Codex `workspace-write`는 이 사전 승인 Runner 경계의 opt-in 예외다. 이 모드에서는
+CLI 실행 전후의 bounded workspace snapshot을 비교해 changed-file manifest와 가능한
+text diff를 secret-redacted artifact로 남긴다. 해당 artifact는 사후 감사 증거이며
+사전 approval과 optimistic file-write 검사를 대신하지 않는다.
 
 ---
 

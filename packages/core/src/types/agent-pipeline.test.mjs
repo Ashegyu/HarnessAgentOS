@@ -76,6 +76,26 @@ test("isAgentPipelineStep rejects non-array expectedArtifactKinds", () => {
   );
 });
 
+test("isAgentPipelineStep rejects unsupported artifact kinds", () => {
+  assert.equal(
+    isAgentPipelineStep({
+      ...VALID_STEP,
+      expectedArtifactKinds: ["plan", "source_archive"],
+    }),
+    false,
+  );
+});
+
+test("isAgentPipelineStep rejects duplicate dependency ids", () => {
+  assert.equal(
+    isAgentPipelineStep({
+      ...VALID_STEP,
+      dependsOn: ["step_before", "step_before"],
+    }),
+    false,
+  );
+});
+
 test("isAgentPipelineStep rejects malformed topology metadata", () => {
   assert.equal(
     isAgentPipelineStep({ ...VALID_STEP, dependsOn: [""] }),

@@ -3,15 +3,19 @@ import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
 } from "../execution-timeouts.ts";
+import {
+  DEFAULT_AGENT_REASONING_EFFORT,
+  DEFAULT_CODEX_MODEL,
+  type AgentReasoningEffort,
+  type CodexModel,
+} from "./codex-models.ts";
 
-export type AgentProvider = "auto" | "claude" | "codex";
-
-export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
-export const DEFAULT_CODEX_MODEL = "gpt-5.5";
+export type AgentProvider = "codex";
 
 export interface AgentSettings {
   provider: AgentProvider;
-  model: string;
+  model: CodexModel;
+  reasoningEffort: AgentReasoningEffort;
   timeoutMs: number;
   stallTimeoutMs: number;
   contextDepth: number;
@@ -31,7 +35,7 @@ export interface WorkerProfile {
   id: string;
   name: string;
   provider: AgentProvider;
-  model: string;
+  model: CodexModel;
   role: WorkerRole;
 }
 
@@ -96,6 +100,7 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
     agent: Object.freeze({
       provider: "codex" as AgentProvider,
       model: DEFAULT_CODEX_MODEL,
+      reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
       timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
       stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
       contextDepth: 5,

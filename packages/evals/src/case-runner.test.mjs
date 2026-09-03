@@ -93,7 +93,11 @@ test("CaseRunner runs N attempts and aggregates pass metrics", async () => {
     assert.equal(result.passAt3, 1);
     assert.equal(result.passToThe3, 1);
     assert.equal(result.consistency, 1);
-    assert.equal(result.outcome, "passed");
+    assert.equal(
+      result.outcome,
+      "passed",
+      result.attempts.map((attempt) => attempt.graderReason).join("\n"),
+    );
     assert.equal(
       result.attempts.every((attempt) => !attempt.fsEscapeDetected),
       true,
@@ -270,7 +274,11 @@ for (const fixturePath of phase3FixturePaths) {
 
     const result = await runFixture(fixture);
 
-    assert.equal(result.outcome, "passed");
+    assert.equal(
+      result.outcome,
+      "passed",
+      result.attempts.map((attempt) => attempt.graderReason).join("\n"),
+    );
     assert.equal(
       result.attempts.every((attempt) => attempt.passed),
       true,

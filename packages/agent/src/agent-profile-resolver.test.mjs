@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { resolveAgentProfile } from "./agent-profile-resolver.ts";
 
 const legacyAgent = {
-  provider: "claude",
-  model: "claude-legacy",
+  provider: "codex",
+  model: "gpt-5.6-sol",
   timeoutMs: 300_000,
   stallTimeoutMs: 60_000,
   contextDepth: 5,
@@ -14,11 +14,11 @@ const makeProfile = (overrides = {}) => ({
   id: "ap_x",
   name: "X",
   description: "",
-  provider: "claude",
+  provider: "codex",
   role: "coder",
   persona: "",
   tuning: {
-    model: "claude-profile-model",
+    model: "gpt-5.6-terra",
     timeoutMs: 600_000,
     stallTimeoutMs: 90_000,
     contextDepth: 7,
@@ -73,7 +73,7 @@ test("resolveAgentProfile falls back to legacy when no profile rows exist", () =
   });
   assert.equal(out.source, "legacy");
   assert.equal(out.profile, null);
-  assert.equal(out.tuning.model, "claude-legacy");
+  assert.equal(out.tuning.model, "gpt-5.6-sol");
   assert.equal(out.tuning.timeoutMs, 300_000);
 });
 
@@ -97,7 +97,7 @@ test("resolveAgentProfile surfaces profile tuning when a profile wins", () => {
     activeAgentProfileId: undefined,
     legacyAgent,
   });
-  assert.equal(out.tuning.model, "claude-profile-model");
+  assert.equal(out.tuning.model, "gpt-5.6-terra");
   assert.equal(out.tuning.timeoutMs, 600_000);
   assert.equal(out.tuning.stallTimeoutMs, 90_000);
 });

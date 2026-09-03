@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type {
   AgentProfile,
   AgentProviderStatusMap,
@@ -29,6 +30,13 @@ import type { CommandPaletteItem } from "./command-palette-model";
 import { SlimRail } from "./SlimRail";
 import { HeroEmpty } from "./HeroEmpty";
 import type { AgentProgressItem } from "./AgentProgressList";
+import {
+  clampPanelWidth,
+  createWorkbenchLayoutStyle,
+  readStoredPanelWidth,
+  resizePanelWidth,
+  WORKBENCH_LAYOUT_LIMITS,
+} from "./workbench-layout";
 import {
   taskRunIdFromAgentStreamEvent,
   taskRunIdToRefreshForAgentEvent,
@@ -226,12 +234,16 @@ export const WorkbenchShell = (): JSX.Element => {
   }, []);
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem("workbench-sidebar-width");
-    return saved ? Math.max(180, Math.min(400, Number(saved))) : 280;
+    return readStoredPanelWidth(
+      localStorage.getItem("workbench-sidebar-width"),
+      "thread",
+    );
   });
   const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    const saved = localStorage.getItem("workbench-right-width");
-    return saved ? Math.max(280, Math.min(600, Number(saved))) : 400;
+    return readStoredPanelWidth(
+      localStorage.getItem("workbench-right-width"),
+      "context",
+    );
   });
   const [dragging, setDragging] = useState<"sidebar" | "right" | null>(null);
 
@@ -345,9 +357,11 @@ export const WorkbenchShell = (): JSX.Element => {
       if (!drag) return;
       const delta = e.clientX - drag.startX;
       if (drag.type === "sidebar") {
-        setSidebarWidth(Math.max(180, Math.min(400, drag.startWidth + delta)));
+        setSidebarWidth(clampPanelWidth(drag.startWidth + delta, "thread"));
       } else {
-        setRightPanelWidth(Math.max(280, Math.min(600, drag.startWidth - delta)));
+        setRightPanelWidth(
+          clampPanelWidth(drag.startWidth - delta, "context"),
+        );
       }
     };
     const onUp = () => {
@@ -381,9 +395,39 @@ export const WorkbenchShell = (): JSX.Element => {
     setDragging("right");
   }, []);
 
+  const handleResizerKeyDown = useCallback(
+    (panel: "thread" | "context", e: React.KeyboardEvent): void => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+
+      // 왼쪽 패널은 오른쪽으로, 오른쪽 패널은 왼쪽으로 이동할 때 넓어진다.
+      const direction =
+        panel === "thread"
+          ? e.key === "ArrowRight"
+            ? 1
+            : -1
+          : e.key === "ArrowLeft"
+            ? 1
+            : -1;
+      const storageKey =
+        panel === "thread"
+          ? "workbench-sidebar-width"
+          : "workbench-right-width";
+      const updateWidth = (current: number): number => {
+        const next = resizePanelWidth(current, panel, direction);
+        localStorage.setItem(storageKey, String(next));
+        return next;
+      };
+
+      if (panel === "thread") setSidebarWidth(updateWidth);
+      else setRightPanelWidth(updateWidth);
+    },
+    [],
+  );
+
   const agentAvailable =
     providers !== null &&
-    (providers.claude.available || providers.codex.available);
+    providers.codex.available;
 
   const refreshThreads = useCallback(async () => {
     setThreadsState({ kind: "loading" });
@@ -618,12 +662,9 @@ export const WorkbenchShell = (): JSX.Element => {
   //      pipeline in ConversationInput — every approval it produces is
   //      pre-approved, including downstream worker actions).
   //
-  // The active profile's BLOCK LIST is a hard floor for non-pipeline
-  // auto-approve triggers. Pipeline-pick consent is scoped by the
-  // pipeline's own step allowedActions and service policy, not the
-  // currently selected UI profile; otherwise a read-only active
-  // profile can strand approved pipeline/backflow worker actions in
-  // waiting_for_approval.
+  // Active profile block/budget rules are the floor for every auto-approve
+  // trigger, including explicit pipeline selection. A blocked row stays
+  // pending so ApprovalPanel can expose a deliberate manual decision.
   useEffect(() => {
     if (taskRunDetail.kind !== "ready") return;
     const inFlight = autoInFlightRef.current;
@@ -681,7 +722,14 @@ export const WorkbenchShell = (): JSX.Element => {
           return false;
         }
         if (isPipelineAutoTask) {
-          const decision = pipelineAutoApproveDecision(a);
+          // 명시적으로 선택한 pipeline도 profile block과 budget 상한은 넘지 않는다.
+          const decision = pipelineAutoApproveDecision(a, {
+            activeProfile: activeAgentProfile,
+            accumulatedTaskRunCostUsd:
+              budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
+            accumulatedDailyCostUsd:
+              budgetUsage?.accumulatedDailyCostUsd ?? 0,
+          });
           autoApproveDecisions.set(a.id, decision);
           return decision.approved;
         }
@@ -1427,10 +1475,7 @@ export const WorkbenchShell = (): JSX.Element => {
   return (
     <div
       className={`workbench${threadDrawerOpen ? " workbench--thread-open" : ""}${contextDrawerOpen ? " workbench--context-open" : ""}`}
-      style={{
-        // Grid columns: rail | thread drawer | main | context drawer
-        gridTemplateColumns: `64px ${threadDrawerOpen ? `${sidebarWidth}px` : "0px"} 1fr ${contextDrawerOpen ? `${rightPanelWidth}px` : "0px"}`,
-      }}
+      style={createWorkbenchLayoutStyle(sidebarWidth, rightPanelWidth) as CSSProperties}
     >
       <SlimRail
         threadCount={threadCount}
@@ -1446,21 +1491,6 @@ export const WorkbenchShell = (): JSX.Element => {
         onToggleTheme={handleToggleTheme}
         onOpenSettings={() => setSettingsOpen(true)}
       />
-
-      {threadDrawerOpen && (
-        <div
-          className={`workbench-resizer${dragging === "sidebar" ? " workbench-resizer--dragging" : ""}`}
-          style={{ left: 64 + sidebarWidth }}
-          onMouseDown={handleSidebarResizerMouseDown}
-        />
-      )}
-      {contextDrawerOpen && (
-        <div
-          className={`workbench-resizer${dragging === "right" ? " workbench-resizer--dragging" : ""}`}
-          style={{ right: rightPanelWidth }}
-          onMouseDown={handleRightResizerMouseDown}
-        />
-      )}
 
       <aside
         className={`thread-drawer${threadDrawerOpen ? " thread-drawer--open" : ""}`}
@@ -1478,6 +1508,20 @@ export const WorkbenchShell = (): JSX.Element => {
           onRetry={() => void refreshThreads()}
           startCreateSignal={threadCreateRequest}
         />
+        {threadDrawerOpen && (
+          <div
+            className={`workbench-resizer workbench-resizer--thread${dragging === "sidebar" ? " workbench-resizer--dragging" : ""}`}
+            role="separator"
+            aria-label="스레드 패널 너비 조절"
+            aria-orientation="vertical"
+            aria-valuemin={WORKBENCH_LAYOUT_LIMITS.thread.min}
+            aria-valuemax={WORKBENCH_LAYOUT_LIMITS.thread.max}
+            aria-valuenow={Math.round(sidebarWidth)}
+            tabIndex={0}
+            onMouseDown={handleSidebarResizerMouseDown}
+            onKeyDown={(e) => handleResizerKeyDown("thread", e)}
+          />
+        )}
       </aside>
 
       <>
@@ -1552,7 +1596,34 @@ export const WorkbenchShell = (): JSX.Element => {
                 selectedTaskRunId !== null &&
                 pipelineAutoTaskRunIdsRef.current.has(selectedTaskRunId)
               }
+              getPipelineAutoDecision={(approval) => {
+                const usage =
+                  taskRunDetail.kind === "ready"
+                    ? taskRunDetail.detail.budgetUsage
+                    : undefined;
+                return pipelineAutoApproveDecision(approval, {
+                  activeProfile: activeAgentProfile,
+                  accumulatedTaskRunCostUsd:
+                    usage?.accumulatedTaskRunCostUsd ?? 0,
+                  accumulatedDailyCostUsd:
+                    usage?.accumulatedDailyCostUsd ?? 0,
+                });
+              }}
             />
+            {contextDrawerOpen && (
+              <div
+                className={`workbench-resizer workbench-resizer--context${dragging === "right" ? " workbench-resizer--dragging" : ""}`}
+                role="separator"
+                aria-label="컨텍스트 패널 너비 조절"
+                aria-orientation="vertical"
+                aria-valuemin={WORKBENCH_LAYOUT_LIMITS.context.min}
+                aria-valuemax={WORKBENCH_LAYOUT_LIMITS.context.max}
+                aria-valuenow={Math.round(rightPanelWidth)}
+                tabIndex={0}
+                onMouseDown={handleRightResizerMouseDown}
+                onKeyDown={(e) => handleResizerKeyDown("context", e)}
+              />
+            )}
           </aside>
         </>
       <RuntimeStatusBar />

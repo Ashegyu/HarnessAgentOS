@@ -51,6 +51,13 @@ export const assessHarnessBindingReadiness = (
       capability,
     ] as const),
   );
+  const bindingByRef = new Map<string, string>();
+  for (const [ref, profileId] of Object.entries(input.bindings)) {
+    const key = normalizeBindingRef(ref);
+    if (key.length > 0 && !bindingByRef.has(key)) {
+      bindingByRef.set(key, profileId);
+    }
+  }
   const agentByRef = buildHarnessAgentRefIndex(input.definition);
   const requiredPackageCapabilities = input.definition.capabilities.filter(
     (capability) => capability.required,
@@ -92,7 +99,8 @@ export const assessHarnessBindingReadiness = (
     input.definition,
     input.workflowId,
   )) {
-    const profileId = input.bindings[candidate.harnessAgentRef] ?? "";
+    const profileId =
+      bindingByRef.get(normalizeBindingRef(candidate.harnessAgentRef)) ?? "";
     if (profileId.length === 0) {
       issues.push({
         severity: "error",
@@ -165,23 +173,22 @@ export const harnessAgentBindingCandidates = (
     definition.workflows[0] ??
     null;
   if (!workflow) return [];
-  const agentsById = new Map(
-    definition.agents.map((agent) => [agent.id, agent] as const),
-  );
+  const agentsByRef = buildHarnessAgentRefIndex(definition);
   const candidates = new Map<string, HarnessAgentBindingCandidate>();
   for (const step of workflow.steps) {
-    const ref = step.agentRef ?? step.roleHint;
-    if (ref.length === 0) continue;
-    const agent = agentsById.get(ref);
-    const existing = candidates.get(ref);
+    const ref = (step.agentRef ?? step.roleHint).trim();
+    const key = normalizeBindingRef(ref);
+    if (key.length === 0) continue;
+    const agent = agentsByRef.get(key);
+    const existing = candidates.get(key);
     if (existing) {
-      candidates.set(ref, {
+      candidates.set(key, {
         ...existing,
         stepCount: existing.stepCount + 1,
       });
       continue;
     }
-    candidates.set(ref, {
+    candidates.set(key, {
       harnessAgentRef: ref,
       label: agent?.name ?? step.roleHint,
       sourceFile: agent?.sourceFile,
@@ -215,7 +222,6 @@ const collectProviderIssues = (
   if (
     agent?.providerHint !== undefined &&
     agent.providerHint !== "auto" &&
-    profile.provider !== "auto" &&
     profile.provider !== agent.providerHint
   ) {
     issues.push({
@@ -226,17 +232,7 @@ const collectProviderIssues = (
       profileId: profile.id,
     });
   }
-  if (profile.provider === "auto") {
-    issues.push({
-      severity: "info",
-      code: "HARNESS_PROVIDER_AUTO",
-      message: `${profile.name} uses provider=auto; runtime provider readiness depends on current settings.`,
-      harnessAgentRef: candidate.harnessAgentRef,
-      profileId: profile.id,
-    });
-    return;
-  }
-  if (providers && !providers[profile.provider].available) {
+  if (providers && !providers.codex.available) {
     issues.push({
       severity: "warning",
       code: "HARNESS_PROVIDER_UNAVAILABLE",

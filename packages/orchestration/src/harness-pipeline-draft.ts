@@ -70,6 +70,11 @@ export const convertHarnessWorkflowToPipelineDraft = (
     };
   }
 
+  issues.push(...validateWorkflowDependencies(workflow));
+  if (issues.length > 0) {
+    return { ok: false, issues };
+  }
+
   const bindings = buildBindingIndex(input.bindings);
   const steps: AgentPipelineStep[] = [];
   for (const step of workflow.steps) {
@@ -142,6 +147,83 @@ const selectWorkflow = (
   }
   return definition.workflows[0] ?? null;
 };
+
+const validateWorkflowDependencies = (
+  workflow: HarnessWorkflowDefinition,
+): HarnessPipelineDraftIssue[] => {
+  const issues: HarnessPipelineDraftIssue[] = [];
+  const stepById = new Map(workflow.steps.map((step) => [step.id, step] as const));
+
+  for (const step of workflow.steps) {
+    const seen = new Set<string>();
+    for (const dependencyId of step.dependsOn) {
+      if (dependencyId.trim().length === 0) {
+        issues.push(dependencyIssue(workflow, step, "contains a blank dependency id"));
+      } else if (seen.has(dependencyId)) {
+        issues.push(
+          dependencyIssue(
+            workflow,
+            step,
+            `contains duplicate dependency ${dependencyId}`,
+          ),
+        );
+      } else if (dependencyId === step.id) {
+        issues.push(dependencyIssue(workflow, step, "cannot depend on itself"));
+      } else if (!stepById.has(dependencyId)) {
+        issues.push(
+          dependencyIssue(
+            workflow,
+            step,
+            `depends on unknown step ${dependencyId}`,
+          ),
+        );
+      }
+      seen.add(dependencyId);
+    }
+  }
+  if (issues.length > 0) return issues;
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (step: HarnessWorkflowStep): HarnessPipelineDraftIssue | null => {
+    if (visited.has(step.id)) return null;
+    visiting.add(step.id);
+    for (const dependencyId of step.dependsOn) {
+      if (visiting.has(dependencyId)) {
+        return dependencyIssue(
+          workflow,
+          step,
+          `contains a dependency cycle through ${dependencyId}`,
+        );
+      }
+      const dependency = stepById.get(dependencyId)!;
+      const issue = visit(dependency);
+      if (issue) return issue;
+    }
+    visiting.delete(step.id);
+    visited.add(step.id);
+    return null;
+  };
+
+  for (const step of workflow.steps) {
+    const issue = visit(step);
+    if (issue) return [issue];
+  }
+  return issues;
+};
+
+const dependencyIssue = (
+  workflow: HarnessWorkflowDefinition,
+  step: HarnessWorkflowStep,
+  detail: string,
+): HarnessPipelineDraftIssue => ({
+  severity: "error",
+  code: "HARNESS_WORKFLOW_DEPENDENCY_INVALID",
+  message: `Harness workflow step ${step.id} ${detail}.`,
+  workflowId: workflow.id,
+  stepId: step.id,
+  sourceRef: step.sourceRef,
+});
 
 const buildBindingIndex = (
   bindings: readonly HarnessAgentProfileBinding[],

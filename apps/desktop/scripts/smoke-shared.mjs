@@ -65,7 +65,6 @@ export const bootstrap = ({ providers, adapter } = {}) => {
 
   const queue = new AgentInvocationQueue();
   let cached = providers ?? {
-    claude: { available: true, version: "fake-1.0.0", queueDepth: 0 },
     codex: { available: true, version: "fake-1.0.0", queueDepth: 0 },
   };
 

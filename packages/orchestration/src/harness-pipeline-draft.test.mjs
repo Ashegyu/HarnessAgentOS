@@ -250,3 +250,53 @@ test("convertHarnessWorkflowToPipelineDraft reports missing workflow ids", () =>
   assert.equal(result.ok, false);
   assert.equal(result.issues[0].code, "HARNESS_WORKFLOW_NOT_FOUND");
 });
+
+test("convertHarnessWorkflowToPipelineDraft rejects unknown workflow dependencies", () => {
+  const definition = sampleDefinition();
+  const workflow = definition.workflows[0];
+  const result = convertHarnessWorkflowToPipelineDraft({
+    definition: {
+      ...definition,
+      workflows: [
+        {
+          ...workflow,
+          steps: workflow.steps.map((step) =>
+            step.id === "step-2"
+              ? { ...step, dependsOn: ["missing-step"] }
+              : step,
+          ),
+        },
+      ],
+    },
+    bindings: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "HARNESS_WORKFLOW_DEPENDENCY_INVALID");
+  assert.equal(result.issues[0].stepId, "step-2");
+  assert.match(result.issues[0].message, /unknown step missing-step/);
+});
+
+test("convertHarnessWorkflowToPipelineDraft rejects dependency cycles", () => {
+  const definition = sampleDefinition();
+  const workflow = definition.workflows[0];
+  const result = convertHarnessWorkflowToPipelineDraft({
+    definition: {
+      ...definition,
+      workflows: [
+        {
+          ...workflow,
+          steps: workflow.steps.map((step) => {
+            if (step.id === "step-1") return { ...step, dependsOn: ["step-3"] };
+            return step;
+          }),
+        },
+      ],
+    },
+    bindings: [],
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issues[0].code, "HARNESS_WORKFLOW_DEPENDENCY_INVALID");
+  assert.match(result.issues[0].message, /cycle/);
+});

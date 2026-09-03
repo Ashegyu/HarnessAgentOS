@@ -1960,7 +1960,7 @@ export const PipelinesTab = ({
                             )}
                         </select>
                         <span className="settings-field__hint">
-                          Local CLI는 로컬 claude/codex 프로세스를 spawn합니다.
+                          Local CLI는 로컬 Codex 프로세스를 spawn합니다.
                           Remote endpoint를 고르면 위 Agent Profile 대신 해당 A2A
                           endpoint로 task가 위임됩니다.
                         </span>

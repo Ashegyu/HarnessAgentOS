@@ -118,7 +118,7 @@ test("CostSummaryView renders token usage as the primary usage metric", () => {
         invocationCount: 1,
         perModel: [
           {
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             cost: 0,
             latencyMs: 1200,
             count: 1,
@@ -130,7 +130,7 @@ test("CostSummaryView renders token usage as the primary usage metric", () => {
         invocations: [
           {
             id: "ainv_tokens",
-            model: "gpt-5.5",
+            model: "gpt-5.6-sol",
             cost: 0,
             latencyMs: 1200,
             createdAt: "2026-05-18T00:00:00.000Z",

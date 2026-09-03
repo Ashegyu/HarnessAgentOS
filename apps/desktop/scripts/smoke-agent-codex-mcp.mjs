@@ -10,7 +10,7 @@
 //
 // Environment knobs:
 //   HARNESS_SMOKE_TIMEOUT_MS=180000
-//   HARNESS_SMOKE_CODEX_MODEL=gpt-5.5
+//   HARNESS_SMOKE_CODEX_MODEL=gpt-5.6-sol
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +50,7 @@ export const buildCodexMcpSmokeRequest = ({
     ].join("\n"),
     modelConfig: {
       provider: "codex",
-      model: process.env.HARNESS_SMOKE_CODEX_MODEL ?? "gpt-5.5",
+      model: process.env.HARNESS_SMOKE_CODEX_MODEL ?? "gpt-5.6-sol",
       timeoutMs,
       stallTimeoutMs: Math.max(15_000, Math.floor(timeoutMs / 3)),
     },

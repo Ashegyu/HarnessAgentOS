@@ -1,4 +1,4 @@
-import type { ArtifactKind } from "./artifact.ts";
+import { ARTIFACT_KINDS, type ArtifactKind } from "./artifact.ts";
 import { APPROVAL_ACTION_TYPES, type ApprovalActionType } from "./approval.ts";
 import {
   isWorkerSourceMetadata,
@@ -71,6 +71,7 @@ const hasOptionalNonEmptyString = (
   key: string,
 ): boolean => obj[key] === undefined || isNonEmptyString(obj[key]);
 const ACTION_TYPE_SET: ReadonlySet<string> = new Set(APPROVAL_ACTION_TYPES);
+const ARTIFACT_KIND_SET: ReadonlySet<string> = new Set(ARTIFACT_KINDS);
 const OUTPUT_CONTRACT_SET: ReadonlySet<string> = new Set(
   WORKER_OUTPUT_CONTRACTS,
 );
@@ -82,7 +83,9 @@ const isNonEmptyStringArray = (v: unknown): v is string[] =>
 const hasOptionalNonEmptyStringArray = (
   obj: Record<string, unknown>,
   key: string,
-): boolean => obj[key] === undefined || isNonEmptyStringArray(obj[key]);
+): boolean =>
+  obj[key] === undefined ||
+  (isNonEmptyStringArray(obj[key]) && new Set(obj[key]).size === obj[key].length);
 
 const hasOptionalApprovalActionArray = (
   obj: Record<string, unknown>,
@@ -110,7 +113,13 @@ export const isAgentPipelineStep = (v: unknown): v is AgentPipelineStep => {
   if (!isNonEmptyString(s.title)) return false;
   if (!isString(s.instruction)) return false;
   if (!Array.isArray(s.expectedArtifactKinds)) return false;
-  if (!s.expectedArtifactKinds.every(isString)) return false;
+  if (
+    !s.expectedArtifactKinds.every(
+      (kind) => typeof kind === "string" && ARTIFACT_KIND_SET.has(kind),
+    )
+  ) {
+    return false;
+  }
   if (!hasOptionalNonEmptyStringArray(s, "dependsOn")) return false;
   if (!hasOptionalApprovalActionArray(s, "allowedActions")) return false;
   if (!hasOptionalOutputContract(s, "outputContract")) return false;

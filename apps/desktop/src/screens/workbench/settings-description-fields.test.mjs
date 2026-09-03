@@ -96,3 +96,12 @@ test("settings prose descriptions wrap instead of clipping", () => {
     );
   }
 });
+
+test("general settings disclose the current Codex default and workspace-write boundary", () => {
+  const source = readFileSync(join(__dirname, "SettingsPanel.tsx"), "utf8");
+
+  assert.match(source, /CODEX_MODELS/);
+  assert.match(source, /Approval.*Runner.*Artifact/);
+  assert.match(source, /직접 수정/);
+  assert.match(source, /diff 검토/);
+});

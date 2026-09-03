@@ -14,8 +14,9 @@ const baseRequest = (overrides = {}) => ({
   cwd: "C:\\repo",
   prompt: "USER REQUEST",
   modelConfig: {
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
   },
@@ -43,7 +44,8 @@ const makeAdapterRequest = () => ({
   prompt: "answer",
   modelConfig: {
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
     timeoutMs: 5_000,
     stallTimeoutMs: 5_000,
   },
@@ -53,81 +55,23 @@ const makeAdapterRequest = () => ({
   },
 });
 
-test("buildCliInvocation keeps Claude-specific flags on the Claude command", () => {
-  const plan = buildCliInvocation(
-    baseRequest({
-      sessionId: "claude-session",
-      systemPrompt: "SYSTEM PROMPT",
-      mcpConfigPath: "C:\\tmp\\mcp.json",
-    }),
-  );
-
-  assert.equal(plan.command, "claude");
-  assert.equal(plan.stdin, "USER REQUEST");
-  assert.deepEqual(plan.args, [
-    "--print",
-    "--output-format",
-    "stream-json",
-    "--include-partial-messages",
-    "--verbose",
-    "--model",
-    "claude-sonnet-4-6",
-    "--system-prompt",
-    "SYSTEM PROMPT",
-    "--resume",
-    "claude-session",
-    "--mcp-config",
-    "C:\\tmp\\mcp.json",
-    "--strict-mcp-config",
-  ]);
-});
-
-test("buildCliInvocation isolates Claude from external MCP configs", () => {
-  const plan = buildCliInvocation(baseRequest());
-
-  assert.equal(plan.command, "claude");
-  assert.ok(plan.args.includes("--strict-mcp-config"));
-  assert.ok(!plan.args.includes("--mcp-config"));
-});
-
-test("buildCliInvocation maps Claude tool policy to provider permission flags", () => {
-  const plan = buildCliInvocation(
-    baseRequest({
-      toolPolicy: {
-        toolAllowlist: [" Read ", "mcp__repo__search", "Read", ""],
-        toolDenylist: ["Bash(git *)", " ", "mcp__repo__delete"],
-      },
-    }),
-  );
-
-  assert.equal(plan.command, "claude");
-  const allowIndex = plan.args.indexOf("--allowedTools");
-  const denyIndex = plan.args.indexOf("--disallowedTools");
-  assert.ok(allowIndex >= 0, "Claude invocation must pass --allowedTools");
-  assert.ok(denyIndex >= 0, "Claude invocation must pass --disallowedTools");
-  assert.equal(plan.args[allowIndex + 1], "Read,mcp__repo__search");
-  assert.equal(plan.args[denyIndex + 1], "Bash(git *),mcp__repo__delete");
-});
-
 test("buildCliInvocation uses Codex exec syntax and folds system prompt into stdin", () => {
   const plan = buildCliInvocation(
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
       },
       systemPrompt: "SYSTEM PROMPT",
-      sessionId: "ignored-for-codex",
-      mcpConfigPath: "C:\\tmp\\mcp.json",
     }),
   );
 
   assert.equal(plan.command, "codex");
   assert.deepEqual(plan.args, [
     "--model",
-    "gpt-5.5",
+    "gpt-5.6-sol",
     "--cd",
     "C:\\repo",
     "--sandbox",
@@ -152,7 +96,7 @@ test("buildCliInvocation passes Codex reasoning effort through a verified -c ove
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         reasoningEffort: "xhigh",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
@@ -177,7 +121,7 @@ test("buildCliInvocation passes verified Codex MCP config overrides through -c",
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
       },
@@ -191,7 +135,7 @@ test("buildCliInvocation passes verified Codex MCP config overrides through -c",
   assert.equal(plan.command, "codex");
   assert.deepEqual(plan.args, [
     "--model",
-    "gpt-5.5",
+    "gpt-5.6-sol",
     "--cd",
     "C:\\repo",
     "--sandbox",
@@ -215,7 +159,7 @@ test("buildCliInvocation maps Codex workspace-write and auto review options", ()
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
       },
@@ -231,7 +175,7 @@ test("buildCliInvocation maps Codex workspace-write and auto review options", ()
   assert.equal(plan.command, "codex");
   assert.deepEqual(plan.args, [
     "--model",
-    "gpt-5.5",
+    "gpt-5.6-sol",
     "--cd",
     "C:\\repo",
     "--sandbox",
@@ -252,7 +196,7 @@ test("buildCliInvocation does not pass unverified tool policy flags to Codex", (
     baseRequest({
       modelConfig: {
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         timeoutMs: 300_000,
         stallTimeoutMs: 60_000,
       },
@@ -317,10 +261,10 @@ test("formatProviderExitFailure reads Codex JSON errors from stdout", () => {
   assert.match(message, /401 Unauthorized/);
 });
 
-test("formatProviderExitFailure falls back to stderr for non-Codex failures", () => {
+test("formatProviderExitFailure falls back to stderr for plain Codex failures", () => {
   assert.equal(
-    formatProviderExitFailure("claude", 1, "", "auth failed\n"),
-    "claude exited with code 1: auth failed",
+    formatProviderExitFailure("codex", 1, "", "auth failed\n"),
+    "codex exited with code 1: auth failed",
   );
 });
 
@@ -361,7 +305,7 @@ test("DefaultModelCliAdapter scopes live stream events to the task run before cl
     invocationId: "inv_1",
     taskRunId: "tsk_1",
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
   });
 
   child.stdout.emit(
@@ -438,63 +382,6 @@ test("DefaultModelCliAdapter keeps SIGKILL fallback after abort error event", as
   );
 });
 
-test("DefaultModelCliAdapter emits normalized Claude tool_call stream events", async () => {
-  const child = createMockChild();
-  const adapter = new DefaultModelCliAdapter({
-    spawn: () => {
-      queueMicrotask(() => {
-        child.stdout.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({
-              type: "stream_event",
-              event: {
-                type: "content_block_start",
-                index: 2,
-                content_block: {
-                  type: "tool_use",
-                  id: "toolu_1",
-                  name: "mcp_repo__search",
-                  input: { query: "agent profile" },
-                },
-              },
-            }) + "\n",
-          ),
-        );
-        child.stdout.emit(
-          "data",
-          Buffer.from(
-            JSON.stringify({
-              type: "result",
-              result: "done",
-            }) + "\n",
-          ),
-        );
-        child.emit("close", 0);
-      });
-      return child;
-    },
-  });
-  const events = [];
-
-  await adapter.invoke(baseRequest(), (event) => events.push(event));
-
-  assert.deepEqual(
-    events.find((event) => event.type === "tool_call"),
-    {
-      type: "tool_call",
-      invocationId: "inv-1",
-      taskRunId: "tsk-1",
-      provider: "claude",
-      source: "stdout",
-      phase: "started",
-      toolName: "mcp_repo__search",
-      toolCallId: "toolu_1",
-      input: { query: "agent profile" },
-    },
-  );
-});
-
 test("DefaultModelCliAdapter emits normalized Codex tool_call stream events", async () => {
   const child = createMockChild();
   const adapter = new DefaultModelCliAdapter({
@@ -556,4 +443,68 @@ test("DefaultModelCliAdapter emits normalized Codex tool_call stream events", as
       },
     },
   );
+});
+
+test("buildCliInvocation passes every supported Codex reasoning effort", () => {
+  for (const reasoningEffort of [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]) {
+    const plan = buildCliInvocation(
+      baseRequest({
+        modelConfig: {
+          provider: "codex",
+          model: "gpt-5.6-terra",
+          reasoningEffort,
+          timeoutMs: 300_000,
+          stallTimeoutMs: 60_000,
+        },
+      }),
+    );
+    assert.ok(
+      plan.args.includes(`model_reasoning_effort=${reasoningEffort}`),
+      reasoningEffort,
+    );
+  }
+});
+
+test("DefaultModelCliAdapter bounds retained stdout and stderr while preserving the final payload", async () => {
+  const child = createMockChild();
+  const adapter = new DefaultModelCliAdapter({
+    maxStdoutBytes: 256,
+    maxStderrBytes: 64,
+    spawn: () => {
+      queueMicrotask(() => {
+        child.stdout.emit("data", Buffer.from(`${"x".repeat(2_000)}\n`));
+        child.stderr.emit("data", Buffer.from("e".repeat(500)));
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            `${JSON.stringify({
+              type: "item.completed",
+              item: {
+                type: "assistant_message",
+                role: "assistant",
+                text: "done",
+              },
+            })}\n`,
+          ),
+        );
+        child.emit("close", 0);
+      });
+      return child;
+    },
+  });
+
+  const result = await adapter.invoke(makeAdapterRequest(), () => {});
+
+  assert.equal(result.stdout, "done");
+  assert.ok(Buffer.byteLength(result.rawStdout ?? "", "utf8") <= 256);
+  assert.ok(Buffer.byteLength(result.stderr, "utf8") <= 64);
+  assert.ok((result.truncation?.stdoutDroppedBytes ?? 0) > 0);
+  assert.ok((result.truncation?.stderrDroppedBytes ?? 0) > 0);
 });

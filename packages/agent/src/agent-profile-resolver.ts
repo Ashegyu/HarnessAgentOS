@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   AgentSettings,
 } from "@harness/core";
+import { DEFAULT_AGENT_REASONING_EFFORT } from "@harness/core";
 
 /**
  * Result of resolving "which AgentProfile (if any) should drive this
@@ -26,7 +27,7 @@ export interface ResolveAgentProfileInput {
   activeAgentProfileId: string | undefined;
   legacyAgent: Pick<
     AgentSettings,
-    "model" | "timeoutMs" | "stallTimeoutMs" | "contextDepth"
+    "model" | "reasoningEffort" | "timeoutMs" | "stallTimeoutMs" | "contextDepth"
   >;
 }
 
@@ -61,6 +62,8 @@ export const resolveAgentProfile = (
     profile: null,
     tuning: {
       model: legacyAgent.model,
+      reasoningEffort:
+        legacyAgent.reasoningEffort ?? DEFAULT_AGENT_REASONING_EFFORT,
       timeoutMs: legacyAgent.timeoutMs,
       stallTimeoutMs: legacyAgent.stallTimeoutMs,
       contextDepth: legacyAgent.contextDepth,

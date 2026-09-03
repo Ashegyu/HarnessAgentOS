@@ -34,6 +34,8 @@ export type {
 } from "./agent-invocation.ts";
 export * from "./agent-plan-output.ts";
 export * from "./agent-planning-gateway.ts";
+export * from "./codex-models.ts";
+export * from "./agent-model-allocation.ts";
 export * from "./settings.ts";
 export * from "./agent-profile.ts";
 export * from "./mcp.ts";

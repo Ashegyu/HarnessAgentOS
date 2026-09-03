@@ -59,7 +59,7 @@ test("taskRunIdFromAgentStreamEvent reads task run scope from lifecycle events",
       invocationId: "inv_1",
       taskRunId: "task_1",
       provider: "codex",
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
     }),
     "task_1",
   );

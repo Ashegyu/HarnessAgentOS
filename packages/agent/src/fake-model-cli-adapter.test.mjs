@@ -9,8 +9,8 @@ const request = (prompt) => ({
   cwd: "C:\\tmp\\project",
   prompt,
   modelConfig: {
-    provider: "claude",
-    model: "fake-model",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     timeoutMs: 30_000,
     stallTimeoutMs: 10_000,
   },
@@ -63,12 +63,11 @@ test("clearRecordedRequests resets requests between attempts", async () => {
   assert.equal(adapter.getRecordedRequests().length, 0);
 });
 
-test("injected now and idGen make timestamps and session ids deterministic", async () => {
+test("injected now makes event timestamps deterministic", async () => {
   const adapter = new FakeModelCliAdapter({
     scenario: "ok-answer-only",
     chunkDelayMs: 0,
     now: () => 1_700_000_000_000,
-    idGen: () => "session-001",
   });
   const events = [];
 
@@ -77,7 +76,7 @@ test("injected now and idGen make timestamps and session ids deterministic", asy
   });
 
   assert.equal(adapter.currentTimeMs(), 1_700_000_000_000);
-  assert.equal(result.sessionId, "fake_session-001");
+  assert.equal(result.provider, "codex");
   const resultEvent = events.find((event) => event.type === "result");
   assert.equal(resultEvent.latencyMs, 0);
 });

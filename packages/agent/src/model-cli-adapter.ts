@@ -20,23 +20,31 @@ import {
 } from "./model-cli-invocation.ts";
 import { resolveProviderCommand } from "./provider-executable.ts";
 import { ProviderToolCallStreamParser } from "./provider-tool-call-events.ts";
+import {
+  BoundedAgentStreamEventBuffer,
+  BoundedTextBuffer,
+  DEFAULT_MAX_CLI_STDERR_BYTES,
+  DEFAULT_MAX_CLI_STDOUT_BYTES,
+  DEFAULT_MAX_NORMALIZED_EVENTS,
+} from "./agent-stream-limits.ts";
 
 const DEFAULT_ABORT_KILL_GRACE_MS = 2_000;
 
 export interface DefaultModelCliAdapterDeps {
   spawn?: typeof spawn;
   abortKillGraceMs?: number;
+  maxStdoutBytes?: number;
+  maxStderrBytes?: number;
+  maxNormalizedEvents?: number;
 }
 
 /**
  * Phase 8 default ModelCliAdapter.
  *
- * - `claude` is invoked with `--print` so output is captured non-interactively.
  * - `codex` is invoked with `exec --json ... -` per the Codex CLI contract.
  *
- * Both flows feed the prompt via stdin. Claude receives the system prompt
- * through `--system-prompt`; Codex has no equivalent flag, so the adapter
- * folds system instructions into the stdin prompt. timeoutMs and stallTimeoutMs come
+ * The prompt is fed via stdin. Codex has no dedicated system-prompt flag, so
+ * the adapter folds system instructions into the stdin prompt. timeoutMs and stallTimeoutMs come
  * from AgentModelConfig — exceeding either yields an AgentCliError.
  *
  * The renderer sees raw stdout chunks as `raw` events, plus a synthetic
@@ -47,11 +55,20 @@ export interface DefaultModelCliAdapterDeps {
 export class DefaultModelCliAdapter implements ModelCliAdapter {
   private readonly spawn: typeof spawn;
   private readonly abortKillGraceMs: number;
+  private readonly maxStdoutBytes: number;
+  private readonly maxStderrBytes: number;
+  private readonly maxNormalizedEvents: number;
 
   constructor(deps: DefaultModelCliAdapterDeps = {}) {
     this.spawn = deps.spawn ?? spawn;
     this.abortKillGraceMs =
       deps.abortKillGraceMs ?? DEFAULT_ABORT_KILL_GRACE_MS;
+    this.maxStdoutBytes =
+      deps.maxStdoutBytes ?? DEFAULT_MAX_CLI_STDOUT_BYTES;
+    this.maxStderrBytes =
+      deps.maxStderrBytes ?? DEFAULT_MAX_CLI_STDERR_BYTES;
+    this.maxNormalizedEvents =
+      deps.maxNormalizedEvents ?? DEFAULT_MAX_NORMALIZED_EVENTS;
   }
 
   async invoke(
@@ -97,9 +114,12 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       );
     }
 
-    let stdout = "";
-    let stderr = "";
-    const normalizedEvents: AgentStreamEvent[] = [];
+    const stdoutBuffer = new BoundedTextBuffer(this.maxStdoutBytes);
+    const stderrBuffer = new BoundedTextBuffer(this.maxStderrBytes);
+    const normalizedEvents = new BoundedAgentStreamEventBuffer({
+      maxEvents: this.maxNormalizedEvents,
+      maxBytes: this.maxStdoutBytes,
+    });
     const stdoutToolCalls = new ProviderToolCallStreamParser({
       invocationId: request.invocationId,
       taskRunId: request.taskRunId,
@@ -177,7 +197,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
 
     child.stdout?.on("data", (b: Buffer) => {
       const text = b.toString("utf8");
-      stdout += text;
+      stdoutBuffer.append(text);
       lastChunkAt = Date.now();
       onEvent({
         type: "raw",
@@ -190,7 +210,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     });
     child.stderr?.on("data", (b: Buffer) => {
       const text = b.toString("utf8");
-      stderr += text;
+      stderrBuffer.append(text);
       lastChunkAt = Date.now();
       onEvent({
         type: "raw",
@@ -237,6 +257,8 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     });
     emitNormalizedEvents(stdoutToolCalls.flush());
     emitNormalizedEvents(stderrToolCalls.flush());
+    const stdout = stdoutBuffer.value();
+    const stderr = stderrBuffer.value();
 
     if (killedByUs && killReason === "timeout") {
       throw new AgentCliError(
@@ -269,10 +291,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
     }
 
     const latencyMs = Date.now() - startedAt;
-    // claude --output-format=stream-json emits one JSON object per line —
-    // extract the final assistant text so downstream parsers see the same
-    // shape as the legacy --print buffered output.
-    const { text: finalText, sessionId } = extractProviderPayload(
+    const { text: finalText } = extractProviderPayload(
       provider,
       stdout,
     );
@@ -296,9 +315,21 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
       stdout: finalText,
       rawStdout: stdout,
       stderr,
-      normalizedEvents,
+      normalizedEvents: normalizedEvents.toArray(),
+      ...(
+        stdoutBuffer.droppedBytes > 0 ||
+        stderrBuffer.droppedBytes > 0 ||
+        normalizedEvents.droppedEvents > 0
+          ? {
+              truncation: {
+                stdoutDroppedBytes: stdoutBuffer.droppedBytes,
+                stderrDroppedBytes: stderrBuffer.droppedBytes,
+                normalizedEventsDropped: normalizedEvents.droppedEvents,
+              },
+            }
+          : {}
+      ),
       latencyMs,
-      ...(sessionId !== undefined ? { sessionId } : {}),
     };
   }
 }

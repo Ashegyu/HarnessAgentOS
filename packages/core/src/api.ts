@@ -389,7 +389,7 @@ export interface HarnessDesktopApi {
   };
   agent: {
     /**
-     * Probe `claude --version` and `codex --version`. Result is cached
+     * Probe `codex --version`. Result is cached
      * in-memory and not persisted in the DB.
      */
     checkProviders(): Promise<AgentProviderStatusMap>;

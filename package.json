@@ -18,19 +18,20 @@
     "eval": "node --import tsx scripts/eval/run.mjs --suite=all",
     "eval:smoke": "node --import tsx scripts/eval/run.mjs --suite=capability --case=file-write-readme --attempts=1 --timeout-ms=300000 --stall-timeout-ms=60000 --real-cli",
     "eval:perf": "node --import tsx scripts/eval/run.mjs --suite=all --attempts=10",
-    "eval:providers": "node --import tsx scripts/eval/run.mjs --suite=capability --attempts=3 --providers=claude,codex --real-cli",
+    "eval:providers": "node --import tsx scripts/eval/run.mjs --suite=capability --attempts=3 --providers=codex --real-cli",
+    "bench:repo-index": "node --import tsx scripts/bench/repo-index-refresh.mjs",
     "test": "npm run rebuild:node --silent && node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\" \"apps/desktop/**/*.test.mjs\"",
     "verify": "npm run check && npm run test && npm run build",
     "verify:smoke": "npm --workspace=@harness/desktop run smoke:all",
     "verify:release": "npm run verify && npm run verify:smoke"
   },
   "devDependencies": {
-    "electron": "41.6.1",
-    "electron-builder": "^26.8.1",
-    "tsx": "^4.19.2",
+    "electron": "41.10.7",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.23.13",
     "typescript": "^5.6.3"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   }
 }

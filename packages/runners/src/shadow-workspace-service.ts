@@ -10,7 +10,7 @@ import {
   type ShadowPreview,
 } from "@harness/core";
 import { newId, nowIso, type LocalStateService } from "@harness/storage";
-import { isWithin } from "./runner-policy.ts";
+import { isRealPathWithin, isWithin } from "./runner-policy.ts";
 import {
   applySingleFileUnifiedPatch,
   UnifiedPatchError,
@@ -97,6 +97,12 @@ export class ShadowWorkspaceService {
         `File path escapes targetDir: ${proposedPath}`,
       );
     }
+    if (!(await isRealPathWithin(taskRun.targetDir, targetPath))) {
+      throw new ShadowWorkspaceError(
+        "SHADOW_TARGET_OUTSIDE_WORKSPACE",
+        `File path resolves outside targetDir: ${proposedPath}`,
+      );
+    }
 
     const relativePath = relative(taskRun.targetDir, targetPath);
     const previewId = `shd_${randomUUID()}`;
@@ -118,6 +124,12 @@ export class ShadowWorkspaceService {
     const baselineHash =
       before === null ? undefined : sha256Hex(Buffer.from(before, "utf8"));
     await mkdir(dirname(shadowPath), { recursive: true });
+    if (!(await isRealPathWithin(shadowDir, shadowPath))) {
+      throw new ShadowWorkspaceError(
+        "SHADOW_TARGET_OUTSIDE_WORKSPACE",
+        `File path resolves outside shadowDir: ${proposedPath}`,
+      );
+    }
     await writeFile(shadowPath, after, "utf8");
 
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id)).length;
@@ -224,6 +236,12 @@ const applyPreviewPatch = (input: {
       throw new ShadowWorkspaceError(
         "SHADOW_PATCH_REQUIRED",
         "file_write approval must include proposedAction.filePatch",
+      );
+    }
+    if (patch.before !== undefined && patch.before !== input.before) {
+      throw new ShadowWorkspaceError(
+        "SHADOW_PATCH_CONTEXT_MISMATCH",
+        `File changed after approval: ${input.relativePath}`,
       );
     }
     return patch.after;

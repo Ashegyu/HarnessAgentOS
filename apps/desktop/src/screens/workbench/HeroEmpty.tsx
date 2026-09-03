@@ -33,9 +33,13 @@ export const HeroEmpty = ({
   if (variant === "no-thread") {
     return (
       <div className="hero-empty" role="region" aria-label="시작 화면">
-        <h1 className="hero-empty__title">HarnessAgentOS</h1>
+        <div className="hero-empty__mark" aria-hidden="true">
+          <WorkbenchIcon name="spark" />
+        </div>
+        <span className="hero-empty__eyebrow">SUPERVISED AI WORKBENCH</span>
+        <h1 className="hero-empty__title">Harness Agent OS</h1>
         <p className="hero-empty__subtitle">
-          작업 스레드를 만들어 AI와 함께 코드베이스를 다뤄보세요.
+          계획부터 승인, 실행, 검증까지 한 흐름 안에서 안전하게 다루세요.
         </p>
         {onCreateThread && (
           <button
@@ -43,9 +47,13 @@ export const HeroEmpty = ({
             className="hero-empty__cta"
             onClick={onCreateThread}
           >
-            + 새 스레드 만들기
+            <span>새 스레드 만들기</span>
+            <WorkbenchIcon name="arrow-right" />
           </button>
         )}
+        <span className="hero-empty__shortcut">
+          <kbd>Ctrl</kbd><span>+</span><kbd>N</kbd>으로 바로 시작
+        </span>
       </div>
     );
   }
@@ -53,6 +61,10 @@ export const HeroEmpty = ({
   if (variant === "no-thread-selected") {
     return (
       <div className="hero-empty" role="region" aria-label="스레드 미선택">
+        <div className="hero-empty__mark" aria-hidden="true">
+          <WorkbenchIcon name="threads" />
+        </div>
+        <span className="hero-empty__eyebrow">THREADS</span>
         <h1 className="hero-empty__title">스레드를 선택하세요</h1>
         <p className="hero-empty__subtitle">
           왼쪽 패널에서 작업할 스레드를 고르거나 새로 만들어 시작하세요.
@@ -63,7 +75,8 @@ export const HeroEmpty = ({
             className="hero-empty__cta"
             onClick={onOpenDrawer}
           >
-            스레드 패널 열기
+            <span>스레드 패널 열기</span>
+            <WorkbenchIcon name="arrow-right" />
           </button>
         )}
       </div>
@@ -72,6 +85,10 @@ export const HeroEmpty = ({
 
   return (
     <div className="hero-empty" role="region" aria-label="새 대화 시작">
+      <div className="hero-empty__mark" aria-hidden="true">
+        <WorkbenchIcon name="spark" />
+      </div>
+      <span className="hero-empty__eyebrow">READY TO BUILD</span>
       <h1 className="hero-empty__title">무엇을 해볼까요?</h1>
       <p className="hero-empty__subtitle">
         아래 제안을 클릭하거나 작성창에 직접 요청을 입력하세요.
@@ -90,3 +107,4 @@ export const HeroEmpty = ({
     </div>
   );
 };
+import { WorkbenchIcon } from "./WorkbenchIcon";

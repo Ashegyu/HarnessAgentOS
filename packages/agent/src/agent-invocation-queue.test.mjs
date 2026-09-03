@@ -12,13 +12,13 @@ const deferred = () => {
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
 
-test("two claude invocations serialize through the lane", async () => {
+test("two Codex invocations serialize through the default lane", async () => {
   const q = new AgentInvocationQueue();
   const order = [];
   const g1 = deferred();
   const g2 = deferred();
   const p1 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i1",
     work: async () => {
       order.push("i1-start");
@@ -28,7 +28,7 @@ test("two claude invocations serialize through the lane", async () => {
     },
   });
   const p2 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i2",
     work: async () => {
       order.push("i2-start");
@@ -42,44 +42,14 @@ test("two claude invocations serialize through the lane", async () => {
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(order, ["i1-start"]);
-  assert.equal(q.getDepth("claude"), 2);
+  assert.equal(q.getDepth("codex"), 2);
   g1.resolve();
   assert.equal(await p1, "one");
   await Promise.resolve();
   assert.deepEqual(order, ["i1-start", "i1-end", "i2-start"]);
   g2.resolve();
   assert.equal(await p2, "two");
-  assert.equal(q.getDepth("claude"), 0);
-});
-
-test("claude and codex run in parallel", async () => {
-  const q = new AgentInvocationQueue();
-  const g = deferred();
-  const order = [];
-  const a = q.enqueue({
-    provider: "claude",
-    invocationId: "a",
-    work: async () => {
-      order.push("a-start");
-      await g.promise;
-      return "a";
-    },
-  });
-  const b = q.enqueue({
-    provider: "codex",
-    invocationId: "b",
-    work: async () => {
-      order.push("b-start");
-      return "b";
-    },
-  });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.ok(order.includes("a-start"));
-  assert.ok(order.includes("b-start"));
-  assert.equal(await b, "b");
-  g.resolve();
-  assert.equal(await a, "a");
+  assert.equal(q.getDepth("codex"), 0);
 });
 
 test("same-provider independent lanes run in parallel", async () => {
@@ -122,7 +92,7 @@ test("cancel queued entry rejects without invoking the work", async () => {
   const q = new AgentInvocationQueue();
   const block = deferred();
   const p1 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i1",
     work: async () => {
       await block.promise;
@@ -131,7 +101,7 @@ test("cancel queued entry rejects without invoking the work", async () => {
   });
   let workInvoked = false;
   const p2 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i2",
     work: async () => {
       workInvoked = true;
@@ -173,7 +143,7 @@ test("isBusy reflects queued and in-flight entries", async () => {
   const q = new AgentInvocationQueue();
   const g = deferred();
   const p = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "x",
     work: async () => {
       await g.promise;
@@ -189,7 +159,7 @@ test("isBusy reflects queued and in-flight entries", async () => {
 // RED: cancel() of a queued (non-inflight) entry must NOT promote that entry
 // to the inflight slot. Doing so corrupts lane.inflight and causes the next
 // waiting entry (i3) to start before the current in-flight entry (i1) finishes,
-// violating the 1-slot-per-provider invariant.
+// violating the one-slot Codex default-lane invariant.
 test("cancel of queued entry preserves 1-slot invariant (i3 must not start until i1 finishes)", async () => {
   const q = new AgentInvocationQueue();
   const gate1 = deferred();
@@ -197,7 +167,7 @@ test("cancel of queued entry preserves 1-slot invariant (i3 must not start until
   const order = [];
 
   const p1 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i1",
     work: async () => {
       order.push("i1-start");
@@ -208,7 +178,7 @@ test("cancel of queued entry preserves 1-slot invariant (i3 must not start until
   });
 
   const p2 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i2",
     work: async (signal) => {
       if (signal.aborted) throw new Error("cancelled");
@@ -217,7 +187,7 @@ test("cancel of queued entry preserves 1-slot invariant (i3 must not start until
   });
 
   const p3 = q.enqueue({
-    provider: "claude",
+    provider: "codex",
     invocationId: "i3",
     work: async () => {
       order.push("i3-start");
@@ -231,7 +201,7 @@ test("cancel of queued entry preserves 1-slot invariant (i3 must not start until
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(order, ["i1-start"]);
-  assert.equal(q.getDepth("claude"), 3);
+  assert.equal(q.getDepth("codex"), 3);
 
   // Cancel i2 (queued, not inflight).
   const found = q.cancel("i2");
@@ -243,7 +213,7 @@ test("cancel of queued entry preserves 1-slot invariant (i3 must not start until
   // i3 must NOT have started — i1 is still blocking the lane.
   assert.deepEqual(order, ["i1-start"], "i3 must not start while i1 is still in-flight");
   // Depth: i1 inflight (1) + i3 waiting (1) = 2.
-  assert.equal(q.getDepth("claude"), 2);
+  assert.equal(q.getDepth("codex"), 2);
 
   // p2 must already be rejected (cancelled before it could run).
   await assert.rejects(() => p2, (err) => err.code === "AGENT_CANCELLED");

@@ -6,13 +6,13 @@ import {
   normalizeEvalProviders,
 } from "./v2-contracts.ts";
 
-test("normalizeEvalProviders prefers providers over legacy provider", () => {
+test("normalizeEvalProviders prefers the providers list over the legacy field", () => {
   assert.deepEqual(
     normalizeEvalProviders({
-      provider: "claude",
-      providers: ["codex", "claude"],
+      provider: "codex",
+      providers: ["codex"],
     }),
-    ["codex", "claude"],
+    ["codex"],
   );
 });
 

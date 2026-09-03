@@ -1,6 +1,7 @@
 import {
   type AgentProfile,
   MAX_PIPELINE_STEPS,
+  isAgentPipeline,
   isAgentPipelineBackflowRule,
   isAgentPipelineStep,
   type AgentPipelineBackflowRule,
@@ -43,15 +44,31 @@ interface PipelineRow {
   updated_at: string;
 }
 
-const rowToPipeline = (row: PipelineRow): AgentPipeline => ({
-  id: row.id,
-  name: row.name,
-  description: row.description,
-  steps: JSON.parse(row.steps_json) as AgentPipelineStep[],
-  backflowRules: JSON.parse(row.backflow_rules_json) as AgentPipelineBackflowRule[],
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
+const rowToPipeline = (row: PipelineRow): AgentPipeline => {
+  let steps: unknown;
+  let backflowRules: unknown;
+  try {
+    steps = JSON.parse(row.steps_json) as unknown;
+    backflowRules = JSON.parse(row.backflow_rules_json) as unknown;
+  } catch {
+    throw new Error(`Invalid AgentPipeline stored (${row.id}): malformed JSON`);
+  }
+  const pipeline: unknown = {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    steps,
+    backflowRules,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+  if (!isAgentPipeline(pipeline)) {
+    throw new Error(`Invalid AgentPipeline stored (${row.id}): malformed shape`);
+  }
+  validateStepTopology(pipeline.steps);
+  validateBackflowRules(pipeline.steps, pipeline.backflowRules ?? []);
+  return pipeline;
+};
 
 const SELECT = `SELECT id, name, description, steps_json,
     COALESCE(backflow_rules_json, '[]') AS backflow_rules_json,
@@ -136,6 +153,7 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
     this.localizeLegacySeedPipelines({ existing, updatedAt: now });
     this.backfillSeedFilePatchActions({ existing, updatedAt: now });
     this.backfillSeed3dAssetInstructions({ existing, updatedAt: now });
+    this.reconcileKnownLegacySeedStepContracts({ existing, updatedAt: now });
     this.backfillSeedBackflowRules({ existing, updatedAt: now });
     for (const template of pipelineSeedTemplates) {
       if (existingIds.has(template.id)) continue;
@@ -460,7 +478,128 @@ export class SqliteAgentPipelineRepository implements AgentPipelineRepository {
         pipeline.id,
       );
   }
+
+  private reconcileKnownLegacySeedStepContracts(input: {
+    existing: readonly AgentPipeline[];
+    updatedAt: string;
+  }): void {
+    const desiredById = new Map(
+      pipelineSeedTemplates.map((template) => [template.id, template] as const),
+    );
+    const legacyByStep = new Map(
+      LEGACY_SEED_STEP_CONTRACTS.map((contract) => [
+        `${contract.pipelineId}/${contract.stepId}`,
+        contract,
+      ] as const),
+    );
+    const selectById = this.db.prepare<[string], PipelineRow>(
+      `${SELECT} WHERE id = ?`,
+    );
+
+    for (const existingPipeline of input.existing) {
+      const desired = desiredById.get(existingPipeline.id);
+      if (!desired) continue;
+      const row = selectById.get(existingPipeline.id);
+      if (!row) continue;
+      const pipeline = rowToPipeline(row);
+      const desiredSteps = new Map(
+        desired.steps.map((step) => [step.id, step] as const),
+      );
+      let changed = false;
+      const steps = pipeline.steps.map((step) => {
+        const desiredStep = desiredSteps.get(step.id);
+        const legacy = legacyByStep.get(`${pipeline.id}/${step.id}`);
+        if (!desiredStep || !legacy) return step;
+
+        let next = step;
+        const desiredActions = desiredStep.allowedActions ?? [];
+        if (
+          legacy.allowedActions !== undefined &&
+          sameActionList(step.allowedActions ?? [], legacy.allowedActions) &&
+          !sameActionList(step.allowedActions ?? [], desiredActions)
+        ) {
+          next = { ...next, allowedActions: [...desiredActions] };
+          changed = true;
+        }
+        if (
+          legacy.outputContractWasMissing === true &&
+          step.outputContract === undefined &&
+          desiredStep.outputContract !== undefined
+        ) {
+          next = { ...next, outputContract: desiredStep.outputContract };
+          changed = true;
+        }
+        return next;
+      });
+      if (!changed) continue;
+      this.db
+        .prepare(
+          `UPDATE agent_pipelines
+              SET steps_json = ?, backflow_rules_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          JSON.stringify(steps),
+          JSON.stringify(pipeline.backflowRules ?? []),
+          input.updatedAt,
+          pipeline.id,
+        );
+    }
+  }
 }
+
+interface LegacySeedStepContract {
+  pipelineId: string;
+  stepId: string;
+  allowedActions?: AgentPipelineStep["allowedActions"];
+  outputContractWasMissing?: boolean;
+}
+
+const LEGACY_SEED_STEP_CONTRACTS: readonly LegacySeedStepContract[] = [
+  {
+    pipelineId: "pipe_template_supervised_delivery",
+    stepId: "implement",
+    allowedActions: ["file_patch", "file_write", "shell"],
+    outputContractWasMissing: true,
+  },
+  ...["plan", "security", "performance", "correctness"].map((stepId) => ({
+    pipelineId: "pipe_template_review_hardening",
+    stepId,
+    allowedActions: ["file_write"] as const,
+  })),
+  ...["project-plan", "architecture"].map((stepId) => ({
+    pipelineId: "pipe_template_new_project_delivery",
+    stepId,
+    allowedActions: ["file_write", "file_patch", "shell"] as const,
+  })),
+  {
+    pipelineId: "pipe_template_new_project_delivery",
+    stepId: "image-assets",
+    allowedActions: ["file_patch", "file_write"],
+  },
+  {
+    pipelineId: "pipe_template_new_project_delivery",
+    stepId: "implementation",
+    allowedActions: ["file_write", "file_patch"],
+  },
+  ...["texture-generation", "modeling", "file-composition", "class-generation"].map(
+    (stepId) => ({
+      pipelineId: "pipe_template_3d_new_project_delivery",
+      stepId,
+      allowedActions: ["file_write", "file_patch", "shell"] as const,
+    }),
+  ),
+  {
+    pipelineId: "pipe_template_3d_new_project_delivery",
+    stepId: "implementation",
+    allowedActions: ["file_patch", "file_write", "shell"],
+  },
+  {
+    pipelineId: "pipe_template_3d_new_project_delivery",
+    stepId: "review",
+    allowedActions: ["shell"],
+  },
+];
 
 const LEGACY_3D_ASSET_STEP_INSTRUCTIONS: Record<string, string> = {
   "texture-generation":

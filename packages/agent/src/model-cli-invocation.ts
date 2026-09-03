@@ -20,12 +20,9 @@ export const buildCliInvocation = (
 });
 
 export const extractProviderPayload = (
-  provider: AgentProvider,
+  _provider: AgentProvider,
   stdout: string,
-): { text: string; sessionId?: string } => {
-  if (provider === "claude") return extractClaudeStreamPayload(stdout);
-  return { text: extractCodexExecPayload(stdout) };
-};
+): { text: string } => ({ text: extractCodexExecPayload(stdout) });
 
 export const formatProviderExitFailure = (
   provider: AgentProvider,
@@ -33,60 +30,15 @@ export const formatProviderExitFailure = (
   stdout: string,
   stderr: string,
 ): string => {
-  const detail =
-    provider === "codex"
-      ? extractCodexFailureDetail(stdout, stderr)
-      : compactFailureText(stderr) || compactFailureText(stdout);
+  const detail = extractCodexFailureDetail(stdout, stderr);
   return detail.length > 0
     ? `${provider} exited with code ${exitCode}: ${detail}`
     : `${provider} exited with code ${exitCode}`;
 };
 
 const buildArgs = (request: ModelCliRequest): string[] => {
-  const { provider, model } = request.modelConfig;
-  if (provider === "claude") {
-    // Streaming output: emits one JSON line per chunk so the stall timer
-    // sees regular activity. Without this, `--print` buffers the entire
-    // response and stdout stays empty until completion — any non-trivial
-    // prompt then trips the stall detector.
-    const args = [
-      "--print",
-      "--output-format", "stream-json",
-      "--include-partial-messages",
-      "--verbose",
-      "--model", model,
-    ];
-    if (request.systemPrompt) {
-      args.push("--system-prompt", request.systemPrompt);
-    }
-    if (request.sessionId) {
-      args.push("--resume", request.sessionId);
-    }
-    if (request.mcpConfigPath) {
-      args.push("--mcp-config", request.mcpConfigPath);
-    }
-    const toolAllowlist = normalizeToolPolicyPatterns(
-      request.toolPolicy?.toolAllowlist,
-    );
-    if (toolAllowlist.length > 0) {
-      args.push("--allowedTools", toolAllowlist.join(","));
-    }
-    const toolDenylist = normalizeToolPolicyPatterns(
-      request.toolPolicy?.toolDenylist,
-    );
-    if (toolDenylist.length > 0) {
-      args.push("--disallowedTools", toolDenylist.join(","));
-    }
-    // HarnessAgentOS owns the invocation MCP surface. Without strict mode,
-    // Claude may also load user/project MCP configs and surface unrelated
-    // startup failures inside the workbench run.
-    args.push("--strict-mcp-config");
-    if (process.env["ANTHROPIC_API_KEY"]) {
-      args.splice(1, 0, "--bare");
-    }
-    return args;
-  }
-  // Codex CLI has no `--system-prompt` and no Claude-compatible `--resume`.
+  const { model } = request.modelConfig;
+  // Codex CLI has no dedicated `--system-prompt` or per-run resume flag.
   // Per-run MCP is passed with verified `-c mcp_servers.*` overrides, not
   // `--mcp-config`. Some options are global-only in the current CLI
   // (`--ask-for-approval`, `-c`), so they must appear before the `exec`
@@ -123,21 +75,6 @@ const buildArgs = (request: ModelCliRequest): string[] => {
   return args;
 };
 
-const normalizeToolPolicyPatterns = (
-  patterns: readonly string[] | undefined,
-): string[] => {
-  if (!patterns) return [];
-  const seen = new Set<string>();
-  const normalized: string[] = [];
-  for (const pattern of patterns) {
-    const value = pattern.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    normalized.push(value);
-  }
-  return normalized;
-};
-
 const normalizeCodexConfigOverrides = (
   overrides: readonly string[] | undefined,
 ): string[] => {
@@ -163,7 +100,7 @@ const normalizeReasoningEffort = (
     : undefined;
 
 const buildStdin = (request: ModelCliRequest): string => {
-  if (request.modelConfig.provider !== "codex" || !request.systemPrompt) {
+  if (!request.systemPrompt) {
     return request.prompt;
   }
   return [
@@ -173,79 +110,6 @@ const buildStdin = (request: ModelCliRequest): string => {
     "USER REQUEST",
     request.prompt,
   ].join("\n");
-};
-
-/**
- * Parse claude --output-format=stream-json output and extract the final
- * assistant text plus the session id. The stream emits one JSON object
- * per line; the last `type: "result"` line carries `.result` and
- * `.session_id`.
- *
- * Fallback priority (needed when the result line has a null result field,
- * e.g. on content-policy errors):
- *   1. `type: "result"` -> `.result` string
- *   2. Last `type: "assistant"` -> `.message.content[].text` concatenated
- *      (emitted by --include-partial-messages; last line is the final state)
- *   3. Concatenated `stream_event` `text_delta` chunks (--verbose mode)
- */
-const extractClaudeStreamPayload = (
-  rawStdout: string,
-): { text: string; sessionId?: string } => {
-  if (!rawStdout) return { text: "" };
-  let resultText: string | null = null;
-  let lastAssistantText: string | null = null;
-  let sessionId: string | undefined;
-  const deltas: string[] = [];
-  for (const line of rawStdout.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const obj = JSON.parse(trimmed) as Record<string, unknown>;
-      if (obj["type"] === "result" && typeof obj["result"] === "string") {
-        resultText = obj["result"] as string;
-      }
-      if (typeof obj["session_id"] === "string") {
-        sessionId = obj["session_id"] as string;
-      }
-      if (obj["type"] === "assistant") {
-        const msg = obj["message"] as Record<string, unknown> | undefined;
-        const content = msg?.["content"];
-        if (Array.isArray(content)) {
-          const parts: string[] = [];
-          for (const block of content) {
-            if (
-              typeof block === "object" &&
-              block !== null &&
-              (block as Record<string, unknown>)["type"] === "text" &&
-              typeof (block as Record<string, unknown>)["text"] === "string"
-            ) {
-              parts.push((block as Record<string, unknown>)["text"] as string);
-            }
-          }
-          if (parts.length > 0) {
-            lastAssistantText = parts.join("");
-          }
-        }
-      }
-      if (obj["type"] === "stream_event") {
-        const ev = obj["event"] as Record<string, unknown> | undefined;
-        const delta = ev?.["delta"] as Record<string, unknown> | undefined;
-        if (
-          delta &&
-          delta["type"] === "text_delta" &&
-          typeof delta["text"] === "string"
-        ) {
-          deltas.push(delta["text"] as string);
-        }
-      }
-    } catch {
-      // non-JSON line — ignore
-    }
-  }
-  return {
-    text: resultText ?? lastAssistantText ?? deltas.join(""),
-    ...(sessionId !== undefined ? { sessionId } : {}),
-  };
 };
 
 export const extractCodexExecPayload = (rawStdout: string): string => {

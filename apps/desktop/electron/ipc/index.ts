@@ -163,6 +163,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     state: {
       profiles: ctx.state.agentProfiles,
       pipelines: ctx.state.agentPipelines,
+      harnessBindingSets: ctx.state.harnessBindingSets,
       getSettings: () => ctx.state.getSettings(),
       updateSettings: (next) => ctx.state.updateSettings(next),
     },

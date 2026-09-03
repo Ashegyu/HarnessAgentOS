@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_AGENT_PERMISSIONS,
   AGENT_PROFILE_ACTION_TYPES,
-  AGENT_REASONING_EFFORTS,
   isAgentProfile,
   isAgentPermissions,
   isAgentModelTuning,
   isAgentCliEnv,
 } from "./agent-profile.ts";
+import { AGENT_REASONING_EFFORTS } from "./codex-models.ts";
 
 test("DEFAULT_AGENT_PERMISSIONS is frozen with empty arrays", () => {
   assert.ok(Object.isFrozen(DEFAULT_AGENT_PERMISSIONS));
@@ -131,7 +131,7 @@ test("isAgentCliEnv rejects non-string env values", () => {
 test("isAgentModelTuning requires the budget fields", () => {
   assert.equal(
     isAgentModelTuning({
-      model: "claude-sonnet-4",
+      model: "gpt-5.6-sol",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -142,7 +142,7 @@ test("isAgentModelTuning requires the budget fields", () => {
   );
   assert.equal(
     isAgentModelTuning({
-      model: "claude-sonnet-4",
+      model: "gpt-5.6-sol",
       timeoutMs: 300_000,
       // stallTimeoutMs missing
       contextDepth: 5,
@@ -155,6 +155,7 @@ test("isAgentModelTuning requires the budget fields", () => {
 
 test("isAgentModelTuning allows optional temperature/maxTokens/reasoning effort", () => {
   assert.deepEqual([...AGENT_REASONING_EFFORTS], [
+    "none",
     "low",
     "medium",
     "high",
@@ -163,7 +164,7 @@ test("isAgentModelTuning allows optional temperature/maxTokens/reasoning effort"
   ]);
   assert.equal(
     isAgentModelTuning({
-      model: "claude-sonnet-4",
+      model: "gpt-5.6-terra",
       temperature: 0.2,
       maxTokens: 4096,
       reasoningEffort: "xhigh",
@@ -177,10 +178,48 @@ test("isAgentModelTuning allows optional temperature/maxTokens/reasoning effort"
   );
 });
 
+test("isAgentProfile accepts Codex only", () => {
+  const profile = {
+    id: "ap_codex_only",
+    name: "Codex only",
+    description: "",
+    category: "core",
+    tags: [],
+    provider: "claude",
+    role: "coder",
+    persona: "",
+    tuning: {
+      model: "gpt-5.6-sol",
+      timeoutMs: 300_000,
+      stallTimeoutMs: 60_000,
+      contextDepth: 5,
+      systemPromptPrefix: "",
+      systemPromptSuffix: "",
+    },
+    cli: { cliPathOverride: "", env: {}, envSecretRefs: {} },
+    permissions: {
+      autoApproveActions: [],
+      blockedActions: [],
+      allowedSkillIds: [],
+      toolAllowlist: [],
+      toolDenylist: [],
+    },
+    mcpServerIds: [],
+    skillSourceIds: [],
+    isDefault: false,
+    createdAt: "2026-09-02T00:00:00.000Z",
+    updatedAt: "2026-09-02T00:00:00.000Z",
+  };
+
+  assert.equal(isAgentProfile(profile), false);
+  assert.equal(isAgentProfile({ ...profile, provider: "auto" }), false);
+  assert.equal(isAgentProfile({ ...profile, provider: "codex" }), true);
+});
+
 test("isAgentModelTuning rejects unknown reasoning effort", () => {
   assert.equal(
     isAgentModelTuning({
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       reasoningEffort: "turbo",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
@@ -195,15 +234,16 @@ test("isAgentModelTuning rejects unknown reasoning effort", () => {
 test("isAgentProfile validates a complete profile with expanded role", () => {
   const profile = {
     id: "ap_test12345678",
-    name: "Reviewer Claude",
+    name: "Reviewer Codex",
     description: "",
     category: "security",
     tags: ["review", "security"],
-    provider: "claude",
+    provider: "codex",
     role: "security-reviewer",
     persona: "You are a security reviewer.",
     tuning: {
-      model: "claude-sonnet-4",
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -270,7 +310,7 @@ test("isAgentProfile rejects unknown role", () => {
     description: "",
     category: "core",
     tags: [],
-    provider: "claude",
+    provider: "codex",
     role: "destroyer",
     persona: "",
     tuning: {
@@ -303,7 +343,7 @@ test("isAgentProfile rejects missing taxonomy", () => {
     id: "ap_test12345678",
     name: "Bogus",
     description: "",
-    provider: "claude",
+    provider: "codex",
     role: "coder",
     persona: "",
     tuning: {

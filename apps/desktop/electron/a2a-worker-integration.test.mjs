@@ -29,7 +29,7 @@ const validProfileInput = (overrides = {}) => ({
   role: "reviewer",
   persona: "Review via remote A2A worker.",
   tuning: {
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,

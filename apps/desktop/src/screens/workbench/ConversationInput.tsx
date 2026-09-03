@@ -297,130 +297,132 @@ export const ConversationInput = ({
 
   return (
     <div className="conversation-input">
-      <div className="conversation-input__targetdir">
-        <span className="conversation-input__label">
-          대상 폴더
-          <FeatureHelpButton featureId="targetDir" />
-        </span>
-        {showDirOverride ? (
-          <input
-            className="conversation-input__dir"
-            type="text"
-            value={overrideDir}
-            onChange={(e) => setOverrideDir(e.target.value)}
-            placeholder={threadTargetDir ?? "절대 경로 입력"}
-            disabled={submitting}
-          />
-        ) : (
-          <span className="conversation-input__dir-display" title={targetDir}>
-            {targetDir.length > 0 ? targetDir : "미설정"}
+      <div className="conversation-input__context-row">
+        <div className="conversation-input__targetdir">
+          <span className="conversation-input__label">
+            대상 폴더
+            <FeatureHelpButton featureId="targetDir" />
           </span>
-        )}
-        {showDirOverride ? (
+          {showDirOverride ? (
+            <input
+              className="conversation-input__dir"
+              type="text"
+              value={overrideDir}
+              onChange={(e) => setOverrideDir(e.target.value)}
+              placeholder={threadTargetDir ?? "절대 경로 입력"}
+              disabled={submitting}
+            />
+          ) : (
+            <span className="conversation-input__dir-display" title={targetDir}>
+              {targetDir.length > 0 ? targetDir : "미설정"}
+            </span>
+          )}
+          {showDirOverride ? (
+            <button
+              type="button"
+              className="conversation-input__dir-toggle"
+              onClick={async () => {
+                setError(null);
+                try {
+                  const picked = await window.harness.app.selectDirectory();
+                  if (picked) setOverrideDir(picked);
+                } catch (e) {
+                  setError(
+                    `폴더 선택 실패: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }}
+              disabled={submitting}
+            >
+              찾아보기…
+            </button>
+          ) : null}
           <button
             type="button"
             className="conversation-input__dir-toggle"
-            onClick={async () => {
-              setError(null);
-              try {
-                const picked = await window.harness.app.selectDirectory();
-                if (picked) setOverrideDir(picked);
-              } catch (e) {
-                setError(
-                  `폴더 선택 실패: ${e instanceof Error ? e.message : String(e)}`,
-                );
-              }
-            }}
+            onClick={() => setShowDirOverride((v) => !v)}
             disabled={submitting}
           >
-            찾아보기…
+            {showDirOverride ? "닫기" : "변경"}
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="conversation-input__dir-toggle"
-          onClick={() => setShowDirOverride((v) => !v)}
-          disabled={submitting}
-        >
-          {showDirOverride ? "닫기" : "변경"}
-        </button>
-      </div>
-      <label
-        className="conversation-input__pipeline"
-        title={
-          orchEnabled
-            ? "이번 메시지를 거칠 파이프라인을 선택하세요. 매 메시지마다 자유롭게 바꿀 수 있습니다."
-            : "설정에서 Orchestration을 활성화하면 Pipeline 선택을 사용할 수 있습니다."
-        }
-      >
-        <span className="conversation-input__pipeline-label">
-          Pipeline
-          <FeatureHelpButton featureId="pipelines" />
-        </span>
-        <select
-          className="conversation-input__pipeline-select"
-          value={orchPipelineId}
-          onChange={(e) => {
-            setOrchPipelineId(e.target.value);
-            if (e.target.value.length > 0) setOrchHarnessKey("");
-          }}
-          onFocus={() => void refreshPipelines()}
-          disabled={submitting || !orchEnabled || pipelines.length === 0}
-        >
-          <option value="">
-            {!orchEnabled
-              ? "(Orchestration 비활성화)"
-              : pipelines.length === 0
-                ? "(저장된 Pipeline 없음)"
-                : "(없음 — 일반 채팅)"}
-          </option>
-          {pipelines.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.steps.length} steps)
-            </option>
-          ))}
-        </select>
-        {threadPipelineId && orchPipelineId === threadPipelineId && (
-          <span className="conversation-input__pipeline-hint">
-            스레드 기본값
-          </span>
-        )}
-      </label>
-      <label
-        className="conversation-input__pipeline"
-        title={
-          orchEnabled
-            ? "저장된 Harness binding set으로 이번 메시지를 직접 오케스트레이션합니다."
-            : "설정에서 Orchestration을 활성화하면 Harness 선택을 사용할 수 있습니다."
-        }
-      >
-        <span className="conversation-input__pipeline-label">Harness</span>
-        <select
-          className="conversation-input__pipeline-select"
-          value={orchHarnessKey}
-          onChange={(e) => {
-            setOrchHarnessKey(e.target.value);
-            if (e.target.value.length > 0) setOrchPipelineId("");
-          }}
-          onFocus={() => void refreshHarnessRoutes()}
-          disabled={
-            submitting || !orchEnabled || harnessRouteOptions.length === 0
+        </div>
+        <label
+          className="conversation-input__pipeline"
+          title={
+            orchEnabled
+              ? "이번 메시지를 거칠 파이프라인을 선택하세요. 매 메시지마다 자유롭게 바꿀 수 있습니다."
+              : "설정에서 Orchestration을 활성화하면 Pipeline 선택을 사용할 수 있습니다."
           }
         >
-          <option value="">
-            {!orchEnabled
-              ? "(Orchestration 비활성화)"
-              : harnessRouteOptions.length === 0
-                ? "(저장된 Binding Set 없음)"
-                : "(없음)"}
-          </option>
-          {harnessRouteOptions.map((option) => (
-            <option key={option.key} value={option.key}>
-              {option.label}
+          <span className="conversation-input__pipeline-label">
+            Pipeline
+            <FeatureHelpButton featureId="pipelines" />
+          </span>
+          <select
+            className="conversation-input__pipeline-select"
+            value={orchPipelineId}
+            onChange={(e) => {
+              setOrchPipelineId(e.target.value);
+              if (e.target.value.length > 0) setOrchHarnessKey("");
+            }}
+            onFocus={() => void refreshPipelines()}
+            disabled={submitting || !orchEnabled || pipelines.length === 0}
+          >
+            <option value="">
+              {!orchEnabled
+                ? "(Orchestration 비활성화)"
+                : pipelines.length === 0
+                  ? "(저장된 Pipeline 없음)"
+                  : "(없음 — 일반 채팅)"}
             </option>
-          ))}
-        </select>
-      </label>
+            {pipelines.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} ({p.steps.length} steps)
+              </option>
+            ))}
+          </select>
+          {threadPipelineId && orchPipelineId === threadPipelineId && (
+            <span className="conversation-input__pipeline-hint">
+              스레드 기본값
+            </span>
+          )}
+        </label>
+        <label
+          className="conversation-input__pipeline"
+          title={
+            orchEnabled
+              ? "저장된 Harness binding set으로 이번 메시지를 직접 오케스트레이션합니다."
+              : "설정에서 Orchestration을 활성화하면 Harness 선택을 사용할 수 있습니다."
+          }
+        >
+          <span className="conversation-input__pipeline-label">Harness</span>
+          <select
+            className="conversation-input__pipeline-select"
+            value={orchHarnessKey}
+            onChange={(e) => {
+              setOrchHarnessKey(e.target.value);
+              if (e.target.value.length > 0) setOrchPipelineId("");
+            }}
+            onFocus={() => void refreshHarnessRoutes()}
+            disabled={
+              submitting || !orchEnabled || harnessRouteOptions.length === 0
+            }
+          >
+            <option value="">
+              {!orchEnabled
+                ? "(Orchestration 비활성화)"
+                : harnessRouteOptions.length === 0
+                  ? "(저장된 Binding Set 없음)"
+                  : "(없음)"}
+            </option>
+            {harnessRouteOptions.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {followUpTaskRun ? (
         <label
           className={`conversation-input__followup${

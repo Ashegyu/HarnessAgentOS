@@ -9,12 +9,18 @@ export interface ProviderToolCallStreamParserOptions {
   source: "stdout" | "stderr";
 }
 
+export const MAX_PROVIDER_PENDING_CHARS = 256 * 1024;
+
 export class ProviderToolCallStreamParser {
   private pending = "";
   private readonly options: ProviderToolCallStreamParserOptions;
 
   constructor(options: ProviderToolCallStreamParserOptions) {
     this.options = options;
+  }
+
+  get pendingLength(): number {
+    return this.pending.length;
   }
 
   feed(chunk: string): AgentToolCallEvent[] {
@@ -28,6 +34,9 @@ export class ProviderToolCallStreamParser {
         out.push(...extractProviderToolCalls(line, this.options));
       }
       nl = this.pending.indexOf("\n");
+    }
+    if (this.pending.length > MAX_PROVIDER_PENDING_CHARS) {
+      this.pending = this.pending.slice(-MAX_PROVIDER_PENDING_CHARS);
     }
     return out;
   }
@@ -49,36 +58,7 @@ export const extractProviderToolCalls = (
   } catch {
     return [];
   }
-  return options.provider === "claude"
-    ? extractClaudeToolCalls(obj, options)
-    : extractCodexToolCalls(obj, options);
-};
-
-const extractClaudeToolCalls = (
-  obj: Record<string, unknown>,
-  options: ProviderToolCallStreamParserOptions,
-): AgentToolCallEvent[] => {
-  if (obj["type"] !== "stream_event") return [];
-  const ev = obj["event"];
-  if (!isRecord(ev) || ev["type"] !== "content_block_start") return [];
-  const block = ev["content_block"];
-  if (!isRecord(block) || block["type"] !== "tool_use") return [];
-  const toolName = stringValue(block["name"]);
-  if (!toolName) return [];
-  const toolCallId = stringValue(block["id"]);
-  return [
-    {
-      type: "tool_call",
-      invocationId: options.invocationId,
-      ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
-      provider: options.provider,
-      source: options.source,
-      phase: "started",
-      toolName,
-      ...(toolCallId ? { toolCallId } : {}),
-      ...(block["input"] !== undefined ? { input: block["input"] } : {}),
-    },
-  ];
+  return extractCodexToolCalls(obj, options);
 };
 
 const extractCodexToolCalls = (

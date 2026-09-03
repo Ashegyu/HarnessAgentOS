@@ -7,9 +7,12 @@ import type {
 import {
   AGENT_REASONING_EFFORTS,
   APPROVAL_ACTION_TYPES,
+  DEFAULT_AGENT_REASONING_EFFORT,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
   DEFAULT_CODEX_MODEL,
+  isCodexModel,
+  normalizeCodexModel,
 } from "@harness/core";
 
 /**
@@ -32,7 +35,7 @@ export interface ProfileDraft {
   role: AgentProfile["role"];
   persona: string;
   model: string;
-  reasoningEffort: AgentReasoningEffort | "";
+  reasoningEffort: AgentReasoningEffort;
   /** UI uses strings so the user can type partial numbers. */
   temperatureText: string;
   maxTokensText: string;
@@ -102,7 +105,7 @@ export const buildBindingPolicyHints = (
   const hasToolPolicy =
     toolAllowlist.length > 0 || toolDenylist.length > 0;
 
-  if (draft.provider === "codex" && hasMcpBindings) {
+  if (hasMcpBindings) {
     hints.push({
       tone: "info",
       message:
@@ -110,25 +113,11 @@ export const buildBindingPolicyHints = (
     });
   }
 
-  if (draft.provider === "codex" && hasToolPolicy) {
+  if (hasToolPolicy) {
     hints.push({
       tone: "warning",
       message:
-        "Codex provider cannot enforce AgentProfile tool policy yet; Claude를 선택하거나 unsupported profile boundary를 제거해야 실행 전 fail-fast를 피할 수 있습니다.",
-    });
-  } else if (draft.provider === "auto" && hasToolPolicy) {
-    hints.push({
-      tone: "warning",
-      message:
-        "provider=auto는 Codex로 선택될 수 있어 tool policy 적용이 보장되지 않습니다. enforced profile boundary가 필요하면 Claude로 고정하세요.",
-    });
-  }
-
-  if (draft.provider === "auto" && hasMcpBindings) {
-    hints.push({
-      tone: "info",
-      message:
-        "Codex MCP binding은 auto provider가 Codex로 선택될 때 stdio/no-secret 서버에 한해 per-run mcp_servers override로 적용됩니다.",
+        "Codex CLI는 AgentProfile tool allow/deny 정책을 실행 전에 강제할 수 없습니다. 실행 전 fail-fast를 피하려면 이 프로필의 tool pattern을 비워 주세요.",
     });
   }
 
@@ -151,7 +140,7 @@ export const buildBindingPolicyHints = (
     hints.push({
       tone: "warning",
       message:
-        "MCP tool pattern은 현재 Claude MCP config namespace 후보에 적용됩니다. 실제 직전 차단은 provider tool-call event 노출 확인 뒤에만 추가합니다.",
+        "MCP tool pattern은 현재 저장 및 검토용 정책입니다. Codex tool-call event는 실행 후 telemetry이며 실행 직전 차단 경계가 아닙니다.",
     });
   }
 
@@ -193,7 +182,7 @@ export const emptyDraft = (): ProfileDraft => ({
   role: "coder",
   persona: "",
   model: DEFAULT_CODEX_MODEL,
-  reasoningEffort: "xhigh",
+  reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
   temperatureText: "",
   maxTokensText: "",
   timeoutMsText: String(DEFAULT_AGENT_TIMEOUT_MS),
@@ -220,11 +209,12 @@ export const draftFromProfile = (p: AgentProfile): ProfileDraft => ({
   description: p.description,
   category: p.category,
   tagsText: p.tags.join(", "),
-  provider: p.provider,
+  provider: "codex",
   role: p.role,
   persona: p.persona,
-  model: p.tuning.model,
-  reasoningEffort: p.tuning.reasoningEffort ?? "",
+  model: normalizeCodexModel(p.tuning.model),
+  reasoningEffort:
+    p.tuning.reasoningEffort ?? DEFAULT_AGENT_REASONING_EFFORT,
   temperatureText: numToText(p.tuning.temperature),
   maxTokensText: numToText(p.tuning.maxTokens),
   timeoutMsText: numToText(p.tuning.timeoutMs),
@@ -260,13 +250,18 @@ export const validateDraft = (
   if (draft.category.trim().length === 0) {
     errors.push({ field: "category", message: "Category는 필수입니다" });
   }
+  if (!isCodexModel(draft.model)) {
+    errors.push({
+      field: "model",
+      message: "지원되는 Codex 5.6 모델을 선택해야 합니다",
+    });
+  }
   if (
-    draft.reasoningEffort !== "" &&
     !isReasoningEffort(draft.reasoningEffort)
   ) {
     errors.push({
       field: "reasoningEffort",
-      message: "Reasoning effort는 low/medium/high/xhigh/max 중 하나여야 합니다",
+      message: "Reasoning effort는 none/low/medium/high/xhigh/max 중 하나여야 합니다",
     });
   }
   const timeout = textToNumOrUndefined(draft.timeoutMsText);
@@ -335,7 +330,7 @@ export const serializeDraft = (
   draft: ProfileDraft,
 ): Omit<AgentProfile, "createdAt" | "updatedAt"> => {
   const tuning: AgentProfile["tuning"] = {
-    model: draft.model,
+    model: normalizeCodexModel(draft.model),
     timeoutMs:
       textToNumOrUndefined(draft.timeoutMsText) ?? DEFAULT_AGENT_TIMEOUT_MS,
     stallTimeoutMs:
@@ -376,7 +371,7 @@ export const serializeDraft = (
     description: draft.description,
     category: draft.category.trim().toLowerCase(),
     tags: parseTags(draft.tagsText),
-    provider: draft.provider,
+    provider: "codex",
     role: draft.role,
     persona: draft.persona,
     tuning,

@@ -457,6 +457,9 @@ new `approval_action` when the caller does not supply one. The default decision 
 cannot approve them unless a narrower profile-level policy explicitly permits it.
 `decision=blocked` approvals are refused by the runner even if their status is
 manually changed to `approved`.
+파이프라인 선택을 통한 자동 승인도 활성 AgentProfile의 `blockedActions`와
+budget cap을 우회하지 않는다. 둘 중 하나라도 위반하면 approval은 pending으로
+남고 실행되지 않는다.
 
 ## `window.harness.app`
 
@@ -598,6 +601,9 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 - `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`.
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
+- 모든 내부 상태 쓰기는 `LocalStateService.setTaskRunStatus`의 중앙 전이표를 통과한다. 동일 상태 재기록은 멱등이며, 허용되지 않은 전이는 `TASK_RUN_INVALID_TRANSITION`으로 거부되고 SQLite row를 변경하지 않는다.
+- 품질 게이트 결과는 비동기로 도착할 수 있으므로 모든 비종료 상태에서 `quality_failed` 또는 `ready_for_review`로 전이할 수 있다. 재작업은 `ready_for_review -> running`, 승인 기반 refinement는 `ready_for_review|done -> waiting_for_approval`을 사용한다.
+- `done`은 `ready_for_review`에서만 진입하며 `waiting_for_approval` refinement 외의 역행을 허용하지 않는다. `cancelled`는 terminal 상태다.
 
 ```ts
 interface CreateConversationTaskInput {
@@ -795,6 +801,12 @@ runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 > `executeCodeChangeAttempt`는 이미 approved 상태인 `file_write` approval들을 순서대로 실행하고, 이미 approved 상태인 verification `shell` approval들을 순서대로 실행한다. 이 호출은 raw command나 raw patch를 받지 않으며 기존 approval/runner 정책을 우회하지 않는다. 성공/실패 결과는 attempt manifest artifact와 QualityGateResult로 남긴다.
 
 Runner 실행 가능 approval은 `file_patch`, `file_write`, `shell`뿐이다. 자동 승인/자동 실행 경로는 approval에 `proposedAction`이 없거나 `proposedAction.type !== approval.actionType`이면 자동 approve하지 않고 pending으로 남긴다. RunnerService도 실행 직전에 같은 `validateProposedActionDetails` 검증을 수행하므로, 오래된 approved row나 DB에 남은 malformed payload는 실행되지 않는다.
+
+`file_write`와 `file_patch`의 경로 검증은 단순 문자열 prefix가 아니라 canonical
+real path 기준으로 `targetDir` containment를 재확인한다. Windows junction/symlink가
+workspace 밖을 가리키거나 dangling link라 canonical target을 확인할 수 없으면
+fail-closed 한다. `file_write.before`가 제안 이후 변경된 경우에도 stale proposal로
+간주해 실제 파일을 덮어쓰지 않는다.
 
 ```ts
 interface RunnerResult {
@@ -1394,7 +1406,7 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 
 ## `window.harness.agent`
 
-Phase 8 — CLI 기반 agent planner. `conversation.createTask({mode: "agent"})`로 생성된 TaskRun에 대해 `generatePlan`을 호출하면 `claude` 또는 `codex` CLI가 main process에서 실행되어 plan artifact와 0..N approval row를 만든다. agent는 절대 파일을 직접 쓰지 않으며, 모든 side effect는 기존 approval 흐름을 통과한다.
+Phase 8 — CLI 기반 agent planner. `conversation.createTask({mode: "agent"})`로 생성된 TaskRun에 대해 `generatePlan`을 호출하면 `claude` 또는 `codex` CLI가 main process에서 실행되어 plan artifact와 0..N approval row를 만든다. 기본 `read-only` 모드에서는 agent가 파일을 직접 쓰지 않으며 모든 side effect는 기존 approval 흐름을 통과한다. 전역 `agent.codexWorkspaceWrite=true`는 명시적 예외다. 이때 Codex CLI는 targetDir 내부를 직접 수정할 수 있고 해당 변경은 Approval → Runner → Artifact 사전 경로로 자동 변환되지 않는다. 기본값은 `false`이며 UI는 활성화 전에 이 경계를 경고한다. workspace-write 호출은 실행 전후의 bounded 파일 snapshot을 비교해 A/M/D manifest와 가능한 text diff를 secret-redacted `diff` artifact(`Workspace change evidence`)로 남긴다. 이 사후 증거는 사전 approval을 대체하지 않는다.
 
 ```ts
 agent.checkProviders(): Promise<AgentProviderStatusMap>;
@@ -1450,7 +1462,7 @@ agent.requestRefinement(input: {
 관찰용이며 이벤트 조회 자체는 원격 호출이나 runner 실행을 유발하지 않는다.
 
 ```ts
-type AgentProvider = "claude" | "codex";
+type AgentProvider = "codex";
 
 interface AgentProviderProbe {
   available: boolean;
@@ -1465,7 +1477,6 @@ interface AgentProviderProbe {
 }
 
 interface AgentProviderStatusMap {
-  claude: AgentProviderProbe;
   codex: AgentProviderProbe;
 }
 
@@ -1500,6 +1511,8 @@ interface AgentInvocation {
 - `proposedActions.length === 0` → TaskRun을 `ready_for_review`로 (answer-only 경로).
 - `proposedActions.length > 0` → TaskRun을 `waiting_for_approval`로.
 - prompt/raw_output artifact는 저장 직전 `redactSecrets`로 마스킹된다.
+- retained CLI tail은 stdout 4 MiB, stderr 1 MiB로 제한한다. normalized/persisted stream은 각각 최대 4,096 events 및 4 MiB이며 누락된 byte/event 수를 transcript의 truncation marker에 기록한다.
+- provider/renderer의 미완성 line은 256 KiB, renderer 집계 text는 512 KiB, tool input은 64 KiB로 제한한다. renderer는 raw/tool/assistant burst를 animation frame 단위로 batch하고 result/hydration은 즉시 flush한다.
 
 오류:
 
@@ -1528,7 +1541,8 @@ settings.update(input: HarnessSettings): Promise<HarnessSettings>;
 
 주요 필드:
 
-- `agent`: legacy single-agent fallback 설정
+- `agent`: legacy single-agent fallback 설정. provider는 `codex`로 고정되고 모델은 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 하나다. 이전 provider/model 값은 `codex` / `gpt-5.6-sol`로 정규화한다. reasoning effort는 `none` / `low` / `medium` / `high` / `xhigh` / `max` 중 하나이며 기본값은 `medium`이다.
+- `agent.codexWorkspaceWrite`: 기본값 `false`. `true`이면 Codex CLI direct-write 예외가 활성화되므로 사후 diff 검토가 필요하다.
 - `orchestration`: orchestration enable/default mode/default pipeline 설정
 - `approval`: auto approval 편의 설정. 실제 실행 가능 여부는 service-layer `PolicyEvaluation`이 최종 결정한다.
   - `approval.autoApprove`: 일반 자동 승인/실행 토글. 기본값은 `false`.
@@ -1571,7 +1585,7 @@ interface EvalRunCaseView {
   caseId: string;
   title: string;
   suite: "capability" | "regression" | "safety";
-  provider?: "claude" | "codex";
+  provider?: "codex";
   outcome: "passed" | "failed" | "partial";
   attemptCount: number;
   passedAttempts: number;
@@ -1678,6 +1692,7 @@ agents.setActive(input: { profileId: string | null }): Promise<HarnessSettings>;
 
 - `setDefault`는 exactly-one default profile 규칙을 유지한다.
 - `setActive(null)`은 active profile override를 해제하고 default profile fallback으로 돌아간다.
+- `delete`는 해당 profile을 참조하는 AgentPipeline 또는 Harness binding set이 있으면 각각 `PIPELINE_IN_USE_BY_PROFILE_DELETE`, `HARNESS_BINDING_IN_USE_BY_PROFILE_DELETE`로 거부한다.
 - profile permissions는 approval UI 자동화보다 우선하는 block/allow context로 사용된다.
 - profile permissions의 optional `budget`은 per-invocation / per-TaskRun / per-day USD 자동 승인 상한으로 사용된다. `agent_profiles.budget_json`이 NULL이면 무제한이다.
 
@@ -2034,7 +2049,7 @@ events.onDiagnosticsChanged(
 
 - `events:taskRunChanged`: 모든 state-changing IPC 핸들러(`conversation.*`, `runner.executeApproved/executeCodeChangeAttempt/retryApproval/cancelExecution`, `shadow.createPreview`, `quality.*`, `orchestration.draftPlan/runApproved`, `agent.*`)가 성공 직후 발행한다. `runner.executeApproved/executeCodeChangeAttempt/retryApproval`은 runner가 실패/취소/검증 실패 상태를 DB에 기록한 뒤 에러나 실패 결과를 반환하는 경우에도 발행한다.
 - 장시간 실행되는 `orchestration.runApproved`는 전체 run 종료 전에도 worker artifact 또는 worker action approval이 저장될 때 `events:taskRunChanged`를 발행할 수 있다. renderer는 이 이벤트를 받으면 fresh TaskRun detail을 pull해서 중간 worker 결과와 approval을 표시해야 한다.
-- `events:agentStreamEvent`: `agent.generatePlan`/worker invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. 각 이벤트는 가능한 경우 `taskRunId`를 포함해 renderer가 invocation row를 즉시 refetch할 수 있게 한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다.
+- `events:agentStreamEvent`: `agent.generatePlan`/worker invocation이 진행 중일 때 CLI stdout/stderr 청크 + `started`/`assistant_text`/`result`/`failed` 메시지를 발행한다. 각 이벤트는 가능한 경우 `taskRunId`를 포함해 renderer가 invocation row를 즉시 refetch할 수 있게 한다. renderer는 자기 invocationId가 아닌 이벤트는 무시한다. 장시간 stream의 보존/파싱 상한은 `window.harness.agent` 절의 budget을 따르며, renderer는 invocation별 burst를 frame 단위로 합친다.
 - `events:diagnosticsHeartbeat`: main process가 10초 interval로 발행하고, TaskRun status 변경, agent invocation 시작/종료, runner cancel 시점에는 즉시 발행한다. renderer는 `app.getDiagnostics()`로 initial fetch 후 이 이벤트만 구독한다.
 - 페이로드는 위 표에 명시된 shape만 — 채널 자체로 임의의 도메인 객체를 전달하지 않는다.
 - read-only IPC (예: `quality.getLatest`, `state.listThreads`)는 발행하지 않는다.

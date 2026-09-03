@@ -7,8 +7,7 @@ import {
 } from "./system-diagnostics-service.ts";
 
 const providers = (overrides = {}) => ({
-  claude: { available: true, version: "claude 1.0", queueDepth: 0 },
-  codex: { available: false, error: "missing", queueDepth: 0 },
+  codex: { available: true, version: "codex 1.0", queueDepth: 0 },
   ...overrides,
 });
 
@@ -26,8 +25,7 @@ test("SystemDiagnosticsService marks DB and queue thresholds as warnings", async
     },
     agentPlanning: {
       getQueueDepths: () => ({
-        claude: 6,
-        codex: 0,
+        codex: 6,
         total: SYSTEM_DIAGNOSTICS_THRESHOLDS.queueDepthWarn + 1,
       }),
     },
@@ -56,19 +54,18 @@ test("SystemDiagnosticsService marks providers warning when none are available",
       }),
     },
     agentPlanning: {
-      getQueueDepths: () => ({ claude: 0, codex: 0, total: 0 }),
+      getQueueDepths: () => ({ codex: 0, total: 0 }),
     },
     runner: { getInflightCount: () => 0 },
     probeProviders: async () =>
       providers({
-        claude: { available: false, error: "missing", queueDepth: 0 },
         codex: { available: false, error: "missing", queueDepth: 0 },
       }),
   });
 
   const diagnostics = await service.collect();
   assert.equal(diagnostics.providers.status, "warning");
-  assert.match(diagnostics.providers.warning ?? "", /No local agent provider/);
+  assert.match(diagnostics.providers.warning ?? "", /Codex CLI/);
 });
 
 test("SystemDiagnosticsService exposes capability refresh failures", async () => {
@@ -83,7 +80,7 @@ test("SystemDiagnosticsService exposes capability refresh failures", async () =>
       }),
     },
     agentPlanning: {
-      getQueueDepths: () => ({ claude: 0, codex: 0, total: 0 }),
+      getQueueDepths: () => ({ codex: 0, total: 0 }),
     },
     runner: { getInflightCount: () => 0 },
     capabilities: {

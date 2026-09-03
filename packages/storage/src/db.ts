@@ -20,20 +20,30 @@ export interface OpenDbOptions {
  *   PRAGMA foreign_keys=ON
  *   PRAGMA busy_timeout=5000
  *
- * Migrations are applied idempotently on every open.
+ * Migrations are applied idempotently on writable opens. Read-only opens are
+ * query-only and require an already migrated database.
  */
 export const openDb = (options: OpenDbOptions): HarnessDb => {
+  const readonly = options.readonly ?? false;
   const db = new Database(options.filePath, {
-    readonly: options.readonly ?? false,
+    readonly,
   });
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
+  try {
+    db.pragma("foreign_keys = ON");
+    db.pragma("busy_timeout = 5000");
+    if (readonly) {
+      db.pragma("query_only = ON");
+      return db;
+    }
 
-  applyMigrations(db);
-
-  return db;
+    db.pragma("journal_mode = WAL");
+    applyMigrations(db);
+    return db;
+  } catch (error) {
+    if (db.open) db.close();
+    throw error;
+  }
 };
 
 export const closeDb = (db: HarnessDb): void => {

@@ -287,7 +287,7 @@ const buildPreview = (
   const warnings: string[] = [
     codexSupportedDraft
       ? "Codex MCP config can be delivered per-run with -c mcp_servers.* for stdio/no-secret servers; actual use still needs an authenticated Codex CLI run."
-      : "Codex MCP config delivery is limited to stdio/no-secret servers; this draft requires Claude MCP config or server changes before Codex use.",
+      : "Codex MCP config delivery is limited to stdio/no-secret servers; update this draft before Codex use.",
   ];
 
   const stamped = {
@@ -308,7 +308,7 @@ const buildPreview = (
   const wouldNameCollide = existingKeys.has(sanitizedConfigKey);
   if (wouldNameCollide) {
     warnings.push(
-      `Sanitized Claude MCP config key "${sanitizedConfigKey}" already exists; save with a different name to avoid suffix allocation.`,
+      `Sanitized Codex MCP config key "${sanitizedConfigKey}" already exists; save with a different name to avoid suffix allocation.`,
     );
   }
 
@@ -452,7 +452,7 @@ const configKeyCollisionError = (
   err(
     harnessError(
       STATE_INVALID_INPUT,
-      `MCP server "${server.name}" would reuse Claude MCP config key "${collision.key}" already used by "${collision.existing.name}". Save disabled or choose a distinct name before enabling.`,
+      `MCP server "${server.name}" would reuse Codex MCP config key "${collision.key}" already used by "${collision.existing.name}". Save disabled or choose a distinct name before enabling.`,
     ),
   );
 

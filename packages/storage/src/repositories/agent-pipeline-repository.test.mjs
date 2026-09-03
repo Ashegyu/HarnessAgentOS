@@ -110,6 +110,79 @@ test("AgentPipelineRepository.create assigns id, timestamps, round-trips steps",
   }
 });
 
+test("AgentPipelineRepository rejects malformed canonical rows on read", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    const now = "2026-09-03T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO agent_pipelines
+        (id, name, description, steps_json, backflow_rules_json, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?)`,
+    ).run(
+      "pipe_corrupt_artifact",
+      "Corrupt artifact contract",
+      "",
+      JSON.stringify([
+        {
+          id: "step_a",
+          agentProfileId: profile.id,
+          title: "Plan",
+          instruction: "Plan.",
+          expectedArtifactKinds: ["source_archive"],
+        },
+      ]),
+      "[]",
+      now,
+      now,
+    );
+
+    await assert.rejects(
+      () => pipelines.get("pipe_corrupt_artifact"),
+      /Invalid AgentPipeline stored.*pipe_corrupt_artifact/,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository rejects invalid stored dependency topology", async () => {
+  const { t, db, pipelines, profile } = await setupRepos();
+  try {
+    const now = "2026-09-03T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO agent_pipelines
+        (id, name, description, steps_json, backflow_rules_json, created_at, updated_at)
+       VALUES (?,?,?,?,?,?,?)`,
+    ).run(
+      "pipe_corrupt_topology",
+      "Corrupt topology",
+      "",
+      JSON.stringify([
+        {
+          id: "step_a",
+          agentProfileId: profile.id,
+          title: "Plan",
+          instruction: "Plan.",
+          expectedArtifactKinds: ["plan"],
+          dependsOn: ["missing_step"],
+        },
+      ]),
+      "[]",
+      now,
+      now,
+    );
+
+    await assert.rejects(
+      () => pipelines.get("pipe_corrupt_topology"),
+      /dependsOn references unknown step/,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("AgentPipelineRepository.ensureSeed inserts role-aware default templates", async () => {
   const { t, db, pipelines, profiles } = await setupRepos();
   try {
@@ -499,6 +572,113 @@ test("AgentPipelineRepository.ensureSeed backfills 3D asset action instructions"
       refreshed?.steps.find((step) => step.id === "texture-generation")
         ?.instruction ?? "",
       /proposedActions.*file_write|file_write.*proposedActions/s,
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentPipelineRepository.ensureSeed reconciles known legacy step contracts without touching custom steps", async () => {
+  const { t, db, pipelines, profiles } = await setupRepos();
+  try {
+    await profiles.ensureSeed();
+    await pipelines.ensureSeed();
+
+    const supervised = await pipelines.get("pipe_template_supervised_delivery");
+    const review = await pipelines.get("pipe_template_review_hardening");
+    const project3d = await pipelines.get(
+      "pipe_template_3d_new_project_delivery",
+    );
+    const project = await pipelines.get("pipe_template_new_project_delivery");
+    assert.ok(supervised && review && project3d && project);
+
+    await pipelines.update({
+      ...supervised,
+      steps: supervised.steps.map((step) =>
+        step.id === "implement"
+          ? {
+              ...step,
+              allowedActions: ["file_patch", "file_write", "shell"],
+              outputContract: undefined,
+            }
+          : step,
+      ),
+    });
+    await pipelines.update({
+      ...review,
+      steps: [
+        ...review.steps.map((step) =>
+          step.id === "security"
+            ? { ...step, allowedActions: ["file_write"] }
+            : step,
+        ),
+        {
+          id: "custom-report",
+          agentProfileId: review.steps[0].agentProfileId,
+          title: "Custom report",
+          instruction: "Keep this user-authored step intact.",
+          expectedArtifactKinds: ["file"],
+          dependsOn: ["correctness"],
+          allowedActions: ["file_write"],
+          outputContract: "plan",
+        },
+      ],
+    });
+    await pipelines.update({
+      ...project3d,
+      steps: project3d.steps.map((step) =>
+        step.id === "review"
+          ? { ...step, allowedActions: ["shell"] }
+          : step,
+      ),
+    });
+    await pipelines.update({
+      ...project,
+      steps: project.steps.map((step) =>
+        step.id === "architecture"
+          ? {
+              ...step,
+              allowedActions: ["file_write", "file_patch", "shell"],
+            }
+          : step,
+      ),
+    });
+
+    await pipelines.ensureSeed();
+
+    const refreshedSupervised = await pipelines.get(supervised.id);
+    const refreshedReview = await pipelines.get(review.id);
+    const refreshed3d = await pipelines.get(project3d.id);
+    const refreshedProject = await pipelines.get(project.id);
+    assert.deepEqual(
+      refreshedSupervised.steps.find((step) => step.id === "implement")
+        ?.allowedActions,
+      ["file_patch", "file_write"],
+    );
+    assert.equal(
+      refreshedSupervised.steps.find((step) => step.id === "implement")
+        ?.outputContract,
+      "diff_proposal",
+    );
+    assert.deepEqual(
+      refreshedReview.steps.find((step) => step.id === "security")
+        ?.allowedActions,
+      [],
+    );
+    assert.deepEqual(
+      refreshedReview.steps.find((step) => step.id === "custom-report")
+        ?.allowedActions,
+      ["file_write"],
+    );
+    assert.deepEqual(
+      refreshed3d.steps.find((step) => step.id === "review")?.allowedActions,
+      [],
+    );
+    assert.deepEqual(
+      refreshedProject.steps.find((step) => step.id === "architecture")
+        ?.allowedActions,
+      [],
     );
   } finally {
     closeDb(db);

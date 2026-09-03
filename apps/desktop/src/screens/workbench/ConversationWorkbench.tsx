@@ -29,6 +29,7 @@ import {
   describeAgentInvocationForDisplay,
   orderedAgentInvocationsForDisplay,
 } from "./agent-invocation-display";
+import { WorkbenchIcon } from "./WorkbenchIcon";
 
 type DetailState =
   | { kind: "idle" }
@@ -273,7 +274,7 @@ const ChatHeader = ({
       aria-label={contextDrawerOpen ? "컨텍스트 패널 닫기" : "컨텍스트 패널 열기"}
       title={contextDrawerOpen ? "컨텍스트 닫기 (Ctrl+J)" : "컨텍스트 열기 (Ctrl+J)"}
     >
-      <span aria-hidden>▦</span>
+      <WorkbenchIcon name="context" />
       {pendingApprovalCount > 0 && (
         <span
           className={`chat-header__badge${autoApprove ? " chat-header__badge--auto" : ""}`}

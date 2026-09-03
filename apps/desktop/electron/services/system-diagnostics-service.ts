@@ -118,15 +118,14 @@ export class SystemDiagnosticsService {
 }
 
 const unavailableProviders = (message: string): AgentProviderStatusMap => ({
-  claude: { available: false, error: message, queueDepth: 0 },
   codex: { available: false, error: message, queueDepth: 0 },
 });
 
 const providersWarning = (
   providers: AgentProviderStatusMap,
 ): string | undefined => {
-  if (providers.claude.available || providers.codex.available) return undefined;
-  return "No local agent provider is currently available";
+  if (providers.codex.available) return undefined;
+  return "Codex CLI is not currently available";
 };
 
 const formatBytes = (bytes: number): string => `${Math.round(bytes / 1024 / 1024)}MB`;

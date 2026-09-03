@@ -30,7 +30,7 @@ export const RuntimeStatusBar = (): JSX.Element => {
 
   return (
     <footer className="runtime-status-bar" aria-label="Runtime status">
-      <span className="runtime-status-bar__group">
+      <span className="runtime-status-bar__group runtime-status-bar__group--runtime">
         <span
           className={
             state.kind === "ready"
@@ -51,17 +51,17 @@ export const RuntimeStatusBar = (): JSX.Element => {
       </span>
       {state.kind === "ready" && (
         <>
-          <span className="runtime-status-bar__sep">·</span>
-          <span className="runtime-status-bar__group">
+          <span className="runtime-status-bar__sep runtime-status-bar__meta">·</span>
+          <span className="runtime-status-bar__group runtime-status-bar__meta">
             <span>v{state.info.appVersion}</span>
           </span>
-          <span className="runtime-status-bar__sep">·</span>
-          <span className="runtime-status-bar__group">
+          <span className="runtime-status-bar__sep runtime-status-bar__meta">·</span>
+          <span className="runtime-status-bar__group runtime-status-bar__meta">
             <span>{state.info.platform}</span>
           </span>
-          <span className="runtime-status-bar__sep">·</span>
-          <span className="runtime-status-bar__group" title={state.info.appDataDir}>
-            <span style={{ maxWidth: 460, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span className="runtime-status-bar__sep runtime-status-bar__path">·</span>
+          <span className="runtime-status-bar__group runtime-status-bar__path" title={state.info.appDataDir}>
+            <span>
               {state.info.appDataDir}
             </span>
           </span>
@@ -70,11 +70,12 @@ export const RuntimeStatusBar = (): JSX.Element => {
       {state.kind === "error" && (
         <>
           <span className="runtime-status-bar__sep">·</span>
-          <span style={{ color: "var(--status-failed)" }}>{state.message}</span>
+          <span className="runtime-status-bar__error">{state.message}</span>
         </>
       )}
-      <span className="runtime-status-bar__sep">·</span>
-      <AgentProviderStatus />
+      <span className="runtime-status-bar__providers">
+        <AgentProviderStatus />
+      </span>
     </footer>
   );
 };

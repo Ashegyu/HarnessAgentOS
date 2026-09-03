@@ -1,3 +1,5 @@
+import { WorkbenchIcon } from "./WorkbenchIcon";
+
 interface SlimRailProps {
   threadCount: number;
   threadDrawerOpen: boolean;
@@ -41,7 +43,7 @@ export const SlimRail = ({
         aria-label={threadDrawerOpen ? "스레드 패널 닫기" : "스레드 패널 열기"}
         title="스레드 (Ctrl+B)"
       >
-        <span aria-hidden>☰</span>
+        <WorkbenchIcon name="threads" />
         {threadCount > 0 && (
           <span className="slim-rail__badge" aria-label={`${threadCount}개 스레드`}>
             {threadCount > 99 ? "99+" : threadCount}
@@ -58,7 +60,7 @@ export const SlimRail = ({
         title="컨텍스트 (Ctrl+J)"
         disabled={!hasSelectedTaskRun}
       >
-        <span aria-hidden>▦</span>
+        <WorkbenchIcon name="context" />
       </button>
 
       <button
@@ -69,7 +71,7 @@ export const SlimRail = ({
         aria-label="Learning 열기"
         title="Learning"
       >
-        <span aria-hidden>※</span>
+        <WorkbenchIcon name="learning" />
       </button>
 
       <div className="slim-rail__spacer" />
@@ -81,7 +83,7 @@ export const SlimRail = ({
         aria-label={theme === "dark" ? "라이트 모드로 전환" : "다크 모드로 전환"}
         title={theme === "dark" ? "라이트 모드" : "다크 모드"}
       >
-        <span aria-hidden>{theme === "dark" ? "☀" : "☾"}</span>
+        <WorkbenchIcon name={theme === "dark" ? "sun" : "moon"} />
       </button>
 
       <button
@@ -91,7 +93,7 @@ export const SlimRail = ({
         aria-label="설정 열기"
         title="설정 (Ctrl+,)"
       >
-        <span aria-hidden>⚒</span>
+        <WorkbenchIcon name="settings" />
       </button>
 
       <button
@@ -101,7 +103,7 @@ export const SlimRail = ({
         aria-label="새 스레드"
         title="새 스레드 (Ctrl+N)"
       >
-        <span aria-hidden>+</span>
+        <WorkbenchIcon name="plus" />
       </button>
     </nav>
   );

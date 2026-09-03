@@ -1,11 +1,10 @@
-import type { AgentReasoningEffort } from "./agent-profile.ts";
+import type { AgentReasoningEffort } from "./codex-models.ts";
+import type { AgentProvider } from "./settings.ts";
 
 /**
  * Phase 8 — Agent invocation row.
  * Persisted in the SQLite `agent_invocations` table; one row per CLI run.
  */
-export type AgentProvider = "claude" | "codex";
-
 export interface CreateAgentInvocationInput {
   taskRunId: string;
   provider: AgentProvider;
@@ -89,7 +88,6 @@ export interface AgentProviderProbe {
 }
 
 export interface AgentProviderStatusMap {
-  claude: AgentProviderProbe;
   codex: AgentProviderProbe;
 }
 

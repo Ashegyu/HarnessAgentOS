@@ -1,11 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  MAX_STREAM_PENDING_CHARS,
+  MAX_STREAM_TEXT_CHARS,
+  MAX_STREAM_TOOL_USES,
+  MAX_STREAM_UNKNOWN_LINES,
   feedStreamChunk,
   flushStreamParser,
   hydrateSavedAgentOutput,
   initStreamParserState,
   promoteIntermediateTextToFinal,
+  recordObservedToolCall,
   setIntermediateAssistantText,
 } from "./agent-stream-parser.ts";
 
@@ -542,7 +547,7 @@ test("hydrateSavedAgentOutput replays persisted Harness stream events", () => {
       taskRunId: "tr-1",
       stage: "cli",
       message: "CLI 프로세스 시작",
-      detail: "codex:gpt-5.5 · cwd C:/work",
+      detail: "codex:gpt-5.6-sol · cwd C:/work",
       at: "2026-05-15T00:00:00.000Z",
     }) +
       line({
@@ -597,7 +602,7 @@ test("hydrateSavedAgentOutput replays persisted tool_call stream events", () => 
     line({
       type: "tool_call",
       invocationId: "inv-1",
-      provider: "claude",
+      provider: "codex",
       source: "stdout",
       phase: "started",
       toolName: "mcp_repo__search",
@@ -972,4 +977,46 @@ test("codex failed turn records error summary", () => {
     detail: "The model is not supported",
   });
   assert.equal(s.parsed.resultMeta?.isError, true);
+});
+
+test("stream parser bounds unterminated input and aggregate response text", () => {
+  const pendingState = initStreamParserState();
+  feedStreamChunk(pendingState, "x".repeat(MAX_STREAM_PENDING_CHARS * 2));
+  assert.ok(pendingState.pending.length <= MAX_STREAM_PENDING_CHARS);
+
+  const responseState = initStreamParserState();
+  const delta = "z".repeat(8_192);
+  for (let index = 0; index < 100; index += 1) {
+    feedStreamChunk(
+      responseState,
+      line({
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          delta: { type: "text_delta", text: delta },
+        },
+      }),
+    );
+  }
+  assert.ok(responseState.parsed.liveText.length <= MAX_STREAM_TEXT_CHARS);
+  const responseSection = responseState.parsed.sections.find(
+    (section) => section.kind === "response",
+  );
+  assert.ok((responseSection?.text.length ?? 0) <= MAX_STREAM_TEXT_CHARS);
+});
+
+test("stream parser caps diagnostic lines and observed tool calls", () => {
+  const state = initStreamParserState();
+  for (let index = 0; index < MAX_STREAM_UNKNOWN_LINES + 50; index += 1) {
+    feedStreamChunk(state, `not-json-${index}\n`);
+  }
+  for (let index = 0; index < MAX_STREAM_TOOL_USES + 50; index += 1) {
+    recordObservedToolCall(state, {
+      toolName: `tool-${index}`,
+      input: { index },
+    });
+  }
+
+  assert.equal(state.parsed.unknown.length, MAX_STREAM_UNKNOWN_LINES);
+  assert.equal(state.parsed.toolUses.length, MAX_STREAM_TOOL_USES);
 });

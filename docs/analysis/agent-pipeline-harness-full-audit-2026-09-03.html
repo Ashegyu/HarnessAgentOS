@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AgentPipeline &amp; Harness Full Audit · 2026-09-03</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071018;
+      --panel: #0f1c27;
+      --panel-strong: #142637;
+      --line: #294255;
+      --text: #edf5fb;
+      --muted: #9db0c0;
+      --cyan: #67e8f9;
+      --green: #86efac;
+      --amber: #fcd34d;
+      --red: #fca5a5;
+      --blue: #93c5fd;
+      --shadow: 0 18px 45px rgba(0, 0, 0, .24);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 88px; }
+    body {
+      margin: 0;
+      font: 14px/1.62 Inter, "Segoe UI", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% -5%, rgba(33, 125, 173, .30), transparent 30%),
+        radial-gradient(circle at 92% 12%, rgba(24, 120, 96, .18), transparent 26%),
+        var(--bg);
+    }
+    a { color: var(--cyan); }
+    code { color: #c9f5ff; overflow-wrap: anywhere; }
+    main { width: min(1440px, calc(100% - 32px)); margin: 0 auto; padding: 34px 0 64px; }
+    h1 { margin: 4px 0 14px; font-size: clamp(30px, 4vw, 52px); line-height: 1.05; letter-spacing: -.045em; }
+    h2 { margin: 38px 0 14px; font-size: 23px; letter-spacing: -.02em; }
+    h3 { margin: 0 0 8px; font-size: 16px; }
+    p { margin: 8px 0; }
+    .eyebrow { color: var(--cyan); font-size: 12px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .lead { max-width: 980px; color: var(--muted); font-size: 16px; }
+    .status-line { display: flex; flex-wrap: wrap; gap: 9px; margin: 20px 0 0; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 7px; min-height: 30px;
+      padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px;
+      background: rgba(15, 28, 39, .86); color: var(--muted);
+    }
+    .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue); }
+    .pill.ok::before { background: var(--green); box-shadow: 0 0 0 4px rgba(134, 239, 172, .10); }
+    .nav {
+      position: sticky; top: 10px; z-index: 5; display: flex; gap: 6px; overflow-x: auto;
+      margin: 24px 0; padding: 8px; border: 1px solid var(--line); border-radius: 14px;
+      background: rgba(7, 16, 24, .90); box-shadow: var(--shadow); backdrop-filter: blur(14px);
+    }
+    .nav a { flex: 0 0 auto; padding: 7px 10px; border-radius: 9px; color: var(--muted); text-decoration: none; }
+    .nav a:hover, .nav a:focus-visible { color: var(--text); background: var(--panel-strong); outline: none; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+    .card, .panel, .finding {
+      border: 1px solid var(--line); border-radius: 15px;
+      background: linear-gradient(145deg, rgba(20, 38, 55, .92), rgba(10, 22, 31, .94));
+      box-shadow: 0 10px 26px rgba(0, 0, 0, .14);
+    }
+    .card { min-height: 124px; padding: 17px; }
+    .metric { font-size: 31px; font-weight: 850; letter-spacing: -.04em; }
+    .label { color: var(--muted); }
+    .panel { padding: 18px; }
+    .finding { display: grid; grid-template-columns: 74px minmax(0, 1fr) 86px; gap: 14px; align-items: start; margin: 10px 0; padding: 15px; }
+    .finding[hidden] { display: none; }
+    .finding-id { color: var(--cyan); font-weight: 800; }
+    .finding p { color: var(--muted); }
+    .status { justify-self: end; padding: 3px 8px; border-radius: 999px; background: rgba(134, 239, 172, .12); color: var(--green); font-weight: 750; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    button {
+      border: 1px solid var(--line); border-radius: 9px; padding: 8px 11px;
+      color: var(--muted); background: #0a1721; cursor: pointer;
+    }
+    button:hover, button.active { color: var(--text); border-color: #4d7189; background: var(--panel-strong); }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 14px; }
+    table { width: 100%; min-width: 820px; border-collapse: collapse; }
+    th, td { padding: 11px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid #203747; }
+    th { position: sticky; top: 0; color: var(--cyan); background: #122331; z-index: 1; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: rgba(23, 48, 66, .45); }
+    td { overflow-wrap: anywhere; }
+    .flow { display: grid; grid-template-columns: repeat(6, minmax(145px, 1fr)); gap: 22px; overflow-x: auto; padding: 8px 2px 14px; }
+    .flow-step { position: relative; min-width: 145px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .flow-step:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 50%; color: var(--cyan); transform: translateY(-50%); }
+    .flow-step b { display: block; color: var(--cyan); margin-bottom: 4px; }
+    .callout { margin-top: 12px; padding: 13px 15px; border-left: 3px solid var(--amber); background: rgba(70, 55, 15, .18); color: #dce8ef; }
+    .evidence { border-left-color: var(--green); background: rgba(22, 80, 48, .15); }
+    .uncertainty { border-left-color: var(--blue); background: rgba(32, 66, 108, .16); }
+    .split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    ul { margin: 8px 0; padding-left: 20px; }
+    li + li { margin-top: 6px; }
+    .footer { margin-top: 34px; color: var(--muted); }
+    @media (max-width: 900px) {
+      main { width: min(100% - 20px, 1440px); padding-top: 22px; }
+      .split { grid-template-columns: 1fr; }
+      .finding { grid-template-columns: 62px minmax(0, 1fr); }
+      .finding .status { grid-column: 2; justify-self: start; }
+      .flow { grid-template-columns: repeat(6, 165px); }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">Full runtime and source audit · 2026-09-03</div>
+  <h1>AgentPipeline &amp; Harness 전수 감사</h1>
+  <p class="lead">
+    정적 구조, 저장소 경계, IPC, UI, 직접 Harness 오케스트레이션, worker 실행, 실제 SQLite 상태를 함께 확인한 결과입니다.
+    발견한 실행 차단·참조 무결성·구버전 seed 계약 문제는 모두 수정했고, 실제 앱 DB도 백업 후 정합화했습니다.
+  </p>
+  <div class="status-line">
+    <span class="pill ok">감사 오류 0</span>
+    <span class="pill ok">감사 경고 0</span>
+    <span class="pill ok">Harness 5/5 runtime-ready</span>
+    <span class="pill ok">전체 테스트 실패 0</span>
+    <span class="pill">commit / push 미수행</span>
+  </div>
+
+  <nav class="nav" aria-label="보고서 목차">
+    <a href="#scope">범위</a><a href="#flow">호출 흐름</a><a href="#findings">수정 사항</a>
+    <a href="#state">실제 상태</a><a href="#models">모델 배분</a><a href="#performance">성능</a>
+    <a href="#verdicts">판정</a><a href="#verification">검증</a><a href="#evidence">증거 경계</a>
+  </nav>
+
+  <section id="scope">
+    <h2>1. Scope</h2>
+    <div class="grid">
+      <div class="card"><div class="metric">110</div><div class="label">관련 코드·테스트·문서 파일</div></div>
+      <div class="card"><div class="metric">40,760</div><div class="label">대상 파일 줄 수</div></div>
+      <div class="card"><div class="metric">61</div><div class="label">실제 AgentProfile</div></div>
+      <div class="card"><div class="metric">25</div><div class="label">실제 AgentPipeline</div></div>
+      <div class="card"><div class="metric">5 / 5</div><div class="label">Harness workflow / binding</div></div>
+      <div class="card"><div class="metric">1,440</div><div class="label">전체 테스트 수</div></div>
+    </div>
+    <div class="callout evidence">
+      <b>대상:</b> Core 타입/런타임 guard, AgentProfile 및 Pipeline 저장소, Harness import·repair·readiness·draft,
+      OrchestrationPlanner, WorkerRunner, approval/backflow, Electron IPC/preload/UI, 실제 <code>app.db</code>, 관련 테스트와 계약 문서.
+    </div>
+  </section>
+
+  <section id="flow">
+    <h2>2. Relevant files and call chain</h2>
+    <div class="flow" aria-label="Harness 실행 흐름">
+      <div class="flow-step"><b>Harness snapshot</b>import / repair / immutable provenance</div>
+      <div class="flow-step"><b>Binding set</b>agent ref → AgentProfile</div>
+      <div class="flow-step"><b>Readiness &amp; draft</b>capability + graph validation</div>
+      <div class="flow-step"><b>Planner</b>immutable worker step ids</div>
+      <div class="flow-step"><b>Approval</b>side effect consent boundary</div>
+      <div class="flow-step"><b>Runner &amp; quality</b>artifact → gate → done</div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>경계</th><th>핵심 파일</th><th>감사 결론</th></tr></thead>
+      <tbody>
+        <tr><td>Core contract</td><td><code>packages/core/src/types/agent-pipeline.ts</code><br /><code>packages/core/src/types/harness-package.ts</code></td><td>허용 artifact와 draft 오류 계약을 런타임에서 명시적으로 제한.</td></tr>
+        <tr><td>Persistence</td><td><code>packages/storage/src/repositories/agent-pipeline-repository.ts</code><br /><code>harness-binding-set-repository.ts</code></td><td>JSON shape + topology + backflow를 읽기 경계에서 재검증하고 reverse reference 제공.</td></tr>
+        <tr><td>Harness adapter</td><td><code>packages/orchestration/src/harness-binding-readiness.ts</code><br /><code>harness-pipeline-draft.ts</code></td><td>정규화된 binding과 O(V+E) 의존성 검증 후 pipeline draft 생성.</td></tr>
+        <tr><td>Execution</td><td><code>orchestration-planner.ts</code><br /><code>worker-runner.ts</code></td><td>저장 pipeline과 direct Harness 모두 approval 전에는 side effect 없음.</td></tr>
+        <tr><td>Desktop boundary</td><td><code>apps/desktop/electron/ipc/agents-ipc.ts</code><br /><code>harness-package-ipc.ts</code></td><td>프로필 삭제와 Harness binding 무결성을 IPC에서 함께 보호.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="findings">
+    <h2>3. 수정 완료 사항</h2>
+    <div class="controls" aria-label="수정 사항 필터">
+      <button class="active" data-filter="all">전체</button>
+      <button data-filter="p1">P1</button>
+      <button data-filter="p2">P2</button>
+      <button data-filter="state">실제 상태</button>
+    </div>
+    <article class="finding" data-kind="p1"><div class="finding-id">APH-01</div><div><h3>Pipeline runtime guard 불완전</h3><p>문자열이면 통과하던 미지원 artifact kind와 중복 dependency를 거부하도록 canonical guard를 강화했습니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="p1"><div class="finding-id">APH-02</div><div><h3>저장 row의 unsafe JSON cast</h3><p>malformed JSON, 잘못된 shape, unknown dependency, cycle, invalid backflow가 로딩 경계를 통과하지 못하도록 fail-fast 검증을 추가했습니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="p1"><div class="finding-id">APH-03</div><div><h3>AgentProfile 삭제 시 dangling Harness binding</h3><p><code>json_each</code> reverse lookup과 IPC 삭제 guard를 추가해 pipeline뿐 아니라 binding set 참조도 보호합니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="p1"><div class="finding-id">APH-04</div><div><h3>구버전 seed 권한·output 계약 drift</h3><p>정확히 알려진 legacy 값과 일치할 때만 15개 단계, 16개 계약 필드를 현재 seed로 정합화했습니다. 사용자 정의 단계는 보존됩니다.</p></div><span class="status">DB 적용</span></article>
+    <article class="finding" data-kind="p1"><div class="finding-id">APH-05</div><div><h3>Direct Harness 변환의 그래프 오류가 늦게 발견됨</h3><p>빈 값·중복·unknown·self dependency와 cycle을 profile lookup 및 plan 생성 전에 구체적인 오류로 차단합니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="p2"><div class="finding-id">APH-06</div><div><h3>Binding ref 대소문자·공백 정규화 불일치</h3><p>후보 생성, 중복 제거, readiness lookup, agent label lookup을 동일한 정규화 키로 통일했습니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="p2"><div class="finding-id">APH-07</div><div><h3><code>openDb(readonly)</code>가 migration을 실행</h3><p>읽기 전용 연결은 migration/WAL 변경을 건너뛰고 <code>query_only</code>로 열며, 초기화 실패 시 native handle도 닫습니다.</p></div><span class="status">수정·검증</span></article>
+    <article class="finding" data-kind="state"><div class="finding-id">APH-08</div><div><h3>Fullstack Harness binding/pipeline 누락</h3><p>기존 전문 AgentProfile 5개를 역할별로 매핑하고 direct binding set과 재사용 pipeline을 실제 DB에 생성했습니다.</p></div><span class="status">DB 적용</span></article>
+  </section>
+
+  <section id="state">
+    <h2>4. 실제 SQLite 상태</h2>
+    <div class="split">
+      <div class="panel">
+        <h3>구성 결과</h3>
+        <ul>
+          <li>Pipeline 25: 기본 seed 18 + Harness-derived 5 + 사용자 정의 2</li>
+          <li>Harness package/workflow/binding: 5 / 5 / 5</li>
+          <li>모든 pipeline profile·source package·workflow 참조 유효</li>
+          <li>모든 binding profile 및 workflow 참조 유효</li>
+          <li>원격 endpoint 0: dangling remote 참조도 0</li>
+          <li>두 번째 seed 실행 결과 완전 동일: <code>idempotent=true</code></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>보존 및 복구 경계</h3>
+        <ul>
+          <li>백업: <code>C:\Users\GC\AppData\Roaming\@harness\desktop\app.db.pipeline-harness-audit-20260903.bak</code></li>
+          <li>사용자 정의 step <code>s_mpm8ueim_euq7e</code> 보존 확인</li>
+          <li>Harness import snapshot의 <code>needs_review</code>는 변경하지 않음</li>
+          <li>5건 모두 import 시점 <code>HARNESS_PROFILE_BINDING_REQUIRED</code> 이력이며, 현재 runtime binding은 5/5 유효</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="models">
+    <h2>5. 생성 Agent 모델 배분</h2>
+    <div class="grid">
+      <div class="card"><div class="metric">31</div><div class="label">gpt-5.6-sol · 계획/아키텍처/보안/오케스트레이션</div></div>
+      <div class="card"><div class="metric">28</div><div class="label">gpt-5.6-terra · 구현/테스트/리뷰/빌드</div></div>
+      <div class="card"><div class="metric">2</div><div class="label">gpt-5.6-luna · 경량 문서화/기본 대화</div></div>
+      <div class="card"><div class="metric">0</div><div class="label">gpt-5.5 또는 비-Codex profile</div></div>
+    </div>
+    <div class="table-wrap" style="margin-top:12px"><table>
+      <thead><tr><th>Fullstack 역할</th><th>연결 AgentProfile</th><th>모델</th><th>추론</th></tr></thead>
+      <tbody>
+        <tr><td>architect</td><td>Ruflo Architecture Designer</td><td>gpt-5.6-sol</td><td>xhigh</td></tr>
+        <tr><td>frontend-dev</td><td>Codex Frontend Implementer</td><td>gpt-5.6-terra</td><td>high</td></tr>
+        <tr><td>backend-dev</td><td>Codex Bulk Coder</td><td>gpt-5.6-terra</td><td>high</td></tr>
+        <tr><td>devops-engineer</td><td>ECC Build Error Resolver</td><td>gpt-5.6-terra</td><td>medium</td></tr>
+        <tr><td>qa-engineer</td><td>ECC TDD Guide</td><td>gpt-5.6-terra</td><td>high</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="performance">
+    <h2>6. 성능 분석</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>관점</th><th>증거</th><th>평가</th></tr></thead>
+      <tbody>
+        <tr><td>Hot path</td><td>import, binding save, profile delete, seed migration은 cold path. Worker wave 실행은 warm/hot 경계.</td><td>실행 루프에는 새 DB 조회나 lock을 추가하지 않음.</td></tr>
+        <tr><td>Allocation / copy</td><td>Harness draft 검증은 step map + visiting/visited set을 한 번 구성. Pipeline 최대 step 수는 20.</td><td>O(V+E), bounded allocation. JSON parse는 canonical DB trust boundary에서 필요한 단일 materialization.</td></tr>
+        <tr><td>CPU / dispatch</td><td>삭제 reverse lookup은 SQLite <code>json_each</code> 한 번이며 현재 binding set 5개.</td><td>드문 관리 작업에서 JS 전체 row materialization을 피함. 실행 dispatch에는 영향 없음.</td></tr>
+        <tr><td>Concurrency / latency</td><td>새 background task, queue, timer, lock 없음. readiness는 호출 로컬 map만 사용.</td><td>contention/backpressure 변화 없음. 예상 tail-latency 영향은 무시 가능한 cold-path 범위.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout uncertainty"><b>추론:</b> 위 성능 평가는 코드 경로와 bounded workload에 근거합니다. 실제 provider latency·token 비용·대규모 production DB p95/p99는 이번 로컬 smoke가 측정하는 대상이 아닙니다.</div>
+  </section>
+
+  <section id="verdicts">
+    <h2>7. Ranked recommendations and four-level verdict</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>판정</th><th>대상</th><th>최종 결론</th></tr></thead>
+      <tbody>
+        <tr><td><b style="color:var(--green)">Core Asset</b></td><td>Core contracts, storage, Harness adapter, planner/runner, IPC, UI, tests, audit tool</td><td>모두 유지. 이번 감사에서 필요한 guard와 회귀 테스트를 보강함.</td></tr>
+        <tr><td><b style="color:var(--amber)">Extract &amp; Merge</b></td><td>0</td><td>현재 hot-path 또는 유지보수 증거로 정당화되는 추가 분리 없음.</td></tr>
+        <tr><td><b style="color:var(--blue)">Rebuild</b></td><td>0</td><td>재작성 필요 증거 없음.</td></tr>
+        <tr><td><b style="color:var(--red)">Deprecate</b></td><td>0</td><td>미사용 또는 중복 제거 증거 없음.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout"><b>우선순위 처리 결과:</b> P1 무결성 5건 → P2 정규화/읽기 전용 경계 2건 → 실제 누락 구성 1건 순서로 모두 완료했습니다. 범위 밖의 광범위한 스타일 리팩터링은 수행하지 않았습니다.</div>
+  </section>
+
+  <section id="verification">
+    <h2>8. Implementation and verification result</h2>
+    <div class="grid">
+      <div class="card"><div class="metric">114 / 114</div><div class="label">초기 연관 회귀 suite</div></div>
+      <div class="card"><div class="metric">1,438</div><div class="label">전체 pass</div></div>
+      <div class="card"><div class="metric">0</div><div class="label">전체 fail</div></div>
+      <div class="card"><div class="metric">2</div><div class="label">optional sibling harness fixture skip</div></div>
+      <div class="card"><div class="metric">4 / 4</div><div class="label">Playwright Electron E2E</div></div>
+      <div class="card"><div class="metric">OK</div><div class="label">smoke + fake-agent + build</div></div>
+    </div>
+    <div class="panel" style="margin-top:12px">
+      <ul>
+        <li><code>npm run check</code>: 모든 workspace TypeScript 통과</li>
+        <li><code>npm run verify</code>: 1,440 tests, 1,438 pass, 0 fail, 2 skip + production build 통과</li>
+        <li><code>npm run verify:smoke</code>: approval/runner/artifact/quality smoke와 fake-agent 실패·복구 시나리오 통과</li>
+        <li>Playwright: 실행, seeded pipeline, Codex 5.6 model/reasoning selector, visual graph editing 4/4 통과</li>
+        <li>실제 DB audit: errors 0, warnings 0, runtime-ready workflow 5/5</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="evidence">
+    <h2>9. Evidence, inference, uncertainty</h2>
+    <div class="split">
+      <div class="panel"><h3>Evidence</h3><p class="label">AST call flow, 현재 source/diff, repository tests, 실제 app.db audit, Electron smoke/E2E에서 직접 확인했습니다.</p></div>
+      <div class="panel"><h3>Inference</h3><p class="label">O(V+E) 검증과 cold-path SQL의 낮은 runtime 영향은 코드와 최대 20-step 제한에서 도출한 예상입니다.</p></div>
+      <div class="panel"><h3>Uncertainty</h3><p class="label">실제 원격 endpoint가 0개이므로 A2A 실서버 latency는 검증하지 않았습니다. real provider 호출 비용과 p95/p99도 이번 범위에 포함되지 않습니다.</p></div>
+      <div class="panel"><h3>Acceptance boundary</h3><p class="label">source, typecheck, test, build, local Electron runtime, 실제 SQLite 정합성까지 완료했습니다. commit/push는 요청되지 않아 수행하지 않았습니다.</p></div>
+    </div>
+  </section>
+
+  <p class="footer">
+    Reproducible audit: <code>node --import tsx scripts/audit/agent-pipeline-harness-audit.mjs --db=&lt;app.db&gt;</code><br />
+    Snapshot generated 2026-09-03 for the current dirty working tree; unrelated user changes were preserved.
+  </p>
+</main>
+<script>
+  const buttons = [...document.querySelectorAll("[data-filter]")];
+  const findings = [...document.querySelectorAll(".finding")];
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      const filter = button.dataset.filter;
+      for (const candidate of buttons) candidate.classList.toggle("active", candidate === button);
+      for (const item of findings) item.hidden = filter !== "all" && item.dataset.kind !== filter;
+    });
+  }
+</script>
+</body>
+</html>

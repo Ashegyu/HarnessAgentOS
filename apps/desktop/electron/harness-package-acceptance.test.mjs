@@ -48,11 +48,11 @@ const validProfileInput = (overrides = {}) => ({
   description: "",
   category: "harness-package-acceptance",
   tags: ["harness-package"],
-  provider: "claude",
+  provider: "codex",
   role: "coder",
   persona: "",
   tuning: {
-    model: "claude-sonnet-4-6",
+    model: "gpt-5.6-sol",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,

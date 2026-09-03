@@ -29,8 +29,8 @@ test("estimateModelUsage prefers provider usage metadata", () => {
 
 test("estimateModelUsage falls back to approximate character token counts", () => {
   const estimate = estimateModelUsage({
-    provider: "claude",
-    model: "unknown-model",
+    provider: "codex",
+    model: "gpt-5.6-luna",
     systemPrompt: "system".repeat(20),
     prompt: "prompt".repeat(20),
     output: "answer".repeat(20),

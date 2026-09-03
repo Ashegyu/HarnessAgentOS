@@ -31,6 +31,7 @@ import {
 } from "./unified-patch.ts";
 import {
   isWithin,
+  isRealPathWithin,
   classifyShellCommand,
   isTestCommand,
   maskSecrets,
@@ -454,6 +455,12 @@ export class RunnerService {
         `File path escapes targetDir: ${patch.path}`,
       );
     }
+    if (!(await isRealPathWithin(taskRun.targetDir, targetPath))) {
+      throw new RunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `File path resolves outside targetDir: ${patch.path}`,
+      );
+    }
     let before: string;
     try {
       before = await readFile(targetPath, "utf8");
@@ -478,6 +485,13 @@ export class RunnerService {
       throw e;
     }
 
+    // patch 계산 뒤에도 실제 경계를 재확인해 승인 후 junction 교체를 차단한다.
+    if (!(await isRealPathWithin(taskRun.targetDir, targetPath))) {
+      throw new RunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `File path resolves outside targetDir: ${patch.path}`,
+      );
+    }
     await writeFile(targetPath, applied.afterContent, "utf8");
     result.changedFiles = [targetPath];
 
@@ -510,6 +524,12 @@ export class RunnerService {
       throw new RunnerError(
         "RUNNER_TARGET_OUTSIDE_WORKSPACE",
         `Snapshot path escapes targetDir: ${targetPath}`,
+      );
+    }
+    if (!(await isRealPathWithin(taskRun.targetDir, targetPath))) {
+      throw new RunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `Snapshot path resolves outside targetDir: ${targetPath}`,
       );
     }
     await this.deps.state.writeDbSnapshot(targetPath);

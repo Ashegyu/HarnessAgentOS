@@ -1,14 +1,12 @@
 import { harnessError, AGENT_CANCELLED } from "@harness/core";
+import type { AgentProvider } from "@harness/core";
 
 /**
- * Phase 8 — per-provider FIFO queue with single in-flight slot.
+ * Phase 8 — Codex FIFO queue with a single default in-flight slot.
  *
  * Policy (matches phase-08 §"Concurrency"):
- *   - claude and codex have INDEPENDENT 1-slot semaphores. claude work
- *     never blocks codex work. This means "starvation between providers"
- *     is impossible by construction; starvation WITHIN a provider is the
- *     caller's responsibility (e.g. UI shows queue depth so the user can
- *     cancel head-of-line blockers).
+ *   - Codex uses one default lane. Pipeline workers may opt into independent
+ *     lanes while the UI still reports the aggregate Codex depth.
  *   - `enqueue` is the only public way work runs. It resolves with the
  *     work's return value or rejects with whatever the work threw.
  *   - `cancel(invocationId)` removes a queued entry without invoking the
@@ -31,7 +29,7 @@ interface QueueEntry {
 }
 
 interface ProviderLane {
-  provider: "claude" | "codex";
+  provider: AgentProvider;
   inflight: QueueEntry | null;
   waiting: QueueEntry[];
 }
@@ -51,7 +49,7 @@ export class AgentInvocationQueue {
    * itself (work observes `signal.aborted` synchronously on entry).
    */
   enqueue<T>(input: {
-    provider: "claude" | "codex";
+    provider: AgentProvider;
     invocationId: string;
     /**
      * Optional independent concurrency lane. Omit for the default
@@ -120,7 +118,7 @@ export class AgentInvocationQueue {
   }
 
   /** Depth = waiting + (1 if in-flight). Read by RuntimeStatusBar. */
-  getDepth(provider: "claude" | "codex"): number {
+  getDepth(provider: AgentProvider): number {
     let depth = 0;
     for (const lane of this.lanes.values()) {
       if (lane.provider !== provider) continue;
@@ -151,7 +149,7 @@ export class AgentInvocationQueue {
   }
 
   private getOrCreateLane(
-    provider: "claude" | "codex",
+    provider: AgentProvider,
     laneKey: string,
   ): ProviderLane {
     const existing = this.lanes.get(laneKey);
@@ -169,10 +167,10 @@ export class AgentInvocationQueue {
   }
 }
 
-const providers: ReadonlyArray<"claude" | "codex"> = ["claude", "codex"];
+const providers: readonly AgentProvider[] = ["codex"];
 const defaultLaneKeys = new Set<string>(providers);
 
 const normalizeLaneKey = (
-  provider: "claude" | "codex",
+  provider: AgentProvider,
   laneKey: string | undefined,
 ): string => (laneKey ? `${provider}:${laneKey}` : provider);

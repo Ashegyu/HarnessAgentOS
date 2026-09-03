@@ -177,3 +177,49 @@ test("ApprovalPanel keeps auto-processing hint for pipeline runner approvals tha
   assert.match(html, /자동 처리 중/);
   assert.doesNotMatch(html, /자동 처리 제외/);
 });
+
+test("ApprovalPanel exposes manual controls when profile policy blocks pipeline auto-processing", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(ApprovalPanel, {
+      approvals: [
+        {
+          id: "appr_blocked",
+          taskRunId: "tsk_1",
+          checkpointId: "chk_1",
+          actionType: "file_write",
+          actionSummary: "Write file",
+          status: "pending",
+          proposedAction: {
+            type: "file_write",
+            filePatch: { path: "README.md", after: "hello\n" },
+          },
+          policyEvaluation: {
+            decision: "allow",
+            riskLevel: "medium",
+            reason: "allowed",
+            allowAutoApprove: true,
+          },
+        },
+      ],
+      checkpoints: [],
+      refinementAttempts: [],
+      taskRunTargetDir: process.cwd(),
+      onApprove: async () => {},
+      onReject: async () => {},
+      onRedirect: async () => {},
+      onConfigure: async () => {},
+      onExecute: async () => {},
+      pipelineAutoLaunched: true,
+      getPipelineAutoDecision: () => ({
+        approved: false,
+        decidedAt: "blocked_action",
+        reason: "Active profile blocks file_write.",
+      }),
+    }),
+  );
+
+  assert.match(html, /자동 처리 제외: Active profile blocks file_write/);
+  assert.match(html, /승인/);
+  assert.match(html, /거절/);
+  assert.doesNotMatch(html, /자동 처리 중/);
+});

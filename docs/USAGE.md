@@ -280,8 +280,9 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 |------|------|------|
 | **이름** | 에이전트 구분 이름 | `백엔드 코더`, `리뷰어` |
 | **역할** | 이 에이전트의 역할 | `Coder`, `Planner`, `Reviewer`, `Tester` |
-| **Provider** | 사용할 CLI | `auto` (자동), `claude`, `codex` |
-| **Model** | 특정 모델 지정 (선택) | `claude-sonnet-4-6`, 비워두면 기본값 사용 |
+| **Provider** | 사용할 CLI. Codex 전용으로 고정 | `codex` |
+| **Model** | Codex 5.6 모델 | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| **Reasoning effort** | 추론 강도 | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 
 **삭제**: 카드 우측 상단의 **×** 버튼.
 
@@ -290,20 +291,23 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 > Worker 1:
 > - 이름: `플래너`
 > - 역할: `Planner`
-> - Provider: `claude`
-> - Model: `claude-opus-4-7`
+> - Provider: `codex`
+> - Model: `gpt-5.6-sol`
+> - Reasoning effort: `xhigh`
 >
 > Worker 2:
 > - 이름: `코드 작성`
 > - 역할: `Coder`
-> - Provider: `claude`
-> - Model: (비워둠 — 기본값 사용)
+> - Provider: `codex`
+> - Model: `gpt-5.6-terra`
+> - Reasoning effort: `high`
 >
 > Worker 3:
 > - 이름: `검토자`
 > - 역할: `Reviewer`
-> - Provider: `auto`
-> - Model: (비워둠)
+> - Provider: `codex`
+> - Model: `gpt-5.6-luna`
+> - Reasoning effort: `medium`
 
 ### 8-4. 기본 지시사항
 
@@ -331,8 +335,9 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 
 | 설정 | 설명 | 기본값 |
 |------|------|--------|
-| **Provider** | 기본 CLI 선택 (`auto` / `claude` / `codex`) | `auto` |
-| **Model** | 기본 모델 ID | 비어 있으면 Provider 기본값 사용 |
+| **Provider** | Codex CLI 전용(읽기 전용 표시) | `codex` |
+| **Model** | 기본 Codex 5.6 모델 | `gpt-5.6-sol` |
+| **Reasoning effort** | Codex 추론 강도 | `medium` |
 | **Timeout (ms)** | 전체 작업 최대 실행 시간 | 300,000 (5분) |
 | **Stall Timeout (ms)** | 응답 없을 때 중단 기준 | 30,000 (30초) |
 | **Context Depth** | 에이전트에게 전달할 이전 대화 깊이 | 3 |
@@ -346,7 +351,7 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 ## 10. 하단 상태바
 
 ```
-● 런타임 준비됨  ·  v1.0.0  ·  win32  ·  C:\Users\me\AppData\...  ·  Claude ● Codex ●  ·  ⚙
+● 런타임 준비됨  ·  v1.0.0  ·  win32  ·  C:\Users\me\AppData\...  ·  Codex ●  ·  ⚙
 ```
 
 | 항목 | 설명 |
@@ -355,10 +360,10 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 | **vX.Y.Z** | 앱 버전 |
 | **win32 / darwin** | 플랫폼 |
 | **데이터 경로** | 앱 데이터(DB, 설정)가 저장된 경로 (마우스 오버로 전체 경로 확인) |
-| **Claude ● / Codex ●** | 각 CLI provider 가용 여부. 초록=설치됨, 빨강=미설치 |
+| **Codex ●** | Codex CLI 가용 여부. 초록=설치됨, 빨강=미설치 |
 | **⚙** | Settings 모달 열기 |
 
-**Agent 버튼이 비활성화(회색)인 경우** → Claude 또는 Codex CLI가 PATH에 없습니다. 설치 후 앱을 재시작하세요.
+**Agent 버튼이 비활성화(회색)인 경우** → Codex CLI가 PATH에 없습니다. 설치 후 앱을 재시작하세요.
 
 ---
 

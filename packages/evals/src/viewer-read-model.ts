@@ -17,7 +17,7 @@ interface EvalCaseResultLike {
     readonly title?: string;
     readonly kind?: "capability" | "regression" | "safety";
   };
-  readonly provider?: "claude" | "codex";
+  readonly provider?: "codex";
   readonly attempts?: ReadonlyArray<EvalAttemptLike>;
   readonly passAt3?: number;
   readonly passToThe3?: number;

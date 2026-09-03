@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  AGENT_ROLE_MODEL_DEFAULTS,
   DEFAULT_CODEX_MODEL,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
@@ -96,10 +97,17 @@ test("planLegacyMigration produces one input per worker, first marked default", 
   assert.equal(plan.inputs[0].tuning.timeoutMs, 600_000);
   assert.ok(plan.inputs.every((input) => input.provider === "codex"));
   assert.ok(
-    plan.inputs.every((input) => input.tuning.model === DEFAULT_CODEX_MODEL),
+    plan.inputs.every(
+      (input) =>
+        input.tuning.model === AGENT_ROLE_MODEL_DEFAULTS[input.role].model,
+    ),
   );
   assert.ok(
-    plan.inputs.every((input) => input.tuning.reasoningEffort === "xhigh"),
+    plan.inputs.every(
+      (input) =>
+        input.tuning.reasoningEffort ===
+        AGENT_ROLE_MODEL_DEFAULTS[input.role].reasoningEffort,
+    ),
   );
 });
 
@@ -116,8 +124,14 @@ test("planLegacyMigration falls back to a single seed when only legacy globals e
   assert.ok(plan);
   assert.equal(plan.inputs.length, 1);
   assert.equal(plan.inputs[0].isDefault, true);
-  assert.equal(plan.inputs[0].tuning.model, DEFAULT_CODEX_MODEL);
-  assert.equal(plan.inputs[0].tuning.reasoningEffort, "xhigh");
+  assert.equal(
+    plan.inputs[0].tuning.model,
+    AGENT_ROLE_MODEL_DEFAULTS.coder.model,
+  );
+  assert.equal(
+    plan.inputs[0].tuning.reasoningEffort,
+    AGENT_ROLE_MODEL_DEFAULTS.coder.reasoningEffort,
+  );
   assert.equal(plan.inputs[0].provider, "codex");
   assert.equal(plan.inputs[0].category, "legacy");
   assert.deepEqual(plan.inputs[0].tags, ["legacy-agent", "coder"]);

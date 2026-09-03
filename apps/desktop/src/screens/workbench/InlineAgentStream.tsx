@@ -16,6 +16,7 @@ import {
   type AgentProgressItem,
 } from "./AgentProgressList";
 import { AgentStreamSections } from "./AgentStreamSections";
+import { createAgentStreamRenderBatcher } from "./agent-stream-render-batcher";
 
 interface InlineAgentStreamProps {
   /**
@@ -58,6 +59,9 @@ export const InlineAgentStream = ({
     const isTerminal = isTerminalStatus(invocation.status);
     const usage = usageFromInvocation(invocation);
     let cancelled = false;
+    const renderBatcher = createAgentStreamRenderBatcher(() => {
+      if (!cancelled) setParsed({ ...stateRef.current.parsed });
+    });
 
     if (invocation.rawOutputArtifactId) {
       void window.harness.runner
@@ -77,7 +81,7 @@ export const InlineAgentStream = ({
               ? { usageApproximate: invocation.usageApproximate }
               : {}),
           });
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.flushNow();
         })
         .catch((e) => {
           if (cancelled) return;
@@ -95,17 +99,17 @@ export const InlineAgentStream = ({
           setProgress((items) => [...items, event].slice(-12));
         } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "tool_call") {
           recordObservedToolCall(stateRef.current, event);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "assistant_text") {
           setIntermediateAssistantText(stateRef.current, event.text);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "result") {
           flushStreamParser(stateRef.current);
           promoteIntermediateTextToFinal(stateRef.current, event);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.flushNow();
         } else if (event.type === "failed") {
           setError({ code: event.errorCode, message: event.message });
         }
@@ -113,6 +117,7 @@ export const InlineAgentStream = ({
     );
     return () => {
       cancelled = true;
+      renderBatcher.cancel();
       flushStreamParser(stateRef.current);
       off();
     };

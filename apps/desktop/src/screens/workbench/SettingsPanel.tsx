@@ -1,7 +1,13 @@
 import { useEffect, useReducer, useState } from "react";
+import {
+  AGENT_REASONING_EFFORTS,
+  CODEX_MODELS,
+  DEFAULT_AGENT_REASONING_EFFORT,
+} from "@harness/core";
 import type {
   AgentPipeline,
-  AgentProvider,
+  AgentReasoningEffort,
+  CodexModel,
   HarnessSettings,
   OrchestrationMode,
 } from "@harness/core";
@@ -93,8 +99,8 @@ type FormState =
 type Action =
   | { type: "loaded"; settings: HarnessSettings }
   | { type: "loadError"; message: string }
-  | { type: "setProvider"; value: AgentProvider }
-  | { type: "setModel"; value: string }
+  | { type: "setModel"; value: CodexModel }
+  | { type: "setReasoningEffort"; value: AgentReasoningEffort }
   | { type: "setTimeoutMs"; value: number }
   | { type: "setStallTimeoutMs"; value: number }
   | { type: "setContextDepth"; value: number }
@@ -118,11 +124,17 @@ const reducer = (state: FormState, action: Action): FormState => {
     return { kind: "error", message: action.message };
   }
   if (state.kind !== "ready") return state;
-  if (action.type === "setProvider") {
-    return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, provider: action.value } } };
-  }
   if (action.type === "setModel") {
     return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, model: action.value } } };
+  }
+  if (action.type === "setReasoningEffort") {
+    return {
+      ...state,
+      draft: {
+        ...state.draft,
+        agent: { ...state.draft.agent, reasoningEffort: action.value },
+      },
+    };
   }
   if (action.type === "setTimeoutMs") {
     return { ...state, draft: { ...state.draft, agent: { ...state.draft.agent, timeoutMs: action.value } } };
@@ -378,40 +390,55 @@ export const SettingsPanel = ({
             <fieldset className="settings-fieldset">
               <legend>에이전트</legend>
 
-              <label className="settings-field">
+              <div className="settings-field">
                 <span className="settings-field__label">Provider</span>
+                <div className="settings-field__input" aria-label="Provider">
+                  Codex 전용
+                </div>
+                <span className="settings-field__hint">
+                  모든 로컬 에이전트 실행은 OpenAI Codex CLI를 사용합니다.
+                </span>
+              </div>
+
+              <label className="settings-field">
+                <span className="settings-field__label">Model</span>
                 <select
                   className="settings-field__input"
-                  value={state.draft.agent.provider}
+                  aria-label="Model"
+                  value={state.draft.agent.model}
                   disabled={state.saving}
-                  onChange={(e) =>
-                    dispatch({ type: "setProvider", value: e.target.value as AgentProvider })
-                  }
+                  onChange={(e) => dispatch({
+                    type: "setModel",
+                    value: e.target.value as CodexModel,
+                  })}
                 >
-                  <option value="auto">auto (자동 선택)</option>
-                  <option value="claude">claude</option>
-                  <option value="codex">codex</option>
+                  {CODEX_MODELS.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
                 </select>
                 <span className="settings-field__hint">
-                  auto는 가용한 CLI(claude → codex 순)를 자동 선택합니다.
-                  특정 제품군에 고정하려면 claude / codex를 직접 지정하세요.
-                  Agent Profile에서 같은 옵션을 덮어쓸 수 있습니다.
+                  Sol은 최고 성능, Terra는 균형형, Luna는 빠르고 경제적인 실행에 적합합니다.
                 </span>
               </label>
 
               <label className="settings-field">
-                <span className="settings-field__label">Model</span>
-                <input
-                  type="text"
+                <span className="settings-field__label">Reasoning effort</span>
+                <select
                   className="settings-field__input"
-                  placeholder="기본값 사용 (비워두기)"
-                  value={state.draft.agent.model}
+                  aria-label="Reasoning effort"
+                  value={state.draft.agent.reasoningEffort ?? DEFAULT_AGENT_REASONING_EFFORT}
                   disabled={state.saving}
-                  onChange={(e) => dispatch({ type: "setModel", value: e.target.value })}
-                />
+                  onChange={(e) => dispatch({
+                    type: "setReasoningEffort",
+                    value: e.target.value as AgentReasoningEffort,
+                  })}
+                >
+                  {AGENT_REASONING_EFFORTS.map((effort) => (
+                    <option key={effort} value={effort}>{effort}</option>
+                  ))}
+                </select>
                 <span className="settings-field__hint">
-                  비워두면 각 CLI의 기본 모델을 그대로 씁니다.
-                  <code>claude-sonnet-4-6</code> 같은 ID를 직접 지정할 수 있습니다.
+                  none부터 max까지 작업 난이도와 응답 시간에 맞춰 선택합니다.
                 </span>
               </label>
 
@@ -493,7 +520,9 @@ export const SettingsPanel = ({
               </label>
               <p className="settings-field__hint">
                 켜면 Codex CLI 호출에 <code>--sandbox workspace-write</code>를
-                사용합니다. 끄면 기존처럼 <code>read-only</code>로 실행합니다.
+                사용하며 Codex가 targetDir 파일을 직접 수정할 수 있습니다. 이 직접 수정은
+                Approval → Runner → Artifact 사전 경로를 거치지 않으므로 신뢰된 작업에서만
+                사용하고, 실행 후 반드시 diff 검토를 하세요. 끄면 <code>read-only</code>로 실행합니다.
               </p>
 
               <label className="settings-field settings-field--checkbox">

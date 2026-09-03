@@ -1,0 +1,39 @@
+{
+  "benchmark": "repo-index-refresh",
+  "capturedAt": "2026-09-01",
+  "runtime": "node v24.3.0",
+  "workload": {
+    "fileCount": 800,
+    "warmRuns": 7,
+    "fileShape": "small TypeScript modules"
+  },
+  "before": {
+    "coldMs": 1201.38,
+    "warmP50Ms": 350.99,
+    "warmP95Ms": 388.84,
+    "warmUpsertedRows": 5600
+  },
+  "after": {
+    "coldMs": 1207.41,
+    "warmP50Ms": 49.38,
+    "warmP95Ms": 53.33,
+    "warmUpsertedRows": 0
+  },
+  "postUpgradeVerification": {
+    "coldMs": 1362.97,
+    "warmP50Ms": 53.75,
+    "warmP95Ms": 59.98,
+    "warmUpsertedRows": 0
+  },
+  "deltaPercent": {
+    "coldMs": 0.5,
+    "warmP50Ms": -85.93,
+    "warmP95Ms": -86.29,
+    "warmUpsertedRows": -100
+  },
+  "command": "npm run bench:repo-index",
+  "notes": [
+    "This Windows host required a temporary preload only while capturing the numbers because Node 24.3.0 returned uv_os_get_passwd ENOMEM; the repository command remains the normal npm script.",
+    "Cold refresh remains within run-to-run noise; the intended optimization is the repeated unchanged refresh."
+  ]
+}

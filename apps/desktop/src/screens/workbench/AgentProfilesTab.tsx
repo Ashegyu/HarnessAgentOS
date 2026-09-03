@@ -9,6 +9,7 @@ import type {
 import {
   AGENT_REASONING_EFFORTS,
   APPROVAL_ACTION_TYPES,
+  CODEX_MODELS,
   WORKER_ROLES,
 } from "@harness/core";
 import {
@@ -443,7 +444,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                       {p.name}
                     </span>
                     <span className="agent-profiles-tab__item-meta">
-                      {p.provider} · {roleLabel(p.role)} · {p.category}
+                      Codex · {roleLabel(p.role)} · {p.category}
                       {p.isDefault && " · 기본"}
                       {isActive && " · 활성"}
                     </span>
@@ -529,24 +530,15 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   쉼표로 구분하는 키워드입니다. orchestration planner의 worker 선택과 검색 인덱싱에 사용됩니다.
                 </span>
               </label>
-              <label className="settings-field">
+              <div className="settings-field">
                 <span className="settings-field__label">실행 Provider</span>
-                <select
-                  className="settings-field__input"
-                  value={draft.provider}
-                  disabled={saving}
-                  onChange={(e) =>
-                    updateDraft("provider", e.target.value as ProfileDraft["provider"])
-                  }
-                >
-                  <option value="auto">auto</option>
-                  <option value="claude">claude</option>
-                  <option value="codex">codex</option>
-                </select>
+                <div className="settings-field__input" aria-label="실행 Provider">
+                  Codex 전용
+                </div>
                 <span className="settings-field__hint">
-                  auto는 General 탭의 Provider 설정을 따릅니다. Codex MCP binding은 검증된 stdio/no-secret 서버만 per-run override로 전달되고, tool 정책은 현재 claude provider에서만 enforced입니다.
+                  모든 프로필은 Codex CLI로 실행됩니다. MCP binding은 검증된 stdio/no-secret 서버만 per-run override로 전달됩니다.
                 </span>
-              </label>
+              </div>
               <label className="settings-field">
                 <span className="settings-field__label">역할(Role)</span>
                 <select
@@ -594,16 +586,18 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
               <legend>모델 튜닝</legend>
               <label className="settings-field">
                 <span className="settings-field__label">모델</span>
-                <input
-                  type="text"
+                <select
                   className="settings-field__input"
-                  placeholder="기본값 사용 (비워두기)"
                   value={draft.model}
                   disabled={saving}
                   onChange={(e) => updateDraft("model", e.target.value)}
-                />
+                >
+                  {CODEX_MODELS.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
                 <span className="settings-field__hint">
-                  비워두면 General 탭의 전역 Model을 따릅니다. <code>claude-sonnet-4-6</code> 같은 ID로 이 프로필만 덮어쓸 수 있습니다.
+                  이 프로필에서 사용할 Codex 5.6 모델을 선택합니다.
                 </span>
               </label>
               <label className="settings-field">
@@ -621,7 +615,6 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                     )
                   }
                 >
-                  <option value="">provider 기본값</option>
                   {AGENT_REASONING_EFFORTS.map((effort) => (
                     <option key={effort} value={effort}>
                       {effort}
@@ -629,7 +622,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   ))}
                 </select>
                 <span className="settings-field__hint">
-                  Codex 실행에서는 <code>model_reasoning_effort</code> override로 전달됩니다. Claude provider에는 검증된 CLI 플래그가 없어 전달하지 않습니다.
+                  <code>model_reasoning_effort</code> override로 Codex CLI에 전달됩니다.
                 </span>
               </label>
               <label className="settings-field">
@@ -760,7 +753,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   }
                 />
                 <span className="settings-field__hint">
-                  비워두면 PATH에서 claude/codex CLI를 검색합니다. 특정 빌드를 쓰려면 실행 파일의 절대 경로를 적으세요.
+                  비워두면 PATH에서 Codex CLI를 검색합니다. 특정 빌드를 쓰려면 실행 파일의 절대 경로를 적으세요.
                 </span>
               </label>
             </fieldset>
@@ -1054,7 +1047,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                 />
                 <span className="settings-field__hint">
                   허용할 MCP tool 이름 패턴 (한 줄당 하나). 비우면 모두 허용입니다.
-                  와일드카드 사용 예: <code>read_*</code>, <code>list_*</code>. claude provider에서만 enforced.
+                  와일드카드 사용 예: <code>read_*</code>, <code>list_*</code>. Codex에서는 검토용 정책이며 실행 전 강제되지 않습니다.
                 </span>
               </label>
               <label className="settings-field">

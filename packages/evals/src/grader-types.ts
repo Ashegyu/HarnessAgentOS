@@ -48,7 +48,7 @@ export interface LlmJudgeGrader {
     readonly weight: number;
   }>;
   readonly passThreshold?: number;
-  readonly judgeProvider?: "claude" | "codex";
+  readonly judgeProvider?: "codex";
   readonly judgeAttempts?: number;
   readonly maxJudgeTokens?: number;
 }

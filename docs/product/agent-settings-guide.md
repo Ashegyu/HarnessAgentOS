@@ -44,13 +44,16 @@
 
 | 필드 | 의미 | 예시 |
 |------|------|------|
-| **Provider** | CLI 종류. `auto`는 우선순위에 따라 사용 가능한 첫 CLI를 선택 | `claude`, `codex`, `auto` |
-| **Model** | 모델 ID. 비워두면 provider의 기본 모델 사용 | `claude-sonnet-4-6` |
+| **Provider** | `codex`로 고정. 다른 provider를 선택하거나 실행할 수 없음 | `codex` |
+| **Model** | Codex 5.6 모델 선택. 기본값은 `gpt-5.6-sol` | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| **Reasoning effort** | Codex 추론 강도. CLI의 `model_reasoning_effort`로 전달 | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | **Timeout (ms)** | 한 invocation의 최대 시간 | `300000` (5분) |
 | **Stall timeout (ms)** | stdout이 일정 시간 chunk 없으면 강제 종료 | `300000` |
 | **Context depth** | prompt에 포함할 이전 turn의 개수 | `5` |
+| **Codex workspace-write sandbox** | 기본 OFF. ON이면 Codex가 targetDir을 직접 수정할 수 있어 Harness의 Approval → Runner → Artifact 사전 경로를 거치지 않음. 대신 실행 전후 snapshot의 A/M/D manifest와 가능한 text diff를 `Workspace change evidence` artifact로 자동 기록 | 신뢰된 작업에서만 ON 후 diff 검토 |
 
 > ℹ️ AgentProfile이 활성화되어 있으면 위 값은 무시되고 프로필의 `tuning` 블록이 우선합니다.
+> 기존 `gpt-5`/`gpt-5.5`와 지원 목록 밖의 저장 모델은 읽을 때 `gpt-5.6-sol`로 승격합니다. 기존 `claude`/`auto` provider 값도 `codex`로 정규화됩니다.
 
 ### 2.2 Agent Orchestration (실험적)
 
@@ -61,22 +64,24 @@
 | **활성화 토글** | OFF면 single-worker 모드로 동작 |
 | **기본 Mode** | `single_worker` / `planner_worker` / `multi_worker` |
 | **기본 Instruction** | 플래너 에이전트에게 항상 전달되는 시스템 지시 |
-| **Agent Profiles** | `role` + provider + model + 한국어 ROLE 프롬프트 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter` |
+| **Agent Profiles** | `role` + Codex model + 한국어 ROLE 프롬프트 조합. 현재 실행 role은 `planner`, `coder`, `reviewer`, `tester`, `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter` |
 
 ### 2.3 Approval 자동화
 
 | 필드 | 의미 |
 |------|------|
-| **모든 approval 자동 승인 및 실행** | ⚠ ON이면 file_write·shell·dependency_install·git_commit·skill_script·network·orchestration_plan 모두 자동 |
+| **허용된 approval 자동 승인 및 실행** | ON이면 service/profile 정책과 예산을 통과한 approval만 자동 승인·실행 |
 
 이 글로벌 토글이 ON이고 AgentProfile에 별도 화이트리스트가 있어도, 정책 우선순위는 다음과 같습니다:
 
 ```
-profile.permissions.block  ← 가장 강함
+service hard block / profile.permissions.block / budget  ← 가장 강함
 profile.permissions.autoApproveActions
 글로벌 autoApprove 토글
 사용자에게 prompt (기본)  ← 가장 약함
 ```
+
+파이프라인을 선택한 행위도 위 차단 목록과 예산을 우회하지 않습니다. 정책이 차단한 approval은 자동 처리하지 않고 pending 상태로 남깁니다.
 
 ---
 
@@ -89,10 +94,10 @@ profile.permissions.autoApproveActions
 #### 기본 정보 섹션
 - **이름** — UI에 표시되는 이름. 예: `Backend Coder`, `Security Reviewer`
 - **분류/태그** — UI 필터와 profile 선택 힌트에 사용하는 메타데이터
-- **Provider** — 기본 seed 프로필은 `codex`를 사용합니다. 기존 데이터 호환을 위해 `claude` / `auto`도 저장 가능하지만 Codex 전용 설정은 Codex 실행에만 전달됩니다.
+- **Provider** — 모든 프로필은 `codex`로 고정됩니다. 기존 `claude` / `auto` 데이터는 로드 시 `codex`로 승격됩니다.
 - **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter`를 사용합니다.
 - **Role 설명 카드** — 선택한 role의 책임, 사용 시점, 안전 경계를 표시합니다.
-- **Model** — 비워두면 provider 기본값
+- **Model** — `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 선택합니다. 새 seed와 지원 목록 밖의 기존 값은 `gpt-5.6-sol`을 사용합니다.
 - **CLI 경로 override** — 시스템 PATH의 CLI가 아닌 다른 바이너리를 쓰고 싶을 때
 
 #### 에이전트 프롬프트 섹션
@@ -101,14 +106,14 @@ profile.permissions.autoApproveActions
 - **System Prompt Prefix** — ROLE 프롬프트 위에 더해지는 조직/프로젝트 정책
 - **System Prompt Suffix** — output contract 뒤에 추가되는 프로필별 마무리 지시. Harness의 최종 공통 정책이 그 뒤에 다시 붙어 `questions: []`와 `file_write.after` 전체-파일 본문 계약을 고정합니다.
 
-> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX → FINAL POLICY`. Claude provider는 `--system-prompt` 인자로 전달하고, Codex provider는 stdin의 `SYSTEM INSTRUCTIONS` 블록에 접어 넣습니다.
+> ℹ️ 합성 순서는 `PREFIX → PERSONA → SYSTEM → OUTPUT CONTRACT → SUFFIX → FINAL POLICY`이며, 완성된 지시는 Codex stdin의 `SYSTEM INSTRUCTIONS` 블록에 포함됩니다.
 
 기본 seed 프로필은 이제 빈 prefix/suffix가 아니라 HarnessAgentOS 공통 계약을 포함합니다. 공통 계약은 Electron IPC 경계, SQLite WAL source of truth, approval-gated side effect, targetDir 경계, evidence-first 보고 규칙, `file_write.after`는 완전한 파일 대체 본문이라는 규칙을 고정합니다. 기존 seed 프로필의 prefix/suffix가 비어 있으면 앱 시작 시 이 richer contract가 backfill되고, 사용자가 직접 작성한 prefix/suffix는 보존됩니다.
 
 #### Tuning 섹션
 - **Temperature** — 0.0~1.0
 - **Max tokens** — 응답 최대 길이
-- **Reasoning effort** — `low` / `medium` / `high` / `xhigh` / `max`. Codex 실행에서는 `model_reasoning_effort` override로 전달되고, Claude provider에는 검증된 CLI 플래그가 없어 전달하지 않습니다.
+- **Reasoning effort** — `none` / `low` / `medium` / `high` / `xhigh` / `max`. Codex 실행 시 `model_reasoning_effort` override로 전달됩니다.
 - **Timeout (ms)** / **Stall timeout (ms)** — General 탭과 동일하지만 이 프로필만 override
 - **Context depth** — 이 프로필 전용 turn 수
 
@@ -155,7 +160,7 @@ ActionType별 정책 매트릭스:
 ```yaml
 name: Strict Reviewer
 provider: codex
-model: gpt-5.5
+model: gpt-5.6-sol
 persona: |
   당신은 보안과 가독성에 엄격한 코드 리뷰어입니다.
   변경된 파일만 분석하고, 새 코드를 작성하지 않습니다.
@@ -173,7 +178,7 @@ mcpServerIds: []
 ```yaml
 name: Full-Auto Coder
 provider: codex
-model: gpt-5.5
+model: gpt-5.6-sol
 persona: 빠른 프로토타이핑 코더. 안전 망 없이 작동.
 tuning:
   reasoningEffort: xhigh
@@ -291,25 +296,23 @@ envSecretRefs:
 }
 ```
 
-이 JSON은 `userData/mcp-tmp/mcp-<uuid>.json`에 임시 파일로 (mode 0o600) 저장되고 `claude --mcp-config <path> --strict-mcp-config` 인자로 전달됩니다. Claude의 user/project MCP 설정은 workbench 실행에 섞지 않습니다. invocation 종료 시 자동 삭제됩니다.
+Codex invocation에는 검증된 stdio/no-secret 서버만 per-run `mcp_servers.*` config override로 전달됩니다. secret 참조가 있거나 지원하지 않는 transport의 서버는 실행 설정에서 제외되고 warning으로 표시됩니다.
 
 ### 4.2 액션
 
 | 버튼 | 동작 |
 |------|------|
-| **초안 생성** | 사용자 설명에서 MCP 서버 등록 초안을 만든다. 저장/파일쓰기/probe는 하지 않고, Claude config key 충돌과 placeholder/secret warning만 preview로 보여준다 |
+| **초안 생성** | 사용자 설명에서 MCP 서버 등록 초안을 만든다. 저장/파일쓰기/probe는 하지 않고, Codex config key 충돌과 placeholder/secret warning만 preview로 보여준다 |
 | **저장** | DB에 upsert |
 | **활성화 / 비활성화** | enabled 플래그 토글 |
 | **Health check** | stdio: spawn 후 MCP 표준 `Content-Length` 프레임으로 JSON-RPC `initialize`를 보내 응답 확인 (3s 타임아웃, 줄 단위 JSON 응답도 호환) <br> http/sse: HEAD 요청 후 실패 시 GET으로 reachability 재확인 |
 | **삭제** | DB에서 제거. 활성 프로필이 참조 중이면 invocation 시 자동으로 빠짐 |
 
-### 4.3 Provider 별 동작
+### 4.3 Codex 동작
 
 | Provider | MCP 지원 | 비고 |
 |----------|:-------:|------|
-| `claude` | ✅ | `--mcp-config <path>` 인자로 전달 |
 | `codex` | 제한 지원 | 검증된 stdio/no-secret 서버만 per-run `mcp_servers.*` config override로 전달 |
-| `auto` | 제한 지원 | 실제 선택 provider에 따름. Codex 선택 시 위 제한을 그대로 적용 |
 
 ### 4.4 HTTP/SSE 인증
 
@@ -515,7 +518,7 @@ OS 보안 저장소에 비밀 값을 암호화 저장합니다.
 | `secret vault key "X" could not be resolved` | envSecretRefs에 참조한 키가 Secret Vault에 없음 | Secrets 탭에서 해당 키 등록 |
 | Skill이 prompt에 안 보임 | 소스가 disabled이거나 SKILL.md frontmatter 오류 | Refresh 시 콘솔에서 파싱 오류 확인 |
 | 마이그레이션 배너가 안 사라짐 | AgentProfile이 하나도 없는 상태 | 빈 프로필이라도 하나 저장하면 사라짐 |
-| Codex에서 MCP가 동작 안 함 | Codex CLI MCP 인자 형식 V2 검증 전 | Claude provider 사용 (현재 제한) |
+| Codex에서 MCP가 동작 안 함 | 서버가 stdio가 아니거나 secret 참조가 있어 per-run 전달 대상에서 제외됨 | Health check를 통과한 stdio/no-secret 서버인지 확인하고 프로필의 `mcpServerIds`에 연결 |
 | `SecretVaultUnavailableError` | OS 보안 저장소 미사용 환경 (헤드리스 Linux 등) | libsecret 설치 또는 Desktop 환경에서 실행 |
 
 ---

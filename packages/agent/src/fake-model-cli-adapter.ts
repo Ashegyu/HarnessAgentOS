@@ -73,7 +73,6 @@ export interface FakeModelCliAdapterOptions {
   /** Phase 16 evals — deterministic clock injection for tests. */
   now?: () => number;
   /** Phase 16 evals — deterministic session/id generation for tests. */
-  idGen?: () => string;
 }
 
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
@@ -405,13 +404,10 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
   private readonly options: FakeModelCliAdapterOptions;
   private readonly recordedRequests: ModelCliRequest[] = [];
   private readonly now: () => number;
-  private readonly idGen: () => string;
 
   constructor(options: FakeModelCliAdapterOptions = {}) {
     this.options = options;
     this.now = options.now ?? (() => Date.now());
-    this.idGen =
-      options.idGen ?? (() => Math.random().toString(36).slice(2));
   }
 
   currentTimeMs(): number {
@@ -500,10 +496,6 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
     });
 
     const provider: AgentProvider = request.modelConfig.provider;
-    const sessionId =
-      provider === "claude"
-        ? request.sessionId ?? `fake_${this.idGen()}`
-        : undefined;
     return {
       provider,
       model: request.modelConfig.model,
@@ -513,7 +505,6 @@ export class FakeModelCliAdapter implements ModelCliAdapter {
       normalizedEvents: [],
       latencyMs: finalLatency,
       costEstimate: 0,
-      ...(sessionId ? { sessionId } : {}),
     };
   }
 }

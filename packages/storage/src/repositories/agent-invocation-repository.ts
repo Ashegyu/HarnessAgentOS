@@ -46,7 +46,7 @@ interface AgentInvocationRow {
   task_run_id: string;
   step_id: string | null;
   profile_id: string | null;
-  provider: "claude" | "codex";
+  provider: string;
   model: string;
   status: AgentInvocationStatus;
   prompt_artifact_id: string;
@@ -110,7 +110,7 @@ const rowToInvocation = (r: AgentInvocationRow): AgentInvocation => {
   const inv: AgentInvocation = {
     id: r.id,
     taskRunId: r.task_run_id,
-    provider: r.provider,
+    provider: "codex",
     model: r.model,
     status: r.status,
     promptArtifactId: r.prompt_artifact_id,

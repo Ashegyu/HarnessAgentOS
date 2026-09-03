@@ -63,8 +63,8 @@ test("recorded_request_contains checks fake adapter introspection", async () => 
           cwd: targetDir,
           prompt: "Please write README.md",
           modelConfig: {
-            provider: "claude",
-            model: "fake",
+            provider: "codex",
+            model: "gpt-5.6-sol",
             timeoutMs: 30_000,
             stallTimeoutMs: 10_000,
           },

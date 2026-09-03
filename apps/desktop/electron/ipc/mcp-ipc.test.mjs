@@ -37,11 +37,11 @@ const profileInput = (overrides = {}) => ({
   description: "",
   category: "review",
   tags: ["review"],
-  provider: "claude",
+  provider: "codex",
   role: "reviewer",
   persona: "",
   tuning: {
-    model: "claude-sonnet-4",
+    model: "gpt-5.6-sol",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,
@@ -412,7 +412,7 @@ test("mcp.upsert allows disabled servers with missing secret refs but rejects en
   }
 });
 
-test("mcp.upsert rejects enabling sanitized Claude config key collisions", async () => {
+test("mcp.upsert rejects enabling sanitized Codex config key collisions", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);
   try {
@@ -462,7 +462,7 @@ test("mcp.toggle refuses to enable a server while referenced secrets are missing
   }
 });
 
-test("mcp.toggle refuses to enable sanitized Claude config key collisions", async () => {
+test("mcp.toggle refuses to enable sanitized Codex config key collisions", async () => {
   const t = tmp();
   const { db, ctx } = setupCtx(t.file);
   try {

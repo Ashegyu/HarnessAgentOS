@@ -42,16 +42,16 @@ test("parseEvalCliArgs honors LLM judge gate", () => {
   assert.equal(parseEvalCliArgs([], {}).llmJudge, false);
 });
 
-test("parseEvalCliArgs parses provider comparison option", () => {
-  const options = parseEvalCliArgs(["--providers=claude,codex"], {});
+test("parseEvalCliArgs parses the Codex provider option", () => {
+  const options = parseEvalCliArgs(["--providers=codex"], {});
 
-  assert.deepEqual(options.providers, ["claude", "codex"]);
+  assert.deepEqual(options.providers, ["codex"]);
 });
 
 test("parseEvalCliArgs rejects invalid providers", () => {
   assert.throws(
-    () => parseEvalCliArgs(["--providers=claude,openai"], {}),
-    /--providers contains invalid provider: openai/,
+    () => parseEvalCliArgs(["--providers=claude"], {}),
+    /--providers contains invalid provider: claude/,
   );
 });
 

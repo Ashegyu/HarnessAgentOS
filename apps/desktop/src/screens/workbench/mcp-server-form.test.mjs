@@ -145,8 +145,8 @@ test("mcpGeneratedDraftToFormDraft converts generated preview into a new unsaved
   assert.equal(d.enabled, false);
 });
 
-test("MCP provider boundary copy separates Claude config files from limited Codex overrides", () => {
-  assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /--mcp-config/);
+test("MCP provider boundary copy documents the Codex-only override constraints", () => {
+  assert.doesNotMatch(MCP_PROVIDER_BOUNDARY_TEXT, /Claude|--mcp-config/);
   assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /mcp_servers\.\*/);
   assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /stdio\/no-secret/);
   assert.match(MCP_PROVIDER_BOUNDARY_TEXT, /SecretVault refs/);

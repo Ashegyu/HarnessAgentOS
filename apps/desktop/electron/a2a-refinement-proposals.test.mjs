@@ -123,7 +123,7 @@ const reviewInvocation = {
   taskRunId: "tsk_1",
   stepId: "step_review",
   provider: "codex",
-  model: "gpt-5.5",
+  model: "gpt-5.6-sol",
   status: "succeeded",
   promptArtifactId: "art_prompt_review",
   rawOutputArtifactId: "art_review",

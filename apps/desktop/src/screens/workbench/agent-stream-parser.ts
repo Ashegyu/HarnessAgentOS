@@ -4,10 +4,19 @@ import type {
   AgentToolCallEvent,
 } from "@harness/core";
 
-// Parses raw stdout chunks from claude --output-format=stream-json into
-// structured events the UI can render. Each JSON-per-line event becomes
+// Parses raw Codex `exec --json` stdout chunks into structured events the UI
+// can render. Each JSON-per-line event becomes
 // one parsed entry; partial chunks across multiple `raw` stream events
 // are buffered.
+
+export const MAX_STREAM_PENDING_CHARS = 256 * 1024;
+export const MAX_STREAM_TEXT_CHARS = 512 * 1024;
+export const MAX_STREAM_UNKNOWN_LINES = 100;
+export const MAX_STREAM_TOOL_USES = 256;
+const MAX_STREAM_SECTIONS = 512;
+const MAX_STREAM_PROGRESS_ITEMS = 100;
+const MAX_STREAM_HOOKS = 100;
+const MAX_STREAM_TOOL_INPUT_CHARS = 64 * 1024;
 
 export type ParsedProgressItem = Pick<
   AgentProgressEvent,
@@ -160,6 +169,9 @@ export const feedStreamChunk = (
     if (line.length > 0) ingestLine(state, line);
     nl = state.pending.indexOf("\n");
   }
+  if (state.pending.length > MAX_STREAM_PENDING_CHARS) {
+    state.pending = state.pending.slice(-MAX_STREAM_PENDING_CHARS);
+  }
   return state;
 };
 
@@ -213,7 +225,7 @@ export const promoteIntermediateTextToFinal = (
     const text = state.pendingFinalText ??
       (parsed.intermediateText.length > 0 ? parsed.intermediateText : parsed.liveText);
     if (text.length > 0) {
-      const finalText = normalizeAssistantDisplayText(text);
+      const finalText = capStreamText(normalizeAssistantDisplayText(text));
       parsed.finalText = finalText;
       appendFinalSection(state, finalText);
     }
@@ -299,7 +311,7 @@ const ingestLine = (state: StreamParserState, line: string): void => {
   try {
     obj = JSON.parse(line) as Record<string, unknown>;
   } catch {
-    parsed.unknown.push(line);
+    pushBounded(parsed.unknown, line, MAX_STREAM_UNKNOWN_LINES);
     return;
   }
   const type = obj["type"];
@@ -341,7 +353,7 @@ const ingestLine = (state: StreamParserState, line: string): void => {
           input: null,
         });
         const sectionIndex = parsed.sections.length - 1;
-        if (blockIndex >= 0) {
+        if (blockIndex >= 0 && toolUseIndex >= 0) {
           state.pendingToolInputs.set(blockIndex, {
             toolUseIndex,
             sectionIndex,
@@ -353,17 +365,21 @@ const ingestLine = (state: StreamParserState, line: string): void => {
       const delta = ev?.["delta"] as Record<string, unknown> | undefined;
       if (delta && delta["type"] === "text_delta" && typeof delta["text"] === "string") {
         const text = delta["text"] as string;
-        parsed.liveText += text;
+        parsed.liveText = capStreamText(parsed.liveText + text);
         appendTextDeltaSection(state, "response", text, "live");
       } else if (delta && delta["type"] === "thinking_delta" && typeof delta["thinking"] === "string") {
         // Extended thinking block — accumulated separately so the UI can
         // render the model's reasoning in its own section.
         const thinking = delta["thinking"] as string;
-        parsed.thinkingText += thinking;
+        parsed.thinkingText = capStreamText(parsed.thinkingText + thinking);
         appendTextDeltaSection(state, "thinking", thinking);
       } else if (delta && delta["type"] === "input_json_delta" && typeof delta["partial_json"] === "string") {
         const pending = state.pendingToolInputs.get(blockIndex);
-        if (pending) pending.json += delta["partial_json"] as string;
+        if (pending) {
+          pending.json = capPendingText(
+            pending.json + (delta["partial_json"] as string),
+          );
+        }
       }
     } else if (evType === "content_block_stop") {
       const pending = state.pendingToolInputs.get(blockIndex);
@@ -398,14 +414,18 @@ const ingestLine = (state: StreamParserState, line: string): void => {
       return;
     }
     if (subtype === "hook_started" || subtype === "hook_response") {
-      parsed.hooks.push({
-        name: String(obj["hook_name"] ?? "unknown"),
-        event: String(obj["hook_event"] ?? "unknown"),
-        phase: subtype === "hook_started" ? "started" : "response",
-      });
+      pushBounded(
+        parsed.hooks,
+        {
+          name: String(obj["hook_name"] ?? "unknown"),
+          event: String(obj["hook_event"] ?? "unknown"),
+          phase: subtype === "hook_started" ? "started" : "response",
+        },
+        MAX_STREAM_HOOKS,
+      );
       return;
     }
-    parsed.unknown.push(line);
+    pushBounded(parsed.unknown, line, MAX_STREAM_UNKNOWN_LINES);
     return;
   }
   if (type === "rate_limit_event") {
@@ -420,7 +440,7 @@ const ingestLine = (state: StreamParserState, line: string): void => {
     return;
   }
   if (ingestCodexLine(state, obj)) return;
-  parsed.unknown.push(line);
+  pushBounded(parsed.unknown, line, MAX_STREAM_UNKNOWN_LINES);
 };
 
 const looksLikeJsonLineStream = (text: string): boolean => {
@@ -453,14 +473,18 @@ const ingestPersistedHarnessStreamEvent = (
       typeof message === "string" &&
       typeof at === "string"
     ) {
-      state.parsed.progress.push({
-        stage,
-        message,
-        ...(typeof obj["detail"] === "string"
-          ? { detail: obj["detail"] as string }
-          : {}),
-        at,
-      });
+      pushBounded(
+        state.parsed.progress,
+        {
+          stage,
+          message,
+          ...(typeof obj["detail"] === "string"
+            ? { detail: obj["detail"] as string }
+            : {}),
+          at,
+        },
+        MAX_STREAM_PROGRESS_ITEMS,
+      );
     }
     return true;
   }
@@ -536,6 +560,9 @@ const feedPersistedRawChunk = (
     if (line.length > 0) ingestLine(state, line);
     nl = state.pendingRaw.indexOf("\n");
   }
+  if (state.pendingRaw.length > MAX_STREAM_PENDING_CHARS) {
+    state.pendingRaw = state.pendingRaw.slice(-MAX_STREAM_PENDING_CHARS);
+  }
 };
 
 const PROGRESS_STAGES: ReadonlySet<string> = new Set([
@@ -568,11 +595,15 @@ const applyIntermediateAssistantText = (
   const plan = extractHarnessAgentPlanDisplay(text);
   if (!plan) {
     state.pendingFinalText = null;
-    state.parsed.intermediateText = text;
-    appendResponseSnapshotSection(state, text, "intermediate");
+    state.parsed.intermediateText = capStreamText(text);
+    appendResponseSnapshotSection(
+      state,
+      state.parsed.intermediateText,
+      "intermediate",
+    );
     return;
   }
-  state.parsed.intermediateText = plan.prose || plan.summary;
+  state.parsed.intermediateText = capStreamText(plan.prose || plan.summary);
   appendUniqueResponseSnapshotSection(
     state,
     state.parsed.intermediateText,
@@ -588,12 +619,12 @@ const applyFinalAssistantText = (
   const plan = extractHarnessAgentPlanDisplay(text);
   if (!plan) {
     state.pendingFinalText = null;
-    state.parsed.finalText = text;
-    appendFinalSection(state, text);
+    state.parsed.finalText = capStreamText(text);
+    appendFinalSection(state, state.parsed.finalText);
     return;
   }
   if (state.parsed.intermediateText.length === 0) {
-    state.parsed.intermediateText = plan.prose || plan.summary;
+    state.parsed.intermediateText = capStreamText(plan.prose || plan.summary);
     appendUniqueResponseSnapshotSection(
       state,
       state.parsed.intermediateText,
@@ -601,15 +632,15 @@ const applyFinalAssistantText = (
     );
   }
   applyHarnessAgentPlanDisplay(state, plan);
-  state.parsed.finalText = plan.summary;
-  appendFinalSection(state, plan.summary);
+  state.parsed.finalText = capStreamText(plan.summary);
+  appendFinalSection(state, state.parsed.finalText);
 };
 
 const applyHarnessAgentPlanDisplay = (
   state: StreamParserState,
   plan: HarnessAgentPlanDisplay,
 ): void => {
-  state.pendingFinalText = plan.summary;
+  state.pendingFinalText = capStreamText(plan.summary);
   appendUniqueThinkingText(state, plan.thinkingText);
   appendUniqueToolUses(state, plan.toolUses);
 };
@@ -750,11 +781,13 @@ const appendUniqueThinkingText = (
   text: string,
 ): void => {
   const parsed = state.parsed;
-  const trimmed = text.trim();
+  const trimmed = capStreamText(text.trim());
   if (trimmed.length === 0 || parsed.thinkingText.includes(trimmed)) return;
-  parsed.thinkingText = parsed.thinkingText.length > 0
-    ? `${parsed.thinkingText}\n\n${trimmed}`
-    : trimmed;
+  parsed.thinkingText = capStreamText(
+    parsed.thinkingText.length > 0
+      ? `${parsed.thinkingText}\n\n${trimmed}`
+      : trimmed,
+  );
   appendTextDeltaSection(state, "thinking", trimmed);
 };
 
@@ -776,7 +809,7 @@ const appendObservedToolCallSection = (
   state: StreamParserState,
   event: Pick<AgentToolCallEvent, "toolName" | "input" | "toolCallId">,
 ): void => {
-  const input = event.input ?? null;
+  const input = boundToolInput(event.input ?? null);
   const key = `${event.toolName}:${safeJson(input)}`;
   const existingIndex = state.parsed.toolUses.findIndex(
     (existing) =>
@@ -815,17 +848,28 @@ const appendTextDeltaSection = (
   const last = sections[sections.length - 1];
   if (kind === "thinking") {
     if (last?.kind === "thinking") {
-      last.text += text;
+      last.text = capStreamText(last.text + text);
       return;
     }
-    sections.push({ id: nextSectionId(state), kind: "thinking", text });
+    if (sections.length >= MAX_STREAM_SECTIONS) return;
+    sections.push({
+      id: nextSectionId(state),
+      kind: "thinking",
+      text: capStreamText(text),
+    });
     return;
   }
   if (last?.kind === "response" && last.phase === phase) {
-    last.text += text;
+    last.text = capStreamText(last.text + text);
     return;
   }
-  sections.push({ id: nextSectionId(state), kind: "response", phase, text });
+  if (sections.length >= MAX_STREAM_SECTIONS) return;
+  sections.push({
+    id: nextSectionId(state),
+    kind: "response",
+    phase,
+    text: capStreamText(text),
+  });
 };
 
 const appendResponseSnapshotSection = (
@@ -844,7 +888,13 @@ const appendResponseSnapshotSection = (
   ) {
     return;
   }
-  sections.push({ id: nextSectionId(state), kind: "response", phase, text });
+  if (sections.length >= MAX_STREAM_SECTIONS) return;
+  sections.push({
+    id: nextSectionId(state),
+    kind: "response",
+    phase,
+    text: capStreamText(text),
+  });
 };
 
 const appendUniqueResponseSnapshotSection = (
@@ -868,13 +918,23 @@ const appendToolUseSection = (
   toolUse: { name: string; input: unknown },
 ): number => {
   const parsed = state.parsed;
+  if (
+    parsed.toolUses.length >= MAX_STREAM_TOOL_USES ||
+    parsed.sections.length >= MAX_STREAM_SECTIONS
+  ) {
+    return -1;
+  }
   const toolUseIndex = parsed.toolUses.length;
-  parsed.toolUses.push(toolUse);
+  const boundedToolUse = {
+    name: capPlainText(toolUse.name, 1_000),
+    input: boundToolInput(toolUse.input),
+  };
+  parsed.toolUses.push(boundedToolUse);
   parsed.sections.push({
     id: nextSectionId(state),
     kind: "tool",
-    name: toolUse.name,
-    input: toolUse.input,
+    name: boundedToolUse.name,
+    input: boundedToolUse.input,
   });
   return toolUseIndex;
 };
@@ -888,14 +948,19 @@ const appendFinalSection = (
   const sections = state.parsed.sections;
   const last = sections[sections.length - 1];
   if (last?.kind === "final") {
-    last.text = text;
+    last.text = capStreamText(text);
     return;
   }
   const exists = sections.some(
     (section) => section.kind === "final" && section.text.trim() === text.trim(),
   );
   if (!exists) {
-    sections.push({ id: nextSectionId(state), kind: "final", text });
+    if (sections.length >= MAX_STREAM_SECTIONS) return;
+    sections.push({
+      id: nextSectionId(state),
+      kind: "final",
+      text: capStreamText(text),
+    });
   }
 };
 
@@ -927,6 +992,34 @@ const safeJson = (value: unknown): string => {
   } catch {
     return String(value);
   }
+};
+
+const capPendingText = (text: string): string =>
+  text.length <= MAX_STREAM_PENDING_CHARS
+    ? text
+    : text.slice(-MAX_STREAM_PENDING_CHARS);
+
+const capStreamText = (text: string): string => {
+  if (text.length <= MAX_STREAM_TEXT_CHARS) return text;
+  const marker = "[earlier stream content truncated]\n";
+  return marker + text.slice(-(MAX_STREAM_TEXT_CHARS - marker.length));
+};
+
+const capPlainText = (text: string, limit: number): string =>
+  text.length <= limit ? text : `${text.slice(0, limit)}…`;
+
+const pushBounded = <T>(items: T[], value: T, limit: number): void => {
+  items.push(value);
+  if (items.length > limit) items.splice(0, items.length - limit);
+};
+
+const boundToolInput = (input: unknown): unknown => {
+  const serialized = safeJson(input);
+  if (serialized.length <= MAX_STREAM_TOOL_INPUT_CHARS) return input;
+  return {
+    truncated: true,
+    preview: serialized.slice(0, MAX_STREAM_TOOL_INPUT_CHARS),
+  };
 };
 
 const ingestCodexLine = (
@@ -1243,7 +1336,7 @@ const appendCodexToolUseSection = (
     name: toolUse.name,
     input: toolUse.input,
   });
-  if (toolUse.id) {
+  if (toolUse.id && toolUseIndex >= 0) {
     state.codexToolSections.set(toolUse.id, {
       toolUseIndex,
       sectionIndex: before,
@@ -1260,7 +1353,9 @@ const appendCodexReasoningUsage = (
     "세부 추론 텍스트는 Codex JSON 스트림에 포함되지 않았습니다.";
   if (state.parsed.thinkingText.includes(text)) return;
   const chunk = state.parsed.thinkingText.length > 0 ? `\n${text}` : text;
-  state.parsed.thinkingText += chunk;
+  state.parsed.thinkingText = capStreamText(
+    state.parsed.thinkingText + chunk,
+  );
   appendTextDeltaSection(state, "thinking", chunk);
 };
 

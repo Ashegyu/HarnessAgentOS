@@ -51,7 +51,9 @@ test("workbench launches and creates a thread", async () => {
     const sidebar = window.locator('aside[aria-label="Thread sidebar"]');
     await expect(sidebar).toBeVisible();
 
-    await window.getByRole("button", { name: "새 작업" }).click();
+    await window
+      .getByRole("button", { name: "새 작업", exact: true })
+      .click();
     await window.getByLabel("제목").fill("E2E smoke thread");
     await window.getByLabel("대상 폴더 (선택)").fill(projectDir);
     await window.getByRole("button", { name: "생성" }).click();
@@ -113,6 +115,106 @@ test("workbench launches and creates a thread", async () => {
     await expect(window.locator(".chat-turn__thread-link").first()).toContainText(
       "다음 태스크",
     );
+
+    // 실제 Electron 창의 CSS Grid 경계를 측정해 drawer 리사이저와 본문
+    // offset이 다시 어긋나거나 최소 창에서 가로 스크롤이 생기는 회귀를 막는다.
+    await window.locator(".chat-turn").last().click();
+    await expect(window.locator(".context-drawer")).toHaveClass(/context-drawer--open/);
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(1280, 800);
+    });
+    await expect.poll(() => window.evaluate(() => window.innerWidth)).toBe(1280);
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          document
+            .querySelector(".context-drawer")!
+            .getBoundingClientRect().width,
+        ),
+      )
+      .toBe(380);
+
+    const wideLayout = await window.evaluate(() => {
+      const rect = (selector: string) => {
+        const bounds = document.querySelector(selector)?.getBoundingClientRect();
+        if (!bounds) throw new Error(`Missing layout element: ${selector}`);
+        return {
+          left: bounds.left,
+          right: bounds.right,
+          width: bounds.width,
+          height: bounds.height,
+        };
+      };
+      return {
+        rail: rect(".slim-rail"),
+        thread: rect(".thread-drawer"),
+        main: rect(".conversation-workbench"),
+        context: rect(".context-drawer"),
+        status: rect(".runtime-status-bar"),
+        threadResizer: rect(".workbench-resizer--thread"),
+        contextResizer: rect(".workbench-resizer--context"),
+        viewportWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    expect(wideLayout.rail.width).toBe(60);
+    expect(wideLayout.thread.width).toBe(272);
+    expect(wideLayout.main.width).toBe(568);
+    expect(wideLayout.context.width).toBe(380);
+    expect(wideLayout.status.height).toBe(32);
+    expect(wideLayout.thread.right).toBe(wideLayout.main.left);
+    expect(wideLayout.main.right).toBe(wideLayout.context.left);
+    expect(
+      wideLayout.threadResizer.left + wideLayout.threadResizer.width / 2,
+    ).toBe(wideLayout.thread.right);
+    expect(
+      wideLayout.contextResizer.left + wideLayout.contextResizer.width / 2,
+    ).toBe(wideLayout.context.left);
+    expect(wideLayout.scrollWidth).toBe(wideLayout.viewportWidth);
+
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setContentSize(960, 600);
+    });
+    await expect.poll(() => window.evaluate(() => window.innerWidth)).toBe(960);
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          Math.round(
+            document
+              .querySelector(".conversation-workbench")!
+              .getBoundingClientRect().width,
+          ),
+        ),
+      )
+      .toBe(400);
+    const compactLayout = await window.evaluate(() => {
+      const rect = (selector: string) => {
+        const bounds = document.querySelector(selector)?.getBoundingClientRect();
+        if (!bounds) throw new Error(`Missing layout element: ${selector}`);
+        return {
+          left: bounds.left,
+          right: bounds.right,
+          width: bounds.width,
+        };
+      };
+      return {
+        thread: rect(".thread-drawer"),
+        main: rect(".conversation-workbench"),
+        context: rect(".context-drawer"),
+        resizerDisplay: getComputedStyle(
+          document.querySelector(".workbench-resizer--thread")!,
+        ).display,
+        viewportWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      };
+    });
+    expect(compactLayout.thread.width).toBe(200);
+    expect(compactLayout.main.width).toBe(400);
+    expect(compactLayout.context.width).toBe(300);
+    expect(compactLayout.thread.right).toBe(compactLayout.main.left);
+    expect(compactLayout.main.right).toBe(compactLayout.context.left);
+    expect(compactLayout.resizerDisplay).toBe("none");
+    expect(compactLayout.scrollWidth).toBe(compactLayout.viewportWidth);
   } finally {
     await cleanup();
   }
@@ -149,6 +251,54 @@ test("settings pipelines tab exposes seeded templates and request ranking", asyn
     await expect(pipelineList.locator("li").first()).toContainText(
       "Refactor Safety",
     );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("settings exposes only Codex 5.6 models and every reasoning effort", async () => {
+  const { app, cleanup } = await launchIsolatedApp();
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    await window.getByRole("button", { name: "설정 열기" }).click();
+    const dialog = window.getByRole("dialog", { name: "설정" });
+    await expect(dialog).toBeVisible();
+
+    await expect(dialog.getByLabel("Provider", { exact: true })).toHaveText(
+      "Codex 전용",
+    );
+
+    const model = dialog.getByLabel("Model", { exact: true });
+    const models = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+    await expect(model.locator("option")).toHaveText(models);
+    for (const value of models) {
+      await model.selectOption(value);
+      await expect(model).toHaveValue(value);
+    }
+
+    const reasoning = dialog.getByLabel("Reasoning effort", { exact: true });
+    const efforts = ["none", "low", "medium", "high", "xhigh", "max"];
+    await expect(reasoning.locator("option")).toHaveText(efforts);
+    for (const value of efforts) {
+      await reasoning.selectOption(value);
+      await expect(reasoning).toHaveValue(value);
+    }
+
+    await model.selectOption("gpt-5.6-terra");
+    await reasoning.selectOption("xhigh");
+    await dialog.getByRole("button", { name: "저장", exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    await window.getByRole("button", { name: "설정 열기" }).click();
+    const reopened = window.getByRole("dialog", { name: "설정" });
+    await expect(reopened.getByLabel("Model", { exact: true })).toHaveValue(
+      "gpt-5.6-terra",
+    );
+    await expect(
+      reopened.getByLabel("Reasoning effort", { exact: true }),
+    ).toHaveValue("xhigh");
   } finally {
     await cleanup();
   }

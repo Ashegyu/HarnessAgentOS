@@ -343,14 +343,11 @@ const parseProviderStatusMap = (
     return { ok: false, reason: "providers must be an object" };
   }
   const providers = rawProviders as Record<string, unknown>;
-  const claude = parseProviderProbe(providers.claude, "providers.claude");
-  if (!claude.ok) return { ok: false, reason: claude.reason };
   const codex = parseProviderProbe(providers.codex, "providers.codex");
   if (!codex.ok) return { ok: false, reason: codex.reason };
   return {
     ok: true,
     value: {
-      claude: claude.value,
       codex: codex.value,
     },
   };
@@ -360,7 +357,7 @@ const parseProviderProbe = (
   value: unknown,
   field: string,
 ):
-  | { ok: true; value: AgentProviderStatusMap["claude"] }
+  | { ok: true; value: AgentProviderStatusMap["codex"] }
   | { ok: false; reason: string } => {
   if (typeof value !== "object" || value === null) {
     return { ok: false, reason: `${field} must be an object` };

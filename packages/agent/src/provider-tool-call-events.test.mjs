@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { extractProviderToolCalls } from "./provider-tool-call-events.ts";
+import {
+  MAX_PROVIDER_PENDING_CHARS,
+  ProviderToolCallStreamParser,
+  extractProviderToolCalls,
+} from "./provider-tool-call-events.ts";
 
 const codexOptions = {
   invocationId: "inv-codex-mcp",
@@ -58,5 +62,12 @@ test("extractProviderToolCalls preserves Codex MCP completed phase", () => {
 
   assert.equal(events[0].phase, "completed");
   assert.equal(events[0].toolName, "mcp__harness_smoke__harness_smoke_echo");
+});
+
+test("ProviderToolCallStreamParser bounds an unterminated provider line", () => {
+  const parser = new ProviderToolCallStreamParser(codexOptions);
+  parser.feed("x".repeat(MAX_PROVIDER_PENDING_CHARS * 2));
+
+  assert.ok(parser.pendingLength <= MAX_PROVIDER_PENDING_CHARS);
 });
 

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDb, closeDb } from "../db.ts";
 import { SqliteAgentProfileRepository } from "./agent-profile-repository.ts";
 import {
+  AGENT_ROLE_MODEL_DEFAULTS,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
   DEFAULT_CODEX_MODEL,
@@ -134,15 +135,16 @@ const tmp = () => {
 };
 
 const makeProfileInput = (overrides = {}) => ({
-  name: "Reviewer Claude",
+  name: "Reviewer Codex",
   description: "",
   category: "security",
   tags: ["review", "security"],
-  provider: "claude",
+  provider: "codex",
   role: "reviewer",
   persona: "You are a security reviewer.",
   tuning: {
-    model: "claude-sonnet-4",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,
@@ -262,12 +264,16 @@ test("AgentProfileRepository.ensureSeed inserts canonical and framework profiles
     assert.ok(all.every((p) => p.category.length > 0), "all profiles have a category");
     assert.ok(all.every((p) => p.provider === "codex"), "all seed profiles run on Codex");
     assert.ok(
-      all.every((p) => p.tuning.model === DEFAULT_CODEX_MODEL),
-      "all seed profiles use the supported Codex default model",
+      all.every((p) => p.tuning.model === AGENT_ROLE_MODEL_DEFAULTS[p.role].model),
+      "all seed profiles use their role-appropriate Codex model",
     );
     assert.ok(
-      all.every((p) => p.tuning.reasoningEffort === "xhigh"),
-      "all seed profiles default to explicit Codex xhigh effort",
+      all.every(
+        (p) =>
+          p.tuning.reasoningEffort ===
+          AGENT_ROLE_MODEL_DEFAULTS[p.role].reasoningEffort,
+      ),
+      "all seed profiles use their role-appropriate reasoning effort",
     );
     assert.ok(
       all.every(
@@ -426,12 +432,22 @@ test("AgentProfileRepository.ensureSeed upgrades existing seed profiles to Codex
     const refreshedPlanner = await repo.get(planner.id);
     const refreshedTdd = await repo.get(tdd.id);
     assert.equal(refreshedPlanner.provider, "codex");
-    assert.equal(refreshedPlanner.tuning.model, DEFAULT_CODEX_MODEL);
-    assert.equal(refreshedPlanner.tuning.reasoningEffort, "xhigh");
+    assert.deepEqual(
+      {
+        model: refreshedPlanner.tuning.model,
+        reasoningEffort: refreshedPlanner.tuning.reasoningEffort,
+      },
+      AGENT_ROLE_MODEL_DEFAULTS.planner,
+    );
     assert.equal(refreshedPlanner.tuning.systemPromptPrefix, "keep-prefix");
     assert.equal(refreshedTdd.provider, "codex");
-    assert.equal(refreshedTdd.tuning.model, DEFAULT_CODEX_MODEL);
-    assert.equal(refreshedTdd.tuning.reasoningEffort, "xhigh");
+    assert.deepEqual(
+      {
+        model: refreshedTdd.tuning.model,
+        reasoningEffort: refreshedTdd.tuning.reasoningEffort,
+      },
+      AGENT_ROLE_MODEL_DEFAULTS.tester,
+    );
     assert.equal(refreshedTdd.tuning.systemPromptPrefix, "keep-tdd-prefix");
   } finally {
     closeDb(db);
@@ -628,12 +644,13 @@ test("AgentProfileRepository.create round-trips arrays and nested objects", asyn
           toolDenylist: ["fs:rm"],
         },
         cli: {
-          cliPathOverride: "/usr/local/bin/claude",
+          cliPathOverride: "/usr/local/bin/codex",
           env: { LOG: "info" },
-          envSecretRefs: { ANTHROPIC_API_KEY: "anth_key" },
+          envSecretRefs: { OPENAI_API_KEY: "openai_key" },
         },
         tuning: {
-          model: "claude-sonnet-4",
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
           temperature: 0.2,
           maxTokens: 4096,
           timeoutMs: 300_000,
@@ -648,7 +665,7 @@ test("AgentProfileRepository.create round-trips arrays and nested objects", asyn
     assert.deepEqual(fetched.mcpServerIds, ["mcp_a", "mcp_b"]);
     assert.deepEqual(fetched.skillSourceIds, ["ss_user"]);
     assert.deepEqual(fetched.permissions.autoApproveActions, ["file_write"]);
-    assert.equal(fetched.cli.envSecretRefs.ANTHROPIC_API_KEY, "anth_key");
+    assert.equal(fetched.cli.envSecretRefs.OPENAI_API_KEY, "openai_key");
     assert.equal(fetched.tuning.temperature, 0.2);
     assert.equal(fetched.tuning.systemPromptPrefix, "PREFIX");
     assert.equal(fetched.category, "security");
@@ -745,7 +762,7 @@ test("AgentProfileRepository.list upgrades legacy profile timeout values below d
   }
 });
 
-test("AgentProfileRepository upgrades unsupported legacy Codex gpt-5 model", async () => {
+test("AgentProfileRepository upgrades retired Codex model pins", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
@@ -756,7 +773,7 @@ test("AgentProfileRepository upgrades unsupported legacy Codex gpt-5 model", asy
         provider: "codex",
         role: "coder",
         tuning: {
-          model: "gpt-5",
+          model: "gpt-5.5",
           timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
           stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
           contextDepth: 5,
@@ -766,11 +783,12 @@ test("AgentProfileRepository upgrades unsupported legacy Codex gpt-5 model", asy
       }),
     );
 
+    assert.equal(created.provider, "codex");
     assert.equal(created.tuning.model, DEFAULT_CODEX_MODEL);
 
     db.prepare("UPDATE agent_profiles SET tuning_json = ? WHERE id = ?").run(
       JSON.stringify({
-        model: "gpt-5",
+        model: "gpt-5.5",
         timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
         stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
         contextDepth: 5,
@@ -781,7 +799,85 @@ test("AgentProfileRepository upgrades unsupported legacy Codex gpt-5 model", asy
     );
 
     const fetched = await repo.get(created.id);
+    assert.equal(fetched.provider, "codex");
     assert.equal(fetched.tuning.model, DEFAULT_CODEX_MODEL);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed migrates unsupported custom profile models by role", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const legacy = await repo.create(
+      makeProfileInput({ name: "Legacy custom coder", role: "coder" }),
+    );
+    const supportedCustom = await repo.create(
+      makeProfileInput({
+        name: "Pinned custom reviewer",
+        role: "reviewer",
+        tuning: {
+          ...makeProfileInput().tuning,
+          model: "gpt-5.6-luna",
+          reasoningEffort: "low",
+        },
+      }),
+    );
+    db.prepare("UPDATE agent_profiles SET tuning_json = ? WHERE id = ?").run(
+      JSON.stringify({
+        ...legacy.tuning,
+        model: "gpt-5.5",
+        reasoningEffort: "xhigh",
+      }),
+      legacy.id,
+    );
+
+    await repo.ensureSeed();
+
+    const migrated = await repo.get(legacy.id);
+    assert.deepEqual(
+      {
+        model: migrated.tuning.model,
+        reasoningEffort: migrated.tuning.reasoningEffort,
+      },
+      AGENT_ROLE_MODEL_DEFAULTS.coder,
+    );
+    const preserved = await repo.get(supportedCustom.id);
+    assert.equal(preserved.tuning.model, "gpt-5.6-luna");
+    assert.equal(preserved.tuning.reasoningEffort, "low");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository preserves selectable Codex 5.6 model pins", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    for (const model of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+      const created = await repo.create(
+        makeProfileInput({
+          name: model,
+          provider: "codex",
+          tuning: {
+            model,
+            reasoningEffort: "none",
+            timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+            stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+            contextDepth: 5,
+            systemPromptPrefix: "",
+            systemPromptSuffix: "",
+          },
+        }),
+      );
+      assert.equal(created.tuning.model, model);
+      assert.equal(created.tuning.reasoningEffort, "none");
+    }
   } finally {
     closeDb(db);
     t.cleanup();

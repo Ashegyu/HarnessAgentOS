@@ -9,8 +9,8 @@ const request = {
   prompt: "user prompt",
   systemPrompt: "system prompt",
   modelConfig: {
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     timeoutMs: 30_000,
     stallTimeoutMs: 5_000,
   },
@@ -18,8 +18,6 @@ const request = {
     primaryDir: "/tmp/project",
     enforceInPrompt: true,
   },
-  sessionId: "session-1",
-  mcpConfigPath: "/tmp/.mcp.json",
   codexConfigOverrides: ["mcp_servers.repo.command=node"],
   toolPolicy: {
     toolAllowlist: ["Read"],
@@ -33,12 +31,12 @@ test("modelInvokerFromCliAdapter preserves request, signal, events, and result",
     type: "started",
     invocationId: request.invocationId,
     taskRunId: request.taskRunId,
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
   };
   const result = {
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     exitCode: 0,
     stdout: "assistant output",
     rawStdout: "raw assistant output",
@@ -46,7 +44,6 @@ test("modelInvokerFromCliAdapter preserves request, signal, events, and result",
     normalizedEvents: [event],
     latencyMs: 42,
     costEstimate: 0.12,
-    sessionId: "session-2",
   };
   let seenRequest = null;
   let seenSignal = null;

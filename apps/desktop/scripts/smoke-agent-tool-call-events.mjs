@@ -1,15 +1,14 @@
-// Live smoke for provider tool-call telemetry.
+// Live smoke for Codex tool-call telemetry.
 //
-// This script invokes the real CLI provider(s) through DefaultModelCliAdapter
-// and verifies that provider raw JSONL is normalized into AgentStreamEvent
+// This script invokes Codex through DefaultModelCliAdapter and verifies that
+// its raw JSONL is normalized into AgentStreamEvent
 // { type: "tool_call" }. It uses a synthetic temp fixture so no workspace file
-// contents are sent to external providers.
+// contents are sent to Codex.
 //
 // Run:
 //   npm --workspace=@harness/desktop run smoke:agent-tool-calls
 //
 // Environment knobs:
-//   HARNESS_SMOKE_PROVIDER=claude|codex|both  default: both when available
 //   HARNESS_SMOKE_TIMEOUT_MS=180000           adapter timeout
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -18,29 +17,13 @@ import { join } from "node:path";
 import { checkProviders } from "../../../packages/agent/src/index.ts";
 import { DefaultModelCliAdapter } from "../../../packages/agent/src/model-cli-adapter.ts";
 
-const PROVIDERS = ["claude", "codex"];
-
-const providerPrompt = (provider) =>
+const providerPrompt = () =>
   [
     "Use one read-only tool to inspect fixture.json in the current directory.",
     "Do not modify files. Do not run network commands.",
-    `Provider under test: ${provider}.`,
+    "Provider under test: codex.",
     'After the tool call, reply with exactly: {"toolObserved":true}',
   ].join("\n");
-
-const providerModel = (provider) =>
-  provider === "claude" ? "claude-sonnet-4-6" : "gpt-5.5";
-
-const selectedProviders = (probe) => {
-  const requested = process.env.HARNESS_SMOKE_PROVIDER ?? "both";
-  if (requested === "claude" || requested === "codex") return [requested];
-  if (requested !== "both") {
-    throw new Error(
-      "HARNESS_SMOKE_PROVIDER must be claude, codex, or both when set",
-    );
-  }
-  return PROVIDERS.filter((provider) => probe[provider]?.available);
-};
 
 const compactToolCall = (event) => ({
   provider: event.provider,
@@ -63,21 +46,21 @@ const makeFixtureDir = () => {
   return dir;
 };
 
-const invokeProvider = async (provider, fixtureDir) => {
+const invokeCodex = async (fixtureDir) => {
   const adapter = new DefaultModelCliAdapter();
   const timeoutMs = Number(process.env.HARNESS_SMOKE_TIMEOUT_MS ?? 180_000);
   const events = [];
-  const invocationId = `smoke-tool-${provider}-${Date.now()}`;
+  const invocationId = `smoke-tool-codex-${Date.now()}`;
 
   const result = await adapter.invoke(
     {
       invocationId,
       taskRunId: "smoke-tool-call-events",
       cwd: fixtureDir,
-      prompt: providerPrompt(provider),
+      prompt: providerPrompt(),
       modelConfig: {
-        provider,
-        model: providerModel(provider),
+        provider: "codex",
+        model: "gpt-5.6-sol",
         timeoutMs,
         stallTimeoutMs: Math.max(15_000, Math.floor(timeoutMs / 3)),
       },
@@ -95,48 +78,42 @@ const invokeProvider = async (provider, fixtureDir) => {
   const rawCount = events.filter((event) => event.type === "raw").length;
   const assistantText = result.stdout.trim();
 
-  console.log(`\n[${provider}] exit=${result.exitCode}`);
-  console.log(`[${provider}] cwd=${fixtureDir}`);
-  console.log(`[${provider}] raw events=${rawCount}`);
-  console.log(`[${provider}] tool_call events=${toolCalls.length}`);
+  console.log(`\n[codex] exit=${result.exitCode}`);
+  console.log(`[codex] cwd=${fixtureDir}`);
+  console.log(`[codex] raw events=${rawCount}`);
+  console.log(`[codex] tool_call events=${toolCalls.length}`);
   console.log(
-    `[${provider}] assistant=${assistantText.slice(0, 200) || "(empty)"}`,
+    `[codex] assistant=${assistantText.slice(0, 200) || "(empty)"}`,
   );
   if (toolCalls.length > 0) {
     console.log(
-      `[${provider}] first tool_call=${JSON.stringify(compactToolCall(toolCalls[0]))}`,
+      `[codex] first tool_call=${JSON.stringify(compactToolCall(toolCalls[0]))}`,
     );
   }
 
   if (toolCalls.length === 0) {
-    throw new Error(`${provider} emitted no normalized tool_call events`);
+    throw new Error("Codex emitted no normalized tool_call events");
   }
 };
 
 const main = async () => {
-  console.log("=== live: provider tool-call event smoke ===");
+  console.log("=== live: Codex tool-call event smoke ===");
   const probe = await checkProviders({ timeoutMs: 5_000 });
   console.log(JSON.stringify(probe, null, 2));
 
-  const providers = selectedProviders(probe);
-  if (providers.length === 0) {
-    console.log("\nSKIP - no CLI provider available.");
+  if (!probe.codex.available) {
+    console.log("\nSKIP - Codex CLI is not available.");
     return;
   }
 
   const fixtureDir = makeFixtureDir();
   try {
-    for (const provider of providers) {
-      if (!probe[provider]?.available) {
-        throw new Error(`requested provider ${provider} is not available`);
-      }
-      await invokeProvider(provider, fixtureDir);
-    }
+    await invokeCodex(fixtureDir);
   } finally {
     rmSync(fixtureDir, { recursive: true, force: true });
   }
 
-  console.log("\nLIVE SMOKE OK - provider tool_call events observed.");
+  console.log("\nLIVE SMOKE OK - Codex tool_call events observed.");
 };
 
 main().catch((error) => {

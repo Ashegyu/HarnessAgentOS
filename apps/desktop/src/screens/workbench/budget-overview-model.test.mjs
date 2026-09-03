@@ -90,7 +90,7 @@ test("BudgetOverviewContent renders token usage instead of USD spend", () => {
       {
         profileId: "ap_coder",
         profileName: "Coder",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         todayCostUsd: 0.5,
         windowCostUsd: 0.5,
         averageDailyCostUsd: 0.5,
@@ -109,7 +109,7 @@ test("BudgetOverviewContent renders token usage instead of USD spend", () => {
     ],
     topModels: [
       {
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         totalCostUsd: 0.5,
         totalTokens: 1250,
         invocationCount: 1,
@@ -128,7 +128,7 @@ test("budget overview helpers classify daily budget usage", () => {
   const profile = {
     profileId: "ap_coder",
     profileName: "Coder",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     budget: { perDayUsd: 1 },
     todayCostUsd: 0.85,
     windowCostUsd: 1.2,

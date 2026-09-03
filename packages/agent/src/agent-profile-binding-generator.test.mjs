@@ -13,11 +13,11 @@ const profile = (overrides = {}) => ({
   description: "",
   category: "review",
   tags: ["review"],
-  provider: "claude",
+  provider: "codex",
   role: "reviewer",
   persona: "",
   tuning: {
-    model: "claude-sonnet-4",
+    model: "gpt-5.6-sol",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,

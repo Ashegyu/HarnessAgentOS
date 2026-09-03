@@ -1,15 +1,12 @@
-// Phase 8 smoke — real CLI providers
+// Phase 8 smoke — real Codex CLI provider
 //
-// Runs a tiny `agent.generatePlan` call against whichever provider
-// `probeAgentProviders` reports as available. Skipped (exit 0) if no
-// provider is installed — that lets CI run the same command on
-// machines without claude/codex.
+// Runs a tiny `agent.generatePlan` call against Codex when it is available.
+// Skipped (exit 0) when Codex is not installed so CI can share this command.
 //
 // Run:
 //   npm run smoke:agent-live
 //
 // Environment knobs:
-//   HARNESS_SMOKE_PROVIDER=claude|codex   force one provider
 //   HARNESS_SMOKE_TIMEOUT_MS=60000        adapter timeout (default 90s)
 //   HARNESS_SMOKE_PROMPT="..."            override the user request
 
@@ -25,33 +22,20 @@ import {
 const DEFAULT_PROMPT =
   "Echo a one-line summary as JSON harness_agent_plan with no proposed actions.";
 
-const pickProvider = (probe) => {
-  const forced = process.env.HARNESS_SMOKE_PROVIDER;
-  if (forced === "claude" || forced === "codex") {
-    if (!probe[forced].available) {
-      throw new Error(`forced provider ${forced} is not available`);
-    }
-    return forced;
-  }
-  if (probe.claude.available) return "claude";
-  if (probe.codex.available) return "codex";
-  return null;
-};
-
 const main = async () => {
-  header("live: probing providers");
+  header("live: probing Codex");
   const probe = await checkProviders();
   // eslint-disable-next-line no-console
   console.log(JSON.stringify(probe, null, 2));
-  const provider = pickProvider(probe);
-  if (!provider) {
+  if (!probe.codex.available) {
     // eslint-disable-next-line no-console
-    console.log("\nSKIP — no CLI provider available. Install `claude` or `codex` to run live smoke.");
+    console.log("\nSKIP — Codex CLI is not available. Install `codex` to run live smoke.");
     process.exit(0);
   }
 
+  const provider = "codex";
   // eslint-disable-next-line no-console
-  console.log(`\nUsing provider: ${provider}`);
+  console.log("\nUsing provider: codex");
 
   const timeoutMs = Number(process.env.HARNESS_SMOKE_TIMEOUT_MS ?? 90_000);
   const ctx = bootstrap({ providers: probe });
@@ -82,7 +66,7 @@ const main = async () => {
     );
 
     // eslint-disable-next-line no-console
-    console.log("\nLIVE SMOKE OK — provider:", provider);
+    console.log("\nLIVE SMOKE OK — provider: codex");
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error("\nLIVE SMOKE FAILED:", e?.code ?? "", e?.message ?? e);

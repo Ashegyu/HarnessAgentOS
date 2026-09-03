@@ -31,8 +31,7 @@ const step = (overrides = {}) => ({
 test("orders all active invocations oldest-first for transcript display", () => {
   const reviewer = invocation({
     id: "inv_reviewer",
-    provider: "claude",
-    model: "sonnet",
+    model: "gpt-5.6-luna",
     createdAt: "2026-05-15T00:03:00.000Z",
   });
   const worker = invocation({
@@ -100,27 +99,27 @@ test("describes a normal agent invocation with the concrete profile name from it
       step({
         id: "step_planner",
         kind: "plan",
-        title: "Agent[LocalPlanner] plan (codex:gpt-5.5)",
+        title: "Agent[LocalPlanner] plan (codex:gpt-5.6-sol)",
       }),
     ],
   );
 
   assert.deepEqual(display, {
     agentName: "LocalPlanner",
-    detail: "plan (codex:gpt-5.5)",
+    detail: "plan (codex:gpt-5.6-sol)",
     providerLabel: "codex:gpt-5",
   });
 });
 
 test("falls back to provider and model when no step identifies the agent", () => {
   const display = describeAgentInvocationForDisplay(
-    invocation({ provider: "claude", model: "sonnet" }),
+    invocation({ provider: "codex", model: "gpt-5.6-terra" }),
     [],
   );
 
   assert.deepEqual(display, {
-    agentName: "claude:sonnet",
+    agentName: "codex:gpt-5.6-terra",
     detail: "Agent invocation",
-    providerLabel: "claude:sonnet",
+    providerLabel: "codex:gpt-5.6-terra",
   });
 });

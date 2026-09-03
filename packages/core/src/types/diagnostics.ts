@@ -15,7 +15,6 @@ export interface DatabaseDiagnosticsSnapshot {
 }
 
 export interface AgentQueueDepths {
-  claude: number;
   codex: number;
   total: number;
 }

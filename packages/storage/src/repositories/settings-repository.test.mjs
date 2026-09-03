@@ -36,20 +36,23 @@ test("SettingsRepository returns DEFAULT_HARNESS_SETTINGS when no row exists", a
   }
 });
 
-test("SettingsRepository upserts and retrieves a partial update", async () => {
+test("SettingsRepository normalizes legacy providers and models to Codex", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
     const repo = new SqliteSettingsRepository(db);
     // values >= defaults are preserved verbatim by get()
     const updated = await repo.update({ agent: { provider: "claude", timeoutMs: DEFAULT_AGENT_TIMEOUT_MS + 60_000, stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS + 60_000, model: "sonnet", contextDepth: 7 } });
-    assert.equal(updated.agent.provider, "claude");
+    assert.equal(updated.agent.provider, "codex");
+    assert.equal(updated.agent.model, DEFAULT_CODEX_MODEL);
+    assert.equal(updated.agent.reasoningEffort, "medium");
     assert.equal(updated.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS + 60_000);
     const retrieved = await repo.get();
-    assert.equal(retrieved.agent.provider, "claude");
+    assert.equal(retrieved.agent.provider, "codex");
     assert.equal(retrieved.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS + 60_000);
     assert.equal(retrieved.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS + 60_000);
-    assert.equal(retrieved.agent.model, "sonnet");
+    assert.equal(retrieved.agent.model, DEFAULT_CODEX_MODEL);
+    assert.equal(retrieved.agent.reasoningEffort, "medium");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -66,6 +69,40 @@ test("SettingsRepository.get() upgrades legacy timeout values below defaults", a
     const retrieved = await repo.get();
     assert.equal(retrieved.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS, "legacy timeoutMs upgraded");
     assert.equal(retrieved.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS, "legacy stallTimeoutMs upgraded");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository.get() upgrades the previous Codex default model", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    await repo.update({
+      agent: {
+        provider: "codex",
+        timeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+        stallTimeoutMs: DEFAULT_AGENT_STALL_TIMEOUT_MS,
+        model: "gpt-5.5",
+        contextDepth: 5,
+      },
+      orchestration: {
+        enabled: false,
+        defaultMode: "single_worker",
+        defaultInstructions: "",
+        workerProfiles: [],
+        defaultPipelineId: "",
+      },
+      approval: {
+        autoApprove: false,
+        autoExecuteWorkerFileActions: true,
+      },
+    });
+
+    const retrieved = await repo.get();
+    assert.equal(retrieved.agent.model, "gpt-5.6-sol");
   } finally {
     closeDb(db);
     t.cleanup();

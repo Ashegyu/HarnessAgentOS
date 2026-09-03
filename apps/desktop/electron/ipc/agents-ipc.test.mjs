@@ -24,11 +24,12 @@ const makeProfileInput = (overrides = {}) => ({
   description: "",
   category: "test",
   tags: ["reviewer"],
-  provider: "claude",
+  provider: "codex",
   role: "reviewer",
   persona: "",
   tuning: {
-    model: "claude-sonnet-4",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,
@@ -54,7 +55,7 @@ const setupCtx = (file) => {
   const profiles = new SqliteAgentProfileRepository(db);
   // The IPC handlers need a settings stub that supports get/update because
   // setActive writes activeAgentProfileId. Keep it minimal.
-  let stored = { agent: { provider: "auto", model: "", timeoutMs: 300_000, stallTimeoutMs: 60_000, contextDepth: 5 }, orchestration: { enabled: false, defaultMode: "single_worker", defaultInstructions: "", workerProfiles: [] }, approval: { autoApprove: false } };
+  let stored = { agent: { provider: "codex", model: "gpt-5.6-sol", reasoningEffort: "medium", timeoutMs: 300_000, stallTimeoutMs: 60_000, contextDepth: 5 }, orchestration: { enabled: false, defaultMode: "single_worker", defaultInstructions: "", workerProfiles: [] }, approval: { autoApprove: false } };
   const state = {
     profiles,
     getSettings: async () => structuredClone(stored),
@@ -234,6 +235,53 @@ test("agents.delete proceeds when no pipelines reference the profile", async () 
     const a = (await h.create({ profile: makeProfileInput({ name: "Unused" }) })).value;
     const result = await h.delete({ profileId: a.id });
     assert.equal(result.ok, true);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("agents.delete is blocked when a harness binding set references the profile", async () => {
+  const t = tmp();
+  const { db, state } = setupCtx(t.file);
+  try {
+    const a = await state.profiles.create(
+      makeProfileInput({ name: "Harness-bound" }),
+    );
+    const harnessBindingSets = {
+      findByReferencedAgentProfileId: async (profileId) =>
+        profileId === a.id
+          ? [
+              {
+                id: "hbs_fullstack",
+                packageId: "harness_fullstack",
+                workflowId: "workflow_fullstack",
+                name: "Fullstack bindings",
+                bindings: [
+                  {
+                    harnessAgentRef: "architect",
+                    agentProfileId: a.id,
+                  },
+                ],
+                createdAt: "2026-09-03T00:00:00.000Z",
+                updatedAt: "2026-09-03T00:00:00.000Z",
+              },
+            ]
+          : [],
+    };
+    const h = buildAgentsHandlers({
+      state: { ...state, harnessBindingSets },
+    });
+
+    const result = await h.delete({ profileId: a.id });
+
+    assert.equal(result.ok, false);
+    assert.equal(
+      result.error.code,
+      "HARNESS_BINDING_IN_USE_BY_PROFILE_DELETE",
+    );
+    assert.match(result.error.message, /Fullstack bindings/);
+    assert.equal(await state.profiles.get(a.id) !== null, true);
   } finally {
     closeDb(db);
     t.cleanup();

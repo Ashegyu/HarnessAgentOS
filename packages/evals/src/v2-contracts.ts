@@ -1,6 +1,6 @@
 import type { EvalCase, EvalProvider } from "./types.ts";
 
-export const EVAL_PROVIDER_VALUES = ["claude", "codex"] as const;
+export const EVAL_PROVIDER_VALUES = ["codex"] as const;
 
 export type EvalLatencyPercentile = "p95" | "p99";
 

@@ -229,7 +229,7 @@ export interface SplitAgentPrompt {
 /**
  * Build the agent prompt split into a system portion (for `--system-prompt`)
  * and a user portion (piped via stdin). Keeps format instructions in the
- * authoritative system channel so Claude reliably produces the JSON block.
+ * authoritative system channel so Codex reliably produces the JSON block.
  */
 export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt => {
   const systemPrompt = buildSystemBlock(

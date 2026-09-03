@@ -298,7 +298,7 @@ export const CapabilityPanel = ({
       <div className="capability-panel__summary">
         Skillify가 TaskRun 요청과 trigger term을 비교해 후보를 고르고,
         후보는 <strong>Skill 후보 사용</strong> approval로 올라갑니다. 승인된
-        후보만 Claude/Codex Agent 프롬프트에 반영됩니다.
+        후보만 Codex Agent 프롬프트에 반영됩니다.
       </div>
       {actionError ? <div className="error-message">{actionError}</div> : null}
       {renderSuggestions()}

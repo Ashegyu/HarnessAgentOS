@@ -19,7 +19,6 @@
     "smoke:agent-live": "npm run rebuild:node --silent && node --import tsx scripts/smoke-agent-live.mjs",
     "smoke:agent-codex-mcp": "node --import tsx scripts/smoke-agent-codex-mcp.mjs",
     "smoke:agent-tool-calls": "node --import tsx scripts/smoke-agent-tool-call-events.mjs",
-    "smoke:agent-tool-policy": "node --import tsx scripts/smoke-agent-tool-policy.mjs",
     "smoke:a2a-remote-live": "npm run rebuild:node --silent && node --import tsx scripts/smoke-a2a-remote-live.mjs",
     "smoke:all": "npm run smoke:e2e && npm run smoke:agent-fake && npm run e2e && npm run rebuild:node",
     "e2e": "npm run rebuild:electron && npm run build && playwright test"
@@ -39,18 +38,18 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.4",
-    "@playwright/test": "^1.59.1",
+    "@electron/rebuild": "^4.2.0",
+    "@playwright/test": "^1.62.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^5.2.0",
-    "electron": "41.6.1",
+    "electron": "41.10.7",
     "electron-vite": "^5.0.0",
-    "playwright": "^1.59.1",
+    "playwright": "^1.62.1",
     "typescript": "^5.6.3",
-    "vite": "^7.3.3"
+    "vite": "^7.3.6"
   },
   "build": {
     "appId": "dev.harness.agentos",

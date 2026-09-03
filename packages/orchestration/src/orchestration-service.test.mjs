@@ -19,7 +19,7 @@ const tmp = () => {
   };
 };
 
-const seedTaskRun = async (state) => {
+const seedTaskRun = async (state, status = "running") => {
   const thread = await state.createThread({
     title: "t",
     targetDir: "/tmp/proj",
@@ -28,7 +28,7 @@ const seedTaskRun = async (state) => {
     threadId: thread.id,
     userRequest: "do something orchestrated",
     targetDir: "/tmp/proj",
-    status: "running",
+    status,
   });
 };
 
@@ -241,7 +241,7 @@ test("runApproved updates task and approval/worker steps for visible auto-run pr
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, "drafting");
     const agentPlaceholder = await state.createStep({
       taskRunId: taskRun.id,
       index: 1,
@@ -251,7 +251,6 @@ test("runApproved updates task and approval/worker steps for visible auto-run pr
       inputSummary: "agent mode placeholder",
     });
     await state.setTaskRunCurrentStep(taskRun.id, agentPlaceholder.id);
-    await state.setTaskRunStatus(taskRun.id, "drafting");
     const service = new OrchestrationService({ state, enabled: () => true });
     const drafted = await service.draftPlan({
       taskRunId: taskRun.id,

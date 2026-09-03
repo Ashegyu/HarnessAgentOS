@@ -1,5 +1,6 @@
 import {
   AGENT_PROFILE_NOT_FOUND,
+  HARNESS_BINDING_IN_USE_BY_PROFILE_DELETE,
   PIPELINE_IN_USE_BY_PROFILE_DELETE,
   STATE_INVALID_INPUT,
   err,
@@ -14,6 +15,7 @@ import type {
   AgentPipelineRepository,
   AgentProfileRepository,
   CreateAgentProfileInput,
+  HarnessBindingSetRepository,
 } from "@harness/storage";
 
 /**
@@ -30,6 +32,14 @@ export interface AgentsIpcState {
    * can omit it without scaffolding.
    */
   readonly pipelines?: AgentPipelineRepository;
+  /**
+   * Optional reverse-reference lookup for direct Harness routes. A profile
+   * cannot be removed while a saved binding set still depends on it.
+   */
+  readonly harnessBindingSets?: Pick<
+    HarnessBindingSetRepository,
+    "findByReferencedAgentProfileId"
+  >;
   getSettings(): Promise<HarnessSettings>;
   updateSettings(input: HarnessSettings): Promise<HarnessSettings>;
 }
@@ -151,6 +161,22 @@ export const buildAgentsHandlers = (ctx: AgentsIpcContext) => {
               PIPELINE_IN_USE_BY_PROFILE_DELETE,
               `Profile is referenced by pipeline(s): ${names}. Remove the pipeline(s) or replace the profile reference first.`,
               { pipelineIds: refs.map((p) => p.id) },
+            ),
+          );
+        }
+      }
+      if (state.harnessBindingSets) {
+        const refs =
+          await state.harnessBindingSets.findByReferencedAgentProfileId(
+            input.profileId,
+          );
+        if (refs.length > 0) {
+          const names = refs.map((set) => set.name).join(", ");
+          return err(
+            harnessError(
+              HARNESS_BINDING_IN_USE_BY_PROFILE_DELETE,
+              `Profile is referenced by harness binding set(s): ${names}. Remove the binding set(s) or replace the profile reference first.`,
+              { bindingSetIds: refs.map((set) => set.id) },
             ),
           );
         }

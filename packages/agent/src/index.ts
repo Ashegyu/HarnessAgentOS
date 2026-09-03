@@ -23,3 +23,5 @@ export * from "./repo-index-service";
 export * from "./context-packer";
 export * from "./context-pack-builder";
 export * from "./model-usage-estimator";
+export * from "./workspace-change-tracker";
+export * from "./agent-stream-limits";

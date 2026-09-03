@@ -29,7 +29,7 @@ export interface LlmJudgeGraderContext {
 
 const DEFAULT_PASS_THRESHOLD = 0.8;
 const DEFAULT_JUDGE_ATTEMPTS = 3;
-const DEFAULT_JUDGE_PROVIDER = "claude";
+const DEFAULT_JUDGE_PROVIDER = "codex";
 const MAX_SNAPSHOT_FILES = 20;
 const MAX_SNAPSHOT_CHARS = 20_000;
 

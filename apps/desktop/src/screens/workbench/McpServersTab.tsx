@@ -345,7 +345,7 @@ export const McpServersTab = (): JSX.Element => {
           {generationResult && (
             <div className="mcp-servers-tab__preview" role="note">
               <strong>Preview:</strong>{" "}
-              Claude config key{" "}
+              Codex config key{" "}
               <code>{generationResult.preview.sanitizedConfigKey}</code>
               {generationResult.draft.recommendedProfileIds.length > 0 && (
                 <>
@@ -521,7 +521,7 @@ export const McpServersTab = (): JSX.Element => {
                     onChange={(e) => updateDraft("name", e.target.value)}
                   />
                   <span className="settings-field__hint">
-                    UI에 노출되는 표시 이름입니다. 영문/숫자/하이픈으로 자동 정규화된 값이 Claude MCP config key가 되므로, 다른 enabled 서버와 충돌하지 않게 지으세요.
+                    UI에 노출되는 표시 이름입니다. 영문/숫자/하이픈으로 자동 정규화된 값이 Codex MCP config key가 되므로, 다른 enabled 서버와 충돌하지 않게 지으세요.
                   </span>
                 </label>
                 <label className="settings-field">
@@ -555,7 +555,7 @@ export const McpServersTab = (): JSX.Element => {
                     <option value="per-agent">per-agent (특정 프로필만)</option>
                   </select>
                   <span className="settings-field__hint">
-                    global은 활성화된 모든 claude invocation에 자동 연결됩니다.
+                    global은 활성화된 모든 Codex invocation에 자동 연결됩니다.
                     per-agent는 AgentProfile의 <code>mcpServerIds</code>에 포함된 경우에만 연결됩니다.
                   </span>
                 </label>

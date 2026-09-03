@@ -23,7 +23,7 @@ test("buildCodexMcpSmokeRequest injects stdio/no-secret MCP overrides", () => {
   assert.equal(request.invocationId, "inv-codex-mcp");
   assert.equal(request.cwd, "C:\\tmp\\hgos-codex-mcp");
   assert.equal(request.modelConfig.provider, "codex");
-  assert.equal(request.modelConfig.model, "gpt-5.5");
+  assert.equal(request.modelConfig.model, "gpt-5.6-sol");
   assert.match(request.prompt, /harness_smoke_echo/);
   assert.match(request.prompt, /HARNESS_MCP_SMOKE_OK/);
   assert.deepEqual(request.codexConfigOverrides, [

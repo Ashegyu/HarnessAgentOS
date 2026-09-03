@@ -96,9 +96,9 @@ test("LearningTraceRepository aggregates profile/day usage for empty, single, an
   try {
     const traces = new SqliteLearningTraceRepository(db);
     const profiles = new SqliteAgentProfileRepository(db);
-    const coder = await profiles.create(profileInput("Coder", "gpt-5.5", true));
+    const coder = await profiles.create(profileInput("Coder", "gpt-5.6-sol", true));
     const reviewer = await profiles.create(
-      profileInput("Reviewer", "claude-opus", false),
+      profileInput("Reviewer", "gpt-5.6-terra", false),
     );
 
     const empty = await traces.aggregateByProfileAndDay({
@@ -113,15 +113,15 @@ test("LearningTraceRepository aggregates profile/day usage for empty, single, an
     const second = await traces.create({ taskRunId: "tsk_profile_a" });
     const third = await traces.create({ taskRunId: "tsk_profile_b" });
     await traces.update(first.id, {
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.6-sol",
       costEstimate: 0.2,
     });
     await traces.update(second.id, {
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.6-sol",
       costEstimate: 0.3,
     });
     await traces.update(third.id, {
-      selectedModel: "claude-opus",
+      selectedModel: "gpt-5.6-terra",
       costEstimate: 0.7,
     });
     db.prepare(`UPDATE learning_traces SET created_at = ? WHERE id = ?`).run(
@@ -197,19 +197,19 @@ test("LearningTraceRepository summarizes cost, latency, and model breakdown by T
     const third = await repo.create({ taskRunId: "tsk_other" });
 
     await repo.update(first.id, {
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.6-sol",
       costEstimate: 0.25,
       latencyMs: 1200,
       success: true,
     });
     await repo.update(second.id, {
-      selectedModel: "gpt-5.5",
+      selectedModel: "gpt-5.6-sol",
       costEstimate: 0.15,
       latencyMs: 800,
       success: false,
     });
     await repo.update(third.id, {
-      selectedModel: "claude-opus",
+      selectedModel: "gpt-5.6-terra",
       costEstimate: 0.7,
       latencyMs: 2000,
       success: true,
@@ -231,7 +231,7 @@ test("LearningTraceRepository summarizes cost, latency, and model breakdown by T
     assert.equal(summary.invocationCount, 2);
     assert.deepEqual(summary.perModel, [
       {
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         cost: 0.4,
         latencyMs: 2000,
         count: 2,
@@ -245,8 +245,8 @@ test("LearningTraceRepository summarizes cost, latency, and model breakdown by T
         success: item.success,
       })),
       [
-        { model: "gpt-5.5", cost: 0.25, latencyMs: 1200, success: true },
-        { model: "gpt-5.5", cost: 0.15, latencyMs: 800, success: false },
+        { model: "gpt-5.6-sol", cost: 0.25, latencyMs: 1200, success: true },
+        { model: "gpt-5.6-sol", cost: 0.15, latencyMs: 800, success: false },
       ],
     );
     assert.equal(await repo.sumCostByTaskRun("tsk_cost"), 0.4);

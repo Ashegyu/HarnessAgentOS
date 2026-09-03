@@ -20,6 +20,7 @@ import {
   type AgentProgressItem,
 } from "./AgentProgressList";
 import { AgentStreamSections } from "./AgentStreamSections";
+import { createAgentStreamRenderBatcher } from "./agent-stream-render-batcher";
 
 const numberFormat = new Intl.NumberFormat();
 
@@ -28,7 +29,7 @@ interface AgentStreamViewProps {
 }
 
 /**
- * Renders structured views over claude --output-format=stream-json.
+ * Renders structured views over Codex `exec --json` output.
  * - Live text  : text_delta tokens accumulated as they arrive
  * - Final text : `type:"result"` once produced (replaces live)
  * - Tool uses  : list of content_block_start of type tool_use
@@ -60,6 +61,9 @@ export const AgentStreamView = ({
     const isTerminal = isTerminalStatus(invocation.status);
     const usage = usageFromInvocation(invocation);
     let cancelled = false;
+    const renderBatcher = createAgentStreamRenderBatcher(() => {
+      if (!cancelled) setParsed({ ...stateRef.current.parsed });
+    });
 
     if (invocation.rawOutputArtifactId) {
       void window.harness.runner
@@ -79,7 +83,7 @@ export const AgentStreamView = ({
               ? { usageApproximate: invocation.usageApproximate }
               : {}),
           });
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.flushNow();
         })
         .catch((e) => {
           if (cancelled) return;
@@ -97,18 +101,17 @@ export const AgentStreamView = ({
           setProgress((items) => [...items, event].slice(-12));
         } else if (event.type === "raw") {
           feedStreamChunk(stateRef.current, event.text);
-          // Trigger a render with a fresh object so React picks it up.
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "tool_call") {
           recordObservedToolCall(stateRef.current, event);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "assistant_text") {
           setIntermediateAssistantText(stateRef.current, event.text);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.request();
         } else if (event.type === "result") {
           flushStreamParser(stateRef.current);
           promoteIntermediateTextToFinal(stateRef.current, event);
-          setParsed({ ...stateRef.current.parsed });
+          renderBatcher.flushNow();
         } else if (event.type === "failed") {
           setError({ code: event.errorCode, message: event.message });
         }
@@ -116,6 +119,7 @@ export const AgentStreamView = ({
     );
     return () => {
       cancelled = true;
+      renderBatcher.cancel();
       flushStreamParser(stateRef.current);
       off();
     };

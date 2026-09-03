@@ -27,16 +27,8 @@ export const getProviderCommandCandidates = (
   };
 
   if (platform === "win32") {
-    if (provider === "codex") {
-      for (const candidate of windowsCodexCandidates(env)) {
-        pushExisting(candidate);
-      }
-    } else {
-      pushExisting(
-        env["USERPROFILE"]
-          ? win32.join(env["USERPROFILE"], ".local", "bin", "claude.exe")
-          : undefined,
-      );
+    for (const candidate of windowsCodexCandidates(env)) {
+      pushExisting(candidate);
     }
   }
 

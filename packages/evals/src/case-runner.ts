@@ -10,6 +10,8 @@ import {
   type ModelCliRequest,
 } from "@harness/agent";
 import {
+  DEFAULT_AGENT_REASONING_EFFORT,
+  DEFAULT_CODEX_MODEL,
   QUALITY_DONE_BLOCKED,
   TaskRunCompletionService,
   TaskRunCompletionError,
@@ -168,7 +170,7 @@ export class CaseRunner {
         getApprovedLearnerModel: async () =>
           runtime.learnerModelEnabled
             ? {
-                model: "claude-opus-4-7",
+                model: DEFAULT_CODEX_MODEL,
                 reason: "Phase 16 eval learner recommendation",
                 recommendationId: "phase16-rec-learner-model",
                 confidence: 0.9,
@@ -673,7 +675,7 @@ export class CaseRunner {
     overrides: {
       readonly name?: string;
       readonly role?: "coder";
-      readonly provider?: "claude" | "codex";
+      readonly provider?: "codex";
     } = {},
   ) {
     return state.agentProfiles.create({
@@ -681,11 +683,12 @@ export class CaseRunner {
       description: "",
       category: "eval",
       tags: [overrides.role ?? "coder"],
-      provider: overrides.provider ?? "claude",
+      provider: overrides.provider ?? "codex",
       role: overrides.role ?? "coder",
       persona: "Follow the eval fixture exactly.",
       tuning: {
-        model: "claude-sonnet-4-6",
+        model: DEFAULT_CODEX_MODEL,
+        reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
         timeoutMs: 30_000,
         stallTimeoutMs: 10_000,
         contextDepth: 5,
@@ -742,7 +745,6 @@ export class CaseRunner {
 }
 
 const providerStatus = (): AgentProviderStatusMap => ({
-  claude: { available: true, version: "fake", queueDepth: 0 },
   codex: { available: true, version: "fake", queueDepth: 0 },
 });
 

@@ -4,6 +4,7 @@ import type {
   WorkerProfile,
 } from "@harness/core";
 import {
+  AGENT_ROLE_MODEL_DEFAULTS,
   DEFAULT_AGENT_PERMISSIONS,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
@@ -43,17 +44,6 @@ export interface MigrationPlan {
   inputs: readonly CreateAgentProfilePayload[];
 }
 
-const codexMigrationModel = (model: string): string => {
-  const trimmed = model.trim();
-  const lower = trimmed.toLowerCase();
-  if (trimmed.length === 0 || lower === "gpt-5" || lower.startsWith("claude")) {
-    return DEFAULT_CODEX_MODEL;
-  }
-  return trimmed;
-};
-
-const CODEX_MIGRATION_REASONING_EFFORT = "xhigh";
-
 const hasCustomLegacyModel = (model: string): boolean => {
   const trimmed = model.trim();
   return trimmed.length > 0 && trimmed !== DEFAULT_CODEX_MODEL;
@@ -72,8 +62,7 @@ const workerToInput = (
   role: wp.role,
   persona: "",
   tuning: {
-    model: codexMigrationModel(wp.model),
-    reasoningEffort: CODEX_MIGRATION_REASONING_EFFORT,
+    ...AGENT_ROLE_MODEL_DEFAULTS[wp.role],
     timeoutMs: legacyAgent.timeoutMs,
     stallTimeoutMs: legacyAgent.stallTimeoutMs,
     contextDepth: legacyAgent.contextDepth,
@@ -106,8 +95,7 @@ const legacyAgentSeedInput = (
   role: "coder",
   persona: "",
   tuning: {
-    model: codexMigrationModel(legacyAgent.model),
-    reasoningEffort: CODEX_MIGRATION_REASONING_EFFORT,
+    ...AGENT_ROLE_MODEL_DEFAULTS.coder,
     timeoutMs: legacyAgent.timeoutMs,
     stallTimeoutMs: legacyAgent.stallTimeoutMs,
     contextDepth: legacyAgent.contextDepth,

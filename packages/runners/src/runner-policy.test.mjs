@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   isWithin,
+  isRealPathWithin,
   classifyShellCommand,
   isTestCommand,
   maskSecrets,
@@ -33,6 +37,32 @@ test("isWithin rejects path-prefix collisions", () => {
   } else {
     assert.equal(isWithin("/proj", "/proj-evil/foo"), false);
   }
+});
+
+test("isRealPathWithin rejects a dangling directory link", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "harness-runner-policy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const parent = join(root, "workspace");
+  const target = join(root, "removed-target");
+  const link = join(parent, "dangling-link");
+  await mkdir(parent);
+  await mkdir(target);
+  await symlink(target, link, process.platform === "win32" ? "junction" : "dir");
+  await rm(target, { recursive: true, force: true });
+
+  assert.equal(await isRealPathWithin(parent, join(link, "file.txt")), false);
+});
+
+test("isRealPathWithin projects a not-yet-created target root from its real ancestor", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "harness-runner-policy-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  const parent = join(root, "generated-skills");
+  assert.equal(
+    await isRealPathWithin(parent, join(parent, "review-helper", "SKILL.md")),
+    true,
+  );
 });
 
 test("classifyShellCommand flags dangerous patterns", () => {

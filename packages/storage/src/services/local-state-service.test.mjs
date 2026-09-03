@@ -114,6 +114,29 @@ test("withTransaction rolls back writes when the work throws", async () => {
   }
 });
 
+test("setTaskRunStatus rejects an invalid transition without mutating SQLite state", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "transition guard" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id,
+      userRequest: "guard invalid state",
+      targetDir: process.cwd(),
+    });
+
+    await assert.rejects(
+      () => svc.setTaskRunStatus(taskRun.id, "done"),
+      /Invalid TaskRun transition drafting -> done/,
+    );
+    assert.equal((await svc.getTaskRun(taskRun.id))?.status, "drafting");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("getThreadDetail returns thread with empty taskRuns array", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

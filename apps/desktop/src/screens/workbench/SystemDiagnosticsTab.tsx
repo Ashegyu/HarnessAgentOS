@@ -109,7 +109,6 @@ const DiagnosticsCards = ({
       value={`${diagnostics.queue.total}`}
       warning={diagnostics.queue.warning}
     >
-      <Metric label="Claude" value={`${diagnostics.queue.claude}`} />
       <Metric label="Codex" value={`${diagnostics.queue.codex}`} />
       <Metric label="Warn at" value={`${diagnostics.thresholds.queueDepthWarn + 1}+`} />
     </DiagnosticsCard>
@@ -118,17 +117,12 @@ const DiagnosticsCards = ({
       title="Providers"
       status={diagnostics.providers.status}
       value={
-        diagnostics.providers.items.claude.available ||
         diagnostics.providers.items.codex.available
           ? "available"
           : "offline"
       }
       warning={diagnostics.providers.warning}
     >
-      <ProviderMetric
-        provider="claude"
-        probe={diagnostics.providers.items.claude}
-      />
       <ProviderMetric provider="codex" probe={diagnostics.providers.items.codex} />
     </DiagnosticsCard>
 

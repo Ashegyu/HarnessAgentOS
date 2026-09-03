@@ -21,9 +21,15 @@ const tmp = () => {
 
 const makeStore = () => {
   let rows = [];
+  const stats = { upsertCount: 0, upsertedFileCounts: [] };
   return {
+    stats,
     upsertMany: async (files) => {
-      rows = files;
+      stats.upsertCount += 1;
+      stats.upsertedFileCounts.push(files.length);
+      const byPath = new Map(rows.map((row) => [row.relativePath, row]));
+      for (const file of files) byPath.set(file.relativePath, file);
+      rows = [...byPath.values()];
     },
     deleteMissing: async ({ keepRelativePaths }) => {
       rows = rows.filter((row) => keepRelativePaths.includes(row.relativePath));
@@ -63,4 +69,65 @@ test("repo index helpers classify and summarize common files", () => {
     summarizeFile("package.json", JSON.stringify({ name: "demo", scripts: { build: "tsc" } }), 20),
     "package demo; scripts: build",
   );
+});
+
+test("RepoIndexService shares one in-flight refresh for the same target", async () => {
+  const t = tmp();
+  try {
+    writeFileSync(join(t.dir, "index.ts"), "export const value = 1;\n");
+    const store = makeStore();
+    const svc = new RepoIndexService({ store });
+
+    const [first, second] = await Promise.all([
+      svc.refresh({ projectKey: "demo", targetDir: t.dir }),
+      svc.refresh({ projectKey: "demo", targetDir: t.dir }),
+    ]);
+
+    assert.deepEqual(first, second);
+    assert.equal(store.stats.upsertCount, 1);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("RepoIndexService skips persistence for unchanged files on a warm refresh", async () => {
+  const t = tmp();
+  try {
+    writeFileSync(join(t.dir, "index.ts"), "export const value = 1;\n");
+    const store = makeStore();
+    let tick = 0;
+    const svc = new RepoIndexService({
+      store,
+      now: () => `2026-05-16T00:00:0${tick++}.000Z`,
+    });
+
+    const first = await svc.refresh({ projectKey: "demo", targetDir: t.dir });
+    const second = await svc.refresh({ projectKey: "demo", targetDir: t.dir });
+
+    assert.equal(store.stats.upsertCount, 1);
+    assert.deepEqual(store.stats.upsertedFileCounts, [1]);
+    assert.equal(second[0]?.updatedAt, first[0]?.updatedAt);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("RepoIndexService upserts only files whose metadata changed", async () => {
+  const t = tmp();
+  try {
+    writeFileSync(join(t.dir, "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(t.dir, "b.ts"), "export const b = 1;\n");
+    const store = makeStore();
+    const svc = new RepoIndexService({ store });
+    await svc.refresh({ projectKey: "demo", targetDir: t.dir });
+
+    writeFileSync(join(t.dir, "b.ts"), "export const b = 200;\n");
+    const rows = await svc.refresh({ projectKey: "demo", targetDir: t.dir });
+
+    assert.deepEqual(store.stats.upsertedFileCounts, [2, 1]);
+    assert.equal(rows.find((row) => row.relativePath === "a.ts")?.summary, "symbols: a");
+    assert.equal(rows.find((row) => row.relativePath === "b.ts")?.summary, "symbols: b");
+  } finally {
+    t.cleanup();
+  }
 });

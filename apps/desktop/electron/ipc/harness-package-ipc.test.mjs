@@ -319,8 +319,8 @@ test("harnessPackages.previewPipelineDraft forwards caller provider status into 
     assert.equal(imported.value.ok, true);
     const profile = await state.agentProfiles.create(
       agentProfileInput({
-        name: "Claude Reviewer",
-        provider: "claude",
+        name: "Codex Reviewer",
+        provider: "codex",
         role: "reviewer",
       }),
     );
@@ -334,12 +334,11 @@ test("harnessPackages.previewPipelineDraft forwards caller provider status into 
         },
       ],
       providers: {
-        claude: {
+        codex: {
           available: false,
-          error: "claude unavailable in test",
+          error: "codex unavailable in test",
           queueDepth: 0,
         },
-        codex: { available: true, queueDepth: 0 },
       },
     });
 
@@ -634,13 +633,12 @@ test("harnessPackages.previewPipelineDraft validates binding input", async () =>
         },
       ],
       providers: {
-        claude: { available: false, queueDepth: -1 },
-        codex: { available: true, queueDepth: 0 },
+        codex: { available: false, queueDepth: -1 },
       },
     });
     assert.equal(invalidProviders.ok, false);
     assert.equal(invalidProviders.error.code, "STATE_INVALID_INPUT");
-    assert.match(invalidProviders.error.message, /providers\.claude\.queueDepth/);
+    assert.match(invalidProviders.error.message, /providers\.codex\.queueDepth/);
   } finally {
     closeDb(db);
     t.cleanup();
@@ -663,7 +661,8 @@ function agentProfileInput(overrides = {}) {
     role: "planner",
     persona: "",
     tuning: {
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
       timeoutMs: 300000,
       stallTimeoutMs: 60000,
       contextDepth: 4,

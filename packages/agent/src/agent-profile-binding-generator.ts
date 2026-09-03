@@ -214,7 +214,7 @@ const buildWarnings = (input: {
 
   if (server.scope === "global") {
     warnings.push(
-      "This is a global MCP server; it is selected for Claude invocations without adding it to AgentProfile.mcpServerIds.",
+      "This is a global MCP server; no AgentProfile-local MCP id is required.",
     );
   } else if (addMcpServerIds.length === 0) {
     warnings.push(
@@ -222,19 +222,13 @@ const buildWarnings = (input: {
     );
   }
 
-  if (profile.provider === "codex") {
-    if (server.transport === "stdio" && Object.keys(server.envSecretRefs).length === 0) {
-      warnings.push(
-        "Codex per-run MCP delivery uses verified mcp_servers overrides for stdio/no-secret servers. Actual MCP tool calls still depend on an authenticated Codex CLI run.",
-      );
-    } else {
-      warnings.push(
-        "Codex per-run MCP delivery is limited to stdio/no-secret servers; remote transports or SecretVault refs will fail before CLI launch.",
-      );
-    }
-  } else if (profile.provider !== "claude") {
+  if (server.transport === "stdio" && Object.keys(server.envSecretRefs).length === 0) {
     warnings.push(
-      "provider=auto may resolve to Codex; MCP delivery is limited to Codex stdio/no-secret servers or Claude MCP config.",
+      "Codex per-run MCP delivery uses verified mcp_servers overrides for stdio/no-secret servers. Actual MCP tool calls still depend on an authenticated Codex CLI run.",
+    );
+  } else {
+    warnings.push(
+      "Codex per-run MCP delivery is limited to stdio/no-secret servers; remote transports or SecretVault refs will fail before CLI launch.",
     );
   }
   if (!server.enabled) {
@@ -261,10 +255,16 @@ const bindingRisk = (input: {
   server: McpServerConfig;
   addMcpServerIds: readonly string[];
 }): CapabilityBindingRisk => {
-  const { profile, server, addMcpServerIds } = input;
+  const { server, addMcpServerIds } = input;
   if (addMcpServerIds.length === 0) return "low";
-  if (profile.provider !== "claude") return "medium";
-  if (!server.enabled || !server.lastHealth?.okAt) return "medium";
+  if (
+    !server.enabled ||
+    !server.lastHealth?.okAt ||
+    server.transport !== "stdio" ||
+    Object.keys(server.envSecretRefs).length > 0
+  ) {
+    return "medium";
+  }
   return "low";
 };
 

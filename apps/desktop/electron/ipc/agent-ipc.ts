@@ -39,7 +39,7 @@ const isNonEmptyString = (v: unknown): v is string =>
   typeof v === "string" && v.trim().length > 0;
 
 const isProvider = (v: unknown): v is AgentProvider =>
-  v === "claude" || v === "codex";
+  v === "codex";
 
 const isFeedbackSourceKind = (
   v: unknown,
@@ -285,7 +285,7 @@ export const registerAgentIpc = (
       }
       if (cast.provider !== undefined && !isProvider(cast.provider)) {
         return err(
-          harnessError(STATE_INVALID_INPUT, "provider must be 'claude' or 'codex'"),
+          harnessError(STATE_INVALID_INPUT, "provider must be 'codex'"),
         );
       }
       if (cast.model !== undefined && !isNonEmptyString(cast.model)) {

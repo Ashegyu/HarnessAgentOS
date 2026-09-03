@@ -13,8 +13,12 @@ const readGlobalCss = () =>
   readFileSync(join(__dirname, "../../app/global.css"), "utf8");
 
 const cssRule = (css, selector) => {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = css.match(new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`));
+  const normalizedCss = css.replace(/\r\n?/g, "\n");
+  const normalizedSelector = selector.replace(/\r\n?/g, "\n");
+  const escaped = normalizedSelector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = normalizedCss.match(
+    new RegExp(`${escaped}\\s*\\{(?<body>[^}]*)\\}`),
+  );
   assert.ok(match?.groups?.body, `${selector} rule must exist`);
   return match.groups.body;
 };

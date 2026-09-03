@@ -1,4 +1,5 @@
 import {
+  assertTaskRunTransition,
   evaluateApprovalActionPolicy,
   validateAbsoluteTargetDir,
   type AgentInvocation,
@@ -376,6 +377,10 @@ export class LocalStateService implements ConversationStateGateway {
   }
 
   async setTaskRunStatus(id: string, status: TaskRunStatus): Promise<TaskRun> {
+    const current = await this.taskRuns.get(id);
+    if (!current) throw new Error(`TaskRun ${id} not found`);
+    assertTaskRunTransition(current.status, status);
+    if (current.status === status) return current;
     return this.taskRuns.updateStatus(id, status);
   }
 

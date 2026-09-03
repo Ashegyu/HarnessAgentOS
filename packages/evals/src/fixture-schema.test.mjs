@@ -28,14 +28,14 @@ test("evalCaseSchema applies the default attempt count", () => {
   assert.equal(parsed.attempts, 3);
 });
 
-test("evalCaseSchema accepts provider head-to-head providers", () => {
+test("evalCaseSchema accepts the Codex provider", () => {
   const parsed = evalCaseSchema.parse({
     ...validFixture,
-    provider: "claude",
-    providers: ["claude", "codex"],
+    provider: "codex",
+    providers: ["codex"],
   });
 
-  assert.deepEqual(parsed.providers, ["claude", "codex"]);
+  assert.deepEqual(parsed.providers, ["codex"]);
 });
 
 test("evalCaseSchema accepts llm judge graders", () => {
@@ -52,7 +52,7 @@ test("evalCaseSchema accepts llm judge graders", () => {
       ],
       passThreshold: 0.8,
       judgeAttempts: 3,
-      judgeProvider: "claude",
+      judgeProvider: "codex",
       maxJudgeTokens: 2000,
     },
   });
@@ -65,7 +65,7 @@ test("evalCaseSchema rejects duplicate providers", () => {
   assert.throws(() => {
     evalCaseSchema.parse({
       ...validFixture,
-      providers: ["claude", "claude"],
+      providers: ["codex", "codex"],
     });
   });
 });

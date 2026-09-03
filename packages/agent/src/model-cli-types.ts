@@ -4,17 +4,6 @@ import type {
   AgentStreamEvent,
 } from "@harness/core";
 
-export interface ModelCliToolPolicy {
-  /**
-   * Provider-facing tool patterns derived from AgentProfile permissions.
-   * Claude maps these to `--allowedTools`; Codex currently has no verified
-   * `exec` equivalent, so the adapter does not pass them there.
-   */
-  toolAllowlist: readonly string[];
-  /** Deny patterns remain higher priority in Harness policy and provider flags. */
-  toolDenylist: readonly string[];
-}
-
 export type ModelCliSandboxMode = "read-only" | "workspace-write";
 
 /**
@@ -40,37 +29,16 @@ export interface ModelCliRequest {
     enforceInPrompt: true;
   };
   /**
-   * Optional Claude CLI session UUID. When unset, the adapter starts a
-   * new session and the caller MUST read `result.sessionId` to persist
-   * it for follow-ups. When set, the adapter passes `--resume <uuid>`
-   * so the conversation continues with full prior context.
-   */
-  sessionId?: string;
-  /**
-   * Claude: passed via `--system-prompt` so the model receives it in
-   * the system channel. Codex CLI has no equivalent flag in `exec`,
-   * so the adapter folds it into the stdin prompt before the user request.
+   * Codex CLI has no separate system-prompt flag in `exec`, so the adapter
+   * folds this block into stdin before the user request.
    */
   systemPrompt?: string;
-  /**
-   * Absolute path to a `.mcp.json` file (see `mcp-config-builder.ts`).
-   * Passed as `--mcp-config <path>` to Claude CLI only.
-   * Main process is expected to write the file to a temp location for
-   * the invocation and delete it after the run completes.
-   */
-  mcpConfigPath?: string;
   /**
    * Codex per-run config overrides passed as repeated `-c <key=value>`
    * flags before `exec`. Used for verified `mcp_servers.*` settings only.
    * Do not include plaintext secrets here because argv can be inspected.
    */
   codexConfigOverrides?: readonly string[];
-  /**
-   * Optional tool policy from the selected AgentProfile. This is an
-   * execution-boundary hint only: unsupported providers must ignore it
-   * rather than invent unverified flags.
-   */
-  toolPolicy?: ModelCliToolPolicy;
   /**
    * Absolute executable override from AgentProfile.cli.cliPathOverride.
    * When unset, the adapter resolves a provider-specific default command.
@@ -95,10 +63,14 @@ export interface ModelCliResult {
   rawStdout?: string;
   stderr: string;
   normalizedEvents: AgentStreamEvent[];
+  /** Bytes/events dropped from bounded in-memory buffers during a long run. */
+  truncation?: {
+    stdoutDroppedBytes: number;
+    stderrDroppedBytes: number;
+    normalizedEventsDropped: number;
+  };
   latencyMs: number;
   costEstimate?: number;
-  /** Session UUID the CLI used or created. Stable across `--resume`. */
-  sessionId?: string;
 }
 
 /**

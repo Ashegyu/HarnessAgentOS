@@ -50,10 +50,7 @@ import { parseAgentPlan } from "./agent-output-parser.ts";
 import { AgentCliError } from "./model-cli-errors.ts";
 import { DefaultModelCliAdapter } from "./model-cli-adapter.ts";
 import { modelInvokerFromCliAdapter } from "./model-invoker-adapter.ts";
-import {
-  normalizeModelForProvider,
-  providerForModel,
-} from "./provider-detection.ts";
+import { normalizeModelForProvider } from "./provider-detection.ts";
 import {
   estimateModelUsage,
   usageEstimateToRecord,
@@ -63,8 +60,18 @@ import { AgentInvocationQueue } from "./agent-invocation-queue.ts";
 import type {
   ModelCliAdapter,
   ModelCliRequest,
+  ModelCliResult,
 } from "./model-cli-types.ts";
 import type { ModelInvoker } from "./model-invoker-types.ts";
+import {
+  defaultWorkspaceChangeTracker,
+  type WorkspaceChangeTracker,
+} from "./workspace-change-tracker.ts";
+import {
+  BoundedAgentStreamEventBuffer,
+  DEFAULT_MAX_PERSISTED_STREAM_BYTES,
+  DEFAULT_MAX_PERSISTED_STREAM_EVENTS,
+} from "./agent-stream-limits.ts";
 
 export class AgentPlanningError extends Error {
   readonly code: string;
@@ -111,8 +118,7 @@ export interface AgentPlanningServiceDeps {
     profileId: string | null;
     provider: AgentProvider;
   }) => Promise<{
-    mcpConfigPath: string | null;
-    codexConfigOverrides?: readonly string[];
+    codexConfigOverrides: readonly string[];
     cleanup: () => Promise<void>;
   }>;
   /**
@@ -181,6 +187,11 @@ export interface AgentPlanningServiceDeps {
     contextPackArtifactId?: string;
     errorCode?: string;
   }) => Promise<unknown>;
+  /**
+   * Captures the direct workspace-write observation window. `null` is only
+   * intended for isolated tests whose fake target directory does not exist.
+   */
+  workspaceChangeTracker?: WorkspaceChangeTracker | null;
 }
 
 export interface GeneratePlanInput {
@@ -217,6 +228,7 @@ export class AgentPlanningService {
   private readonly invoker: ModelInvoker;
   private readonly queue: AgentInvocationQueue;
   private readonly defaults: { timeoutMs: number; stallTimeoutMs: number };
+  private readonly workspaceChangeTracker: WorkspaceChangeTracker | null;
 
   constructor(deps: AgentPlanningServiceDeps) {
     this.deps = deps;
@@ -229,6 +241,10 @@ export class AgentPlanningService {
       stallTimeoutMs:
         deps.defaults?.stallTimeoutMs ?? DEFAULT_AGENT_STALL_TIMEOUT_MS,
     };
+    this.workspaceChangeTracker =
+      deps.workspaceChangeTracker === undefined
+        ? defaultWorkspaceChangeTracker
+        : deps.workspaceChangeTracker;
   }
 
   /** Exposed so main.ts can wire RuntimeStatusBar to live queue depth. */
@@ -237,9 +253,8 @@ export class AgentPlanningService {
   }
 
   getQueueDepths(): AgentQueueDepths {
-    const claude = this.queue.getDepth("claude");
     const codex = this.queue.getDepth("codex");
-    return { claude, codex, total: claude + codex };
+    return { codex, total: codex };
   }
 
   async generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResult> {
@@ -284,31 +299,13 @@ export class AgentPlanningService {
     const modelHint =
       input.model ?? approvedLearnerModel?.model ?? resolved.tuning.model;
     const providers = this.deps.getProviderStatus();
-    const providerHint: "claude" | "codex" | undefined =
-      input.provider === "claude" || input.provider === "codex"
-        ? input.provider
-        : modelHint
-          ? toConcreteProvider(providerForModel(modelHint))
-          : undefined;
-    const provider: "claude" | "codex" | null =
-      providerHint ??
-      (providers?.claude?.available
-        ? "claude"
-        : providers?.codex?.available
-          ? "codex"
-          : null);
-    if (!provider) {
-      throw new AgentPlanningError(
-        AGENT_PROVIDER_UNAVAILABLE,
-        "No agent CLI provider is available; install claude or codex first",
-      );
-    }
+    const provider: AgentProvider = "codex";
     if (providers !== null) {
-      const probedStatus = providers[provider];
+      const probedStatus = providers.codex;
       if (!probedStatus?.available) {
         throw new AgentPlanningError(
           AGENT_PROVIDER_UNAVAILABLE,
-          `Provider ${provider} is not available`,
+          "Codex CLI is not available",
         );
       }
     }
@@ -361,8 +358,7 @@ export class AgentPlanningService {
       persona: resolved.persona,
       systemPromptPrefix: resolved.systemPromptPrefix,
       systemPromptSuffix: resolved.systemPromptSuffix,
-      directFileEdits:
-        provider === "codex" && codexRuntime.sandboxMode === "workspace-write",
+      directFileEdits: codexRuntime.sandboxMode === "workspace-write",
       ...(resolved.profile
         ? {
             profileMetadata: {
@@ -432,7 +428,10 @@ export class AgentPlanningService {
       startedAt,
     });
     const emit = this.deps.emitStreamEvent ?? (() => {});
-    const persistedStreamEvents: AgentStreamEvent[] = [];
+    const persistedStreamEvents = new BoundedAgentStreamEventBuffer({
+      maxEvents: DEFAULT_MAX_PERSISTED_STREAM_EVENTS,
+      maxBytes: DEFAULT_MAX_PERSISTED_STREAM_BYTES,
+    });
     const emitCaptured = (event: AgentStreamEvent): void => {
       const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
       persistedStreamEvents.push(redacted);
@@ -478,23 +477,14 @@ export class AgentPlanningService {
       `system ${redactedSystemPrompt.length}자, user ${redactedUserPrompt.length}자, 승인 Skill ${capabilityContexts.length}개, Instinct ${instinctContexts.length}개, pinned context ${(input.pinnedObservationContexts ?? []).length}개`,
     );
 
-    // 4. invoke CLI through the per-provider queue. The queue serializes
-    // claude/codex work and exposes an AbortSignal so cancel/retry can
-    // tear down the child process cleanly.
-    // Resume the thread's prior claude session if we have one — follow-up
-    // questions within a thread share conversation memory that way.
-    const thread = await this.deps.state.getThread(taskRun.threadId);
-    const existingSessionId =
-      provider === "claude" ? thread?.agentSessionId : undefined;
+    // 4. invoke Codex CLI through the shared queue. Conversation context is
+    // supplied by Harness because `codex exec` is non-interactive.
     emitProgress(
       "session",
-      existingSessionId ? "이전 CLI 세션 이어가기" : "새 CLI 세션 준비",
+      "Codex 비대화형 세션 준비",
       provider,
     );
-    // Phase 4b — synthesize a temporary MCP config file when enabled
-    // servers exist for the resolved profile. Claude receives a temp file;
-    // Codex receives verified `-c mcp_servers.*` overrides.
-    let mcpConfigPath: string | null = null;
+    // Phase 4b — Codex receives verified `-c mcp_servers.*` overrides.
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
     if (this.deps.prepareMcpInvocation) {
@@ -502,19 +492,17 @@ export class AgentPlanningService {
         profileId: resolved.profile?.id ?? null,
         provider,
       });
-      mcpConfigPath = prep.mcpConfigPath;
-      codexConfigOverrides = prep.codexConfigOverrides ?? [];
+      codexConfigOverrides = prep.codexConfigOverrides;
       mcpCleanup = prep.cleanup;
     }
     emitProgress(
       "mcp",
-      mcpConfigPath || codexConfigOverrides.length > 0
+      codexConfigOverrides.length > 0
         ? "MCP 설정 준비 완료"
         : "활성 MCP 설정 없음",
     );
 
     try {
-      const toolPolicy = toolPolicyForProvider(provider, resolved.profile);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -547,10 +535,7 @@ export class AgentPlanningService {
         ...(resolved.profile?.cli.cliPathOverride
           ? { cliPathOverride: resolved.profile.cli.cliPathOverride }
           : {}),
-        ...(existingSessionId ? { sessionId: existingSessionId } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
         ...(codexConfigOverrides.length > 0 ? { codexConfigOverrides } : {}),
-        ...(toolPolicy ? { toolPolicy } : {}),
       };
       await this.recordLearnerSelection({
         taskRunId: taskRun.id,
@@ -567,7 +552,7 @@ export class AgentPlanningService {
       let rawProviderOutput = "";
       let latencyMs = 0;
       let costEstimate: number | undefined;
-      let resultSessionId: string | undefined;
+      let cliTruncation: ModelCliResult["truncation"];
       try {
         const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
         emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
@@ -576,18 +561,20 @@ export class AgentPlanningService {
           invocationId: invocation.id,
           work: (signal) => {
             emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
-            return this.invoker.invoke(
+            return this.invokeWithWorkspaceChangeEvidence({
               request,
-              emitCaptured,
-              signal,
-            );
+              taskRunId: taskRun.id,
+              stepId: planStep.id,
+              title: "Workspace change evidence",
+              invoke: () => this.invoker.invoke(request, emitCaptured, signal),
+            });
           },
         });
         assistantOutput = result.stdout;
         rawProviderOutput = result.rawStdout ?? result.stdout;
         latencyMs = result.latencyMs;
         costEstimate = result.costEstimate;
-        resultSessionId = result.sessionId;
+        cliTruncation = result.truncation;
       } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
       const code = isCancelled
@@ -684,7 +671,7 @@ export class AgentPlanningService {
     const providerCostEstimate = costEstimate;
     costEstimate = costEstimate ?? usageEstimate.costUsd;
     const persistedStreamTranscript = buildPersistedStreamTranscript({
-      events: persistedStreamEvents,
+      events: persistedStreamEvents.toArray(),
       invocationId: invocation.id,
       taskRunId: taskRun.id,
       rawOutput: redactedRawOutput,
@@ -694,6 +681,11 @@ export class AgentPlanningService {
       usageEstimate,
       costEstimateApproximate:
         providerCostEstimate === undefined && usageEstimate.costUsd !== undefined,
+      streamTruncation: {
+        droppedEvents: persistedStreamEvents.droppedEvents,
+        droppedBytes: persistedStreamEvents.droppedBytes,
+      },
+      ...(cliTruncation ? { cliTruncation } : {}),
     });
     const rawOutputArtifact = await this.deps.state.createArtifact({
       taskRunId: taskRun.id,
@@ -712,24 +704,6 @@ export class AgentPlanningService {
       usageApproximate: usageEstimate.approximate,
       ...(costEstimate !== undefined ? { costEstimate } : {}),
     });
-
-    // Persist the claude session id on the thread so subsequent
-    // TaskRuns within this conversation can `--resume` it.
-    if (
-      provider === "claude" &&
-      resultSessionId &&
-      resultSessionId !== existingSessionId
-    ) {
-      try {
-        await this.deps.state.setThreadAgentSession(
-          taskRun.threadId,
-          resultSessionId,
-        );
-      } catch {
-        // best effort — failing to record the session id should not
-        // tear down a successful invocation.
-      }
-    }
 
     // 6. parse
     emitProgress("parse", "응답 파싱 중", `${redactedOutput.length}자 출력`);
@@ -998,29 +972,13 @@ export class AgentPlanningService {
     const settings = await this.deps.state.getSettings();
 
     const providers = this.deps.getProviderStatus();
-    let provider: AgentProvider;
-    if (input.profile.provider === "auto") {
-      const picked: "claude" | "codex" | null = providers?.claude?.available
-        ? "claude"
-        : providers?.codex?.available
-          ? "codex"
-          : null;
-      if (!picked) {
-        throw new AgentPlanningError(
-          AGENT_PROVIDER_UNAVAILABLE,
-          "No agent CLI provider is available for worker invocation",
-        );
-      }
-      provider = picked;
-    } else {
-      provider = input.profile.provider;
-    }
+    const provider: AgentProvider = "codex";
     if (providers !== null) {
-      const probed = providers[provider];
+      const probed = providers.codex;
       if (!probed?.available) {
         throw new AgentPlanningError(
           AGENT_PROVIDER_UNAVAILABLE,
-          `Provider ${provider} is not available for worker invocation`,
+          "Codex CLI is not available for worker invocation",
         );
       }
     }
@@ -1029,14 +987,7 @@ export class AgentPlanningService {
     const codexRuntime = codexRuntimeOptions(settings.agent);
     assertProviderSupportsProfileBoundaries(provider, input.profile);
 
-    // Worker invocations are independent pipeline steps. They receive
-    // repo context and explicit handoffs in the prompt, so they do not
-    // resume the thread-level Claude session; sharing one session would
-    // make same-provider parallel workers contend on the provider CLI.
-    const existingSessionId = undefined;
-
-    // Per-invocation MCP config (Phase 4b). Cleaned up via try/finally.
-    let mcpConfigPath: string | null = null;
+    // Per-invocation Codex MCP overrides (Phase 4b).
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
     if (this.deps.prepareMcpInvocation) {
@@ -1044,8 +995,7 @@ export class AgentPlanningService {
         profileId: input.profile.id,
         provider,
       });
-      mcpConfigPath = prep.mcpConfigPath;
-      codexConfigOverrides = prep.codexConfigOverrides ?? [];
+      codexConfigOverrides = prep.codexConfigOverrides;
       mcpCleanup = prep.cleanup;
     }
 
@@ -1062,8 +1012,7 @@ export class AgentPlanningService {
       persona: input.profile.persona,
       systemPromptPrefix: tuning.systemPromptPrefix,
       systemPromptSuffix: tuning.systemPromptSuffix,
-      directFileEdits:
-        provider === "codex" && codexRuntime.sandboxMode === "workspace-write",
+      directFileEdits: codexRuntime.sandboxMode === "workspace-write",
       profileMetadata: {
         name: input.profile.name,
         role: input.profile.role,
@@ -1106,7 +1055,10 @@ export class AgentPlanningService {
     });
 
     const emit = this.deps.emitStreamEvent ?? (() => {});
-    const persistedStreamEvents: AgentStreamEvent[] = [];
+    const persistedStreamEvents = new BoundedAgentStreamEventBuffer({
+      maxEvents: DEFAULT_MAX_PERSISTED_STREAM_EVENTS,
+      maxBytes: DEFAULT_MAX_PERSISTED_STREAM_BYTES,
+    });
     const emitCaptured = (event: AgentStreamEvent): void => {
       const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
       persistedStreamEvents.push(redacted);
@@ -1139,17 +1091,16 @@ export class AgentPlanningService {
     );
     emitProgress(
       "session",
-      existingSessionId ? "이전 CLI 세션 이어가기" : "새 CLI 세션 준비",
+      "Codex 비대화형 세션 준비",
       provider,
     );
     emitProgress(
       "mcp",
-      mcpConfigPath || codexConfigOverrides.length > 0
+      codexConfigOverrides.length > 0
         ? "MCP 설정 준비 완료"
         : "활성 MCP 설정 없음",
     );
     try {
-      const toolPolicy = toolPolicyForProvider(provider, input.profile);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -1175,10 +1126,7 @@ export class AgentPlanningService {
         ...(input.profile.cli.cliPathOverride
           ? { cliPathOverride: input.profile.cli.cliPathOverride }
           : {}),
-        ...(existingSessionId ? { sessionId: existingSessionId } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
         ...(codexConfigOverrides.length > 0 ? { codexConfigOverrides } : {}),
-        ...(toolPolicy ? { toolPolicy } : {}),
       };
       const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
       emitProgress("queued", "Worker CLI 실행 대기열 등록", cliProgressDetail);
@@ -1188,11 +1136,13 @@ export class AgentPlanningService {
         laneKey: `worker:${invocation.id}`,
         work: (signal) => {
           emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
-          return this.invoker.invoke(
+          return this.invokeWithWorkspaceChangeEvidence({
             request,
-            emitCaptured,
-            signal,
-          );
+            taskRunId: taskRun.id,
+            ...(input.stepId ? { stepId: input.stepId } : {}),
+            title: `Worker workspace change evidence — ${input.profile.name}`,
+            invoke: () => this.invoker.invoke(request, emitCaptured, signal),
+          });
         },
       });
       emitProgress("parse", "Worker 응답 정리 중", `${result.stdout.length}자 출력`);
@@ -1211,7 +1161,7 @@ export class AgentPlanningService {
       });
       const costEstimate = result.costEstimate ?? usageEstimate.costUsd;
       const persistedStreamTranscript = buildPersistedStreamTranscript({
-        events: persistedStreamEvents,
+        events: persistedStreamEvents.toArray(),
         invocationId: invocation.id,
         taskRunId: taskRun.id,
         rawOutput: redactedRawOutput,
@@ -1221,6 +1171,11 @@ export class AgentPlanningService {
         usageEstimate,
         costEstimateApproximate:
           result.costEstimate === undefined && usageEstimate.costUsd !== undefined,
+        streamTruncation: {
+          droppedEvents: persistedStreamEvents.droppedEvents,
+          droppedBytes: persistedStreamEvents.droppedBytes,
+        },
+        ...(result.truncation ? { cliTruncation: result.truncation } : {}),
       });
       const parsedPlan = parseAgentPlan(redactedOutput);
       const proposedActions = parsedPlan.ok
@@ -1360,6 +1315,37 @@ export class AgentPlanningService {
       });
     } catch {
       return null;
+    }
+  }
+
+  private async invokeWithWorkspaceChangeEvidence(input: {
+    request: ModelCliRequest;
+    taskRunId: string;
+    stepId?: string;
+    title: string;
+    invoke: () => Promise<ModelCliResult>;
+  }): Promise<ModelCliResult> {
+    const tracker = this.workspaceChangeTracker;
+    if (input.request.sandbox.mode !== "workspace-write" || !tracker) {
+      return input.invoke();
+    }
+
+    // 직접 편집은 provider 출력만으로 실제 변경 범위를 증명할 수 없으므로
+    // CLI 실행 직전/직후의 동일 파일 시스템 snapshot을 artifact로 남긴다.
+    const before = await tracker.capture(input.request.cwd);
+    try {
+      return await input.invoke();
+    } finally {
+      const after = await tracker.capture(input.request.cwd);
+      const evidence = tracker.buildEvidence(before, after);
+      await this.deps.state.createArtifact({
+        taskRunId: input.taskRunId,
+        ...(input.stepId ? { stepId: input.stepId } : {}),
+        kind: "diff",
+        title: input.title,
+        uri: `harness:workspace-change/${input.taskRunId}/${Date.now()}`,
+        summary: redactSecrets(evidence.summary, 200_000),
+      });
     }
   }
 
@@ -1583,11 +1569,6 @@ const formatStepAgentName = (name: string | undefined): string | null => {
   return normalized && normalized.length > 0 ? normalized : null;
 };
 
-const toConcreteProvider = (
-  provider: AgentProvider | null,
-): "claude" | "codex" | undefined =>
-  provider === "claude" || provider === "codex" ? provider : undefined;
-
 const describeRepoContext = (
   context: PackedRepoContext | string | null,
 ): string => {
@@ -1649,42 +1630,11 @@ const renderPlanMarkdown = (
   return lines.join("\n");
 };
 
-// Claude Code can invoke provider-managed tools before Harness has a
-// chance to create approvals. Keep side-effect tools denied by default;
-// the model should propose file/shell actions for Approval + Runner.
-const CLAUDE_DEFAULT_DENIED_SIDE_EFFECT_TOOLS = [
-  "Bash",
-  "Edit",
-  "MultiEdit",
-  "Write",
-  "NotebookEdit",
-  "Task",
-] as const;
-
-const toolPolicyForProvider = (
-  provider: AgentProvider,
-  profile: AgentProfile | null | undefined,
-): ModelCliRequest["toolPolicy"] | undefined => {
-  if (provider !== "claude") return undefined;
-  const permissions = profile?.permissions;
-  const toolAllowlist = normalizeToolPolicyList(
-    permissions?.toolAllowlist ?? [],
-  );
-  const toolDenylist = normalizeToolPolicyList([
-    ...CLAUDE_DEFAULT_DENIED_SIDE_EFFECT_TOOLS,
-    ...(permissions?.toolDenylist ?? []),
-  ]);
-  if (toolAllowlist.length === 0 && toolDenylist.length === 0) {
-    return undefined;
-  }
-  return { toolAllowlist, toolDenylist };
-};
-
 const assertProviderSupportsProfileBoundaries = (
-  provider: AgentProvider,
+  _provider: AgentProvider,
   profile: AgentProfile | null | undefined,
 ): void => {
-  if (provider !== "codex" || !profile) return;
+  if (!profile) return;
   const unsupported: string[] = [];
   if (
     normalizeToolPolicyList(profile.permissions.toolAllowlist).length > 0 ||
@@ -1695,7 +1645,7 @@ const assertProviderSupportsProfileBoundaries = (
   if (unsupported.length === 0) return;
   throw new AgentPlanningError(
     AGENT_PROVIDER_UNAVAILABLE,
-    `Codex provider cannot enforce AgentProfile ${unsupported.join(" and ")} yet; use Claude or remove unsupported profile boundaries.`,
+    `Codex provider cannot enforce AgentProfile ${unsupported.join(" and ")} yet; remove unsupported profile boundaries.`,
   );
 };
 
@@ -1786,8 +1736,22 @@ const buildPersistedStreamTranscript = (input: {
   costEstimate?: number;
   usageEstimate?: ModelUsageEstimate;
   costEstimateApproximate?: boolean;
+  streamTruncation?: { droppedEvents: number; droppedBytes: number };
+  cliTruncation?: NonNullable<ModelCliResult["truncation"]>;
 }): string => {
   const events = enrichResultEvents([...input.events], input);
+  const truncationDetails = formatStreamTruncationDetails(input);
+  if (truncationDetails.length > 0) {
+    events.unshift({
+      type: "progress",
+      invocationId: input.invocationId,
+      taskRunId: input.taskRunId,
+      stage: "cli",
+      message: "긴 CLI 스트림의 메모리 보관량을 제한했습니다.",
+      detail: truncationDetails.join(", "),
+      at: new Date().toISOString(),
+    });
+  }
   if (!events.some((event) => event.type === "raw") && input.rawOutput.length > 0) {
     events.push({
       type: "raw",
@@ -1829,6 +1793,30 @@ const buildPersistedStreamTranscript = (input: {
     });
   }
   return serializePersistedStreamEvents(events) || input.rawOutput;
+};
+
+const formatStreamTruncationDetails = (input: {
+  streamTruncation?: { droppedEvents: number; droppedBytes: number };
+  cliTruncation?: NonNullable<ModelCliResult["truncation"]>;
+}): string[] => {
+  const details: string[] = [];
+  if ((input.streamTruncation?.droppedEvents ?? 0) > 0) {
+    details.push(
+      `persisted events ${input.streamTruncation?.droppedEvents}개/${input.streamTruncation?.droppedBytes} bytes 생략`,
+    );
+  }
+  if ((input.cliTruncation?.stdoutDroppedBytes ?? 0) > 0) {
+    details.push(`stdout ${input.cliTruncation?.stdoutDroppedBytes} bytes 생략`);
+  }
+  if ((input.cliTruncation?.stderrDroppedBytes ?? 0) > 0) {
+    details.push(`stderr ${input.cliTruncation?.stderrDroppedBytes} bytes 생략`);
+  }
+  if ((input.cliTruncation?.normalizedEventsDropped ?? 0) > 0) {
+    details.push(
+      `normalized events ${input.cliTruncation?.normalizedEventsDropped}개 생략`,
+    );
+  }
+  return details;
 };
 
 const enrichResultEvents = (

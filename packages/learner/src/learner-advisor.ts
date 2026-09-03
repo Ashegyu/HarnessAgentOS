@@ -1,4 +1,6 @@
 import {
+  DEFAULT_AGENT_REASONING_EFFORT,
+  DEFAULT_CODEX_MODEL,
   LEARNER_TASK_NOT_FOUND,
   type AgentProfile,
   type Approval,
@@ -790,11 +792,12 @@ const unassignedProfile = (): AgentProfile => ({
   description: "Agent invocations that were not launched through an Agent Profile.",
   category: "system",
   tags: [],
-  provider: "auto",
+  provider: "codex",
   role: "coder",
   persona: "",
   tuning: {
-    model: "unknown",
+    model: DEFAULT_CODEX_MODEL,
+    reasoningEffort: DEFAULT_AGENT_REASONING_EFFORT,
     timeoutMs: 0,
     stallTimeoutMs: 0,
     contextDepth: 0,

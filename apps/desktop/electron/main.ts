@@ -1,8 +1,7 @@
 import { app, BrowserWindow, safeStorage, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { stat, writeFile, mkdir, unlink } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import {
   ConversationService,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
@@ -46,7 +45,6 @@ import {
   AgentPlanningService,
   RepoIndexService,
   buildCodexMcpConfigOverrides,
-  buildClaudeMcpConfig,
   checkProviders as probeAgentProviders,
   formatContextPackObservationPayload,
   packRepoContext,
@@ -351,24 +349,17 @@ const initServices = (): {
   // SecretVaultUnavailableError; the renderer surfaces a banner.
   const secretVault = new SecretVaultService(mainDb, safeStorage);
 
-  // Phase 4b — temp dir for per-invocation MCP config files. We never
-  // reuse a file across invocations so a process crash can't leak old
-  // secret material; cleanup removes the file when generatePlan returns.
-  const mcpTmpDir = join(userData, "mcp-tmp");
-
   const prepareMcpInvocation = async ({
     profileId,
-    provider,
+    provider: _provider,
   }: {
     profileId: string | null;
     provider: AgentProvider;
   }): Promise<{
-    mcpConfigPath: string | null;
-    codexConfigOverrides?: readonly string[];
+    codexConfigOverrides: readonly string[];
     cleanup: () => Promise<void>;
   }> => {
     const empty = {
-      mcpConfigPath: null,
       codexConfigOverrides: [] as readonly string[],
       cleanup: async () => {},
     };
@@ -398,43 +389,16 @@ const initServices = (): {
           : server,
       ),
     );
-    if (provider === "codex") {
-      const codexConfigOverrides = buildCodexMcpConfigOverrides(
-        activeForConfig,
-        profileForPolicy?.permissions,
-      );
-      if (codexConfigOverrides.length === 0) {
-        return empty;
-      }
-      return {
-        mcpConfigPath: null,
-        codexConfigOverrides,
-        cleanup: async () => {},
-      };
-    }
-    const config = await buildClaudeMcpConfig(
+    const codexConfigOverrides = buildCodexMcpConfigOverrides(
       activeForConfig,
-      async (k) => secretVault.read(k),
       profileForPolicy?.permissions,
     );
-    if (Object.keys(config.mcpServers).length === 0) {
+    if (codexConfigOverrides.length === 0) {
       return empty;
     }
-    await mkdir(mcpTmpDir, { recursive: true });
-    const file = join(mcpTmpDir, `mcp-${randomUUID()}.json`);
-    await writeFile(file, JSON.stringify(config), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
     return {
-      mcpConfigPath: file,
-      cleanup: async () => {
-        try {
-          await unlink(file);
-        } catch {
-          // file already gone or never written — fine.
-        }
-      },
+      codexConfigOverrides,
+      cleanup: async () => {},
     };
   };
 

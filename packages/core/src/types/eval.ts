@@ -34,7 +34,7 @@ export interface EvalRunCaseView {
   readonly caseId: string;
   readonly title: string;
   readonly suite: Exclude<EvalRunSuite, "all">;
-  readonly provider?: "claude" | "codex";
+  readonly provider?: "codex";
   readonly outcome: "passed" | "failed" | "partial";
   readonly attemptCount: number;
   readonly passedAttempts: number;

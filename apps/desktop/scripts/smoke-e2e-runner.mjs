@@ -64,7 +64,6 @@ const setup = () => {
     state,
     queue,
     getProviderStatus: () => ({
-      claude: { available: true, version: "fake", queueDepth: 0 },
       codex: { available: true, version: "fake", queueDepth: 0 },
     }),
     adapter: new FakeModelCliAdapter({ scenario: "parse-error", chunkDelayMs: 0 }),

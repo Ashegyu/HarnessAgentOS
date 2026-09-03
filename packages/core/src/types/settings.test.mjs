@@ -1,10 +1,40 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_CODEX_MODEL, DEFAULT_HARNESS_SETTINGS } from "./settings.ts";
+import {
+  DEFAULT_HARNESS_SETTINGS,
+} from "./settings.ts";
+import {
+  AGENT_REASONING_EFFORTS,
+  CODEX_MODELS,
+  DEFAULT_AGENT_REASONING_EFFORT,
+  DEFAULT_CODEX_MODEL,
+} from "./codex-models.ts";
+
+test("Codex model and reasoning catalogs expose only supported choices", () => {
+  assert.deepEqual([...CODEX_MODELS], [
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+  ]);
+  assert.deepEqual([...AGENT_REASONING_EFFORTS], [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
+  assert.equal(DEFAULT_AGENT_REASONING_EFFORT, "medium");
+});
 
 test("DEFAULT_HARNESS_SETTINGS has expected agent defaults", () => {
+  assert.equal(DEFAULT_CODEX_MODEL, "gpt-5.6-sol");
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.provider, "codex");
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.model, DEFAULT_CODEX_MODEL);
+  assert.equal(
+    DEFAULT_HARNESS_SETTINGS.agent.reasoningEffort,
+    DEFAULT_AGENT_REASONING_EFFORT,
+  );
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.timeoutMs, 60 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.stallTimeoutMs, 10 * 60_000);
   assert.equal(DEFAULT_HARNESS_SETTINGS.agent.contextDepth, 5);

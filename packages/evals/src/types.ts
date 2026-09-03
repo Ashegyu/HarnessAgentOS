@@ -3,7 +3,7 @@ import type { QualityGateStatus } from "@harness/core";
 import type { Grader } from "./grader-types.ts";
 
 export type EvalCaseKind = "capability" | "regression" | "safety";
-export type EvalProvider = "claude" | "codex";
+export type EvalProvider = "codex";
 export type EvalRunMode =
   | "fake"
   | "real"

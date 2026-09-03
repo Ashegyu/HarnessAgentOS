@@ -20,17 +20,17 @@ const record = {
     startedAt: "2026-05-18T01:00:00.000Z",
     finishedAt: "2026-05-18T01:01:00.000Z",
     status: "passed",
-    mode: "head_to_head",
+    mode: "real_cli",
     harnessRevisionSha: "abc1234",
     cases: [
       {
         case: {
-          id: "file-write-readme",
+          id: "file-write-readme-sol",
           kind: "capability",
           title: "Write README",
           attempts: 1,
         },
-        provider: "claude",
+        provider: "codex",
         attempts: [
           {
             attemptIdx: 0,
@@ -49,7 +49,7 @@ const record = {
       },
       {
         case: {
-          id: "file-write-readme",
+          id: "file-write-readme-terra",
           kind: "capability",
           title: "Write README",
           attempts: 1,
@@ -79,7 +79,7 @@ test("evalRunRecordToListItem summarizes totals for the viewer", () => {
   const item = evalRunRecordToListItem(record);
 
   assert.equal(item.id, "evrun_1");
-  assert.equal(item.mode, "head_to_head");
+  assert.equal(item.mode, "real_cli");
   assert.equal(item.caseCount, 2);
   assert.equal(item.attemptCount, 2);
   assert.equal(item.totalTokens, 400);
@@ -99,8 +99,8 @@ test("evalRunRecordToDetail exposes case rows without raw artifacts", () => {
       caseRow.passedAttempts,
     ]),
     [
-      ["file-write-readme", "claude", 1, 1],
-      ["file-write-readme", "codex", 1, 0],
+      ["file-write-readme-sol", "codex", 1, 1],
+      ["file-write-readme-terra", "codex", 1, 0],
     ],
   );
 });

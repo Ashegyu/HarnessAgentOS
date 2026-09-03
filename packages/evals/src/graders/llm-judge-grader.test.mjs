@@ -20,7 +20,7 @@ const grader = {
   ],
   passThreshold: 0.8,
   judgeAttempts: 2,
-  judgeProvider: "claude",
+  judgeProvider: "codex",
   maxJudgeTokens: 1234,
 };
 

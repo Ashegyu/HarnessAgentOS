@@ -9,7 +9,7 @@ const request = (model, prompt = "prompt") => ({
   cwd: "C:\\tmp\\project",
   prompt,
   modelConfig: {
-    provider: "claude",
+    provider: "codex",
     model,
     timeoutMs: 30_000,
     stallTimeoutMs: 10_000,
@@ -29,7 +29,7 @@ test("runRuleGrader matches regex against a recorded request model", () => {
           description: "second invocation uses learner selected model",
           check: "regex",
           target: "recorded_request[1].model",
-          pattern: "^claude-opus-4-7$",
+          pattern: "^gpt-5\\.6-terra$",
         },
       ],
     },
@@ -37,8 +37,8 @@ test("runRuleGrader matches regex against a recorded request model", () => {
       adapter: {
         getRecordedRequests: () =>
           Object.freeze([
-            request("gpt-5.4"),
-            request("claude-opus-4-7"),
+            request("gpt-5.6-sol"),
+            request("gpt-5.6-terra"),
           ]),
       },
     },

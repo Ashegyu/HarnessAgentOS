@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AgentPipeline, Thread } from "@harness/core";
 import { FeatureHelpButton } from "./FeatureHelpButton";
+import { WorkbenchIcon } from "./WorkbenchIcon";
 
 type ThreadsState =
   | { kind: "loading" }
@@ -245,7 +246,16 @@ export const ThreadSidebar = ({
         )}
 
         {state.kind === "ready" && state.threads.length === 0 && !creating && (
-          <div className="empty-state">작업 스레드 없음</div>
+          <div className="thread-sidebar__empty">
+            <span className="thread-sidebar__empty-icon" aria-hidden="true">
+              <WorkbenchIcon name="threads" />
+            </span>
+            <strong>첫 작업을 시작하세요</strong>
+            <span>스레드마다 대상 폴더와 실행 흐름을 분리해 관리할 수 있습니다.</span>
+            <button type="button" onClick={startCreate}>
+              새 작업 만들기
+            </button>
+          </div>
         )}
 
         {state.kind === "ready" && state.threads.length > 0 && (

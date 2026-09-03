@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import type { ProposedActionDetails, TaskRunDetail } from "@harness/core";
+import type {
+  Approval,
+  AutoApproveDecision,
+  ProposedActionDetails,
+  TaskRunDetail,
+} from "@harness/core";
 import { AgentPanel } from "./AgentPanel";
 import { AgentTopologyPanel } from "./AgentTopologyPanel";
 import { ApprovalPanel } from "./ApprovalPanel";
@@ -12,6 +17,10 @@ import { DecisionsPanel } from "./DecisionsPanel";
 import { OrchestrationPanel } from "./OrchestrationPanel";
 import { TaskRunStateActions } from "./TaskRunStateActions";
 import { FeatureHelpButton } from "./FeatureHelpButton";
+import {
+  WorkbenchIcon,
+  type WorkbenchIconName,
+} from "./WorkbenchIcon";
 
 type TaskRunDetailState =
   | { kind: "idle" }
@@ -36,17 +45,17 @@ const TABS: ReadonlyArray<{
   id: RightPanelTab;
   label: string;
   tooltip: string;
-  icon: string;
+  icon: WorkbenchIconName;
 }> = [
-  { id: "plan", label: "Plan", tooltip: "Plan", icon: "◧" },
-  { id: "agent", label: "Agent", tooltip: "Agent", icon: "✦" },
-  { id: "graph", label: "Graph", tooltip: "Agent Graph", icon: "∿" },
-  { id: "timeline", label: "Time", tooltip: "Timeline", icon: "⌛" },
-  { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "▤" },
-  { id: "quality", label: "QA", tooltip: "Quality", icon: "✓" },
-  { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "⌥" },
-  { id: "cost", label: "Cost", tooltip: "Cost", icon: "$" },
-  { id: "decisions", label: "Decs", tooltip: "Decisions", icon: "◇" },
+  { id: "plan", label: "Plan", tooltip: "Plan", icon: "plan" },
+  { id: "agent", label: "Agent", tooltip: "Agent", icon: "agent" },
+  { id: "graph", label: "Graph", tooltip: "Agent Graph", icon: "graph" },
+  { id: "timeline", label: "Time", tooltip: "Timeline", icon: "timeline" },
+  { id: "artifacts", label: "Files", tooltip: "Artifacts", icon: "files" },
+  { id: "quality", label: "QA", tooltip: "Quality", icon: "quality" },
+  { id: "orchestration", label: "Orch", tooltip: "Orchestration", icon: "orchestration" },
+  { id: "cost", label: "Cost", tooltip: "Cost", icon: "cost" },
+  { id: "decisions", label: "Decs", tooltip: "Decisions", icon: "decisions" },
 ];
 
 interface RightPanelProps {
@@ -81,6 +90,7 @@ interface RightPanelProps {
    * that carries the new approval.
    */
   pipelineAutoLaunched: boolean;
+  getPipelineAutoDecision?: (approval: Approval) => AutoApproveDecision;
 }
 
 export const RightPanel = ({
@@ -99,6 +109,7 @@ export const RightPanel = ({
   activeTab,
   onActiveTabChange,
   pipelineAutoLaunched,
+  getPipelineAutoDecision,
 }: RightPanelProps): JSX.Element => {
   const [topologyExpanded, setTopologyExpanded] = useState(false);
 
@@ -124,6 +135,20 @@ export const RightPanel = ({
     }, 0);
   }, [onActiveTabChange]);
 
+  const moveTabFocus = useCallback(
+    (event: React.KeyboardEvent, currentIndex: number): void => {
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      const nextIndex = (currentIndex + delta + TABS.length) % TABS.length;
+      const next = TABS[nextIndex];
+      if (!next) return;
+      onActiveTabChange(next.id);
+      document.getElementById(`right-panel-tab-${next.id}`)?.focus();
+    },
+    [onActiveTabChange],
+  );
+
   return (
     <>
       <aside
@@ -137,33 +162,47 @@ export const RightPanel = ({
             <FeatureHelpButton featureId="taskRun" />
           </span>
         </header>
-        <div className="panel-body panel-body--compact">
-          {state.kind === "ready" ? (
+        {state.kind === "ready" && (
+          <div className="panel-body panel-body--compact">
             <TaskRunStateActions
               taskRun={state.detail.taskRun}
               approvals={state.detail.approvals}
               onChanged={onQualityChanged}
             />
-          ) : (
-            <div className="empty-state">TaskRun 선택 시 표시</div>
-          )}
-        </div>
+          </div>
+        )}
       </section>
 
       {state.kind !== "ready" ? (
         <div className="right-panel__placeholder">
           {state.kind === "idle" && (
-            <div className="empty-state">TaskRun 선택 시 표시</div>
+            <div className="right-panel-empty">
+              <span className="right-panel-empty__icon" aria-hidden="true">
+                <WorkbenchIcon name="context" />
+              </span>
+              <strong>작업 컨텍스트</strong>
+              <span>
+                TaskRun을 선택하면 계획, 승인, 산출물과 품질 상태가 여기에
+                표시됩니다.
+              </span>
+            </div>
           )}
           {state.kind === "loading" && (
-            <div className="empty-state">불러오는 중…</div>
+            <div className="right-panel-empty right-panel-empty--loading">
+              <span className="right-panel-empty__icon" aria-hidden="true">
+                <WorkbenchIcon name="spark" />
+              </span>
+              <strong>컨텍스트 불러오는 중</strong>
+              <span>선택한 TaskRun의 최신 상태를 동기화하고 있습니다.</span>
+            </div>
           )}
           {state.kind === "error" && (
-            <div
-              className="empty-state"
-              style={{ color: "var(--status-failed)" }}
-            >
-              {state.message}
+            <div className="right-panel-empty right-panel-empty--error">
+              <span className="right-panel-empty__icon" aria-hidden="true">
+                <WorkbenchIcon name="decisions" />
+              </span>
+              <strong>컨텍스트를 불러오지 못했습니다</strong>
+              <code>{state.message}</code>
             </div>
           )}
         </div>
@@ -175,7 +214,7 @@ export const RightPanel = ({
             aria-orientation="vertical"
             aria-label="TaskRun detail tabs"
           >
-            {TABS.map((tab) => (
+            {TABS.map((tab, index) => (
               <button
                 key={tab.id}
                 type="button"
@@ -190,11 +229,12 @@ export const RightPanel = ({
                     : "right-panel__tab"
                 }
                 onClick={() => onActiveTabChange(tab.id)}
+                onKeyDown={(event) => moveTabFocus(event, index)}
                 title={tab.tooltip}
                 data-tooltip={tab.tooltip}
               >
                 <span className="right-panel__tab-icon" aria-hidden>
-                  {tab.icon}
+                  <WorkbenchIcon name={tab.icon} />
                 </span>
                 <span className="right-panel__tab-label">{tab.label}</span>
               </button>
@@ -244,6 +284,7 @@ export const RightPanel = ({
                     onConfigure={onConfigure}
                     onExecute={onExecute}
                     pipelineAutoLaunched={pipelineAutoLaunched}
+                    getPipelineAutoDecision={getPipelineAutoDecision}
                   />
                 </section>
               </div>

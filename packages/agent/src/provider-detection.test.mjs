@@ -5,21 +5,19 @@ import {
   defaultModelFor,
   normalizeModelForProvider,
   probeProvider,
+  checkProviders,
 } from "./provider-detection.ts";
 import {
   getProviderCommandCandidates,
   resolveProviderCommand,
 } from "./provider-executable.ts";
 
-test("claude-* models route to the claude provider", () => {
-  assert.equal(providerForModel("claude-sonnet-4-6"), "claude");
-  assert.equal(providerForModel("claude-opus-4-7"), "claude");
-});
-
-test("gpt/codex/o-prefixed models route to the codex provider", () => {
-  assert.equal(providerForModel("gpt-5"), "codex");
-  assert.equal(providerForModel("codex-mini"), "codex");
-  assert.equal(providerForModel("o4-mini"), "codex");
+test("only selectable Codex 5.6 models resolve to the Codex provider", () => {
+  assert.equal(providerForModel("gpt-5.6-sol"), "codex");
+  assert.equal(providerForModel("gpt-5.6-terra"), "codex");
+  assert.equal(providerForModel("gpt-5.6-luna"), "codex");
+  assert.equal(providerForModel("gpt-5.5"), null);
+  assert.equal(providerForModel("claude-sonnet-4-6"), null);
 });
 
 test("unknown models do not resolve to a provider", () => {
@@ -28,14 +26,21 @@ test("unknown models do not resolve to a provider", () => {
   assert.equal(providerForModel("   "), null);
 });
 
-test("defaultModelFor returns a sensible default per provider", () => {
-  assert.match(defaultModelFor("claude"), /^claude/);
-  assert.equal(defaultModelFor("codex"), "gpt-5.5");
+test("defaultModelFor returns the Codex default", () => {
+  assert.equal(defaultModelFor("codex"), "gpt-5.6-sol");
 });
 
-test("normalizeModelForProvider upgrades unsupported Codex ChatGPT gpt-5 model", () => {
-  assert.equal(normalizeModelForProvider("codex", "gpt-5"), "gpt-5.5");
-  assert.equal(normalizeModelForProvider("codex", "gpt-5.5"), "gpt-5.5");
+test("normalizeModelForProvider preserves only selectable Codex 5.6 models", () => {
+  assert.equal(normalizeModelForProvider("codex", "gpt-5"), "gpt-5.6-sol");
+  assert.equal(normalizeModelForProvider("codex", "gpt-5.5"), "gpt-5.6-sol");
+  assert.equal(normalizeModelForProvider("codex", "gpt-5.6-sol"), "gpt-5.6-sol");
+  assert.equal(normalizeModelForProvider("codex", "gpt-5.6-terra"), "gpt-5.6-terra");
+  assert.equal(normalizeModelForProvider("codex", "gpt-5.6-luna"), "gpt-5.6-luna");
+});
+
+test("checkProviders exposes Codex only", async () => {
+  const providers = await checkProviders({ timeoutMs: 250 });
+  assert.deepEqual(Object.keys(providers), ["codex"]);
 });
 
 test("codex command candidates prefer the npm native executable used by CMD shims", () => {
@@ -78,18 +83,6 @@ test("codex command candidates do not use npm cmd shims directly", () => {
   });
 
   assert.deepEqual(candidates, [localApp, "codex"]);
-});
-
-test("claude command candidates include the Windows local bin executable before PATH lookup", () => {
-  const userProfile = "C:\\Users\\me";
-  const expected = "C:\\Users\\me\\.local\\bin\\claude.exe";
-  const candidates = getProviderCommandCandidates("claude", {
-    platform: "win32",
-    env: { USERPROFILE: userProfile },
-    exists: (path) => path === expected,
-  });
-
-  assert.deepEqual(candidates, [expected, "claude"]);
 });
 
 test("cliPathOverride wins over provider executable discovery", () => {

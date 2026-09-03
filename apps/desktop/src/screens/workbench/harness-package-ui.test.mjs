@@ -175,7 +175,7 @@ test("createAgentProfileInputFromHarnessCandidate builds a valid unbound profile
   assert.equal(profile.provider, "codex");
   assert.equal(profile.role, "coder");
   assert.match(profile.persona, /scriptwriter/);
-  assert.equal(profile.tuning.model, "gpt-5.5");
+  assert.equal(profile.tuning.model, "gpt-5.6-sol");
   assert.equal(profile.tuning.reasoningEffort, "xhigh");
   assert.deepEqual(profile.permissions.autoApproveActions, []);
   assert.deepEqual(profile.permissions.blockedActions, []);
@@ -412,7 +412,6 @@ test("assessHarnessBindingReadiness surfaces provider MCP Skill and capability r
       }),
     ],
     providers: {
-      claude: { available: true, queueDepth: 0 },
       codex: { available: false, queueDepth: 0, error: "not found" },
     },
     mcpServers: [
@@ -704,7 +703,7 @@ const readinessProfile = (overrides = {}) => {
     role: "planner",
     persona: "",
     tuning: {
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       timeoutMs: 300000,
       stallTimeoutMs: 60000,
       contextDepth: 4,

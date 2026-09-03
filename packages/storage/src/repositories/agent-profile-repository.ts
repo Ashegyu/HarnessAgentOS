@@ -7,10 +7,15 @@ import type {
   AgentReasoningEffort,
 } from "@harness/core";
 import {
-  AGENT_REASONING_EFFORTS,
+  AGENT_ROLE_MODEL_DEFAULTS,
+  DEFAULT_AGENT_REASONING_EFFORT,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
   DEFAULT_CODEX_MODEL,
+  isAgentReasoningEffort,
+  isCodexModel,
+  normalizeAgentReasoningEffort,
+  normalizeCodexModel,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
@@ -58,20 +63,11 @@ interface ProfileRow {
   updated_at: string;
 }
 
-const DEFAULT_CODEX_REASONING_EFFORT: AgentReasoningEffort = "xhigh";
-const REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
-  AGENT_REASONING_EFFORTS,
-);
-
-const normalizeReasoningEffort = (
-  value: unknown,
-): AgentReasoningEffort | undefined =>
-  typeof value === "string" && REASONING_EFFORT_SET.has(value)
-    ? (value as AgentReasoningEffort)
-    : undefined;
-
+const DEFAULT_CODEX_REASONING_EFFORT: AgentReasoningEffort =
+  DEFAULT_AGENT_REASONING_EFFORT;
 const rowToProfile = (row: ProfileRow): AgentProfile => {
-  const provider = row.provider as AgentProfile["provider"];
+  const provider: AgentProfile["provider"] = "codex";
+  const rawCli = JSON.parse(row.cli_json) as AgentCliEnv;
   const permissions = normalizePermissions(
     JSON.parse(row.permissions_json) as AgentPermissions,
     parseBudget(row.budget_json),
@@ -85,8 +81,8 @@ const rowToProfile = (row: ProfileRow): AgentProfile => {
     provider,
     role: row.role as AgentProfile["role"],
     persona: row.persona,
-    tuning: normalizeTuning(JSON.parse(row.tuning_json) as AgentModelTuning, provider),
-    cli: JSON.parse(row.cli_json) as AgentCliEnv,
+    tuning: normalizeTuning(JSON.parse(row.tuning_json) as AgentModelTuning),
+    cli: normalizeCli(rawCli, row.provider),
     permissions,
     mcpServerIds: JSON.parse(row.mcp_server_ids_json) as string[],
     skillSourceIds: JSON.parse(row.skill_source_ids_json) as string[],
@@ -103,20 +99,16 @@ const rowToProfile = (row: ProfileRow): AgentProfile => {
  */
 const normalizeTuning = (
   tuning: AgentModelTuning,
-  provider: AgentProfile["provider"],
 ): AgentModelTuning => {
   const { reasoningEffort: rawReasoningEffort, ...rest } = tuning as Omit<
     AgentModelTuning,
     "reasoningEffort"
   > & { reasoningEffort?: unknown };
-  const reasoningEffort = normalizeReasoningEffort(rawReasoningEffort);
+  const reasoningEffort = normalizeAgentReasoningEffort(rawReasoningEffort);
   return {
     ...rest,
-    ...(reasoningEffort ? { reasoningEffort } : {}),
-    model:
-      provider === "codex" && tuning.model.trim().toLowerCase() === "gpt-5"
-        ? DEFAULT_CODEX_MODEL
-        : tuning.model,
+    reasoningEffort,
+    model: normalizeCodexModel(tuning.model),
     timeoutMs:
       !tuning.timeoutMs || tuning.timeoutMs < DEFAULT_AGENT_TIMEOUT_MS
         ? DEFAULT_AGENT_TIMEOUT_MS
@@ -127,6 +119,15 @@ const normalizeTuning = (
         ? DEFAULT_AGENT_STALL_TIMEOUT_MS
         : tuning.stallTimeoutMs,
   };
+};
+
+const normalizeCli = (cli: AgentCliEnv, rawProvider: string): AgentCliEnv => {
+  if (rawProvider === "codex") return cli;
+  const env = { ...cli.env };
+  const envSecretRefs = { ...cli.envSecretRefs };
+  delete env["ANTHROPIC_API_KEY"];
+  delete envSecretRefs["ANTHROPIC_API_KEY"];
+  return { cliPathOverride: "", env, envSecretRefs };
 };
 
 const normalizeTags = (tags: readonly string[]): string[] => {
@@ -193,9 +194,11 @@ const withoutProviderToolPolicy = (
 
 const normalizeProfile = (profile: AgentProfile): AgentProfile => ({
   ...profile,
+  provider: "codex",
   category: profile.category.trim().toLowerCase() || "core",
   tags: normalizeTags(profile.tags),
-  tuning: normalizeTuning(profile.tuning, profile.provider),
+  tuning: normalizeTuning(profile.tuning),
+  cli: normalizeCli(profile.cli, profile.provider),
   permissions: normalizePermissions(profile.permissions),
 });
 
@@ -208,7 +211,7 @@ const SELECT = `SELECT id, name, description, category, tags_json, provider, rol
 type SeedAgentProfile = Omit<AgentProfile, "createdAt" | "updatedAt" | "isDefault">;
 type SeedProviderTarget = Pick<
   AgentProfile,
-  "name" | "provider" | "tuning"
+  "name" | "provider" | "role" | "tuning"
 > &
   Partial<Pick<AgentProfile, "id">>;
 
@@ -1307,26 +1310,49 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       },
     ];
 
+    const roleTunedCatalogue: Omit<SeedAgentProfile, "id">[] = catalogue.map(
+      (profile) => ({
+        ...profile,
+        tuning: {
+          ...profile.tuning,
+          ...AGENT_ROLE_MODEL_DEFAULTS[profile.role],
+        },
+      }),
+    );
+    const roleTunedFrameworkCatalogue: SeedAgentProfile[] =
+      frameworkCatalogue.map((profile) => ({
+        ...profile,
+        tuning: {
+          ...profile.tuning,
+          ...AGENT_ROLE_MODEL_DEFAULTS[profile.role],
+        },
+      }));
+    const desiredProfiles = [
+      ...roleTunedCatalogue,
+      ...roleTunedFrameworkCatalogue,
+    ];
+
     this.localizeLegacySeedText({
       existing,
-      desiredProfiles: [...catalogue, ...frameworkCatalogue],
+      desiredProfiles,
       updatedAt: now,
     });
     this.alignExistingSeedProviders({
       existing,
-      desiredProfiles: [...catalogue, ...frameworkCatalogue],
+      desiredProfiles,
       updatedAt: now,
     });
+    this.alignUnsupportedProfileModels({ existing, updatedAt: now });
     this.clearExistingCodexSeedToolPolicies({
       existing,
-      desiredProfiles: [...catalogue, ...frameworkCatalogue],
+      desiredProfiles,
       updatedAt: now,
     });
 
     // Insert only missing canonical roles. The very first inserted canonical
     // profile becomes the default when there is no existing default yet.
     let firstInserted = true;
-    for (const entry of catalogue) {
+    for (const entry of roleTunedCatalogue) {
       if (!rolesToSeed.has(entry.role)) continue;
       const profile: AgentProfile = {
         ...entry,
@@ -1341,7 +1367,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       firstInserted = false;
     }
 
-    for (const entry of frameworkCatalogue) {
+    for (const entry of roleTunedFrameworkCatalogue) {
       const nameKey = entry.name.trim().toLowerCase();
       if (knownIds.has(entry.id) || knownNames.has(nameKey)) continue;
       const profile: AgentProfile = {
@@ -1448,7 +1474,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         desiredById.get(profile.id) ??
         desiredByName.get(profile.name.trim().toLowerCase());
       if (!desired) continue;
-      const nextProvider = desired.provider;
+      const nextProvider: AgentProfile["provider"] = "codex";
       const shouldBackfillPrefix =
         profile.tuning.systemPromptPrefix.trim().length === 0;
       const shouldBackfillSuffix =
@@ -1469,7 +1495,6 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
             ? desired.tuning.systemPromptSuffix
             : profile.tuning.systemPromptSuffix,
         },
-        nextProvider,
       );
       if (
         profile.provider === nextProvider &&
@@ -1493,6 +1518,52 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
           input.updatedAt,
           profile.id,
         );
+    }
+  }
+
+  /**
+   * One-way compatibility migration for custom profiles that still contain a
+   * removed/blank model id. Supported 5.6 selections are deliberately left
+   * untouched so a user's explicit per-profile choice survives restarts.
+   */
+  private alignUnsupportedProfileModels(input: {
+    existing: readonly AgentProfile[];
+    updatedAt: string;
+  }): void {
+    const rawTuningById = new Map(
+      this.db
+        .prepare<[], Pick<ProfileRow, "id" | "tuning_json">>(
+          `SELECT id, tuning_json FROM agent_profiles`,
+        )
+        .all()
+        .map((row) => [
+          row.id,
+          JSON.parse(row.tuning_json) as AgentModelTuning,
+        ] as const),
+    );
+
+    for (const profile of input.existing) {
+      const rawTuning = rawTuningById.get(profile.id);
+      if (
+        !rawTuning ||
+        (isCodexModel(rawTuning.model) &&
+          isAgentReasoningEffort(rawTuning.reasoningEffort))
+      ) {
+        continue;
+      }
+      const roleDefaults = AGENT_ROLE_MODEL_DEFAULTS[profile.role];
+      if (!roleDefaults) continue;
+      const nextTuning = normalizeTuning({
+        ...rawTuning,
+        ...roleDefaults,
+      });
+      this.db
+        .prepare(
+          `UPDATE agent_profiles
+              SET provider = 'codex', tuning_json = ?, updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(JSON.stringify(nextTuning), input.updatedAt, profile.id);
     }
   }
 

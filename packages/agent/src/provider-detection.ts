@@ -4,61 +4,45 @@ import type {
   AgentProviderProbe,
   AgentProviderStatusMap,
 } from "@harness/core";
-import { DEFAULT_CLAUDE_MODEL, DEFAULT_CODEX_MODEL } from "@harness/core";
+import {
+  DEFAULT_CODEX_MODEL,
+  isCodexModel,
+  normalizeCodexModel,
+} from "@harness/core";
 import { getProviderCommandCandidates } from "./provider-executable.ts";
 
 /**
- * Provider preference resolution: model name → provider.
- * Source: legacy ClaudeAgentSystem model-invoker-cli.mjs (per phase-08 §1).
- *
- * `claude-*` → claude CLI, `gpt*`/`codex*`/`o*` → codex CLI.
+ * Resolve only models that are selectable in the Codex-only catalogue.
  */
 export const providerForModel = (model: string): AgentProvider | null => {
-  const m = model.trim().toLowerCase();
-  if (m.length === 0) return null;
-  if (m.startsWith("claude")) return "claude";
-  if (m.startsWith("gpt") || m.startsWith("codex") || m.startsWith("o"))
-    return "codex";
-  return null;
+  return isCodexModel(model) ? "codex" : null;
 };
 
-export const defaultModelFor = (provider: AgentProvider): string =>
-  provider === "claude" ? DEFAULT_CLAUDE_MODEL : DEFAULT_CODEX_MODEL;
+export const defaultModelFor = (_provider: AgentProvider): string =>
+  DEFAULT_CODEX_MODEL;
 
 export const normalizeModelForProvider = (
   provider: AgentProvider,
   preferred: string | undefined,
 ): string => {
-  const model = preferred?.trim();
-  if (!model) return defaultModelFor(provider);
-  if (provider === "codex" && isUnsupportedCodexChatGptModel(model)) {
-    return defaultModelFor(provider);
-  }
-  if (providerForModel(model) === provider) return model;
-  return defaultModelFor(provider);
+  void provider;
+  return normalizeCodexModel(preferred);
 };
-
-const isUnsupportedCodexChatGptModel = (model: string): boolean =>
-  model.trim().toLowerCase() === "gpt-5";
 
 /**
  * Probe a single CLI binary with `<bin> --version`. Returns availability
  * + the version string when present. Network access is not required —
  * if the binary isn't installed we just see ENOENT and report unavailable.
  *
- * Phase 8 default timeout: 3s. The probe is run twice on app boot
- * (once per provider) so the upper bound is 6s before the workbench
- * renders runtime status; AgentProviderStatus is rendered before probes
- * complete and switches when they do.
+ * Phase 8 default timeout: 3s. AgentProviderStatus renders before the
+ * probe completes and switches when the Codex result arrives.
  */
 export const probeProvider = (
   binary: string,
   options: { timeoutMs?: number; queueDepth?: number } = {},
 ): Promise<AgentProviderProbe> => {
   const candidates =
-    binary === "claude" || binary === "codex"
-      ? getProviderCommandCandidates(binary)
-      : [binary];
+    binary === "codex" ? getProviderCommandCandidates("codex") : [binary];
   return probeProviderCandidates(candidates, options);
 };
 
@@ -163,32 +147,24 @@ const parseVersion = (text: string): string | undefined => {
 };
 
 export interface CheckProvidersOptions {
-  /** Per-provider depth getter; main process passes the queue ref. */
-  getQueueDepth?: (provider: "claude" | "codex") => number;
+  /** Codex queue depth getter; main process passes the queue ref. */
+  getQueueDepth?: (provider: AgentProvider) => number;
   timeoutMs?: number;
 }
 
 /**
- * Probe both providers in parallel. Result is *not* cached here —
+ * Probe Codex. Result is *not* cached here —
  * the caller decides whether to memoize. RuntimeStatusBar polls this
  * on demand so the user can re-check after installing a CLI.
  */
 export const checkProviders = async (
   options: CheckProvidersOptions = {},
 ): Promise<AgentProviderStatusMap> => {
-  const claudeDepth = options.getQueueDepth?.("claude") ?? 0;
   const codexDepth = options.getQueueDepth?.("codex") ?? 0;
-  const claudeOptions: { timeoutMs?: number; queueDepth: number } = {
-    queueDepth: claudeDepth,
-  };
-  if (options.timeoutMs !== undefined) claudeOptions.timeoutMs = options.timeoutMs;
   const codexOptions: { timeoutMs?: number; queueDepth: number } = {
     queueDepth: codexDepth,
   };
   if (options.timeoutMs !== undefined) codexOptions.timeoutMs = options.timeoutMs;
-  const [claude, codex] = await Promise.all([
-    probeProvider("claude", claudeOptions),
-    probeProvider("codex", codexOptions),
-  ]);
-  return { claude, codex };
+  const codex = await probeProvider("codex", codexOptions);
+  return { codex };
 };

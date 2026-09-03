@@ -1,11 +1,14 @@
 import { ipcMain } from "electron";
 import {
   DEFAULT_HARNESS_SETTINGS,
+  DEFAULT_AGENT_REASONING_EFFORT,
   IPC_CHANNELS,
   ORCHESTRATION_MODES,
   STATE_INVALID_INPUT,
   err,
   harnessError,
+  isAgentReasoningEffort,
+  isCodexModel,
   ok,
   type AgentProvider,
   type HarnessResult,
@@ -15,7 +18,7 @@ import {
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 
-const VALID_PROVIDERS: AgentProvider[] = ["auto", "claude", "codex"];
+const VALID_PROVIDERS: AgentProvider[] = ["codex"];
 
 const isValidProvider = (v: unknown): v is AgentProvider =>
   VALID_PROVIDERS.includes(v as AgentProvider);
@@ -37,9 +40,14 @@ const validateSettingsInput = (
       reason: `agent.provider must be one of: ${VALID_PROVIDERS.join(", ")}`,
     };
   }
-  if (typeof a.model !== "string") {
-    return { ok: false, reason: "agent.model must be a string" };
+  if (typeof a.model !== "string" || !isCodexModel(a.model)) {
+    return { ok: false, reason: "agent.model must be a supported Codex model" };
   }
+  const reasoningEffort =
+    typeof a.reasoningEffort === "string" &&
+    isAgentReasoningEffort(a.reasoningEffort)
+      ? a.reasoningEffort
+      : DEFAULT_AGENT_REASONING_EFFORT;
   if (typeof a.timeoutMs !== "number" || a.timeoutMs <= 0) {
     return { ok: false, reason: "agent.timeoutMs must be a positive number" };
   }
@@ -104,6 +112,7 @@ const validateSettingsInput = (
       agent: {
         provider: a.provider,
         model: a.model,
+        reasoningEffort,
         timeoutMs: a.timeoutMs,
         stallTimeoutMs: a.stallTimeoutMs,
         contextDepth: a.contextDepth,

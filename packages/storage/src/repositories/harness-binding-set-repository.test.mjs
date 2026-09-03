@@ -120,6 +120,39 @@ test("HarnessBindingSetRepository updates an existing binding set by id", async 
   }
 });
 
+test("findByReferencedAgentProfileId returns only binding sets using the profile", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    await seedPackage(db);
+    const repo = new SqliteHarnessBindingSetRepository(db);
+    const referenced = await repo.save(input({ name: "Referenced bindings" }));
+    await repo.save(
+      input({
+        name: "Other bindings",
+        bindings: [
+          {
+            harnessAgentRef: "reviewer",
+            agentProfileId: "ap_other",
+          },
+        ],
+      }),
+    );
+
+    assert.deepEqual(
+      await repo.findByReferencedAgentProfileId("ap_strategy"),
+      [referenced],
+    );
+    assert.deepEqual(
+      await repo.findByReferencedAgentProfileId("ap_missing"),
+      [],
+    );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("HarnessBindingSetRepository rejects malformed binding sets", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

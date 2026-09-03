@@ -11,15 +11,15 @@ import {
 
 const SAMPLE_PROFILE = {
   id: "ap_test",
-  name: "Reviewer Claude",
+  name: "Reviewer Codex",
   description: "PR security reviewer",
   category: "security",
   tags: ["review", "security", "review"],
-  provider: "claude",
+  provider: "codex",
   role: "reviewer",
   persona: "PERSONA",
   tuning: {
-    model: "claude-sonnet-4",
+    model: "gpt-5.6-terra",
     temperature: 0.2,
     maxTokens: 4096,
     reasoningEffort: "xhigh",
@@ -30,7 +30,7 @@ const SAMPLE_PROFILE = {
     systemPromptSuffix: "SUFFIX",
   },
   cli: {
-    cliPathOverride: "/usr/local/bin/claude",
+    cliPathOverride: "/usr/local/bin/codex",
     env: {},
     envSecretRefs: {},
   },
@@ -60,7 +60,7 @@ test("emptyDraft has reasonable defaults that pass validation immediately", () =
   assert.deepEqual(errors, []);
   assert.equal(d.provider, "codex");
   assert.equal(d.model, DEFAULT_CODEX_MODEL);
-  assert.equal(d.reasoningEffort, "xhigh");
+  assert.equal(d.reasoningEffort, "medium");
 });
 
 test("validateDraft rejects empty name", () => {
@@ -105,6 +105,31 @@ test("validateDraft rejects unknown reasoning effort", () => {
   const errors = validateDraft(d);
   assert.equal(errors.length, 1);
   assert.equal(errors[0].field, "reasoningEffort");
+});
+
+test("validateDraft accepts every supported Codex reasoning effort", () => {
+  for (const reasoningEffort of [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]) {
+    const d = emptyDraft();
+    d.name = reasoningEffort;
+    d.reasoningEffort = reasoningEffort;
+    assert.deepEqual(validateDraft(d), [], reasoningEffort);
+  }
+});
+
+test("validateDraft rejects models outside the Codex 5.6 catalog", () => {
+  const d = emptyDraft();
+  d.name = "Legacy model";
+  d.model = "unsupported-model";
+  const errors = validateDraft(d);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].field, "model");
 });
 
 test("draftFromProfile populates permissionMap from auto/block lists", () => {
@@ -152,7 +177,7 @@ test("draftFromProfile → serializeDraft is a faithful round-trip", () => {
     perTaskRunUsd: 0.25,
     perDayUsd: 1,
   });
-  assert.equal(out.cli.cliPathOverride, "/usr/local/bin/claude");
+  assert.equal(out.cli.cliPathOverride, "/usr/local/bin/codex");
   assert.deepEqual(out.mcpServerIds, ["mcp_repo"]);
   assert.deepEqual(out.skillSourceIds, ["ss_project"]);
   assert.equal(out.isDefault, true);
@@ -254,24 +279,8 @@ test("buildBindingPolicyHints warns when Codex profile has tool policy", () => {
   const text = hints.map((hint) => hint.message).join("\n");
 
   assert.equal(hints.some((hint) => hint.tone === "warning"), true);
-  assert.match(text, /Codex provider cannot enforce AgentProfile tool policy/);
-  assert.match(text, /profile boundary/);
-});
-
-test("buildBindingPolicyHints warns when auto provider may resolve to Codex with unsupported tool policy", () => {
-  const d = emptyDraft();
-  d.name = "Auto Boundaries";
-  d.provider = "auto";
-  d.mcpServerIdsText = "mcp_repo";
-  d.toolDenylistText = "Bash";
-
-  const hints = buildBindingPolicyHints(d);
-  const text = hints.map((hint) => hint.message).join("\n");
-
-  assert.match(text, /provider=auto/);
-  assert.match(text, /Codex/);
-  assert.match(text, /tool policy/);
-  assert.match(text, /Codex MCP binding/);
+  assert.match(text, /Codex CLI는 AgentProfile tool allow\/deny 정책/);
+  assert.match(text, /실행 전에 강제할 수 없습니다/);
 });
 
 test("buildBindingPolicyHints surfaces broad skill scope when allowedSkillIds is empty", () => {
@@ -297,5 +306,5 @@ test("buildBindingPolicyHints explains tool deny priority and event boundary", (
   const text = hints.map((hint) => hint.message).join("\n");
 
   assert.match(text, /deny pattern이 allow pattern보다 우선/);
-  assert.match(text, /provider tool-call event/);
+  assert.match(text, /Codex tool-call event/);
 });

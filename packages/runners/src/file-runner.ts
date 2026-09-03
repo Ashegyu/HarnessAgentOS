@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
-import { isWithin } from "./runner-policy.ts";
+import { isRealPathWithin, isWithin } from "./runner-policy.ts";
 import type { ProposedFilePatch } from "./runner-types.ts";
 
 export interface FileRunResult {
@@ -35,7 +35,10 @@ export class FileRunner {
       ? input.patch.path
       : resolve(input.targetDir, input.patch.path);
 
-    if (!isWithin(input.targetDir, targetAbs)) {
+    if (
+      !isWithin(input.targetDir, targetAbs) ||
+      !(await isRealPathWithin(input.targetDir, targetAbs))
+    ) {
       throw new FileRunnerError(
         "RUNNER_TARGET_OUTSIDE_WORKSPACE",
         `Refusing to write outside targetDir: ${targetAbs}`,
@@ -52,7 +55,24 @@ export class FileRunner {
       // Missing file is fine; we'll create it.
     }
 
+    if (
+      input.patch.before !== undefined &&
+      input.patch.before !== beforeContent
+    ) {
+      throw new FileRunnerError(
+        "RUNNER_FILE_CONTENT_CHANGED",
+        `Refusing to overwrite a file changed after approval: ${targetAbs}`,
+      );
+    }
+
     await mkdir(dirname(targetAbs), { recursive: true });
+    // 생성 직후 다시 canonical parent를 확인해 junction 교체 창을 줄인다.
+    if (!(await isRealPathWithin(input.targetDir, targetAbs))) {
+      throw new FileRunnerError(
+        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
+        `Refusing to write outside targetDir: ${targetAbs}`,
+      );
+    }
     await writeFile(targetAbs, input.patch.after, "utf8");
 
     return {

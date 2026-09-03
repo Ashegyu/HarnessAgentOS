@@ -1,4 +1,12 @@
-import { resolve, sep, isAbsolute, normalize } from "node:path";
+import { lstat, realpath, stat } from "node:fs/promises";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 /**
  * Phase 3 runner policy. Pure logic — no FS access — used by
@@ -10,12 +18,93 @@ import { resolve, sep, isAbsolute, normalize } from "node:path";
 
 export const isWithin = (parentDir: string, candidate: string): boolean => {
   if (!parentDir || !candidate) return false;
-  const parent = normalize(resolve(parentDir));
-  const child = normalize(resolve(candidate));
-  if (child === parent) return true;
-  const parentWithSep = parent.endsWith(sep) ? parent : parent + sep;
-  return child.startsWith(parentWithSep);
+  const parent = resolve(parentDir);
+  const child = resolve(candidate);
+  const delta = relative(parent, child);
+  return (
+    delta.length === 0 ||
+    (delta !== ".." && !delta.startsWith(`..${sep}`) && !isAbsolute(delta))
+  );
 };
+
+/**
+ * Lexical containment alone cannot see a Windows junction or a symlink that
+ * points outside the workspace. Resolve the closest existing ancestor and
+ * project any missing suffix from that canonical location before a file I/O.
+ */
+export const isRealPathWithin = async (
+  parentDir: string,
+  candidate: string,
+): Promise<boolean> => {
+  if (!isWithin(parentDir, candidate)) return false;
+
+  const parent = resolve(parentDir);
+  const child = resolve(candidate);
+  const parentProjection = await projectFromExistingAncestor(parent);
+  if (!parentProjection) return false;
+  if (parentProjection.exact && !parentProjection.existingIsDirectory) {
+    return false;
+  }
+
+  const childProjection = await projectFromExistingAncestor(child);
+  return (
+    childProjection !== null &&
+    isWithin(parentProjection.path, childProjection.path)
+  );
+};
+
+interface CanonicalProjection {
+  path: string;
+  exact: boolean;
+  existingIsDirectory: boolean;
+}
+
+const projectFromExistingAncestor = async (
+  candidate: string,
+): Promise<CanonicalProjection | null> => {
+  let probe = resolve(candidate);
+  const missingSuffix: string[] = [];
+  while (true) {
+    let entry: Awaited<ReturnType<typeof lstat>> | undefined;
+    try {
+      entry = await lstat(probe);
+    } catch (error) {
+      if (!isMissingPathError(error)) {
+        return null;
+      }
+    }
+
+    if (entry) {
+      try {
+        const canonicalProbe = await realpath(probe);
+        if (
+          missingSuffix.length > 0 &&
+          !(await stat(canonicalProbe)).isDirectory()
+        ) {
+          return null;
+        }
+        return {
+          path: resolve(canonicalProbe, ...missingSuffix),
+          exact: missingSuffix.length === 0,
+          existingIsDirectory: entry.isDirectory(),
+        };
+      } catch {
+        // dangling link, 권한 오류 등 canonical target을 확정할 수 없으면 fail-closed 한다.
+        return null;
+      }
+    }
+
+    missingSuffix.unshift(basename(probe));
+    const next = dirname(probe);
+    if (next === probe) return null;
+    probe = next;
+  }
+};
+
+const isMissingPathError = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  (error as { code?: unknown }).code === "ENOENT";
 
 export const ensureAbsolute = (p: string): boolean => isAbsolute(p);
 

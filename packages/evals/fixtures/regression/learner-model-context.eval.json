@@ -12,7 +12,7 @@
         "description": "second recorded invocation uses the approved learner model",
         "check": "regex",
         "target": "recorded_request[1].model",
-        "pattern": "^claude-opus-4-7$"
+        "pattern": "^gpt-5\\.6-sol$"
       }
     ]
   }

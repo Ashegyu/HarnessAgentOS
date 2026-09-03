@@ -19,11 +19,10 @@ test("startDiagnosticsHeartbeat emits and cleans up interval", async () => {
         walCheckpoint: { busy: 0, log: 0, checkpointed: 0 },
         status: "ok",
       },
-      queue: { claude: 0, codex: 0, total: 0, status: "ok" },
+      queue: { codex: 0, total: 0, status: "ok" },
       providers: {
         status: "ok",
         items: {
-          claude: { available: true, queueDepth: 0 },
           codex: { available: false, queueDepth: 0 },
         },
       },

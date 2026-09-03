@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assessHarnessBindingReadiness } from "./harness-binding-readiness.ts";
+import {
+  assessHarnessBindingReadiness,
+  harnessAgentBindingCandidates,
+} from "./harness-binding-readiness.ts";
 
 const importedAt = "2026-05-27T00:00:00.000Z";
 
@@ -41,6 +44,49 @@ test("assessHarnessBindingReadiness reports unbound workflow candidates", () => 
     summary.issues.map((issue) => issue.code),
     ["HARNESS_PROFILE_UNBOUND", "HARNESS_PROFILE_UNBOUND"],
   );
+});
+
+test("binding readiness normalizes agent refs consistently with pipeline conversion", () => {
+  const normalizedWorkflow = workflow();
+  normalizedWorkflow.steps = normalizedWorkflow.steps.map((step, index) => ({
+    ...step,
+    agentRef: index === 0 ? " Planner " : "planner",
+    roleHint: "planner",
+    dependsOn: index === 0 ? [] : ["step-1"],
+  }));
+  const definition = pkg({
+    agents: [
+      {
+        id: "planner",
+        name: "Planner",
+        description: "Plan",
+        roleHint: "planner",
+        sourceFile: ".claude/agents/planner.md",
+        persona: "",
+        responsibilities: [],
+        requiredCapabilities: [],
+      },
+    ],
+    workflows: [normalizedWorkflow],
+  });
+
+  assert.deepEqual(
+    harnessAgentBindingCandidates(definition, "wf").map((candidate) => ({
+      harnessAgentRef: candidate.harnessAgentRef,
+      stepCount: candidate.stepCount,
+    })),
+    [{ harnessAgentRef: "Planner", stepCount: 2 }],
+  );
+
+  const summary = assessHarnessBindingReadiness({
+    definition,
+    workflowId: "wf",
+    bindings: { " PLANNER ": "profile-planner" },
+    profiles: [profile()],
+  });
+
+  assert.equal(summary.ok, true);
+  assert.equal(summary.errorCount, 0);
 });
 
 test("assessHarnessBindingReadiness surfaces provider, MCP, Skill, and capability risks", () => {

@@ -68,6 +68,7 @@ const TEXT_EXTENSIONS = new Set([
 
 export class RepoIndexService {
   private readonly deps: RepoIndexServiceDeps;
+  private readonly inflight = new Map<string, Promise<RepoIndexFile[]>>();
 
   constructor(deps: RepoIndexServiceDeps) {
     this.deps = deps;
@@ -75,19 +76,71 @@ export class RepoIndexService {
 
   async refresh(input: RepoIndexRefreshInput): Promise<RepoIndexFile[]> {
     const targetDir = resolve(input.targetDir);
+    const maxFiles = Math.max(
+      1,
+      Math.min(input.maxFiles ?? DEFAULT_MAX_FILES, 5_000),
+    );
+    const maxReadBytes = Math.max(
+      4 * 1024,
+      input.maxReadBytes ?? DEFAULT_MAX_READ_BYTES,
+    );
+    const key = `${input.projectKey}\0${targetDir}\0${maxFiles}\0${maxReadBytes}`;
+    const existing = this.inflight.get(key);
+    if (existing) return existing;
+
+    // 같은 대상의 동시 agent 호출은 한 번만 스캔하고 동일 snapshot을 공유한다.
+    const pending = this.refreshOnce({
+      ...input,
+      targetDir,
+      maxFiles,
+      maxReadBytes,
+    });
+    this.inflight.set(key, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.inflight.get(key) === pending) this.inflight.delete(key);
+    }
+  }
+
+  private async refreshOnce(
+    input: Required<RepoIndexRefreshInput>,
+  ): Promise<RepoIndexFile[]> {
+    const targetDir = resolve(input.targetDir);
     const rootStat = await stat(targetDir);
     if (!rootStat.isDirectory()) {
       throw new Error(`targetDir is not a directory: ${targetDir}`);
     }
-    const maxFiles = Math.max(1, Math.min(input.maxFiles ?? DEFAULT_MAX_FILES, 5_000));
-    const maxReadBytes = Math.max(4 * 1024, input.maxReadBytes ?? DEFAULT_MAX_READ_BYTES);
+    const maxFiles = input.maxFiles;
+    const maxReadBytes = input.maxReadBytes;
     const relativePaths = await this.collectFiles(targetDir, maxFiles);
+    const previousFiles = await this.deps.store.listByTarget({
+      projectKey: input.projectKey,
+      targetDir,
+      limit: maxFiles,
+    });
+    const previousByPath = new Map(
+      previousFiles.map((file) => [file.relativePath, file]),
+    );
     const updatedAt = this.deps.now?.() ?? new Date().toISOString();
     const files: RepoIndexFile[] = [];
+    const changedFiles: RepoIndexFile[] = [];
     for (const relativePath of relativePaths) {
       const absolutePath = resolve(targetDir, relativePath);
       const s = await lstat(absolutePath);
       if (!s.isFile()) continue;
+      const mtimeMs = Math.trunc(s.mtimeMs);
+      const previous = previousByPath.get(relativePath);
+      if (
+        previous &&
+        previous.sizeBytes === s.size &&
+        previous.mtimeMs === mtimeMs
+      ) {
+        // warm refresh에서는 stat만 확인하고 파일 read/hash/parse와 SQLite
+        // upsert를 모두 건너뛴다. 기존 row의 updatedAt도 그대로 유지한다.
+        files.push(previous);
+        continue;
+      }
       const content =
         isTextPath(relativePath) && s.size <= maxReadBytes
           ? await readFile(absolutePath, "utf8").catch(() => "")
@@ -95,32 +148,32 @@ export class RepoIndexService {
       const hash = content.length > 0
         ? sha256(content)
         : sha256(`${relativePath}:${s.size}:${Math.trunc(s.mtimeMs)}`);
-      files.push({
+      const indexed: RepoIndexFile = {
         id: repoIndexId(input.projectKey, targetDir, relativePath),
         projectKey: input.projectKey,
         targetDir,
         relativePath,
         fileKind: classifyPath(relativePath),
         sizeBytes: s.size,
-        mtimeMs: Math.trunc(s.mtimeMs),
+        mtimeMs,
         contentHash: hash,
         summary: summarizeFile(relativePath, content, s.size),
         symbols: extractSymbols(content),
         imports: extractImports(content),
         updatedAt,
-      });
+      };
+      files.push(indexed);
+      changedFiles.push(indexed);
     }
-    await this.deps.store.upsertMany(files);
+    if (changedFiles.length > 0) {
+      await this.deps.store.upsertMany(changedFiles);
+    }
     await this.deps.store.deleteMissing({
       projectKey: input.projectKey,
       targetDir,
       keepRelativePaths: files.map((file) => file.relativePath),
     });
-    return this.deps.store.listByTarget({
-      projectKey: input.projectKey,
-      targetDir,
-      limit: maxFiles,
-    });
+    return files;
   }
 
   private async collectFiles(root: string, maxFiles: number): Promise<string[]> {

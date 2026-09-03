@@ -43,8 +43,8 @@ test("sumTokensForTaskRun prefers persisted result usage metadata", async () => 
     });
     const invocation = await state.createAgentInvocation({
       taskRunId: taskRun.id,
-      provider: "claude",
-      model: "claude-sonnet-4-6",
+      provider: "codex",
+      model: "gpt-5.6-sol",
       promptArtifactId: prompt.id,
     });
     const raw = await state.createArtifact({

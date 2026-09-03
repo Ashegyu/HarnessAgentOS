@@ -15,6 +15,7 @@ export type SaveHarnessBindingSetInput =
 export interface HarnessBindingSetRepository {
   list(input?: HarnessBindingSetListInput): Promise<HarnessBindingSet[]>;
   get(id: string): Promise<HarnessBindingSet | null>;
+  findByReferencedAgentProfileId(profileId: string): Promise<HarnessBindingSet[]>;
   save(input: SaveHarnessBindingSetInput): Promise<HarnessBindingSet>;
   remove(id: string): Promise<void>;
 }
@@ -69,6 +70,22 @@ export class SqliteHarnessBindingSetRepository
       .prepare<[string], HarnessBindingSetRow>(`${SELECT} WHERE id = ?`)
       .get(id);
     return row ? rowToBindingSet(row) : null;
+  }
+
+  async findByReferencedAgentProfileId(
+    profileId: string,
+  ): Promise<HarnessBindingSet[]> {
+    const rows = this.db
+      .prepare<[string], HarnessBindingSetRow>(
+        `${SELECT}
+           WHERE EXISTS (
+             SELECT 1 FROM json_each(bindings_json) binding
+              WHERE json_extract(binding.value, '$.agentProfileId') = ?
+           )
+         ORDER BY updated_at DESC, id DESC`,
+      )
+      .all(profileId);
+    return rows.map(rowToBindingSet);
   }
 
   async save(input: SaveHarnessBindingSetInput): Promise<HarnessBindingSet> {

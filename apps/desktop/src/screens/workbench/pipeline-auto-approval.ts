@@ -1,8 +1,10 @@
 import type {
+  AgentPermissions,
   Approval,
   Artifact,
   AutoApproveDecision,
 } from "@harness/core";
+import { evaluateBudget } from "@harness/core";
 
 const SOURCE_ORCHESTRATION_PICK_RE =
   /"sourcePipelineId"\s*:\s*"[^"]+"|"sourceHarness"\s*:/;
@@ -17,8 +19,26 @@ export const hasPipelineSourcePlanArtifact = (
   );
 
 export const pipelineAutoApproveDecision = (
-  approval: Pick<Approval, "policyEvaluation">,
+  approval: Pick<Approval, "actionType" | "policyEvaluation">,
+  options: {
+    activeProfile?: {
+      permissions: Pick<AgentPermissions, "blockedActions" | "budget">;
+    } | null;
+    accumulatedTaskRunCostUsd?: number;
+    accumulatedDailyCostUsd?: number;
+  } = {},
 ): AutoApproveDecision => {
+  if (
+    options.activeProfile?.permissions.blockedActions.includes(
+      approval.actionType,
+    )
+  ) {
+    return {
+      approved: false,
+      decidedAt: "blocked_action",
+      reason: `Active profile blocks ${approval.actionType}.`,
+    };
+  }
   if (approval.policyEvaluation?.decision === "blocked") {
     return {
       approved: false,
@@ -26,10 +46,22 @@ export const pipelineAutoApproveDecision = (
       reason: `Policy blocked pipeline auto-approve: ${approval.policyEvaluation.reason}`,
     };
   }
+  const budgetDecision = evaluateBudget({
+    approval,
+    profile: options.activeProfile ?? null,
+    accumulatedTaskRunCostUsd: options.accumulatedTaskRunCostUsd,
+    accumulatedDailyCostUsd: options.accumulatedDailyCostUsd,
+  });
+  if (budgetDecision.kind === "blocked") {
+    return {
+      approved: false,
+      decidedAt: "budget_blocked",
+      reason: budgetDecision.reason ?? "Profile budget blocks auto-approve.",
+    };
+  }
   return {
     approved: true,
     decidedAt: "global_toggle",
-    reason:
-      "Orchestration task was pre-approved by explicit pipeline or harness selection; active profile block lists do not apply to worker approvals.",
+    reason: "Orchestration task was pre-approved by explicit pipeline or harness selection.",
   };
 };

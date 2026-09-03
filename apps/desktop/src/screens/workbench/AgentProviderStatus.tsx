@@ -10,7 +10,7 @@ type ProvidersState =
   | { kind: "error"; message: string };
 
 const labelFor = (
-  name: "claude" | "codex",
+  name: "codex",
   probe: AgentProviderStatusMap[keyof AgentProviderStatusMap],
 ): string => {
   if (!probe.available) return `${name} ✗`;
@@ -19,7 +19,7 @@ const labelFor = (
 };
 
 const detailFor = (
-  name: "claude" | "codex",
+  name: "codex",
   probe: AgentProviderStatusMap[keyof AgentProviderStatusMap],
 ): string => {
   const status = probe.available
@@ -88,12 +88,12 @@ export const AgentProviderStatus = (): JSX.Element | null => {
       </span>
     );
   }
-  const { claude, codex } = state.providers;
+  const { codex } = state.providers;
   return (
     <span
       className="runtime-status-bar__group"
-      aria-label="Agent providers"
-      title={`${detailFor("claude", claude)}\n${detailFor("codex", codex)}`}
+      aria-label="Codex provider"
+      title={detailFor("codex", codex)}
     >
       <button
         type="button"
@@ -103,10 +103,6 @@ export const AgentProviderStatus = (): JSX.Element | null => {
       >
         ↻
       </button>
-      <span style={{ color: claude.available ? "var(--text-primary)" : "var(--text-muted)" }}>
-        {labelFor("claude", claude)}
-      </span>
-      <span className="runtime-status-bar__sep">·</span>
       <span style={{ color: codex.available ? "var(--text-primary)" : "var(--text-muted)" }}>
         {labelFor("codex", codex)}
       </span>

@@ -12,7 +12,7 @@ const invocation = (id, createdAt, stepId) => ({
   id,
   taskRunId: "task_1",
   provider: "codex",
-  model: "gpt-5.5",
+  model: "gpt-5.6-sol",
   status: "running",
   promptArtifactId: `prompt_${id}`,
   stepId,

@@ -38,7 +38,7 @@ export const buildGeneratedMcpServerScaffoldDraft = (
     warnings: [
       "Generated stdio MCP servers must not write normal logs to stdout; use stderr for diagnostics.",
       "The scaffold includes a placeholder tool implementation that must be replaced with project-specific logic before enablement.",
-      "Run the smoke test before registering the server in Claude MCP config.",
+      "Run the smoke test before registering the server in Codex MCP config.",
     ],
   };
 };

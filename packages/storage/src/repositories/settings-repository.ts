@@ -1,5 +1,8 @@
 import {
   DEFAULT_HARNESS_SETTINGS,
+  normalizeAgentReasoningEffort,
+  normalizeCodexModel,
+  type AgentSettings,
   type ApprovalSettings,
   type HarnessSettings,
   type OrchestrationSettings,
@@ -36,13 +39,14 @@ export class SqliteSettingsRepository implements SettingsRepository {
   }
 
   async update(settings: HarnessSettings): Promise<HarnessSettings> {
+    const normalized = normalizeSettings(settings);
     this.db
       .prepare(
         "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       )
-      .run(SETTINGS_KEY, JSON.stringify(settings));
+      .run(SETTINGS_KEY, JSON.stringify(normalized));
 
-    return settings;
+    return normalized;
   }
 }
 
@@ -50,12 +54,23 @@ export class SqliteSettingsRepository implements SettingsRepository {
  * Promote legacy timeout values to the current defaults so existing DB
  * rows benefit from streaming-aware budgets without requiring a user-
  * visible migration step. The historical defaults (120s total / 30s
- * stall) were unworkable with the non-streaming Claude CLI invocation —
+ * stall) were unworkable with long-running CLI invocations —
  * any pre-existing row carrying those exact numbers gets bumped up.
  */
 const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
   const d = DEFAULT_HARNESS_SETTINGS.agent;
-  const agent = { ...s.agent };
+  const rawAgent = (s as Partial<HarnessSettings>).agent as
+    | Partial<AgentSettings>
+    | undefined;
+  const agent: AgentSettings = {
+    ...d,
+    ...rawAgent,
+    provider: "codex",
+    model: normalizeCodexModel(rawAgent?.model),
+    reasoningEffort: normalizeAgentReasoningEffort(
+      rawAgent?.reasoningEffort,
+    ),
+  };
   if (!agent.timeoutMs || agent.timeoutMs < d.timeoutMs) {
     agent.timeoutMs = d.timeoutMs;
   }
@@ -76,7 +91,13 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
     enabled: typeof so?.enabled === "boolean" ? so.enabled : false,
     defaultMode: so?.defaultMode ?? od.defaultMode,
     defaultInstructions: so?.defaultInstructions ?? "",
-    workerProfiles: Array.isArray(so?.workerProfiles) ? so.workerProfiles : [],
+    workerProfiles: Array.isArray(so?.workerProfiles)
+      ? so.workerProfiles.map((profile) => ({
+          ...profile,
+          provider: "codex",
+          model: normalizeCodexModel(profile.model),
+        }))
+      : [],
     defaultPipelineId:
       typeof so?.defaultPipelineId === "string" ? so.defaultPipelineId : "",
   };

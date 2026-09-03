@@ -2,6 +2,7 @@ import { useState } from "react";
 import type {
   Approval,
   A2ARefinementAttempt,
+  AutoApproveDecision,
   Checkpoint,
   ProposedActionDetails,
   ShadowPreview,
@@ -37,13 +38,15 @@ interface ApprovalPanelProps {
   /**
    * True when this TaskRun was created by picking a pipeline at submit
    * time. Pipeline pick IS the user's consent for every approval the
-   * run produces (subject to the profile blocklist), so the auto-approve
+   * run produces (subject to profile blocks and budgets), so the auto-approve
    * useEffect in WorkbenchShell will approve+execute them within
    * milliseconds. We render pending cards as read-only "자동 처리 중…"
    * audit rows so the user doesn't see — and accidentally click —
-   * manual 승인/거절/세부 지정 buttons that race with the auto path.
-   */
+   * manual 승인/거절/세부 지정 buttons that race with the auto path. A
+   * blocked decision falls back to the manual controls instead.
+  */
   pipelineAutoLaunched: boolean;
+  getPipelineAutoDecision?: (approval: Approval) => AutoApproveDecision;
 }
 
 const ACTION_RISK_HINT: Record<string, "low" | "medium" | "high"> = {
@@ -83,6 +86,7 @@ export const ApprovalPanel = ({
   onConfigure,
   onExecute,
   pipelineAutoLaunched,
+  getPipelineAutoDecision,
 }: ApprovalPanelProps): JSX.Element => {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
@@ -226,9 +230,14 @@ export const ApprovalPanel = ({
     const runnerAutoIssue = isRunnerExecutionApproval(a)
       ? autoExecutableRunnerApprovalIssue(a)
       : null;
+    const pipelineDecision = pipelineAutoLaunched
+      ? getPipelineAutoDecision?.(a)
+      : undefined;
+    const pipelinePolicyIssue =
+      pipelineDecision?.approved === false ? pipelineDecision.reason : null;
+    const pipelineAutoIssue = runnerAutoIssue ?? pipelinePolicyIssue;
     const pipelineAutoCanHandle =
-      pipelineAutoLaunched &&
-      (!isRunnerExecutionApproval(a) || runnerAutoIssue === null);
+      pipelineAutoLaunched && pipelineAutoIssue === null;
     return (
       <article
         key={a.id}
@@ -257,13 +266,11 @@ export const ApprovalPanel = ({
           </pre>
         )}
         <ApprovalDecisionTrace approval={a} />
-        {pipelineAutoLaunched &&
-          isRunnerExecutionApproval(a) &&
-          runnerAutoIssue !== null && (
-            <p className="approval-card__auto-hint">
-              자동 처리 제외: {runnerAutoIssue}. 세부 지정 후 승인하세요.
-            </p>
-          )}
+        {pipelineAutoLaunched && pipelineAutoIssue !== null && (
+          <p className="approval-card__auto-hint">
+            자동 처리 제외: {pipelineAutoIssue}. 검토 후 직접 처리하세요.
+          </p>
+        )}
         {shadowPreview && (
           <p className="approval-card__auto-hint">
             Shadow preview 생성됨: <code>{shadowPreview.relativePath}</code> ·

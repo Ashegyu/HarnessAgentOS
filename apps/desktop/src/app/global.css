@@ -1,50 +1,67 @@
 :root {
   color-scheme: dark;
 
-  --bg-app: #0e1116;
-  --bg-panel: #161b22;
-  --bg-panel-elev: #1c232c;
-  --bg-input: #0a0d12;
+  --bg-app: #090e14;
+  --bg-panel: #111923;
+  --bg-panel-elev: #182330;
+  --bg-input: #0c131c;
+  --surface-1: var(--bg-panel);
 
-  --border-subtle: #232a33;
-  --border-strong: #2d3540;
+  --border-subtle: #202c3a;
+  --border-strong: #314154;
 
-  --text-primary: #e6edf3;
-  --text-secondary: #9aa4b1;
-  --text-muted: #6c7681;
-  --text-accent: #58a6ff;
+  --text-primary: #edf3f8;
+  --text-secondary: #a8b4c2;
+  --text-muted: #748396;
+  --text-accent: #6aa8ff;
+  --text-on-accent: #07111e;
+  --accent: var(--text-accent);
+  --accent-strong: #89baff;
+  --accent-soft: rgba(106, 168, 255, 0.12);
+  --color-danger: var(--status-failed);
 
   --status-pending: #d29922;
   --status-running: #58a6ff;
   --status-success: #3fb950;
   --status-failed: #f85149;
   --status-blocked: #db6d28;
+  --status-passed: var(--status-success);
+  --status-ready: var(--status-running);
+  --status-warning: var(--status-pending);
 
   --status-pending-fill: rgba(210, 153, 34, 0.12);
   --status-running-fill: rgba(88, 166, 255, 0.12);
   --status-success-fill: rgba(63, 185, 80, 0.12);
   --status-failed-fill: rgba(248, 81, 73, 0.12);
   --status-blocked-fill: rgba(219, 109, 40, 0.12);
+  --status-warning-fill: var(--status-pending-fill);
 
   --status-pending-edge: rgba(210, 153, 34, 0.32);
   --status-running-edge: rgba(88, 166, 255, 0.32);
   --status-success-edge: rgba(63, 185, 80, 0.32);
   --status-failed-edge: rgba(248, 81, 73, 0.32);
   --status-blocked-edge: rgba(219, 109, 40, 0.32);
+  --status-warning-edge: var(--status-pending-edge);
 
   --bg-bubble-user: rgba(88, 166, 255, 0.15);
   --bg-surface-hover: rgba(255, 255, 255, 0.02);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
-    "Noto Sans KR", Roboto, sans-serif;
+  --font-sans: "Segoe UI Variable Text", "Pretendard", "Noto Sans KR",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas,
     "Liberation Mono", monospace;
 
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.035) inset,
+    0 8px 24px rgba(0, 0, 0, 0.16);
+  --shadow-float: 0 20px 56px rgba(0, 0, 0, 0.42);
+  --focus-ring: rgba(106, 168, 255, 0.72);
 
-  --radius-md: 8px;
-  --radius-sm: 4px;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -52,23 +69,32 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  --control-height: 36px;
+  --motion-fast: 120ms;
+  --motion-standard: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --tool-marquee-duration: 0s;
+  --tool-marquee-shift: 0px;
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg-app: #ffffff;
-  --bg-panel: #f7f8fa;
-  --bg-panel-elev: #eef1f5;
-  --bg-input: #fbfcfd;
+  --bg-app: #f3f6fa;
+  --bg-panel: #ffffff;
+  --bg-panel-elev: #edf2f7;
+  --bg-input: #f8fafc;
 
-  --border-subtle: #e4e7eb;
-  --border-strong: #d0d6dc;
+  --border-subtle: #dce3eb;
+  --border-strong: #c5d0dc;
 
-  --text-primary: #1c2128;
-  --text-secondary: #4a5260;
-  --text-muted: #6c7681;
-  --text-accent: #0969da;
+  --text-primary: #15202d;
+  --text-secondary: #445266;
+  --text-muted: #6a788a;
+  --text-accent: #1265d8;
+  --text-on-accent: #ffffff;
+  --accent-strong: #0758c4;
+  --accent-soft: rgba(18, 101, 216, 0.1);
 
   --status-pending: #9a6700;
   --status-running: #0969da;
@@ -91,8 +117,11 @@
   --bg-bubble-user: rgba(9, 105, 218, 0.12);
   --bg-surface-hover: rgba(0, 0, 0, 0.04);
 
-  --shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.04) inset,
-    0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 2px rgba(35, 55, 80, 0.08);
+  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 8px 24px rgba(35, 55, 80, 0.08);
+  --shadow-float: 0 22px 60px rgba(35, 55, 80, 0.18);
+  --focus-ring: rgba(18, 101, 216, 0.48);
 }
 
 *,
@@ -112,9 +141,13 @@ body,
 body {
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.5;
   color: var(--text-primary);
-  background: var(--bg-app);
+  background:
+    radial-gradient(circle at 50% -20%, var(--accent-soft), transparent 42%),
+    var(--bg-app);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
 }
 
@@ -124,8 +157,13 @@ button {
   background: transparent;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: 6px 11px;
   cursor: pointer;
+  transition:
+    background var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 button:hover:not(:disabled) {
@@ -137,19 +175,31 @@ button:disabled {
   cursor: not-allowed;
 }
 
+:where(button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+::selection {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-accent) 34%, transparent);
+}
+
 code,
 pre {
   font-family: var(--font-mono);
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border-radius: 6px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-track {

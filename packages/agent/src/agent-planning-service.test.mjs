@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
@@ -38,8 +41,9 @@ const makeGateway = (overrides = {}) => ({
   listAgentProfiles: async () => [],
   getSettings: async () => ({
     agent: {
-      provider: "auto",
-      model: "",
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -71,13 +75,149 @@ const deferred = () => {
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
 
+test("generatePlan persists post-hoc workspace change evidence for workspace-write", async () => {
+  const targetDir = await mkdtemp(join(tmpdir(), "harness-plan-evidence-"));
+  try {
+    await writeFile(join(targetDir, "README.md"), "before\n", "utf8");
+    const taskRun = {
+      id: "tr-workspace-evidence",
+      threadId: "th-workspace-evidence",
+      userRequest: "update files directly",
+      targetDir,
+      status: "drafting",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const profile = codexProfile({
+      id: "ap-workspace-evidence",
+      name: "Workspace Writer",
+    });
+    const artifacts = [];
+    let artifactSeq = 0;
+    let stepSeq = 0;
+    const invocation = {
+      id: "inv-workspace-evidence",
+      taskRunId: taskRun.id,
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      status: "queued",
+      promptArtifactId: "art-prompt",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const planOutput = {
+      summary: "Updated workspace",
+      assumptions: [],
+      steps: [{ title: "Edit", rationale: "requested", risk: "low" }],
+      proposedActions: [],
+      suggestedQualityChecks: [],
+      questions: [],
+    };
+    const svc = new AgentPlanningService({
+      state: makeGateway({
+        getTaskRun: async () => taskRun,
+        createStep: async (input) => ({
+          id: `step-${++stepSeq}`,
+          taskRunId: input.taskRunId,
+          index: input.index,
+          kind: input.kind,
+          title: input.title,
+          status: input.status,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+        createArtifact: async (input) => {
+          const artifact = {
+            id: `art-${++artifactSeq}`,
+            ...input,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          };
+          artifacts.push(artifact);
+          return artifact;
+        },
+        createAgentInvocation: async () => invocation,
+        updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
+        setStepStatus: async (id, status) => ({
+          id,
+          taskRunId: taskRun.id,
+          index: 0,
+          kind: "plan",
+          title: "Agent plan",
+          status,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        }),
+        setTaskRunStatus: async () => taskRun,
+        setTaskRunCurrentStep: async () => taskRun,
+        createCheckpoint: async (input) => ({
+          id: "cp-workspace-evidence",
+          ...input,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }),
+        listAgentProfiles: async () => [profile],
+        getSettings: async () => ({
+          activeAgentProfileId: profile.id,
+          agent: {
+            provider: "codex",
+            model: "gpt-5.6-sol",
+            timeoutMs: 300_000,
+            stallTimeoutMs: 60_000,
+            contextDepth: 5,
+            codexWorkspaceWrite: true,
+            codexAutoReview: true,
+          },
+          orchestration: {
+            enabled: false,
+            defaultMode: "single_worker",
+            defaultInstructions: "",
+            workerProfiles: [],
+          },
+          approval: { autoApprove: false },
+        }),
+      }),
+      getProviderStatus: () =>
+        /** @type {any} */ ({
+          codex: { available: true, queueDepth: 0 },
+        }),
+      modelInvoker: {
+        invoke: async (request) => {
+          await writeFile(join(request.cwd, "README.md"), "after\n", "utf8");
+          await writeFile(join(request.cwd, "generated.txt"), "created\n", "utf8");
+          return {
+            provider: "codex",
+            model: "gpt-5.6-sol",
+            exitCode: 0,
+            stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
+            stderr: "",
+            normalizedEvents: [],
+            latencyMs: 10,
+          };
+        },
+      },
+    });
+
+    await svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" });
+
+    const evidence = artifacts.find(
+      (artifact) => artifact.title === "Workspace change evidence",
+    );
+    assert.equal(evidence?.kind, "diff");
+    assert.match(evidence?.summary ?? "", /M README\.md/);
+    assert.match(evidence?.summary ?? "", /A generated\.txt/);
+    assert.match(evidence?.summary ?? "", /-before/);
+    assert.match(evidence?.summary ?? "", /\+after/);
+  } finally {
+    await rm(targetDir, { recursive: true, force: true });
+  }
+});
+
 test("getQueueDepths reports empty provider queues for idle service", () => {
   const svc = new AgentPlanningService({
     state: makeGateway(),
     getProviderStatus: () => null,
   });
   assert.deepEqual(svc.getQueueDepths(), {
-    claude: 0,
     codex: 0,
     total: 0,
   });
@@ -87,11 +227,12 @@ const workerProfile = (overrides = {}) => ({
   id: "ap-worker",
   name: "Worker",
   description: "",
-  provider: "claude",
+  provider: "codex",
   role: "coder",
   persona: "Be precise.",
   tuning: {
-    model: "claude-sonnet-4-6",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
     timeoutMs: 300_000,
     stallTimeoutMs: 60_000,
     contextDepth: 5,
@@ -118,7 +259,8 @@ const codexProfile = (overrides = {}) => {
   const base = workerProfile({
     provider: "codex",
     tuning: {
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -158,8 +300,8 @@ test("cancelInvocation returns immediately if invocation already succeeded", asy
   const succeeded = {
     id: "inv-1",
     taskRunId: "tr-1",
-    provider: "claude",
-    model: "claude-opus-4-5",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "succeeded",
     promptArtifactId: "art-1",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -197,7 +339,7 @@ test("generatePlan accepts quality_failed TaskRun for repair loop entry", async 
   };
   const svc = new AgentPlanningService({
     state: makeGateway({ getTaskRun: async () => taskRun }),
-    getProviderStatus: () => ({ claude: { available: false }, codex: { available: false } }),
+    getProviderStatus: () => ({ codex: { available: false } }),
   });
   await assert.rejects(
     () => svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" }),
@@ -220,8 +362,8 @@ test("generatePlan marks invocation cancelled (not failed) when queue rejects wi
   const baseInvocation = {
     id: "inv-cancel",
     taskRunId: "tr-cancel",
-    provider: "claude",
-    model: "claude-opus-4-5",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "running",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -260,7 +402,7 @@ test("generatePlan marks invocation cancelled (not failed) when queue rejects wi
       }),
       setTaskRunStatus: async (_id, status) => { taskRunStatuses.push(status); },
     }),
-    getProviderStatus: () => /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+    getProviderStatus: () => /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     adapter: {
       invoke: async () => { throw { code: "AGENT_CANCELLED", message: "Cancelled by user" }; },
     },
@@ -268,7 +410,7 @@ test("generatePlan marks invocation cancelled (not failed) when queue rejects wi
   });
 
   await assert.rejects(
-    () => svc.generatePlan({ taskRunId: "tr-cancel", provider: "claude" }),
+    () => svc.generatePlan({ taskRunId: "tr-cancel", provider: "codex" }),
     (err) => {
       assert.equal(err.constructor.name, "AgentPlanningError",
         `Expected AgentPlanningError but got ${err.constructor.name}: ${err.message}`);
@@ -303,11 +445,11 @@ test("generatePlan throws AGENT_PROVIDER_UNAVAILABLE (not TypeError) when provid
   };
   const svc = new AgentPlanningService({
     state: makeGateway({ getTaskRun: async () => draftingTaskRun }),
-    // non-null map but claude entry is absent (sparse mock)
+    // Non-null map but the Codex entry is absent (sparse mock).
     getProviderStatus: () => /** @type {any} */ ({}),
   });
   await assert.rejects(
-    () => svc.generatePlan({ taskRunId: "tr-draft", provider: "claude" }),
+    () => svc.generatePlan({ taskRunId: "tr-draft", provider: "codex" }),
     (err) => {
       assert.equal(err.constructor.name, "AgentPlanningError",
         `Expected AgentPlanningError but got ${err.constructor.name}: ${err.message}`);
@@ -330,8 +472,8 @@ test("generatePlan persists a diagnostic log artifact when CLI invocation fails"
   const baseInvocation = {
     id: "inv-cli-fail",
     taskRunId: "tr-cli-fail",
-    provider: "claude",
-    model: "claude-opus-4-5",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "running",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -385,7 +527,7 @@ test("generatePlan persists a diagnostic log artifact when CLI invocation fails"
       setTaskRunStatus: async () => {},
     }),
     getProviderStatus: () =>
-      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     adapter: {
       invoke: async () => {
         throw new Error("spawn failed with api_key=super-secret-value");
@@ -395,7 +537,7 @@ test("generatePlan persists a diagnostic log artifact when CLI invocation fails"
   });
 
   await assert.rejects(
-    () => svc.generatePlan({ taskRunId: "tr-cli-fail", provider: "claude" }),
+    () => svc.generatePlan({ taskRunId: "tr-cli-fail", provider: "codex" }),
     (err) => err.constructor.name === "AgentPlanningError" &&
       err.code === "AGENT_PROVIDER_UNAVAILABLE",
   );
@@ -423,8 +565,8 @@ test("generatePlan records failed pinned context outcome when CLI invocation fai
   const baseInvocation = {
     id: "inv-cli-fail-context",
     taskRunId: "tr-cli-fail-context",
-    provider: "claude",
-    model: "claude-opus-4-5",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "running",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -474,7 +616,7 @@ test("generatePlan records failed pinned context outcome when CLI invocation fai
       setTaskRunStatus: async () => {},
     }),
     getProviderStatus: () =>
-      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     recordContextPackObservation: async () => ({ id: "obs-context-pack" }),
     recordPinnedContextOutcome: async (input) => {
       outcomes.push(input);
@@ -491,7 +633,7 @@ test("generatePlan records failed pinned context outcome when CLI invocation fai
     () =>
       svc.generatePlan({
         taskRunId: "tr-cli-fail-context",
-        provider: "claude",
+        provider: "codex",
         pinnedObservationContexts: [
           {
             observationId: "obs-prior-failure",
@@ -537,8 +679,8 @@ test("generatePlan emits progress events before and after CLI invocation", async
   const baseInvocation = {
     id: "inv-progress",
     taskRunId: "tr-progress",
-    provider: "claude",
-    model: "claude-opus-4-5",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -556,11 +698,12 @@ test("generatePlan emits progress events before and after CLI invocation", async
     id: "ap-progress",
     name: "LocalPlanner",
     description: "",
-    provider: "claude",
+    provider: "codex",
     role: "planner",
     persona: "Plan precisely.",
     tuning: {
-      model: "claude-opus-4-5",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -572,8 +715,8 @@ test("generatePlan emits progress events before and after CLI invocation", async
       autoApproveActions: [],
       blockedActions: [],
       allowedSkillIds: [],
-      toolAllowlist: ["Read", "mcp__repo__search"],
-      toolDenylist: ["Bash(git *)"],
+      toolAllowlist: [],
+      toolDenylist: [],
     },
     mcpServerIds: [],
     skillSourceIds: [],
@@ -658,8 +801,9 @@ test("generatePlan emits progress events before and after CLI invocation", async
       getSettings: async () => ({
         activeAgentProfileId: activeProfile.id,
         agent: {
-          provider: "auto",
-          model: "",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "medium",
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
@@ -674,7 +818,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
       }),
     }),
     getProviderStatus: () =>
-      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     getApprovedCapabilityContexts: async (input) => {
       capabilityContextInput = input;
       return [];
@@ -728,7 +872,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
 
   await svc.generatePlan({
     taskRunId: "tr-progress",
-    provider: "claude",
+    provider: "codex",
     pinnedObservationContexts: [
       {
         observationId: "obs-quality-repair",
@@ -783,22 +927,10 @@ test("generatePlan emits progress events before and after CLI invocation", async
     pinnedObservations: 1,
   });
   assert.equal(createAgentInvocationInput?.profileId, activeProfile.id);
-  assert.deepEqual(lastRequest.toolPolicy, {
-    toolAllowlist: ["Read", "mcp__repo__search"],
-    toolDenylist: [
-      "Bash",
-      "Edit",
-      "MultiEdit",
-      "Write",
-      "NotebookEdit",
-      "Task",
-      "Bash(git *)",
-    ],
-  });
   assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
     createStepInputs[0]?.title,
-    "Agent[LocalPlanner] plan (claude:claude-opus-4-5)",
+    "Agent[LocalPlanner] plan (codex:gpt-5.6-sol)",
   );
   const progress = events.filter((event) => event.type === "progress");
   assert.deepEqual(
@@ -841,7 +973,7 @@ test("generatePlan uses approved Learner model recommendation when no explicit m
     id: "inv-learner-model",
     taskRunId: "tr-learner-model",
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-terra",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -916,11 +1048,10 @@ test("generatePlan uses approved Learner model recommendation when no explicit m
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({
-        claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
     getApprovedLearnerModel: async () => ({
-      model: "gpt-5.5",
+      model: "gpt-5.6-terra",
       reason: "Highest avg reward",
       recommendationId: "rec_learner",
       confidence: 0.8,
@@ -947,11 +1078,11 @@ test("generatePlan uses approved Learner model recommendation when no explicit m
   const result = await svc.generatePlan({ taskRunId: "tr-learner-model" });
 
   assert.equal(result.invocation.provider, "codex");
-  assert.equal(result.invocation.model, "gpt-5.5");
+  assert.equal(result.invocation.model, "gpt-5.6-terra");
   assert.equal(lastRequest.modelConfig.provider, "codex");
-  assert.equal(lastRequest.modelConfig.model, "gpt-5.5");
+  assert.equal(lastRequest.modelConfig.model, "gpt-5.6-terra");
   assert.deepEqual(selections, [
-    { taskRunId: "tr-learner-model", selectedModel: "gpt-5.5" },
+    { taskRunId: "tr-learner-model", selectedModel: "gpt-5.6-terra" },
   ]);
 });
 
@@ -978,8 +1109,9 @@ test("generatePlan rejects Codex profiles with unsupported tool policy", async (
       getSettings: async () => ({
         activeAgentProfileId: profile.id,
         agent: {
-          provider: "auto",
-          model: "",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "medium",
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
@@ -995,7 +1127,6 @@ test("generatePlan rejects Codex profiles with unsupported tool policy", async (
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({
-        claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
   });
@@ -1029,7 +1160,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
     id: "inv-codex-mcp",
     taskRunId: taskRun.id,
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -1116,8 +1247,9 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
       getSettings: async () => ({
         activeAgentProfileId: profile.id,
         agent: {
-          provider: "auto",
-          model: "",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "medium",
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
@@ -1135,7 +1267,6 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({
-        claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
     prepareMcpInvocation: async (input) => {
@@ -1149,6 +1280,7 @@ test("generatePlan passes Codex MCP config overrides for MCP-bound profiles", as
       };
     },
     emitStreamEvent: (event) => events.push(event),
+    workspaceChangeTracker: null,
     adapter: {
       invoke: async (request) => {
         lastRequest = request;
@@ -1211,7 +1343,7 @@ test("generatePlan includes previous TaskRuns from the same thread in the prompt
     id: "inv-thread-context",
     taskRunId: taskRun.id,
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:10:00.000Z",
@@ -1298,7 +1430,6 @@ test("generatePlan includes previous TaskRuns from the same thread in the prompt
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({
-        claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
     adapter: {
@@ -1347,7 +1478,7 @@ test("generatePlan persists token usage from provider metadata", async () => {
     id: "inv-token-usage",
     taskRunId: taskRun.id,
     provider: "codex",
-    model: "gpt-5.5",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -1418,8 +1549,9 @@ test("generatePlan persists token usage from provider metadata", async () => {
       getSettings: async () => ({
         activeAgentProfileId: profile.id,
         agent: {
-          provider: "auto",
-          model: "",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "medium",
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
@@ -1435,7 +1567,6 @@ test("generatePlan persists token usage from provider metadata", async () => {
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({
-        claude: { available: false, queueDepth: 0 },
         codex: { available: true, queueDepth: 0 },
       }),
     adapter: {
@@ -1533,11 +1664,12 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
     id: "ap-worker",
     name: "Worker",
     description: "",
-    provider: "claude",
+    provider: "codex",
     role: "coder",
     persona: "Be precise.",
     tuning: {
-      model: "claude-sonnet-4-6",
+      model: "gpt-5.6-sol",
+      reasoningEffort: "medium",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
       contextDepth: 5,
@@ -1549,8 +1681,8 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
       autoApproveActions: [],
       blockedActions: [],
       allowedSkillIds: [],
-      toolAllowlist: ["Read", "mcp__repo__search"],
-      toolDenylist: ["Bash(git *)"],
+      toolAllowlist: [],
+      toolDenylist: [],
     },
     mcpServerIds: [],
     skillSourceIds: [],
@@ -1561,8 +1693,8 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   const invocation = {
     id: "inv-worker",
     taskRunId: taskRun.id,
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -1621,7 +1753,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
       updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
     }),
     getProviderStatus: () =>
-      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     getApprovedCapabilityContexts: async (input) => {
       workerCapabilityContextInput = input;
       return [];
@@ -1670,18 +1802,6 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   assert.equal(result.proposedActions?.[0].type, "file_write");
   assert.equal(result.proposedActions?.[0].path, "created.txt");
   assert.match(lastRequest.systemPrompt, /OUTPUT CONTRACT/);
-  assert.deepEqual(lastRequest.toolPolicy, {
-    toolAllowlist: ["Read", "mcp__repo__search"],
-    toolDenylist: [
-      "Bash",
-      "Edit",
-      "MultiEdit",
-      "Write",
-      "NotebookEdit",
-      "Task",
-      "Bash(git *)",
-    ],
-  });
   assert.match(lastRequest.systemPrompt, /Do NOT modify files directly/);
   assert.match(lastRequest.prompt, /targetDir: \/tmp\/project/);
   assert.match(lastRequest.prompt, /create a file/);
@@ -1724,13 +1844,13 @@ test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
   const profile = workerProfile({
     id: "ap-worker-invoker",
     name: "Invoker Worker",
-    provider: "claude",
+    provider: "codex",
   });
   const invocation = {
     id: "inv-worker-invoker",
     taskRunId: taskRun.id,
-    provider: "claude",
-    model: "claude-sonnet-4-6",
+    provider: "codex",
+    model: "gpt-5.6-sol",
     status: "queued",
     promptArtifactId: "art-prompt",
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -1775,7 +1895,7 @@ test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
       updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
     }),
     getProviderStatus: () =>
-      /** @type {any} */ ({ claude: { available: true, queueDepth: 0 } }),
+      /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
     modelInvoker: {
       invoke: async (request, onEvent, signal) => {
         invokerCalled = true;
@@ -1838,7 +1958,7 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
     name: "Parallel Worker",
     provider: "codex",
     tuning: {
-      model: "gpt-5.5",
+      model: "gpt-5.6-sol",
       reasoningEffort: "high",
       timeoutMs: 300_000,
       stallTimeoutMs: 60_000,
@@ -1853,19 +1973,20 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
   let artifactSeq = 0;
   let invocationSeq = 0;
   const svc = new AgentPlanningService({
+    workspaceChangeTracker: null,
     state: makeGateway({
       getTaskRun: async () => taskRun,
       getThread: async () => ({
         id: taskRun.threadId,
         title: "thread",
-        agentSessionId: "shared-claude-session",
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
       getSettings: async () => ({
         agent: {
-          provider: "auto",
-          model: "",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "medium",
           timeoutMs: 300_000,
           stallTimeoutMs: 60_000,
           contextDepth: 5,
@@ -1906,7 +2027,7 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
         id,
         taskRunId: taskRun.id,
         provider: "codex",
-        model: "gpt-5.5",
+        model: "gpt-5.6-sol",
         status: patch.status ?? "running",
         promptArtifactId: "art-prompt",
         createdAt: "2026-01-01T00:00:00.000Z",

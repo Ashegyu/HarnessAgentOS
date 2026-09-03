@@ -177,8 +177,7 @@ export const createPersistentA2AWorkerInvoker = (
   };
 };
 
-const invocationProvider = (profile: AgentProfile): "claude" | "codex" =>
-  profile.provider === "claude" ? "claude" : "codex";
+const invocationProvider = (_profile: AgentProfile): "codex" => "codex";
 
 const cancelled = (error: unknown): boolean =>
   error instanceof A2AInvocationError
