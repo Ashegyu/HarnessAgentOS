@@ -152,6 +152,25 @@ test("setTaskRunStatus rejects an invalid transition without mutating SQLite sta
   }
 });
 
+test("concurrent task transitions cannot overwrite cancellation after validating stale state", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const thread = await svc.createThread({ title: "transition race" });
+    const taskRun = await svc.createTaskRun({
+      threadId: thread.id, userRequest: "run", targetDir: process.cwd(), status: "running",
+    });
+    const results = await Promise.allSettled([
+      svc.setTaskRunStatus(taskRun.id, "cancelled"),
+      svc.setTaskRunStatus(taskRun.id, "ready_for_review"),
+    ]);
+    assert.equal(results[0].status, "fulfilled");
+    assert.equal(results[1].status, "rejected");
+    assert.equal((await svc.getTaskRun(taskRun.id)).status, "cancelled");
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("getThreadDetail returns thread with empty taskRuns array", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
