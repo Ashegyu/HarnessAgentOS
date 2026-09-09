@@ -20,6 +20,9 @@ test("ConversationWorkbench renders the current thread TaskRun flow", () => {
   assert.match(source, /onSelectTaskRun/);
   assert.match(source, /TaskRunStatusBadge/);
   assert.match(source, /followUpTaskRun/);
+  assert.match(source, /parallel-execution-status/);
+  assert.match(source, /parallel\.running/);
+  assert.match(source, /parallel\.queued/);
 
   assert.match(inputSource, /followUpTaskRunId/);
   assert.match(inputSource, /이어받기/);
@@ -29,4 +32,5 @@ test("ConversationWorkbench renders the current thread TaskRun flow", () => {
   assert.match(css, /\.thread-task-flow__node--selected/);
   assert.match(css, /\.chat-turn__thread-link/);
   assert.match(css, /\.conversation-input__followup/);
+  assert.match(css, /\.parallel-execution-status/);
 });

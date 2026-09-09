@@ -734,6 +734,10 @@ const extractLatestPlanContext = (
   return { workerSteps: [], backflowRules: [] };
 };
 
+export const orchestrationWorkerCountFromArtifacts = (
+  artifacts: readonly Artifact[],
+): number => extractLatestPlanContext(artifacts).workerSteps.length;
+
 const artifactTime = (value: string): number => {
   const parsed = Date.parse(value);
   return Number.isNaN(parsed) ? 0 : parsed;

@@ -1458,6 +1458,16 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
     desiredProfiles: readonly SeedProviderTarget[];
     updatedAt: string;
   }): void {
+    // Read persisted values: rowToProfile normalizes unsupported models, which
+    // would otherwise hide the difference between a user pin and a legacy row.
+    const rawTuningById = new Map(
+      this.db
+        .prepare<[], Pick<ProfileRow, "id" | "tuning_json">>(
+          `SELECT id, tuning_json FROM agent_profiles`,
+        )
+        .all()
+        .map((row) => [row.id, JSON.parse(row.tuning_json) as AgentModelTuning] as const),
+    );
     const desiredById = new Map(
       input.desiredProfiles.flatMap((profile) =>
         profile.id ? [[profile.id, profile] as const] : [],
@@ -1474,6 +1484,8 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
         desiredById.get(profile.id) ??
         desiredByName.get(profile.name.trim().toLowerCase());
       if (!desired) continue;
+      const rawTuning = rawTuningById.get(profile.id);
+      const hasSupportedModel = isCodexModel(rawTuning?.model);
       const nextProvider: AgentProfile["provider"] = "codex";
       const shouldBackfillPrefix =
         profile.tuning.systemPromptPrefix.trim().length === 0;
@@ -1482,8 +1494,13 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       const nextTuning = normalizeTuning(
         {
           ...profile.tuning,
-          model: desired.tuning.model,
-          reasoningEffort: desired.tuning.reasoningEffort,
+          // Existing supported selections are user-owned, including canonical
+          // IDs and seed-like names. Only legacy unsupported choices migrate.
+          model: hasSupportedModel ? rawTuning!.model : desired.tuning.model,
+          reasoningEffort:
+            hasSupportedModel && isAgentReasoningEffort(rawTuning?.reasoningEffort)
+              ? rawTuning.reasoningEffort
+              : desired.tuning.reasoningEffort,
           contextDepth:
             profile.tuning.contextDepth <= 10
               ? desired.tuning.contextDepth
@@ -1556,6 +1573,7 @@ export class SqliteAgentProfileRepository implements AgentProfileRepository {
       const nextTuning = normalizeTuning({
         ...rawTuning,
         ...roleDefaults,
+        model: isCodexModel(rawTuning.model) ? rawTuning.model : roleDefaults.model,
       });
       this.db
         .prepare(

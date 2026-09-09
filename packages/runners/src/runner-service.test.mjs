@@ -59,6 +59,25 @@ const setup = async (t) => {
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+test("finishing one checkpoint does not hide unresolved actions from another checkpoint", async () => {
+  const t = tmp();
+  const { db, state, runner } = await setup(t);
+  try {
+    const thread = await state.createThread({ title: "checkpoints", targetDir: t.target });
+    const task = await state.createTaskRun({ threadId: thread.id, targetDir: t.target, userRequest: "보고서를 생성해줘" });
+    const approvals = [];
+    for (const index of [0, 1]) {
+      const step = await state.createStep({ taskRunId: task.id, index, kind: "approval", title: "approval", status: "pending" });
+      const checkpoint = await state.createCheckpoint({ taskRunId: task.id, stepId: step.id, reason: "before_edit", summary: "checkpoint", stateRef: "{}" });
+      approvals.push(await state.createApproval({ taskRunId: task.id, checkpointId: checkpoint.id,
+        actionType: "file_write", actionSummary: "write", status: index === 0 ? "approved" : "pending",
+        proposedAction: { type: "file_write", filePatch: { path: `${index}.txt`, after: "data" } } }));
+    }
+    await runner.executeApproved(approvals[0].id);
+    assert.equal((await state.getTaskRun(task.id)).status, "waiting_for_approval");
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 const waitUntil = async (predicate, message) => {
   for (let i = 0; i < 50; i += 1) {
     if (predicate()) return;
@@ -134,6 +153,12 @@ const fakeRunnerHarness = (input = {}) => {
   const artifacts = [];
   const statuses = [];
   const state = {
+    claimApprovalExecution: async () => {
+      if (approval.executionState || taskRun.status === 'cancelled') throw new Error('APPROVAL_CLAIM_LOCKED');
+      approval.executionState = 'running';
+      return approval;
+    },
+    finishApprovalExecution: async (_id, _token, outcome) => { approval.executionState = outcome; },
     getApproval: async (id) => (id === approval.id ? approval : null),
     getTaskRun: async (id) => (id === taskRun.id ? taskRun : null),
     listStepsByTaskRun: async () => steps,
@@ -191,6 +216,16 @@ const fakeRunnerHarness = (input = {}) => {
   return { approval, artifactStore, artifacts, state, statuses, taskRun };
 };
 
+test("Runner rejects pre-approved shell execution for a read-only contract before changing state", async () => {
+  const harness = fakeRunnerHarness();
+  harness.taskRun.userRequest = "코드 원인만 설명해줘";
+  const runner = new RunnerService({ state: harness.state, artifactStore: harness.artifactStore });
+  await assert.rejects(runner.executeApproved(harness.approval.id),
+    (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+  assert.deepEqual(harness.statuses, []);
+  assert.deepEqual(harness.artifacts, []);
+});
+
 test("cancelExecution returns false for a taskRun without inflight execution", async () => {
   const harness = fakeRunnerHarness();
   const runner = new RunnerService({
@@ -245,7 +280,7 @@ test("cancelExecution aborts inflight shell execution and marks TaskRun cancelle
   assert.deepEqual(harness.statuses.slice(-2), ["running", "cancelled"]);
 });
 
-test("executeApproved can run again after a cancelled shell execution", async () => {
+test("executeApproved cannot replay a cancelled shell execution", async () => {
   const harness = fakeRunnerHarness({ command: "node maybe-long-running.js" });
   let callCount = 0;
   let firstShellStarted = false;
@@ -294,10 +329,9 @@ test("executeApproved can run again after a cancelled shell execution", async ()
     { cancelled: false },
   );
 
-  const secondRun = await runner.executeApproved(harness.approval.id);
-  assert.equal(secondRun.exitCode, 0);
-  assert.equal(callCount, 2);
-  assert.equal(harness.taskRun.status, "ready_for_review");
+  await assert.rejects(runner.executeApproved(harness.approval.id), /CLAIM_LOCKED/);
+  assert.equal(callCount, 1);
+  assert.equal(harness.taskRun.status, "cancelled");
 });
 
 test("test command execution receives the TaskRun abort signal", async () => {
@@ -326,6 +360,42 @@ test("test command execution receives the TaskRun abort signal", async () => {
 
   assert.equal(seenSignal instanceof AbortSignal, true);
   assert.equal(seenSignal.aborted, false);
+});
+
+test("structured shell args are preserved and used to classify test commands", async () => {
+  const harness = fakeRunnerHarness({ command: "dotnet" });
+  harness.approval.proposedAction.args = [
+    "test",
+    "NOVA.Browser.Tests/NOVA.Browser.Tests.csproj",
+    "-c",
+    "Release",
+  ];
+  let seen;
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: harness.artifactStore,
+    testRunner: {
+      run: async (input) => {
+        seen = input;
+        return {
+          stdout: "passed\n",
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1,
+          command: input.command,
+          cwd: input.cwd,
+          passed: true,
+        };
+      },
+    },
+  });
+
+  const result = await runner.executeApproved(harness.approval.id);
+
+  assert.deepEqual(seen.args, harness.approval.proposedAction.args);
+  const steps = await harness.state.listStepsByTaskRun(harness.taskRun.id);
+  assert.equal(steps.at(-1).kind, "test");
+  assert.match(result.commandSummary, /dotnet test/);
 });
 
 test("executeApproved refuses when approval is still pending", async () => {
@@ -410,6 +480,77 @@ test("executeApproved records failed pinned context outcome when runner action f
   assert.doesNotMatch(JSON.stringify(outcomes[0]), /super-secret-value/);
   assert.doesNotMatch(JSON.stringify(outcomes[0]), /SECRET_TOKEN/);
 });
+
+test("runner diagnostics redact shell output before persisting logs", async () => {
+  const harness = fakeRunnerHarness();
+  const writes = [];
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: { write: async (input) => {
+      writes.push(input);
+      return harness.artifactStore.write(input);
+    } },
+    shellRunner: { run: async () => ({
+      exitCode: 0, stdout: "token=stdout-sensitive", stderr: "password=stderr-sensitive",
+      durationMs: 1,
+    }) },
+  });
+  const result = await runner.executeApproved(harness.approval.id);
+  assert.doesNotMatch(JSON.stringify({ result, writes }), /stdout-sensitive|stderr-sensitive/);
+  assert.match(writes[0].content, /\[REDACTED\]/);
+});
+
+test("runner diagnostics redact errors in artifacts, step summaries and IPC errors", async () => {
+  const harness = fakeRunnerHarness();
+  const writes = [];
+  const runner = new RunnerService({
+    state: harness.state,
+    artifactStore: { write: async (input) => {
+      writes.push(input);
+      return harness.artifactStore.write(input);
+    } },
+    shellRunner: { run: async () => {
+      throw new RunnerError("RUNNER_EXECUTION_FAILED", "token=error-sensitive");
+    } },
+  });
+  await assert.rejects(runner.executeApproved(harness.approval.id), error => {
+    assert.equal(error.code, "RUNNER_EXECUTION_FAILED");
+    assert.doesNotMatch(error.message, /error-sensitive/);
+    return true;
+  });
+  assert.doesNotMatch(JSON.stringify({ writes, steps: await harness.state.listStepsByTaskRun() }), /error-sensitive/);
+});
+
+for (const cancelled of [false, true]) {
+  for (const failedStage of ["file", "metadata"]) {
+    test(`runner diagnostics ${failedStage} failure preserves ${cancelled ? "cancellation" : "execution failure"} state`, async () => {
+      const harness = fakeRunnerHarness();
+      const code = cancelled ? "RUNNER_CANCELLED" : "RUNNER_EXECUTION_FAILED";
+      if (failedStage === "metadata") {
+        harness.state.createArtifact = async () => { throw new Error("metadata unavailable"); };
+      }
+      const outcomes = [];
+      const runner = new RunnerService({
+        state: harness.state,
+        artifactStore: failedStage === "file"
+          ? { write: async () => { throw new Error("disk unavailable"); } }
+          : harness.artifactStore,
+        shellRunner: { run: async () => { throw new RunnerError(code, "original execution failure"); } },
+        recordPinnedContextOutcome: async input => { outcomes.push(input); },
+      });
+      await assert.rejects(runner.executeApproved(harness.approval.id), error => {
+        assert.equal(error.code, code);
+        assert.equal(error.message, "original execution failure");
+        return true;
+      });
+      assert.equal(harness.taskRun.status, cancelled ? "cancelled" : "blocked");
+      assert.equal((await harness.state.listStepsByTaskRun()).at(-1).status, "failed");
+      assert.equal(harness.approval.executionState, "uncertain");
+      assert.equal(runner.getInflightCount(), 0);
+      assert.equal(outcomes.length, 0, "do not publish a nonexistent error artifact reference");
+    });
+  }
+}
 
 test("file_write writes inside targetDir and emits diff artifact", async () => {
   const t = tmp();
@@ -629,7 +770,7 @@ test("executeApproved rejects approved approvals with malformed proposedAction p
   }
 });
 
-test("executeApproved ignores pending approvals from other checkpoints when settling TaskRun", async () => {
+test("executeApproved preserves pending approvals from other checkpoints when settling TaskRun", async () => {
   const t = tmp();
   try {
     const { db, state, conversation, runner } = await setup(t);
@@ -671,7 +812,7 @@ test("executeApproved ignores pending approvals from other checkpoints when sett
       await runner.executeApproved(approval.id);
 
       const updatedTaskRun = await state.getTaskRun(draft.taskRun.id);
-      assert.equal(updatedTaskRun.status, "ready_for_review");
+      assert.equal(updatedTaskRun.status, "waiting_for_approval");
 
       const currentApprovalStep = (await state.listStepsByTaskRun(draft.taskRun.id))
         .find((s) => s.id === draft.checkpoint.stepId);
@@ -1326,7 +1467,7 @@ test("retryApproval succeeds when TaskRun is blocked", async () => {
   }
 });
 
-test("retryApproval can re-run an executed approval when quality_failed", async () => {
+test("retryApproval cannot reuse consumed approval even when quality_failed", async () => {
   const t = tmp();
   try {
     const { db, state, conversation, runner } = await setup(t);
@@ -1347,9 +1488,8 @@ test("retryApproval can re-run an executed approval when quality_failed", async 
       assert.equal(executedApproval.status, "executed");
 
       await state.setTaskRunStatus(draft.taskRun.id, "quality_failed");
-      const result = await runner.retryApproval(approval.id);
-      assert.equal(result.taskRunId, draft.taskRun.id);
-      assert.ok(result.artifactIds.length >= 1);
+      await assert.rejects(runner.retryApproval(approval.id), error => error.code === 'APPROVAL_REVIEW_REQUIRED');
+      assert.equal(readFileSync(join(t.target, 'retry-executed.txt'), 'utf8'), 'hello');
     } finally {
       closeDb(db);
     }

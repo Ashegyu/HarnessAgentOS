@@ -30,6 +30,11 @@ const validateSettingsInput = (
     return { ok: false, reason: "settings must be an object" };
   }
   const s = raw as Record<string, unknown>;
+  const ui =
+    s.ui !== null && typeof s.ui === "object"
+      ? (s.ui as Record<string, unknown>)
+      : {};
+  const language = ui.language === "en" ? "en" : "ko";
   if (typeof s.agent !== "object" || s.agent === null) {
     return { ok: false, reason: "settings.agent must be an object" };
   }
@@ -93,6 +98,13 @@ const validateSettingsInput = (
   // values down to "" is the safe normalization.
   const defaultPipelineId =
     typeof orch.defaultPipelineId === "string" ? orch.defaultPipelineId : "";
+  const maxParallelWorkers =
+    typeof orch.maxParallelWorkers === "number" &&
+    Number.isInteger(orch.maxParallelWorkers) &&
+    orch.maxParallelWorkers >= 1 &&
+    orch.maxParallelWorkers <= 8
+      ? orch.maxParallelWorkers
+      : DEFAULT_HARNESS_SETTINGS.orchestration.maxParallelWorkers;
   const ap =
     s.approval !== null && typeof s.approval === "object"
       ? (s.approval as Record<string, unknown>)
@@ -109,6 +121,7 @@ const validateSettingsInput = (
   return {
     ok: true,
     value: {
+      ui: { language },
       agent: {
         provider: a.provider,
         model: a.model,
@@ -124,6 +137,7 @@ const validateSettingsInput = (
         defaultMode: orchestrationMode,
         defaultInstructions: orchestrationInstructions,
         workerProfiles,
+        maxParallelWorkers,
         defaultPipelineId,
       },
       approval: {

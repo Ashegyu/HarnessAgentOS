@@ -58,10 +58,10 @@ export const extractProviderToolCalls = (
   } catch {
     return [];
   }
-  return extractCodexToolCalls(obj, options);
+  return extractProviderToolCallsFromEvent(obj, options);
 };
 
-const extractCodexToolCalls = (
+export const extractProviderToolCallsFromEvent = (
   obj: Record<string, unknown>,
   options: ProviderToolCallStreamParserOptions,
 ): AgentToolCallEvent[] => {

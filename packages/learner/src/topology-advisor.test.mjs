@@ -353,7 +353,13 @@ test("recordFeedback stores topology feedback as learner observation", async () 
   const { t, db, state } = await setup();
   try {
     const taskRun = await seedTaskRun(state, "implement code");
-    const advisor = new TopologyAdvisor({ state });
+    const refreshed = [];
+    const advisor = new TopologyAdvisor({
+      state,
+      onObservationRecorded: async (observation) => {
+        refreshed.push(observation.id);
+      },
+    });
 
     await advisor.recordFeedback({
       taskRunId: taskRun.id,
@@ -371,6 +377,7 @@ test("recordFeedback stores topology feedback as learner observation", async () 
     assert.equal(observations[0].signal, "applied");
     assert.equal(observations[0].payload.recommendationId, "toprec_1");
     assert.match(observations[0].payload.reason, /\[REDACTED\]/);
+    assert.deepEqual(refreshed, [observations[0].id]);
   } finally {
     closeDb(db);
     t.cleanup();

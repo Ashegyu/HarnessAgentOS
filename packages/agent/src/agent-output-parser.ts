@@ -2,7 +2,7 @@ import type {
   AgentPlanOutput,
   AgentProposedAction,
 } from "@harness/core";
-import { parseJsonAllowingMultilineStrings } from "@harness/core";
+import { extractAgentPlanEnvelope, parseJsonAllowingMultilineStrings } from "@harness/core";
 
 export interface ParsedAgentPlan {
   ok: true;
@@ -26,8 +26,8 @@ export type ParseAgentPlanResult = ParsedAgentPlan | ParseAgentPlanFailure;
  * shell) is enforced separately by AgentPlanningService before any
  * approval row is written.
  */
-export const parseAgentPlan = (rawOutput: string): ParseAgentPlanResult => {
-  const json = extractFencedJson(rawOutput, "harness_agent_plan");
+export const parseAgentPlan = (rawOutput: string, redactText?: (text: string) => string): ParseAgentPlanResult => {
+  const json = extractAgentPlanEnvelope(rawOutput)?.json;
   if (!json) {
     return {
       ok: false,
@@ -46,19 +46,13 @@ export const parseAgentPlan = (rawOutput: string): ParseAgentPlanResult => {
   parsed = parseResult.value;
   const validated = validateAgentPlan(parsed);
   if (!validated.ok) return validated;
-  return { ok: true, plan: validated.plan };
-};
-
-const FENCED_BLOCK_RE = /```([a-zA-Z_][a-zA-Z0-9_-]*)?\s*([\s\S]*?)```/g;
-
-const extractFencedJson = (raw: string, tag: string): string | null => {
-  FENCED_BLOCK_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = FENCED_BLOCK_RE.exec(raw)) !== null) {
-    const lang = (m[1] ?? "").trim();
-    if (lang === tag) return (m[2] ?? "").trim();
-  }
-  return null;
+  // Redact validated string values, not serialized JSON: a secret pattern may
+  // otherwise consume a closing quote and turn valid output into broken JSON.
+  // Callers must parse the complete final payload, never their truncated log.
+  const plan: AgentPlanOutput = redactText
+    ? JSON.parse(JSON.stringify(validated.plan, (_key, value: unknown) => typeof value === "string" ? redactText(value) : value))
+    : validated.plan;
+  return { ok: true, plan };
 };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -164,6 +158,12 @@ const validateProposedAction = (
   if (!isObject(value)) {
     return { ok: false, reason: `proposedActions[${index}] must be an object.` };
   }
+  if (value.type === "file_delete") {
+    if (typeof value.path !== "string" || !value.path.trim() || typeof value.rationale !== "string") {
+      return { ok: false, reason: `proposedActions[${index}] requires path and rationale` };
+    }
+    return { ok: true, action: { type: "file_delete", path: value.path, rationale: value.rationale } };
+  }
   if (value.type === "file_patch") {
     if (typeof value.path !== "string" || value.path.length === 0) {
       return {
@@ -250,6 +250,6 @@ const validateProposedAction = (
   }
   return {
     ok: false,
-    reason: `proposedActions[${index}].type must be 'file_patch', 'file_write', or 'shell'.`,
+    reason: `proposedActions[${index}].type must be 'file_patch', 'file_write', 'file_delete', or 'shell'.`,
   };
 };

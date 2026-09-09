@@ -13,6 +13,7 @@ import type {
   TaskRunStatus,
   Thread,
 } from "@harness/core";
+import { buildTaskContract, isTaskContract } from "@harness/core";
 
 /**
  * SQLite row → domain object converters. Centralized so the snake_case
@@ -52,6 +53,7 @@ interface TaskRunRow {
   id: string;
   thread_id: string;
   user_request: string;
+  contract_json?: string | null;
   target_dir: string;
   follow_up_task_run_id: string | null;
   status: TaskRunStatus;
@@ -61,10 +63,15 @@ interface TaskRunRow {
 }
 
 export const rowToTaskRun = (r: TaskRunRow): TaskRun => {
+  const contract: unknown = r.contract_json
+    ? JSON.parse(r.contract_json)
+    : buildTaskContract({ userRequest: r.user_request, legacy: true });
+  if (!isTaskContract(contract)) throw new Error(`Invalid task contract for ${r.id}`);
   const t: TaskRun = {
     id: r.id,
     threadId: r.thread_id,
     userRequest: r.user_request,
+    contract,
     targetDir: r.target_dir,
     status: r.status,
     createdAt: r.created_at,
@@ -138,6 +145,12 @@ interface ApprovalRow {
   proposed_action_json: string | null;
   policy_evaluation_json: string | null;
   auto_approve_decision_json: string | null;
+  action_revision?: number;
+  approved_revision?: number | null;
+  requires_manual_approval?: number;
+  execution_state?: Approval["executionState"] | null;
+  execution_started_at?: string | null;
+  execution_finished_at?: string | null;
 }
 
 export const rowToApproval = (r: ApprovalRow): Approval => {
@@ -148,6 +161,12 @@ export const rowToApproval = (r: ApprovalRow): Approval => {
     actionType: r.action_type,
     actionSummary: r.action_summary,
     status: r.status,
+    actionRevision: r.action_revision ?? 1,
+    approvedRevision: r.approved_revision ?? undefined,
+    requiresManualApproval: r.requires_manual_approval === 1,
+    executionState: r.execution_state ?? undefined,
+    executionStartedAt: r.execution_started_at ?? undefined,
+    executionFinishedAt: r.execution_finished_at ?? undefined,
   };
   if (r.decision_message !== null) a.decisionMessage = r.decision_message;
   if (r.decided_at !== null) a.decidedAt = r.decided_at;

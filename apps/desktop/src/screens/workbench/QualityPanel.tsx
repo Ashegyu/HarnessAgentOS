@@ -8,6 +8,7 @@ import type {
   TaskRun,
 } from "@harness/core";
 import { RiskApprovalDialog } from "./RiskApprovalDialog";
+import { defaultQualityRequirements } from "./quality-requirements";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 import {
   buildRepairAttemptRows,
@@ -65,11 +66,16 @@ export const QualityPanel = ({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [riskDialogOpen, setRiskDialogOpen] = useState(false);
-  const [requireFlags, setRequireFlags] = useState({
-    requireBuild: false,
-    requireTests: true,
-    requireSmoke: false,
-  });
+  const defaults = defaultQualityRequirements(taskRun);
+  const readOnly = !defaults.requireTests;
+  const [requirementsOverride, setRequirementsOverride] = useState<{
+    taskRunId: string; flags: typeof defaults;
+  } | null>(null);
+  const requireFlags = requirementsOverride?.taskRunId === taskRun.id
+    ? requirementsOverride.flags : defaults;
+  const setRequireFlag = (key: keyof typeof defaults, value: boolean): void => {
+    setRequirementsOverride({ taskRunId: taskRun.id, flags: { ...requireFlags, [key]: value } });
+  };
 
   const fetchLatest = useCallback(async () => {
     setGateState({ kind: "loading" });
@@ -199,7 +205,10 @@ export const QualityPanel = ({
     [taskRun.id, fetchLatest, onTaskRunChanged],
   );
 
-  const gate = gateState.kind === "ready" ? gateState.gate : null;
+  const fetchedGate = gateState.kind === "ready" ? gateState.gate : null;
+  const gate = [...qualityGates, ...(fetchedGate ? [fetchedGate] : [])]
+    .filter(row => row.taskRunId === taskRun.id)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null;
   const status = gate?.status ?? "not_run";
   const knownRiskApproved = useMemo(() => {
     if (!gate) return false;
@@ -230,7 +239,7 @@ export const QualityPanel = ({
     <div className="quality-panel">
       <header className="panel-header panel-header--inset">
         <span className="panel-header__title">
-          Quality
+          {readOnly ? "응답 검증" : "Quality"}
           <FeatureHelpButton featureId="quality" />
         </span>
       </header>
@@ -246,14 +255,16 @@ export const QualityPanel = ({
         <div className="error-message">{gateState.message}</div>
       ) : null}
 
-      <fieldset className="quality-panel__requires">
+      {readOnly ? (
+        <p className="muted">읽기 전용 작업은 응답 생성과 요청 범위를 확인합니다. 빌드·테스트를 실행하거나 별도 AI 검토를 추가하지 않습니다.</p>
+      ) : <fieldset className="quality-panel__requires">
         <legend>요구 evidence</legend>
         <label>
           <input
             type="checkbox"
             checked={requireFlags.requireBuild}
             onChange={(e) =>
-              setRequireFlags((s) => ({ ...s, requireBuild: e.target.checked }))
+              setRequireFlag("requireBuild", e.target.checked)
             }
           />
           build
@@ -263,7 +274,7 @@ export const QualityPanel = ({
             type="checkbox"
             checked={requireFlags.requireTests}
             onChange={(e) =>
-              setRequireFlags((s) => ({ ...s, requireTests: e.target.checked }))
+              setRequireFlag("requireTests", e.target.checked)
             }
           />
           tests
@@ -273,14 +284,14 @@ export const QualityPanel = ({
             type="checkbox"
             checked={requireFlags.requireSmoke}
             onChange={(e) =>
-              setRequireFlags((s) => ({ ...s, requireSmoke: e.target.checked }))
+              setRequireFlag("requireSmoke", e.target.checked)
             }
           />
           smoke
         </label>
-      </fieldset>
+      </fieldset>}
 
-      {gate ? (
+      {gate && !readOnly ? (
         <ul className="quality-panel__metrics">
           <li>
             build: <strong>{formatBoolStatus(gate.buildPassed)}</strong>
@@ -307,11 +318,11 @@ export const QualityPanel = ({
             </strong>
           </li>
         </ul>
-      ) : (
+      ) : !gate ? (
         <div className="empty-state">
-          아직 평가되지 않았습니다. 아래에서 evaluate를 실행하세요.
+          작업이 검토 준비 상태가 되면 QA가 자동으로 실행됩니다.
         </div>
-      )}
+      ) : null}
 
       {gate && gate.knownRisks.length > 0 ? (
         <details className="quality-panel__risks" open>
@@ -353,13 +364,13 @@ export const QualityPanel = ({
           onClick={() => void runEvaluate()}
           disabled={busy}
         >
-          Evaluate
+          다시 평가
         </button>
         <button
           type="button"
           className="btn"
           onClick={() => void runRepair()}
-          disabled={busy || !gate || gate.status === "passed"}
+          disabled={busy || readOnly || !gate || gate.status === "passed"}
           title={
             gate?.status === "passed"
               ? "이미 통과한 게이트에는 repair plan이 필요 없습니다."

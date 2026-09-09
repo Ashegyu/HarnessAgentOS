@@ -3,6 +3,7 @@ import type {
   AgentProgressStage,
   AgentToolCallEvent,
 } from "@harness/core";
+import { extractAgentPlanEnvelope, parseJsonAllowingMultilineStrings } from "@harness/core";
 
 // Parses raw Codex `exec --json` stdout chunks into structured events the UI
 // can render. Each JSON-per-line event becomes
@@ -656,7 +657,9 @@ const extractHarnessAgentPlanDisplay = (
   const json = fenced?.json ?? extractPlainHarnessAgentPlanJson(text);
   if (json === null) return null;
   try {
-    const parsed = JSON.parse(json) as unknown;
+    const result = parseJsonAllowingMultilineStrings(json);
+    if (!result.ok) return null;
+    const parsed = result.value;
     if (!isRecord(parsed) || Array.isArray(parsed)) return null;
     const summary = typeof parsed["summary"] === "string"
       ? (parsed["summary"] as string).trim()
@@ -676,14 +679,11 @@ const extractHarnessAgentPlanDisplay = (
 const extractHarnessAgentPlanFencedJson = (
   text: string,
 ): { json: string; prose: string } | null => {
-  const match = /```harness_agent_plan\s*([\s\S]*?)```/.exec(text);
-  if (!match) return null;
-  const json = match[1]?.trim();
-  if (!json) return null;
-  const fullMatch = match[0];
+  const envelope = extractAgentPlanEnvelope(text);
+  if (!envelope?.json) return null;
   return {
-    json,
-    prose: text.replace(fullMatch, "").trim(),
+    json: envelope.json,
+    prose: (text.slice(0, envelope.start) + text.slice(envelope.end)).trim(),
   };
 };
 

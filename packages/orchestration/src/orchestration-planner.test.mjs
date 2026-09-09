@@ -117,6 +117,27 @@ const sampleDefinition = () => {
   return result.definition;
 };
 
+test("preflight rejects a later worker's unverifiable budget before creating execution approvals", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const task = await seedTaskRun(state);
+    const first = await state.agentProfiles.create(validProfileInput({ name: "First" }));
+    const limited = await state.agentProfiles.create(validProfileInput({ name: "Limited writer",
+      permissions: { ...validProfileInput().permissions, budget: { perInvocationUsd: 0.15 } } }));
+    const pipeline = await state.agentPipelines.create({ name: "Budget preflight", description: "",
+      steps: [first, limited].map((p, i) => ({ id: `step-${i}`, title: p.name,
+        agentProfileId: p.id, instruction: "Run this step", expectedArtifactKinds: ["log"] })) });
+    const planner = new OrchestrationPlanner({ state });
+    await assert.rejects(planner.draftPlan({ taskRunId: task.id, mode: "single_worker", pipelineId: pipeline.id }),
+      error => error.code === "AGENT_BUDGET_BLOCKED" && /Limited writer/.test(error.message));
+    assert.deepEqual(await state.listApprovalsByTaskRun(task.id), []);
+    assert.deepEqual(await state.listStepsByTaskRun(task.id), []);
+    assert.deepEqual((await state.agentProfiles.get(limited.id)).permissions.budget, { perInvocationUsd: 0.15 });
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("draftPlan with mode falls back to hardcoded synthesizer (regression)", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

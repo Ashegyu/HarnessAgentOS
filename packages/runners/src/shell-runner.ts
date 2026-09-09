@@ -4,6 +4,7 @@ import {
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
 } from "@harness/core";
 import { classifyShellCommand } from "./runner-policy.ts";
+import { decodeCommandOutput, resolveWindowsCommand, simpleNpmArgs } from "./windows-command.ts";
 
 export interface ShellRunResult {
   exitCode: number;
@@ -36,11 +37,10 @@ export interface ShellRunnerDeps {
  * target directory with hard timeout, idle timeout, and output cap.
  * Refuses dangerous patterns identified by RunnerPolicy.classifyShellCommand.
  *
- * Uses `shell: true` because user-approved commands often include
- * pipes/redirection. Containment is enforced by setting cwd to the
- * approved targetDir; commands themselves can still escape via
- * absolute paths, which is why dangerous-token classification runs
- * first.
+ * Free-form command strings use `shell: true` so approved pipes and
+ * redirection continue to work. Structured `command` + `args` payloads
+ * bypass the shell and preserve each argument exactly. cwd is NOT a sandbox:
+ * a host command can access other paths and requires individual manual consent.
  */
 export class ShellRunner {
   private readonly spawn: typeof spawn;
@@ -54,6 +54,7 @@ export class ShellRunner {
 
   async run(input: {
     command: string;
+    args?: string[];
     cwd: string;
     timeoutMs?: number;
     idleTimeoutMs?: number;
@@ -67,11 +68,12 @@ export class ShellRunner {
       );
     }
 
-    const safety = classifyShellCommand(input.command);
+    const commandDisplay = formatCommand(input.command, input.args);
+    const safety = classifyShellCommand(commandDisplay);
     if (safety.dangerous) {
       throw new ShellRunnerError(
         "RUNNER_BLOCKED_HIGH_RISK",
-        `Command refused (${safety.reason ?? "high risk"}): ${input.command}`,
+        `Command refused (${safety.reason ?? "high risk"}): ${commandDisplay}`,
       );
     }
 
@@ -79,11 +81,27 @@ export class ShellRunner {
     return new Promise<ShellRunResult>((resolveResult, reject) => {
       let child: ReturnType<typeof spawn>;
       try {
-        child = this.spawn(input.command, {
-          shell: true,
+        const env = { ...process.env, ...(input.env ?? {}) };
+        const simple = process.platform === "win32" && input.args === undefined ? simpleNpmArgs(input.command) : null;
+        const structured = input.args !== undefined || simple !== null;
+        const resolved = process.platform === "win32" && structured
+          ? resolveWindowsCommand(simple?.command ?? input.command, simple?.args ?? input.args ?? [], env)
+          : { command: input.command, args: input.args };
+        if ("nodeDir" in resolved && resolved.nodeDir) {
+          const key = Object.keys(env).find(name => name.toLowerCase() === "path") ?? "PATH";
+          env[key] = `${resolved.nodeDir};${env[key] ?? ""}`;
+        }
+        const commonOptions = {
           cwd: input.cwd,
-          env: { ...process.env, ...(input.env ?? {}) },
-        });
+          env,
+          windowsHide: true,
+        };
+        child = !structured
+          ? this.spawn(input.command, { ...commonOptions, shell: true })
+          : this.spawn(resolved.command, resolved.args ?? [], {
+              ...commonOptions,
+              shell: false,
+            });
       } catch (e) {
         reject(
           new ShellRunnerError(
@@ -154,7 +172,7 @@ export class ShellRunner {
         terminateForAbort();
         fail(
           "RUNNER_CANCELLED",
-          `Command cancelled: ${input.command}`,
+          `Command cancelled: ${commandDisplay}`,
           { clearAbortFallback: false },
         );
       };
@@ -162,7 +180,7 @@ export class ShellRunner {
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
           failExecution(
-            `Command idle timed out after ${idleTimeoutMs}ms: ${input.command}`,
+            `Command idle timed out after ${idleTimeoutMs}ms: ${commandDisplay}`,
           );
         }, idleTimeoutMs);
       };
@@ -192,7 +210,7 @@ export class ShellRunner {
       if (settled) return;
 
       hardTimer = setTimeout(() => {
-        failExecution(`Command timed out after ${timeoutMs}ms: ${input.command}`);
+        failExecution(`Command timed out after ${timeoutMs}ms: ${commandDisplay}`);
       }, timeoutMs);
       armIdleTimer();
 
@@ -216,9 +234,9 @@ export class ShellRunner {
         cleanup();
         resolveResult({
           exitCode: typeof code === "number" ? code : -1,
-          stdout: Buffer.concat(stdoutChunks).toString("utf8"),
-          stderr: Buffer.concat(stderrChunks).toString("utf8"),
-          command: input.command,
+          stdout: decodeCommandOutput(Buffer.concat(stdoutChunks)),
+          stderr: decodeCommandOutput(Buffer.concat(stderrChunks)),
+          command: commandDisplay,
           cwd: input.cwd,
           durationMs: Date.now() - start,
         });
@@ -226,3 +244,8 @@ export class ShellRunner {
     });
   }
 }
+
+const formatCommand = (command: string, args?: readonly string[]): string =>
+  args === undefined || args.length === 0
+    ? command
+    : [command, ...args].join(" ");

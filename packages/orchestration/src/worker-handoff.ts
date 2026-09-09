@@ -470,6 +470,13 @@ const parseProposedActions = (
     if (!isObject(item)) {
       return { ok: false, reason: `proposedActions[${index}] must be an object.` };
     }
+    if (item.type === "file_delete") {
+      if (typeof item.path !== "string" || !item.path.trim() || typeof item.rationale !== "string") {
+        return { ok: false, reason: `proposedActions[${index}] requires path and rationale.` };
+      }
+      out.push({ type: "file_delete", path: item.path, rationale: item.rationale });
+      continue;
+    }
     if (item.type === "file_write") {
       if (typeof item.path !== "string" || item.path.trim().length === 0) {
         return {
@@ -553,7 +560,7 @@ const parseProposedActions = (
     }
     return {
       ok: false,
-      reason: `proposedActions[${index}].type must be file_patch, file_write, or shell.`,
+      reason: `proposedActions[${index}].type must be file_patch, file_write, file_delete, or shell.`,
     };
   }
   return { ok: true, value: out };

@@ -2,14 +2,19 @@ import type {
   QualityGateInput,
   QualityGateResult,
   QualityGateStatus,
+  TaskRun,
+  Artifact,
 } from "@harness/core";
 import { collectEvidence } from "./evidence-reader.ts";
+import { taskContractFor } from "@harness/core";
 import { collectRisks } from "./risk-policy.ts";
 import type { LocalStateService } from "@harness/storage";
 import { newId, nowIso } from "@harness/storage";
 
 export interface QualityEvaluatorDeps {
   state: LocalStateService;
+  /** Optional host verifier for report-only file delivery; never model prose. */
+  verifyReportDelivery?: (task: TaskRun, diffArtifacts: Artifact[]) => Promise<boolean>;
 }
 
 /**
@@ -40,21 +45,60 @@ export class QualityEvaluator {
       this.deps.state.listArtifactsByTaskRun(input.taskRunId),
     ]);
 
-    const evidence = collectEvidence(steps, artifacts);
+    const currentSteps = steps.filter(step => step.taskRunId === taskRun.id);
+    const currentArtifacts = artifacts.filter(artifact => artifact.taskRunId === taskRun.id);
+    const evidence = collectEvidence(currentSteps, currentArtifacts);
+    const changedArtifacts = currentArtifacts.filter(a => evidence.diffArtifactIds.includes(a.id));
+    const reportDelivered = taskContractFor(taskRun).intent === "change" && changedArtifacts.length > 0 &&
+      changedArtifacts.every(a => currentSteps.some(step => step.id === a.stepId && step.kind === "edit" && step.status === "succeeded")) &&
+      await this.deps.verifyReportDelivery?.(taskRun, changedArtifacts) === true;
     const risks = collectRisks(evidence, {
       requireBuild: input.requireBuild,
       requireTests: input.requireTests,
       requireSmoke: input.requireSmoke,
+      verifiedReportDelivery: reportDelivered,
     });
 
-    const status = computeStatus(evidence, risks, input);
+    let status = computeStatus(evidence, risks, input);
+    const responseArtifactIds: string[] = [];
+    const contract = taskContractFor(taskRun);
+    if (contract.authorization.mode === "read_only") {
+      const invocations = await this.deps.state.listAgentInvocationsByTaskRun(taskRun.id);
+      const latest = [...invocations].filter(row => row.taskRunId === taskRun.id)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      const response = latest?.status === "succeeded"
+        ? currentArtifacts.find(artifact => artifact.id === latest.parsedPlanArtifactId &&
+            artifact.kind === "plan" && (artifact.summary?.trim().length ?? 0) > 0 &&
+            currentSteps.some(step => step.id === artifact.stepId && step.status === "succeeded"))
+        : undefined;
+      const changed = evidence.diffArtifactIds.length > 0 ||
+        currentSteps.some(step => step.kind === "edit" && step.status === "succeeded");
+      if (changed) {
+        risks.push("읽기 전용 요청에서 변경 근거가 발견되었습니다.");
+        status = "failed";
+      } else if (!response) {
+        risks.push("성공한 최신 모델 호출에 연결된 최종 응답 근거가 없습니다.");
+        if (status !== "failed") status = "not_run";
+      } else {
+        responseArtifactIds.push(response.id);
+        // This validates response delivery and scope, not the truth of arbitrary
+        // claims. Source-based review/diagnosis/research needs content acceptance.
+        if (contract.intent !== "answer" || contract.origin === "legacy") {
+          risks.push("응답 생성은 끝났습니다. 인용 자료와 내용의 타당성은 사용자 확인이 필요합니다.");
+        }
+        if (status !== "failed") status = risks.length > 0 ? "warning" : "passed";
+      }
+    } else if (contract.intent === "change" && evidence.diffArtifactIds.length === 0) {
+      risks.push("수정 요청에 대응하는 실제 변경 근거가 없습니다.");
+      if (status !== "failed") status = "warning";
+    }
 
     const result: QualityGateResult = {
       id: newId("qualityGate"),
       taskRunId: input.taskRunId,
       status,
       knownRisks: risks,
-      evidenceArtifactIds: collectEvidenceArtifactIds(evidence),
+      evidenceArtifactIds: [...new Set([...collectEvidenceArtifactIds(evidence), ...responseArtifactIds])],
       createdAt: nowIso(),
     };
     if (evidence.buildEvidence.length > 0) {
@@ -67,7 +111,7 @@ export class QualityEvaluator {
       result.smokePassed = evidence.smokeEvidence.every((e) => e.passed);
     }
     if (evidence.diffArtifactIds.length > 0) {
-      result.changedFilesReviewed = true;
+      result.changedFilesReviewed = false;
     }
 
     await this.deps.state.createQualityGateResult(result);

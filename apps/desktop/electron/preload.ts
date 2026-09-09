@@ -108,6 +108,7 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<RuntimeInfo>(IPC_CHANNELS.app.getRuntimeInfo),
     getDiagnostics: () =>
       invokeUnwrapped<SystemDiagnostics>(IPC_CHANNELS.app.getDiagnostics),
+    copyText: (input) => invokeUnwrapped<void>(IPC_CHANNELS.app.copyText, input),
     selectDirectory: () =>
       invokeUnwrapped<string | null>(IPC_CHANNELS.app.selectDirectory),
     selectFile: (input) =>
@@ -135,6 +136,8 @@ const harnessApi: HarnessDesktopApi = {
       ),
   },
   conversation: {
+    startTask: (input) =>
+      invokeUnwrapped<ConversationTaskDraft>(IPC_CHANNELS.conversation.startTask, input),
     createTask: (input) =>
       invokeUnwrapped<ConversationTaskDraft>(
         IPC_CHANNELS.conversation.createTask,

@@ -8,6 +8,8 @@ import type {
   WorkerHandoffPayload,
 } from "@harness/core";
 import type { PackedRepoContext } from "./context-packer.ts";
+import { taskContractFor } from "@harness/core";
+import { structuredOutputInstructions, type AgentOutputContract } from "./agent-output-schema.ts";
 
 /**
  * Phase 8 prompt budget (hard cap 80KB, soft caps per section).
@@ -35,6 +37,7 @@ export interface ThreadContextPromptTask {
 
 export interface PromptBuildInput {
   taskRun: TaskRun;
+  outputContract?: AgentOutputContract;
   /** Optional repair-loop instruction; injected near the bottom. */
   instruction?: string;
   /** Previous TaskRuns in the same thread, oldest-first and excluding this run. */
@@ -91,6 +94,7 @@ const buildSystemBlock = (
   suffix: string | undefined,
   metadata: PromptBuildInput["profileMetadata"],
   directFileEdits: boolean | undefined,
+  outputContract: AgentOutputContract | undefined,
 ): string => {
   const parts: string[] = [];
   const trimmedPrefix = trimmedOrNull(prefix);
@@ -104,7 +108,7 @@ const buildSystemBlock = (
       ? DIRECT_FILE_EDITS_ENABLED_POLICY.trim()
       : DIRECT_FILE_EDITS_DISABLED_POLICY.trim(),
   );
-  parts.push(OUTPUT_CONTRACT.trim());
+  parts.push(outputContract ? structuredOutputInstructions(outputContract) + "\n" + OUTPUT_ACTION_RULES.trim() : OUTPUT_CONTRACT.trim() + "\n" + OUTPUT_ACTION_RULES.trim());
   const trimmedSuffix = trimmedOrNull(suffix);
   if (trimmedSuffix) parts.push(trimmedSuffix);
   parts.push(NON_INTERACTIVE_AGENT_POLICY.trim());
@@ -196,16 +200,24 @@ interface AgentPlanOutput {
   steps: Array<{ title: string; rationale: string; risk: "low" | "medium" | "high" }>;
   proposedActions: Array<
     | { type: "file_patch"; path: string; patch: string; rationale: string }
+    | { type: "file_delete"; path: string; rationale: string }
     | { type: "file_write"; path: string; before?: string; after: string; rationale: string }
     | { type: "shell"; command: string; args?: string[]; rationale: string }
   >;
   suggestedQualityChecks: Array<{ command: string; reason: string }>;
   questions: string[];
 }
+`;
+
+const OUTPUT_ACTION_RULES = `\
 - questions MUST be [] in every response. Put missing-information handling in
   assumptions instead of asking the user.
 - For a file_patch action, patch is a single-file unified diff for path. Do not
-  include multiple files in one file_patch.
+  use a patch to delete files. Use file_delete for ONE regular file under targetDir;
+  it requires separate manual approval and OS recycle bin support. Never propose
+  recursive deletion, wildcards, .git deletion, or a shell deletion workaround. Host
+  shell commands are not sandboxed and require individual manual confirmation.
+- Do not include multiple files in one file_patch.
 - Use full hunk headers such as @@ -10,3 +10,4 @@. Bare @@ headers are
   accepted only when Harness can uniquely match the surrounding context.
 - For a file_write action, after is not a diff and not a natural-language
@@ -220,25 +232,30 @@ interface AgentPlanOutput {
 `;
 
 export interface SplitAgentPrompt {
-  /** Passed via `--system-prompt`: SYSTEM + OUTPUT CONTRACT (constant per-run instructions). */
+  /** Folded into stdin by Codex exec: SYSTEM + OUTPUT CONTRACT. */
   systemPrompt: string;
   /** Passed via stdin: TARGET + USER REQUEST + optional context sections. */
   userPrompt: string;
 }
 
 /**
- * Build the agent prompt split into a system portion (for `--system-prompt`)
- * and a user portion (piped via stdin). Keeps format instructions in the
- * authoritative system channel so Codex reliably produces the JSON block.
+ * Build separate instruction and request portions; the adapter folds both into
+ * stdin because Codex exec has no dedicated system-prompt flag.
  */
 export const buildSplitAgentPrompt = (input: PromptBuildInput): SplitAgentPrompt => {
+  const contract = taskContractFor(input.taskRun);
   const systemPrompt = buildSystemBlock(
     input.persona,
     input.systemPromptPrefix,
     input.systemPromptSuffix,
     input.profileMetadata,
     input.directFileEdits,
-  );
+    input.outputContract,
+  ) + `\n\nTASK CONTRACT (revision ${contract.revision})\nIntent: ${contract.intent}\n` +
+    (contract.authorization.mode === "read_only"
+      ? "Read-only task. Do not write files, run modifying commands, use external changing tools, or propose changes for execution. proposedActions must be []."
+      : "Changes require the existing Harness authorization policy.") +
+    `\nConstraints: ${contract.constraints.join("; ")}\nAcceptance criteria: ${contract.acceptanceCriteria.join("; ")}\nRequired evidence: ${contract.evidenceRequirements.join("; ")}`;
   const userSections: string[] = [];
   userSections.push(
     [
@@ -384,7 +401,7 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
       ].join("\n"),
     );
   }
-  sections.push(OUTPUT_CONTRACT.trim());
+  sections.push((input.outputContract ? structuredOutputInstructions(input.outputContract) : OUTPUT_CONTRACT.trim()) + "\n" + OUTPUT_ACTION_RULES.trim());
   sections.push(NON_INTERACTIVE_AGENT_POLICY.trim());
   const joined = sections.join("\n\n");
   if (Buffer.byteLength(joined, "utf8") <= PROMPT_HARD_CAP_BYTES) return joined;

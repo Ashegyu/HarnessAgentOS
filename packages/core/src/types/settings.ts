@@ -11,6 +11,11 @@ import {
 } from "./codex-models.ts";
 
 export type AgentProvider = "codex";
+export type UiLanguage = "ko" | "en";
+
+export interface UiSettings {
+  language: UiLanguage;
+}
 
 export interface AgentSettings {
   provider: AgentProvider;
@@ -44,6 +49,8 @@ export interface OrchestrationSettings {
   defaultMode: OrchestrationMode;
   defaultInstructions: string;
   workerProfiles: WorkerProfile[];
+  /** Maximum number of independent, side-effect-free worker invocations. */
+  maxParallelWorkers: number;
   /**
    * AgentPipeline.id pre-selected for new task runs. Empty string means
    * "no default — fall back to the first available pipeline, or legacy
@@ -83,6 +90,7 @@ export interface ApprovalSettings {
 }
 
 export interface HarnessSettings {
+  ui: UiSettings;
   agent: AgentSettings;
   orchestration: OrchestrationSettings;
   approval: ApprovalSettings;
@@ -97,6 +105,9 @@ export interface HarnessSettings {
 
 export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
   Object.freeze({
+    ui: Object.freeze({
+      language: "ko" as UiLanguage,
+    }),
     agent: Object.freeze({
       provider: "codex" as AgentProvider,
       model: DEFAULT_CODEX_MODEL,
@@ -112,6 +123,7 @@ export const DEFAULT_HARNESS_SETTINGS: Readonly<HarnessSettings> =
       defaultMode: "single_worker" as OrchestrationMode,
       defaultInstructions: "",
       workerProfiles: [] as WorkerProfile[],
+      maxParallelWorkers: 3,
       defaultPipelineId: "",
     }),
     approval: Object.freeze({

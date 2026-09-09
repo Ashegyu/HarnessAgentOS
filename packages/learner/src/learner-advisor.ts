@@ -21,6 +21,7 @@ import {
   type LearnerRecommendation,
   type LearnerRecommendationApprovalResult,
   type LearningTrace,
+  type Observation,
   type ObservationRecallInput,
   type ObservationRecallResult,
   type TaskRun,
@@ -62,6 +63,7 @@ const RECOMMENDED_CONTEXT_LIMIT = 3;
 
 export interface LearnerAdvisorDeps {
   state: LocalStateService;
+  onObservationRecorded?: (observation: Observation) => Promise<void>;
   /**
    * Directory on disk where decision audit lines are appended.
    * Caller must pass an absolute path; the file is created lazily.
@@ -93,24 +95,32 @@ export class LearnerAdvisor {
         taskRun,
       }),
     ]);
+    const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
+    const projectTraces = traces.filter(
+      (trace) => trace.projectKey === projectKey,
+    );
+    const relevantTraces =
+      projectTraces.length > 0
+        ? projectTraces
+        : traces.filter((trace) => trace.projectKey === undefined);
     const baseSuggestions = suggestCapabilities({
       prompt: taskRun.userRequest,
       capabilities,
     });
-    const reranked = rerankWithTraceHistory(baseSuggestions, traces);
-    const modelChoice = recommendModel(traces);
-    const aggregated = aggregateReward(traces);
-    const costHint = inferCostHint(traces);
-    const latencyHint = inferLatencyHint(traces);
+    const reranked = rerankWithTraceHistory(baseSuggestions, relevantTraces);
+    const modelChoice = recommendModel(relevantTraces);
+    const aggregated = aggregateReward(relevantTraces);
+    const costHint = inferCostHint(relevantTraces);
+    const latencyHint = inferLatencyHint(relevantTraces);
     const rationale = buildRationale({
       reranked,
       modelChoice,
       aggregated,
-      hasHistory: traces.length > 0,
+      hasHistory: relevantTraces.length > 0,
     });
     const confidence = clamp(
       modelChoice.confidence * 0.5 +
-        Math.min(1, traces.length * 0.05) * 0.3 +
+        Math.min(1, relevantTraces.length * 0.05) * 0.3 +
         Math.min(1, reranked.length * 0.2) * 0.2,
       0,
       1,
@@ -531,9 +541,27 @@ export class LearnerAdvisor {
   }
 
   async recordDecision(record: LearnerDecisionRecord): Promise<void> {
+    const reason = record.reason ? redactSecrets(record.reason, 240) : undefined;
+    const taskRun = await this.deps.state.getTaskRun(record.taskRunId);
+    if (taskRun) {
+      const observation = await this.deps.state.createObservation({
+        taskRunId: taskRun.id,
+        threadId: taskRun.threadId,
+        projectKey: await deriveProjectKey({ targetDir: taskRun.targetDir }),
+        source: "learner",
+        eventType: `recommendation_${record.decision}`,
+        signal: record.decision,
+        summary: `learner recommendation ${record.decision}`,
+        payload: {
+          recommendationId: record.recommendationId,
+          reason: reason ?? null,
+        },
+      });
+      await this.deps.onObservationRecorded?.(observation);
+    }
     const line = JSON.stringify({
       ...record,
-      reason: record.reason ? redactSecrets(record.reason, 240) : undefined,
+      reason,
       recordedAt: new Date().toISOString(),
     });
     await fs.mkdir(this.deps.decisionLogDir, { recursive: true });
@@ -565,7 +593,7 @@ export class LearnerAdvisor {
       payload.score = Number(record.score.toFixed(6));
     }
     if (record.reuseRisk !== undefined) payload.reuseRisk = record.reuseRisk;
-    await this.deps.state.createObservation({
+    const observation = await this.deps.state.createObservation({
       taskRunId: taskRun.id,
       threadId: taskRun.threadId,
       projectKey,
@@ -575,6 +603,7 @@ export class LearnerAdvisor {
       summary: `user ${decision} recalled context ${observationId}`,
       payload,
     });
+    await this.deps.onObservationRecorded?.(observation);
   }
 }
 

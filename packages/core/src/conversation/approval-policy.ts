@@ -18,6 +18,7 @@ const ACTIONS_REQUIRING_APPROVAL: ReadonlySet<ApprovalActionType> = new Set([
   "model_use",
   "file_patch",
   "file_write",
+  "file_delete",
   "shell",
   "dependency_install",
   "git_commit",
@@ -27,6 +28,7 @@ const ACTIONS_REQUIRING_APPROVAL: ReadonlySet<ApprovalActionType> = new Set([
 ]);
 
 const HIGH_RISK_ACTIONS: ReadonlySet<ApprovalActionType> = new Set([
+  "file_delete",
   "dependency_install",
   "network",
   "git_commit",
@@ -35,6 +37,8 @@ const HIGH_RISK_ACTIONS: ReadonlySet<ApprovalActionType> = new Set([
 ]);
 
 const MANUAL_ONLY_ACTIONS: ReadonlySet<ApprovalActionType> = new Set([
+  "shell",
+  "file_delete",
   "dependency_install",
   "network",
   "git_commit",
@@ -128,6 +132,8 @@ const approvalActionReason = (actionType: ApprovalActionType): string => {
       return "File patches modify the workspace and must be confirmed.";
     case "file_write":
       return "File writes modify the workspace and must be confirmed.";
+    case "file_delete":
+      return "Single-file deletion uses the Recycle Bin and requires manual confirmation.";
     case "shell":
       return "Shell commands run with local permissions and must be confirmed.";
     case "dependency_install":

@@ -19,6 +19,9 @@ const launchIsolatedApp = async () => {
       // Force a fresh, sandboxed state directory so the test never
       // collides with the developer's real userData.
       HARNESS_E2E_USER_DATA: userData,
+      // Exercise the complete Electron IPC/orchestration/UI path without
+      // invoking a developer's real Codex CLI or consuming remote capacity.
+      HARNESS_E2E_FAKE_AGENT: "1",
     },
   });
   return {
@@ -46,9 +49,7 @@ test("workbench launches and creates a thread", async () => {
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
 
-    // Sidebar header is in Korean per UX, so anchor on the aria-label
-    // we control instead.
-    const sidebar = window.locator('aside[aria-label="Thread sidebar"]');
+    const sidebar = window.locator('aside[aria-label="스레드 사이드바"]');
     await expect(sidebar).toBeVisible();
 
     await window
@@ -220,6 +221,204 @@ test("workbench launches and creates a thread", async () => {
   }
 });
 
+test("language toggle persists Korean and English UI preference", async () => {
+  const { app, cleanup } = await launchIsolatedApp();
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    await expect(window.locator(".panel-header__title").first()).toContainText("스레드");
+    await window.getByRole("button", { name: "Switch to English" }).click();
+    await expect(window.locator(".panel-header__title").first()).toContainText(/threads/i);
+    await expect.poll(() => window.evaluate(async () => (
+      await window.harness.settings.get()
+    ).ui.language)).toBe("en");
+    const untranslatedVisibleText = await window.evaluate(() => {
+      const nodes = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const values = new Set<string>();
+      for (let node = nodes.nextNode(); node; node = nodes.nextNode()) {
+        const text = node.textContent?.trim() ?? "";
+        const parent = node.parentElement;
+        if (!text || !/[가-힣]/.test(text) || !parent) continue;
+        const style = window.getComputedStyle(parent);
+        if (style.display !== "none" && style.visibility !== "hidden") {
+          values.add(text);
+        }
+      }
+      return [...values].sort();
+    });
+    // The language toggle intentionally shows the destination language.
+    expect(untranslatedVisibleText).toEqual(["한"]);
+
+    await window.getByRole("button", { name: "Open settings" }).click();
+    const settingsDialog = window.getByRole("dialog", { name: "Settings" });
+    const parallelLimit = settingsDialog.getByLabel(
+      "Maximum parallel AI workers",
+    );
+    await expect(parallelLimit).toHaveValue("3");
+    await parallelLimit.fill("4");
+    await settingsDialog.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(settingsDialog).toBeHidden();
+    await expect.poll(() => window.evaluate(async () => (
+      await window.harness.settings.get()
+    ).orchestration.maxParallelWorkers)).toBe(4);
+
+    await window.getByRole("button", { name: "한국어로 전환" }).click();
+    await expect(window.locator(".panel-header__title").first()).toContainText("스레드");
+    await expect.poll(() => window.evaluate(async () => (
+      await window.harness.settings.get()
+    ).ui.language)).toBe("ko");
+  } finally {
+    await cleanup();
+  }
+});
+
+test("parallel pipeline is bounded, visible, and cancellable in Electron", async () => {
+  test.setTimeout(60_000);
+  const { app, projectDir, cleanup } = await launchIsolatedApp();
+  try {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    const setup = await window.evaluate(async ({ targetDir }) => {
+      const profiles = await window.harness.agents.list();
+      if (profiles.length < 3) throw new Error("Expected seeded agent profiles");
+
+      const settings = await window.harness.settings.get();
+      await window.harness.settings.update({
+        ...settings,
+        orchestration: {
+          ...settings.orchestration,
+          enabled: true,
+          maxParallelWorkers: 2,
+        },
+      });
+      const pipeline = await window.harness.pipeline.create({
+        pipeline: {
+          name: "E2E bounded parallel",
+          description: "Three independent workers with a two-worker limit.",
+          steps: profiles.slice(0, 3).map((profile, index) => ({
+            id: `parallel_${index + 1}`,
+            agentProfileId: profile.id,
+            title: `Parallel worker ${index + 1}`,
+            instruction: `Return worker result ${index + 1}.`,
+            expectedArtifactKinds: ["plan"],
+            dependsOn: [],
+            allowedActions: [],
+            outputContract: "plan",
+          })),
+        },
+      });
+      const thread = await window.harness.state.createThread({
+        title: "E2E parallel task",
+        targetDir,
+        pipelineId: pipeline.id,
+      });
+      const draft = await window.harness.conversation.startTask({
+        threadId: thread.id, targetDir,
+        userRequest: "세 작업을 동시에 실행해줘",
+        orchMode: "multi_worker", orchPipelineId: pipeline.id,
+      });
+      return {
+        threadId: thread.id,
+        taskRunId: draft.taskRun.id,
+        pipelineId: pipeline.id,
+      };
+    }, { targetDir: projectDir });
+
+    // The setup uses the typed preload API directly, so reload once to hydrate
+    // the sidebar from the canonical SQLite state before selecting the thread.
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await window.getByRole("button", { name: /E2E parallel task/ }).click();
+    await expect(window.locator(".chat-turn")).toHaveCount(1);
+    await window.locator(".chat-turn").click();
+    await expect(window.locator(".chat-turn--selected")).toHaveCount(1);
+
+    await expect.poll(async () => {
+      const detail = await window.evaluate(
+        ({ taskRunId }) =>
+          window.harness.conversation.getTaskRunDetail({ taskRunId }),
+        { taskRunId: setup.taskRunId },
+      );
+      return {
+        status: detail.taskRun.status,
+        approvals: detail.approvals.map(a => ({ type: a.actionType, status: a.status, decision: a.decisionMessage })),
+        errors: detail.steps.filter(s => s.status === "failed").map(s => s.outputSummary),
+        running: detail.agentInvocations.filter(
+          (invocation) => invocation.status === "running",
+        ).length,
+        queued: detail.agentInvocations.filter(
+          (invocation) => invocation.status === "queued",
+        ).length,
+      };
+    }).toMatchObject({ running: 2, queued: 0 });
+    await expect.poll(async () =>
+      window.locator(".parallel-execution-status").textContent(),
+    ).toMatch(/병렬 실행 중 2\/3.*대기 중 1/);
+    await expect.poll(async () => {
+      const detail = await window.evaluate(
+        ({ taskRunId }) =>
+          window.harness.conversation.getTaskRunDetail({ taskRunId }),
+        { taskRunId: setup.taskRunId },
+      );
+      return detail.agentInvocations.filter(
+        (invocation) => invocation.status === "succeeded",
+      ).length;
+    }, { timeout: 20_000 }).toBe(3);
+
+    const cancelSetup = await window.evaluate(async ({ threadId, targetDir, pipelineId }) => {
+      const draft = await window.harness.conversation.startTask({
+        threadId, targetDir,
+        userRequest: "취소 동작도 확인해줘",
+        orchMode: "multi_worker", orchPipelineId: pipelineId,
+      });
+      return { taskRunId: draft.taskRun.id };
+    }, {
+      threadId: setup.threadId,
+      targetDir: projectDir,
+      pipelineId: setup.pipelineId,
+    });
+    await expect(window.locator(".chat-turn")).toHaveCount(2);
+    // Select via the visible task navigator; its sticky header can cover the chat card center.
+    await window.locator(".thread-task-flow__node").last().click();
+    await expect.poll(async () => {
+      const detail = await window.evaluate(
+        ({ taskRunId }) =>
+          window.harness.conversation.getTaskRunDetail({ taskRunId }),
+        { taskRunId: cancelSetup.taskRunId },
+      );
+      return detail.agentInvocations.filter(
+        (invocation) => invocation.status === "running",
+      ).length;
+    }).toBe(2);
+    await window.evaluate(
+      ({ taskRunId }) =>
+        window.harness.conversation.cancelTask({
+          taskRunId,
+          reason: "E2E cancellation verification",
+        }),
+      { taskRunId: cancelSetup.taskRunId },
+    );
+    await expect.poll(async () => {
+      const detail = await window.evaluate(
+        ({ taskRunId }) =>
+          window.harness.conversation.getTaskRunDetail({ taskRunId }),
+        { taskRunId: cancelSetup.taskRunId },
+      );
+      return {
+        status: detail.taskRun.status,
+        invocationCount: detail.agentInvocations.length,
+        allCancelled: detail.agentInvocations.every(
+          (invocation) => invocation.status === "cancelled",
+        ),
+      };
+    }).toEqual({ status: "cancelled", invocationCount: 2, allCancelled: true });
+  } finally {
+    await cleanup();
+  }
+});
+
 test("settings pipelines tab exposes seeded templates and request ranking", async () => {
   const { app, cleanup } = await launchIsolatedApp();
   try {
@@ -229,7 +428,7 @@ test("settings pipelines tab exposes seeded templates and request ranking", asyn
     await window.getByRole("button", { name: "설정 열기" }).click();
     await expect(window.getByRole("dialog", { name: "설정" })).toBeVisible();
 
-    await window.getByRole("tab", { name: "Pipelines" }).click();
+    await window.getByRole("tab", { name: "파이프라인" }).click();
     const pipelineList = window.locator(".pipelines-tab__items");
     await expect(pipelineList).toBeVisible();
     await expect(
@@ -256,7 +455,7 @@ test("settings pipelines tab exposes seeded templates and request ranking", asyn
   }
 });
 
-test("settings exposes only Codex 5.6 models and every reasoning effort", async () => {
+test("settings exposes supported Codex models and every reasoning effort", async () => {
   const { app, cleanup } = await launchIsolatedApp();
   try {
     const window = await app.firstWindow();
@@ -266,19 +465,24 @@ test("settings exposes only Codex 5.6 models and every reasoning effort", async 
     const dialog = window.getByRole("dialog", { name: "설정" });
     await expect(dialog).toBeVisible();
 
-    await expect(dialog.getByLabel("Provider", { exact: true })).toHaveText(
+    await expect(dialog.getByLabel("제공자", { exact: true })).toHaveText(
       "Codex 전용",
     );
 
-    const model = dialog.getByLabel("Model", { exact: true });
-    const models = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+    const model = dialog.getByLabel("모델", { exact: true });
+    const models = [
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+    ];
     await expect(model.locator("option")).toHaveText(models);
     for (const value of models) {
       await model.selectOption(value);
       await expect(model).toHaveValue(value);
     }
 
-    const reasoning = dialog.getByLabel("Reasoning effort", { exact: true });
+    const reasoning = dialog.getByLabel("추론 수준", { exact: true });
     const efforts = ["none", "low", "medium", "high", "xhigh", "max"];
     await expect(reasoning.locator("option")).toHaveText(efforts);
     for (const value of efforts) {
@@ -293,11 +497,11 @@ test("settings exposes only Codex 5.6 models and every reasoning effort", async 
 
     await window.getByRole("button", { name: "설정 열기" }).click();
     const reopened = window.getByRole("dialog", { name: "설정" });
-    await expect(reopened.getByLabel("Model", { exact: true })).toHaveValue(
+    await expect(reopened.getByLabel("모델", { exact: true })).toHaveValue(
       "gpt-5.6-terra",
     );
     await expect(
-      reopened.getByLabel("Reasoning effort", { exact: true }),
+      reopened.getByLabel("추론 수준", { exact: true }),
     ).toHaveValue("xhigh");
   } finally {
     await cleanup();
@@ -312,7 +516,7 @@ test("settings visual pipeline builder supports node connection editing", async 
 
     await window.getByRole("button", { name: "설정 열기" }).click();
     await expect(window.getByRole("dialog", { name: "설정" })).toBeVisible();
-    await window.getByRole("tab", { name: "Pipelines" }).click();
+    await window.getByRole("tab", { name: "파이프라인" }).click();
     await window.getByRole("button", { name: "+ 새 파이프라인" }).click();
 
     const builder = window.locator(".pipeline-visual-builder");
@@ -335,12 +539,13 @@ test("settings visual pipeline builder supports node connection editing", async 
     expect(handleBox).not.toBeNull();
     await window.mouse.move(handleBox!.x + 20, handleBox!.y + 12);
     await window.mouse.down();
-    await window.mouse.move(handleBox!.x + 390, handleBox!.y + 230);
+    await window.mouse.move(handleBox!.x + 390, handleBox!.y + 230, { steps: 8 });
     await window.mouse.up();
-    const afterDrag = await firstNode.boundingBox();
-    expect(afterDrag).not.toBeNull();
-    expect(afterDrag!.x).toBeGreaterThan(beforeDrag!.x + 280);
-    expect(afterDrag!.y).toBeGreaterThan(beforeDrag!.y + 150);
+    // Pointer events update React state asynchronously; assert the rendered position.
+    await expect.poll(async () => (await firstNode.boundingBox())?.x ?? 0)
+      .toBeGreaterThan(beforeDrag!.x + 280);
+    await expect.poll(async () => (await firstNode.boundingBox())?.y ?? 0)
+      .toBeGreaterThan(beforeDrag!.y + 150);
 
     const dependencyEdge = builder.locator(".pipeline-visual__edge.pipeline-visual__link--dependency").first();
     const edgeStyle = await dependencyEdge.evaluate((node) => {

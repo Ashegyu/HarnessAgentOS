@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<ApprovalActionType, string> = {
   model_use: "Learner 모델 추천",
   file_patch: "파일 패치",
   file_write: "파일 쓰기",
+  file_delete: "파일 휴지통 이동 (항상 수동)",
   shell: "쉘 명령",
   dependency_install: "의존성 설치",
   git_commit: "git commit",
@@ -597,7 +598,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
                   ))}
                 </select>
                 <span className="settings-field__hint">
-                  이 프로필에서 사용할 Codex 5.6 모델을 선택합니다.
+                  이 프로필에서 사용할 Codex 모델을 선택합니다. GPT-6 Astra도 지원합니다.
                 </span>
               </label>
               <label className="settings-field">
@@ -1073,7 +1074,7 @@ export const AgentProfilesTab = ({ onSaved }: Props): JSX.Element => {
             <fieldset className="settings-fieldset">
               <legend>비용 한도</legend>
               <p className="settings-field__hint">
-                비워두면 무제한입니다. 한도를 넘기 직전 invocation은 pre-execution budget gate에서 차단됩니다.
+                비워두면 USD 제한을 적용하지 않습니다. 한도를 설정하면 비용 미확인 호출은 실행 전에 차단됩니다. 현재 CLI의 과금 방식과 호출 전 비용은 미확인입니다.
               </p>
               <label className="settings-field">
                 <span className="settings-field__label">

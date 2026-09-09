@@ -2,16 +2,21 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent,
 } from "react";
 import type {
   AgentPipeline,
+  AgentProviderStatusMap,
   HarnessBindingSet,
   HarnessDefinition,
   OrchestrationMode,
+  TaskIntent,
 } from "@harness/core";
+import { buildTaskContract, isTaskIntent, taskRouteConflict } from "@harness/core";
 import { FeatureHelpButton } from "./FeatureHelpButton";
+import { useI18n } from "../../app/i18n";
 
 export type ConversationMode = "template" | "agent";
 
@@ -39,6 +44,7 @@ interface ConversationInputProps {
   threadPipelineId?: string | undefined;
   /** Whether at least one agent CLI provider is currently available. */
   agentAvailable: boolean;
+  onCheckProviders?: () => Promise<AgentProviderStatusMap | null>;
   /**
    * Optional seed payload to inject text into the composer (e.g. when a
    * suggestion chip is clicked). The object reference change triggers
@@ -48,6 +54,7 @@ interface ConversationInputProps {
   composerSeed?: { text: string; key: number } | null;
   onSubmit: (input: {
     userRequest: string;
+    intent?: TaskIntent;
     targetDir?: string;
     followUpTaskRunId?: string;
     mode: ConversationMode;
@@ -72,16 +79,54 @@ export const ConversationInput = ({
   threadPipelineId,
   followUpTaskRun,
   agentAvailable,
+  onCheckProviders,
   composerSeed,
   onSubmit,
 }: ConversationInputProps): JSX.Element => {
+  const { tk: t } = useI18n();
   const [text, setText] = useState("");
+  const [intent, setIntent] = useState<"auto" | TaskIntent>("auto");
+  const previewContract = buildTaskContract({
+    userRequest: text,
+    ...(intent !== "auto" ? { intent } : {}),
+  });
+  const readOnly = previewContract.authorization.mode === "read_only";
+  const noSearch = previewContract.externalSearch === "forbidden";
   const [overrideDir, setOverrideDir] = useState("");
   const [showDirOverride, setShowDirOverride] = useState(false);
   const [includeFollowUpContext, setIncludeFollowUpContext] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const mode: ConversationMode = agentAvailable ? "agent" : "template";
+  const [connected, setConnected] = useState(agentAvailable);
+  const [checkingConnection, setCheckingConnection] = useState(false);
+  const operationInFlight = useRef(false);
+  // The interactive composer never silently downgrades an AI request to the
+  // legacy template workflow. Explicit template IPC callers remain supported.
+  const mode: ConversationMode = "agent";
+  useEffect(() => setConnected(agentAvailable), [agentAvailable]);
+
+  const checkConnection = async (): Promise<void> => {
+    let providers: AgentProviderStatusMap | null;
+    try {
+      providers = await (onCheckProviders ? onCheckProviders() : window.harness.agent.checkProviders());
+    } catch {
+      setConnected(false);
+      throw new Error(t("cli.checkFailed"));
+    }
+    setConnected(providers?.codex.available ?? false);
+    if (!providers) throw new Error(t("cli.checkFailed"));
+    if (!providers.codex.available) throw new Error(t("cli.unavailable"));
+  };
+
+  const recheckConnection = async (): Promise<void> => {
+    if (operationInFlight.current) return;
+    operationInFlight.current = true;
+    setCheckingConnection(true);
+    setError(null);
+    try { await checkConnection(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setCheckingConnection(false); operationInFlight.current = false; }
+  };
 
   // Per-message pipeline picker. The thread's `pipelineId` (if any) and
   // `settings.orchestration.defaultPipelineId` pre-fill the dropdown, but
@@ -230,15 +275,25 @@ export const ConversationInput = ({
   }, [followUpTaskRun?.id]);
 
   const targetDir = overrideDir.trim() || threadTargetDir || "";
-  const canSubmit = !submitting && text.trim().length > 0 && targetDir.length > 0;
+  const canSubmit = !submitting && !checkingConnection && threadId !== null && text.trim().length > 0 && targetDir.length > 0;
 
   const submit = async (): Promise<void> => {
-    if (!canSubmit) return;
+    if (!canSubmit || operationInFlight.current) return;
+    operationInFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
+      const routeConflict = taskRouteConflict(previewContract, !!(orchPipelineId || orchHarnessKey));
+      if (routeConflict) throw new Error(routeConflict);
+      if ((orchPipelineId || orchHarnessKey) && !orchEnabled) {
+        throw new Error("선택한 하네스·파이프라인의 실행 설정이 꺼져 있습니다. 선택을 해제하거나 오케스트레이션을 켜세요.");
+      }
+      setCheckingConnection(true);
+      await checkConnection();
+      setCheckingConnection(false);
       const payload: {
         userRequest: string;
+        intent?: TaskIntent;
         targetDir?: string;
         followUpTaskRunId?: string;
         mode: ConversationMode;
@@ -254,6 +309,7 @@ export const ConversationInput = ({
         userRequest: text.trim(),
         mode,
       };
+      if (intent !== "auto") payload.intent = intent;
       if (overrideDir.trim().length > 0) payload.targetDir = overrideDir.trim();
       else if (!threadTargetDir) payload.targetDir = targetDir;
       if (followUpTaskRun && includeFollowUpContext) {
@@ -262,10 +318,10 @@ export const ConversationInput = ({
       // Per-message pipeline pick. Empty value means "(없음 — 일반
       // 채팅)" so we deliberately omit orchPipelineId from the payload
       // and the regular agent flow runs.
-      if (orchEnabled && orchPipelineId.length > 0) {
+      if (!readOnly && orchEnabled && orchPipelineId.length > 0 && !noSearch) {
         payload.orchPipelineId = orchPipelineId;
       }
-      if (orchEnabled && orchHarnessKey.length > 0) {
+      if (!readOnly && orchEnabled && orchHarnessKey.length > 0 && !noSearch) {
         const option = harnessRouteOptions.find(
           (item) => item.key === orchHarnessKey,
         );
@@ -285,6 +341,8 @@ export const ConversationInput = ({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSubmitting(false);
+      setCheckingConnection(false);
+      operationInFlight.current = false;
     }
   };
 
@@ -366,7 +424,7 @@ export const ConversationInput = ({
               if (e.target.value.length > 0) setOrchHarnessKey("");
             }}
             onFocus={() => void refreshPipelines()}
-            disabled={submitting || !orchEnabled || pipelines.length === 0}
+            disabled={submitting || readOnly || noSearch || !orchEnabled || pipelines.length === 0}
           >
             <option value="">
               {!orchEnabled
@@ -405,7 +463,7 @@ export const ConversationInput = ({
             }}
             onFocus={() => void refreshHarnessRoutes()}
             disabled={
-              submitting || !orchEnabled || harnessRouteOptions.length === 0
+              submitting || readOnly || noSearch || !orchEnabled || harnessRouteOptions.length === 0
             }
           >
             <option value="">
@@ -422,6 +480,34 @@ export const ConversationInput = ({
             ))}
           </select>
         </label>
+      </div>
+      <div className="conversation-input__context-row">
+        <label className="conversation-input__pipeline">
+          <span className="conversation-input__pipeline-label">작업 목적</span>
+          <select
+            className="conversation-input__pipeline-select"
+            aria-label="작업 목적"
+            value={intent}
+            disabled={submitting}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "auto" || isTaskIntent(value)) setIntent(value);
+            }}
+          >
+            <option value="auto">자동 판단</option>
+            <option value="answer">답변 / 요약</option>
+            <option value="review">검토만</option>
+            <option value="diagnose">원인 분석만</option>
+            <option value="change">수정 / 구현</option>
+            <option value="research">자료 조사</option>
+          </select>
+        </label>
+        {readOnly && (
+          <span className="conversation-input__hint" role="status">
+            읽기 전용 — 파일 변경과 파이프라인 실행 없이 일반 채팅으로 처리합니다.
+          </span>
+        )}
+        {noSearch && <span className="conversation-input__hint">외부 검색 금지 — 외부 도구와 Host 명령은 실행하지 않습니다.</span>}
       </div>
       {followUpTaskRun ? (
         <label
@@ -456,17 +542,20 @@ export const ConversationInput = ({
         disabled={submitting || threadId === null}
         rows={3}
       />
-      {error && <div className="conversation-input__error">{error}</div>}
+      {error && <div className="conversation-input__error" role="alert">{error}</div>}
+      {(orchPipelineId || orchHarnessKey) && (readOnly || noSearch || !orchEnabled) && (
+        <button type="button" disabled={submitting} onClick={() => {
+          setOrchPipelineId(""); setOrchHarnessKey(""); setError(null);
+        }}>하네스·파이프라인 선택 해제</button>
+      )}
       <div className="conversation-input__footer">
         <span className="conversation-input__hint">
-          {submitting
-            ? mode === "agent"
-              ? "Agent 호출 중…"
-              : "계획 생성 중…"
-            : mode === "agent"
-              ? "Agent CLI가 plan과 approval을 생성합니다 — 모든 side effect는 승인 후 실행."
-              : "CLI provider가 없어 기본 plan / checkpoint / approval을 생성합니다."}
+          {checkingConnection ? t("cli.checking")
+            : submitting ? "Agent 호출 중…"
+            : connected ? "Agent CLI가 plan과 approval을 생성합니다 — 모든 side effect는 승인 후 실행."
+            : t("cli.required")}
         </span>
+        {!connected && <button type="button" disabled={submitting || checkingConnection} onClick={() => void recheckConnection()}>{t("cli.check")}</button>}
         <button type="button" disabled={!canSubmit} onClick={() => void submit()}>
           {submitting ? "처리 중…" : "전송"}
         </button>

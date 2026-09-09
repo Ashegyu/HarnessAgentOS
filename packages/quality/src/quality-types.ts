@@ -10,6 +10,7 @@ export interface EvidenceBundle {
 }
 
 export interface QualityRequirement {
+  verifiedReportDelivery?: boolean;
   requireBuild?: boolean;
   requireTests?: boolean;
   requireSmoke?: boolean;

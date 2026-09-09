@@ -58,9 +58,12 @@ import {
   refreshSkillSourceCapabilities,
 } from "./skill-source-refresh";
 import { executeA2ARefinementApproval } from "../a2a-refinement-approval-executor";
-import { eventBus } from "../event-bus";
+import { eventBus, setTaskRunChangedObserver } from "../event-bus";
 import { PipelineBackflowService } from "../pipeline-backflow-service";
 import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
+import { AutomaticQualityService } from "../services/automatic-quality-service";
+import { createTaskProgressionHost } from "../services/task-progression-host";
+import { ConversationStartService } from "../services/conversation-start-service";
 
 export interface IpcContext {
   state: LocalStateService;
@@ -111,13 +114,84 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     agentPlanning: ctx.agentPlanning,
     onTaskRunChanged: (taskRunId) => eventBus.taskRunChanged(taskRunId),
   });
+  const automaticQuality = new AutomaticQualityService({
+    state: ctx.state,
+    evaluator: ctx.qualityEvaluator,
+    completion: ctx.qualityCompletion,
+    onQualityGate: async (result) => {
+      await ctx.instinctService.recordQualityGate(result);
+    },
+    onQualityFailure: async (result) => {
+      await pipelineBackflow.runForQualityFailure(result);
+    },
+    onTaskRunChanged: (taskRunId) =>
+      eventBus.taskRunChanged(taskRunId, { skipAutomaticQuality: true }),
+    onError: (taskRunId, error) => {
+      console.error(`[harness:auto-quality] ${taskRunId}`, error);
+    },
+  });
+  const progression = createTaskProgressionHost({
+    state: ctx.state,
+    conversation: ctx.conversation,
+    execute: async approval => {
+      if (approval.actionType === "orchestration_plan") {
+        return ctx.orchestrationService.runApproved({ approvalId: approval.id });
+      }
+      const override = await executeA2ARefinementApproval({
+        state: ctx.state, approvalId: approval.id,
+        emitStreamEvent: event => eventBus.agentStreamEvent(event),
+      });
+      const result = override ?? await ctx.runner.executeApproved(approval.id);
+      try { await refreshGeneratedSkillSourceAfterRunner(ctx, approval.id); }
+      catch { /* Advisory registry refresh cannot turn a successful write into a retry. */ }
+      return result;
+    },
+    evaluateQuality: taskRunId => automaticQuality.evaluateIfReady(taskRunId),
+    resumePlanning: async taskRunId => {
+      const settings = await ctx.state.getSettings();
+      return ctx.agentPlanning.generatePlan({ taskRunId,
+        timeoutMs: settings.agent.timeoutMs, stallTimeoutMs: settings.agent.stallTimeoutMs });
+    },
+    changed: taskRunId => eventBus.taskRunChanged(taskRunId, { skipAutomaticQuality: true }),
+    onError: (taskRunId, error) => console.error(`[harness:progression] ${taskRunId}`, error),
+  });
+  // Remember only tasks touched this process. Changing settings must not silently
+  // start historical pending tasks from a previous session.
+  const activeTaskRunIds = new Set<string>();
+  setTaskRunChangedObserver(taskRunId => {
+    activeTaskRunIds.add(taskRunId);
+    progression.schedule(taskRunId);
+  });
   registerAppIpc({ diagnostics: ctx.diagnosticsService });
+  const startService = new ConversationStartService({
+    createTask: input => ctx.conversation.createTask(input),
+    hold: id => progression.hold(id),
+    getTaskRun: id => ctx.state.getTaskRun(id),
+    proposeCapabilities: async taskRunId => {
+      const [task, settings, profiles] = await Promise.all([
+        ctx.state.getTaskRun(taskRunId), ctx.state.getSettings(), ctx.state.agentProfiles.list(),
+      ]);
+      if (!task) return;
+      const profile = profiles.find(p => p.id === settings.activeAgentProfileId) ?? profiles.find(p => p.isDefault);
+      return ctx.capabilityService.proposeCandidateApprovals({ taskRunId, prompt: task.userRequest, profileId: profile?.id ?? null });
+    },
+    proposeRecommendation: taskRunId => ctx.learnerAdvisor.proposeRecommendationApprovals({ taskRunId }),
+    draftOrchestration: input => ctx.orchestrationService.draftPlan(input),
+    markPlanningReady: taskRunId => ctx.state.createArtifact({ taskRunId, kind: "snapshot",
+      title: "AI 실행 준비 완료", uri: `harness:planning-ready/${taskRunId}`,
+      summary: "추천 후보 준비가 끝났습니다. 승인/거절 결정 후 메인에서 AI를 시작합니다." }),
+    changed: id => eventBus.taskRunChanged(id),
+    fail: (id, error) => progression.fail(id, error),
+    onError: (id, error) => console.error(`[harness:start] ${id}`, error),
+  });
   registerStateIpc(ctx.state, eventBus);
   registerConversationIpc(
     ctx.conversation,
     ctx.state,
     eventBus,
     ctx.instinctService,
+    ctx.agentPlanning,
+    startService,
   );
   registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus, {
     executeApprovedOverride: ({ approvalId }) =>
@@ -158,7 +232,10 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     },
     eventBus,
   );
-  registerSettingsIpc(ctx.state, ctx.onSettingsUpdate);
+  registerSettingsIpc(ctx.state, settings => {
+    ctx.onSettingsUpdate?.(settings);
+    for (const taskRunId of activeTaskRunIds) progression.schedule(taskRunId);
+  });
   registerAgentsIpc({
     state: {
       profiles: ctx.state.agentProfiles,

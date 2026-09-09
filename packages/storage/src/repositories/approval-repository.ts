@@ -13,8 +13,10 @@ import { newId, nowIso } from "../id.ts";
 import { rowToApproval } from "./row-mappers.ts";
 
 export interface ApprovalRepository {
+  claimExecution(id: string, revision: number, token: string): Promise<Approval>;
+  finishExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void>;
   create(input: CreateApprovalInput): Promise<Approval>;
-  listByTaskRun(taskRunId: string): Promise<Approval[]>;
+  listByTaskRun(taskRunId: string, order?: "display" | "execution"): Promise<Approval[]>;
   get(id: string): Promise<Approval | null>;
   listAllWithDecisionTrace(input: DecisionLogInput): Promise<DecisionLogPage>;
   decide(
@@ -29,8 +31,8 @@ export interface ApprovalRepository {
   ): Promise<Approval>;
 }
 
-const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json, auto_approve_decision_json`;
-const SELECT_COLUMNS_PREFIXED = `a.id, a.task_run_id, a.checkpoint_id, a.action_type, a.action_summary, a.status, a.decision_message, a.decided_at, a.proposed_action_json, a.policy_evaluation_json, a.auto_approve_decision_json`;
+const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json, auto_approve_decision_json, action_revision, approved_revision, requires_manual_approval, execution_state, execution_started_at, execution_finished_at`;
+const SELECT_COLUMNS_PREFIXED = SELECT_COLUMNS.split(", ").map(column => `a.${column}`).join(", ");
 
 export class SqliteApprovalRepository implements ApprovalRepository {
   private readonly db: HarnessDb;
@@ -80,15 +82,22 @@ export class SqliteApprovalRepository implements ApprovalRepository {
             : null,
       });
 
-    return approval;
+    // Only trusted service callers can seed an already-approved record.
+    if (approval.status === "approved" || approval.status === "always_approved_for_run") {
+      this.db.prepare(`UPDATE approvals SET approved_revision=action_revision,
+        approved_action_json=proposed_action_json WHERE id=?`).run(approval.id);
+    }
+    return (await this.get(approval.id))!;
   }
 
-  async listByTaskRun(taskRunId: string): Promise<Approval[]> {
+  async listByTaskRun(taskRunId: string, order: "display" | "execution" = "display"): Promise<Approval[]> {
+    const ordering = order === "execution" ? "rowid ASC" :
+      "CASE WHEN decided_at IS NULL THEN 1 ELSE 0 END ASC, datetime(decided_at) DESC, rowid DESC";
     const rows = this.db
       .prepare(
         `SELECT ${SELECT_COLUMNS}
          FROM approvals WHERE task_run_id = ?
-         ORDER BY id ASC`,
+         ORDER BY ${ordering}`,
       )
       .all(taskRunId) as Parameters<typeof rowToApproval>[0][];
     return rows.map(rowToApproval);
@@ -180,6 +189,17 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   ): Promise<Approval> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`Approval ${id} not found`);
+    if (options?.expectedRevision !== undefined && options.expectedRevision !== existing.actionRevision) {
+      throw new Error("APPROVAL_REVISION_MISMATCH: refresh the approval before deciding");
+    }
+    const approving = decision === "approved" || decision === "always_approved_for_run";
+    if (approving && (existing.status !== "pending" || existing.executionState)) {
+      throw new Error("APPROVAL_TRANSITION_LOCKED: only an unexecuted pending approval may be approved");
+    }
+    if (decision === "rejected" && (existing.executionState || existing.status === "executed" || existing.status === "rejected")) {
+      throw new Error("APPROVAL_TRANSITION_LOCKED");
+    }
+    if (decision === "pending") throw new Error("APPROVAL_TRANSITION_LOCKED: create a new approval");
     const next: Approval = { ...existing, status: decision };
     if (message !== undefined) next.decisionMessage = message;
     next.decidedAt = nowIso();
@@ -190,17 +210,24 @@ export class SqliteApprovalRepository implements ApprovalRepository {
       ? (options.autoApproveDecision ?? null)
       : (existing.autoApproveDecision ?? null);
 
-    this.db
+    const updated = this.db
       .prepare(
         `UPDATE approvals
          SET status=@status,
              decision_message=@decisionMessage,
              decided_at=@decidedAt,
-             auto_approve_decision_json=@autoApproveDecisionJson
-         WHERE id=@id`,
+             auto_approve_decision_json=@autoApproveDecisionJson,
+             approved_revision=CASE WHEN @approving THEN action_revision ELSE approved_revision END,
+             approved_action_json=CASE WHEN @approving THEN proposed_action_json ELSE approved_action_json END
+         WHERE id=@id AND action_revision=@revision AND status=@previousStatus
+           AND (@approving=0 OR execution_state IS NULL)
+           AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`,
       )
       .run({
         id: next.id,
+        approving: approving ? 1 : 0,
+        revision: existing.actionRevision ?? 1,
+        previousStatus: existing.status,
         status: next.status,
         decisionMessage: next.decisionMessage ?? null,
         decidedAt: next.decidedAt ?? null,
@@ -210,7 +237,8 @@ export class SqliteApprovalRepository implements ApprovalRepository {
             ? JSON.stringify(next.autoApproveDecision)
             : null,
       });
-    return next;
+    if (updated.changes !== 1) throw new Error("APPROVAL_TRANSITION_LOCKED: approval changed or task is terminal");
+    return (await this.get(id))!;
   }
 
   async setProposedAction(
@@ -219,12 +247,37 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   ): Promise<Approval> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`Approval ${id} not found`);
-    this.db
+    if (existing.executionState || existing.status === "executed" || existing.status === "rejected") {
+      throw new Error("APPROVAL_ACTION_LOCKED: create a new approval after reviewing the previous attempt");
+    }
+    const updated = this.db
       .prepare(
-        `UPDATE approvals SET proposed_action_json=? WHERE id=?`,
+        `UPDATE approvals SET proposed_action_json=?, action_revision=action_revision+1,
+          requires_manual_approval=CASE WHEN status IN ('approved','always_approved_for_run') THEN 1 ELSE requires_manual_approval END,
+          status='pending', approved_revision=NULL, approved_action_json=NULL,
+          auto_approve_decision_json=NULL
+          WHERE id=? AND action_revision=? AND execution_state IS NULL AND status NOT IN ('executed','rejected')
+          AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`,
       )
-      .run(JSON.stringify(details), id);
-    return { ...existing, proposedAction: details };
+      .run(JSON.stringify(details), id, existing.actionRevision ?? 1);
+    if (updated.changes !== 1) throw new Error("APPROVAL_ACTION_LOCKED");
+    return (await this.get(id))!;
+  }
+
+  async claimExecution(id: string, revision: number, token: string): Promise<Approval> {
+    const claimed = this.db.prepare(`UPDATE approvals SET execution_state='running', execution_token=?, execution_started_at=?
+      WHERE id=? AND action_revision=? AND approved_revision=action_revision
+        AND approved_action_json=proposed_action_json AND execution_state IS NULL
+        AND status IN ('approved','always_approved_for_run')
+        AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`)
+      .run(token, nowIso(), id, revision);
+    if (claimed.changes !== 1) throw new Error("APPROVAL_CLAIM_LOCKED: already running, consumed, changed, or task terminal");
+    return (await this.get(id))!;
+  }
+
+  async finishExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void> {
+    this.db.prepare(`UPDATE approvals SET execution_state=?, execution_finished_at=?
+      WHERE id=? AND execution_token=? AND execution_state='running'`).run(outcome, nowIso(), id, token);
   }
 }
 

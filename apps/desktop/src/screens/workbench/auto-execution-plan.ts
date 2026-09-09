@@ -62,6 +62,8 @@ export const isRunnerExecutionApproval = (approval: Approval): boolean =>
 export const autoExecutableRunnerApprovalIssue = (
   approval: Approval,
 ): string | null => {
+  if (approval.executionState) return "Execution already claimed; review the previous result instead of replaying.";
+  if (approval.actionType === "file_delete") return "Single-file trash requires individual manual approval.";
   if (!isCodeChangeLoopAction(approval)) {
     return `Unsupported runner action type: ${approval.actionType}`;
   }

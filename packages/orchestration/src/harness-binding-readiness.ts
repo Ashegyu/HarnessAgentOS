@@ -9,6 +9,7 @@ import type {
   McpServerConfig,
   SkillSource,
 } from "@harness/core";
+import { evaluateBudget } from "@harness/core";
 
 export type {
   HarnessBindingReadinessIssue,
@@ -38,6 +39,15 @@ export const assessHarnessBindingReadiness = (
   input: HarnessBindingReadinessInput,
 ): HarnessBindingReadinessSummary => {
   const issues: HarnessBindingReadinessIssue[] = [];
+  const workflow = input.workflowId === null
+    ? input.definition.workflows[0]
+    : input.definition.workflows.find(item => item.id === input.workflowId);
+  if (!workflow) {
+    return { ok: false, errorCount: 1, warningCount: 0, infoCount: 0, issues: [{
+      severity: "error", code: "HARNESS_WORKFLOW_NOT_FOUND",
+      message: "선택한 하네스 워크플로를 찾을 수 없습니다. 다시 선택하세요.",
+    }] };
+  }
   const profilesById = new Map(input.profiles.map((p) => [p.id, p] as const));
   const mcpById = new Map(
     (input.mcpServers ?? []).map((server) => [server.id, server] as const),
@@ -123,6 +133,29 @@ export const assessHarnessBindingReadiness = (
     }
 
     const agent = agentByRef.get(normalizeBindingRef(candidate.harnessAgentRef));
+    if (evaluateBudget({ approval: { actionType: "model_use" }, profile }).kind === "blocked") {
+      // Saving a binding must remain possible so the user can repair it; the
+      // planner treats this runtime limitation as a hard pre-execution error.
+      issues.push({ severity: "warning", code: "HARNESS_BUDGET_UNVERIFIABLE",
+        message: `${profile.name}: 현재 CLI는 호출 전 USD 비용을 보장하지 못하므로 설정된 예산 한도로 실행할 수 없습니다. 에이전트 예산을 검토하거나 실행 가능한 프로필을 연결하세요.`,
+        harnessAgentRef: candidate.harnessAgentRef, profileId: profile.id });
+    }
+    const steps = workflow.steps.filter(step =>
+      normalizeBindingRef(step.agentRef ?? step.roleHint) === normalizeBindingRef(candidate.harnessAgentRef));
+    const roleHint = agent?.roleHint ?? steps[0]?.roleHint;
+    if (roleHint && normalizeBindingRef(roleHint) !== normalizeBindingRef(profile.role)) {
+      issues.push({ severity: "warning", code: "HARNESS_PROFILE_ROLE_MISMATCH",
+        message: `${candidate.label}의 역할(${roleHint})과 ${profile.name}의 역할(${profile.role})이 다릅니다.`,
+        harnessAgentRef: candidate.harnessAgentRef, profileId: profile.id });
+    }
+    for (const step of steps) {
+      const blocked = step.allowedActions.filter(action => profile.permissions.blockedActions.includes(action));
+      if (blocked.length > 0) {
+        issues.push({ severity: "error", code: "HARNESS_PROFILE_ACTION_BLOCKED",
+          message: `${step.title}: ${profile.name}에서 ${blocked.join(", ")} 작업이 차단되어 있습니다. 권한이 맞는 에이전트를 연결하거나 단계의 작업 범위를 줄이세요.`,
+          harnessAgentRef: candidate.harnessAgentRef, profileId: profile.id, stepId: step.id });
+      }
+    }
     collectProviderIssues(issues, candidate, profile, agent, input.providers);
     collectMcpIssues(
       issues,
@@ -168,10 +201,9 @@ export const harnessAgentBindingCandidates = (
   definition: HarnessDefinition,
   workflowId: string | null,
 ): HarnessAgentBindingCandidate[] => {
-  const workflow =
-    definition.workflows.find((item) => item.id === workflowId) ??
-    definition.workflows[0] ??
-    null;
+  const workflow = workflowId === null
+    ? definition.workflows[0]
+    : definition.workflows.find(item => item.id === workflowId);
   if (!workflow) return [];
   const agentsByRef = buildHarnessAgentRefIndex(definition);
   const candidates = new Map<string, HarnessAgentBindingCandidate>();

@@ -42,6 +42,9 @@ import type {
 export type FakeScenario =
   | "ok-file-write"
   | "ok-file-write-readme"
+  | "ok-html-report"
+  | "ok-code-patch"
+  | "ok-code-test"
   | "ok-shell"
   | "ok-shell-pwd"
   | "ok-answer-only"
@@ -100,6 +103,27 @@ const samplePlan = (
   request: ModelCliRequest,
   invocationIndex: number,
 ): string => {
+  if (scenario === "ok-code-patch" || scenario === "ok-code-test") {
+    return JSON.stringify({ summary: scenario === "ok-code-patch" ? "덧셈 버그 수정 제안" : "승인 후 덧셈 회귀 테스트 실행",
+      assumptions: ["격리된 E2E 프로젝트"], steps: [], questions: [], suggestedQualityChecks: [],
+      proposedActions: scenario === "ok-code-patch" ? [{ type: "file_patch", path: "util.cjs",
+        patch: "--- a/util.cjs\n+++ b/util.cjs\n@@ -1 +1 @@\n-exports.add = (a, b) => a - b;\n+exports.add = (a, b) => a + b;\n",
+        rationale: "잘못된 뺄셈을 덧셈으로 수정" }] : [{ type: "shell",
+        command: "node --test util.test.cjs",
+        rationale: "적용된 코드에서 실제 덧셈 결과 확인" }],
+    });
+  }
+  if (scenario === "ok-html-report") {
+    return JSON.stringify({
+      summary: "프로젝트 분석 보고서를 report.html로 저장하도록 제안합니다. 파일 저장은 승인 후 실행됩니다.\n\n```text\nreport.html\n```",
+      assumptions: ["격리된 E2E 프로젝트"],
+      steps: [{ title: "HTML 보고서 저장", rationale: "요청한 분석 산출물 전달", risk: "low" }],
+      proposedActions: [{ type: "file_write", path: "report.html",
+        after: '<!doctype html><html lang="ko"><meta charset="utf-8"><title>분석 보고서</title><h1>프로젝트 분석</h1><p>격리된 테스트 보고서입니다.</p></html>\n',
+        rationale: "요청한 HTML 보고서를 승인 후 저장" }],
+      suggestedQualityChecks: [], questions: [],
+    }, null, 2);
+  }
   if (scenario === "ok-file-write-readme") {
     return JSON.stringify(
       {

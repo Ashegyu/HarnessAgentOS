@@ -320,6 +320,7 @@ export const registerAgentIpc = (
         events.taskRunChanged(result.invocation.taskRunId);
         return ok(result);
       } catch (e) {
+        events.taskRunChanged(payload.taskRunId);
         return wrapErr<{
           invocation: AgentInvocation;
           planArtifact: Artifact;

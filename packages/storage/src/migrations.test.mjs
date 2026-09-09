@@ -6,7 +6,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { applyMigrations, readSchemaVersion } from "./migrations.ts";
 import { openDb, closeDb } from "./db.ts";
-import { SCHEMA_VERSION } from "./schema.ts";
+import { SCHEMA_VERSION, SCHEMA_STATEMENTS } from "./schema.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-migr-"));
@@ -15,6 +15,31 @@ const tmp = () => {
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 };
+
+test('v40 preserves legacy records, invalidates unverifiable consent, and is repeatable', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const statement of SCHEMA_STATEMENTS) db.exec(statement);
+    db.exec(`INSERT INTO threads(id,title,created_at,updated_at) VALUES('t','legacy','2026-09-07','2026-09-07');
+      INSERT INTO task_runs(id,thread_id,user_request,target_dir,status,created_at,updated_at) VALUES('r','t','edit','C:/fixture','waiting_for_approval','2026-09-07','2026-09-07');
+      INSERT INTO steps(id,task_run_id,step_index,kind,title,status) VALUES('s','r',0,'approval','legacy','pending');
+      INSERT INTO checkpoints VALUES('c','r','s','before_edit','{}','legacy','2026-09-07');
+      INSERT INTO approvals(id,task_run_id,checkpoint_id,action_type,action_summary,status,decision_message,proposed_action_json)
+      VALUES('a','r','c','file_write','legacy approved','approved','keep message','{"type":"file_write"}'),
+            ('e','r','c','file_write','legacy completed','executed','keep completed','{"type":"file_write"}');`);
+    applyMigrations(db);
+    const rows = db.prepare('SELECT id,status,decision_message,requires_manual_approval,approved_revision FROM approvals ORDER BY id').all();
+    assert.deepEqual(rows, [
+      { id:'a',status:'pending',decision_message:'keep message',requires_manual_approval:1,approved_revision:null },
+      { id:'e',status:'executed',decision_message:'keep completed',requires_manual_approval:0,approved_revision:null },
+    ]);
+    applyMigrations(db);
+    assert.deepEqual(db.prepare('SELECT id,status,decision_message,requires_manual_approval,approved_revision FROM approvals ORDER BY id').all(), rows);
+    assert.equal(readSchemaVersion(db), 40);
+    assert.equal(hasIndex(db, 'idx_approvals_decided_at'), true);
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
+  } finally { db.close(); }
+});
 
 const hasTable = (db, name) => {
   const row = db
@@ -162,6 +187,8 @@ test("v36 migration allows file_patch approvals", () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
+    // Reconstruct a genuinely pre-v36 fixture, without v40 audit triggers/FKs.
+    db.exec('DROP TRIGGER approval_events_insert; DROP TRIGGER approval_events_update; DROP TABLE approval_events');
     db.exec(`ALTER TABLE approvals RENAME TO approvals_before_file_patch`);
     db.exec(`CREATE TABLE approvals (
       id TEXT PRIMARY KEY,
@@ -873,6 +900,54 @@ test("readSchemaVersion reflects the current SCHEMA_VERSION", () => {
     assert.equal(v, SCHEMA_VERSION);
   } finally {
     closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v38 migration adds scoped and parallel learning trace metadata", () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const columns = db.prepare("PRAGMA table_info(learning_traces)").all();
+    assert.ok(columns.some((column) => column.name === "project_key"));
+    assert.ok(columns.some((column) => column.name === "updated_at"));
+    assert.ok(columns.some((column) => column.name === "selected_models_json"));
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("v37 migration upgrades an existing unscoped learning_traces table", () => {
+  const t = tmp();
+  const db = new Database(t.file);
+  try {
+    db.exec(`
+      CREATE TABLE learning_traces (
+        id TEXT PRIMARY KEY,
+        task_run_id TEXT NOT NULL,
+        selected_model TEXT,
+        selected_capabilities_json TEXT NOT NULL,
+        reward REAL,
+        cost_estimate REAL,
+        latency_ms INTEGER,
+        success INTEGER,
+        failure_reason TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO schema_meta(key, value) VALUES ('schema_version', '36');
+    `);
+
+    applyMigrations(db);
+
+    assert.equal(hasColumn(db, "learning_traces", "project_key"), true);
+    assert.equal(hasColumn(db, "learning_traces", "updated_at"), true);
+    assert.equal(hasIndex(db, "idx_learning_traces_project_created"), true);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
+  } finally {
+    db.close();
     t.cleanup();
   }
 });

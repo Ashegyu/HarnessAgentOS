@@ -14,6 +14,8 @@ import {
   DEFAULT_RUNNER_TEST_TIMEOUT_MS,
   RUNNER_CANCELLED,
   evaluateApprovalActionPolicy,
+  taskContractFor,
+  taskContractBlocksAction,
   formatSimpleDiff,
   validateProposedActionDetails,
 } from "@harness/core";
@@ -22,6 +24,7 @@ import type { LocalStateService } from "@harness/storage";
 import { readFile, writeFile } from "node:fs/promises";
 import { relative as relativePath, resolve as resolveNodePath } from "node:path";
 import { FileRunner } from "./file-runner.ts";
+import { FileDeleteRunner } from "./file-delete-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { GitRunner } from "./git-runner.ts";
 import { TestRunner } from "./test-runner.ts";
@@ -54,6 +57,7 @@ export interface RunnerServiceDeps {
   shellRunner?: ShellRunner;
   gitRunner?: GitRunner;
   testRunner?: TestRunner;
+  trashItem?: (absolutePath: string) => Promise<void>;
   recordPinnedContextOutcome?: (input: {
     taskRun: TaskRun;
     approval: Approval;
@@ -78,7 +82,7 @@ export class RunnerService {
   private readonly git: GitRunner;
   private readonly test: TestRunner;
   private readonly deps: RunnerServiceDeps;
-  private readonly inflight = new Map<string, AbortController>();
+  private readonly inflight = new Map<string, { taskRunId: string; controller: AbortController }>();
 
   constructor(deps: RunnerServiceDeps) {
     this.deps = deps;
@@ -118,20 +122,44 @@ export class RunnerService {
         `Retry is only allowed when TaskRun is blocked or quality_failed (current: ${taskRun.status})`,
       );
     }
-    return this.executeApprovedInternal(approvalId, { allowExecuted: true });
+    if (approval.executionState || approval.status === "executed") {
+      throw new RunnerError("APPROVAL_REVIEW_REQUIRED", "이전 실행은 재사용할 수 없습니다. 실제 결과를 검토한 후 새 작업 승인을 생성하세요.");
+    }
+    return this.executeApproved(approvalId);
   }
 
   async executeApproved(approvalId: string): Promise<RunnerResult> {
-    return this.executeApprovedInternal(approvalId, { allowExecuted: false });
+    const approval = await this.deps.state.getApproval(approvalId);
+    if (!approval || (approval.status !== "approved" && approval.status !== "always_approved_for_run")) {
+      throw new RunnerError("RUNNER_APPROVAL_REQUIRED", "Action is not approved");
+    }
+    const taskRun = await this.deps.state.getTaskRun(approval.taskRunId);
+    if (taskRun && taskContractBlocksAction(taskContractFor(taskRun), approval.actionType)) {
+      throw new RunnerError("TASK_CONTRACT_ACTION_BLOCKED", "읽기 전용 작업 계약에서 실행을 허용하지 않습니다.");
+    }
+    if (!approval.proposedAction) throw new RunnerError("RUNNER_EXECUTION_FAILED", "approval.proposedAction is missing");
+    const token = newId("step");
+    await this.deps.state.claimApprovalExecution(approvalId, approval.actionRevision ?? 1, token);
+    try {
+      const result = await this.executeApprovedInternal(approvalId, { allowExecuted: false });
+      await this.deps.state.finishApprovalExecution(approvalId, token, "succeeded");
+      return result;
+    } catch (error) {
+      await this.deps.state.finishApprovalExecution(approvalId, token, "uncertain");
+      throw error;
+    }
   }
 
   async cancelExecution(input: {
     taskRunId: string;
   }): Promise<{ cancelled: boolean }> {
-    const controller = this.inflight.get(input.taskRunId);
-    if (!controller) return { cancelled: false };
-    controller.abort();
-    return { cancelled: true };
+    let cancelled = false;
+    for (const execution of this.inflight.values()) {
+      if (execution.taskRunId !== input.taskRunId) continue;
+      execution.controller.abort();
+      cancelled = true;
+    }
+    return { cancelled };
   }
 
   getInflightCount(): number {
@@ -163,6 +191,10 @@ export class RunnerService {
         "RUNNER_EXECUTION_FAILED",
         `TaskRun ${approval.taskRunId} not found`,
       );
+    }
+
+    if (taskContractBlocksAction(taskContractFor(taskRun), approval.actionType)) {
+      throw new RunnerError("TASK_CONTRACT_ACTION_BLOCKED", "작업 계약의 읽기 전용 또는 외부 검색 금지 제약으로 이 실행을 허용하지 않습니다.");
     }
 
     const policy =
@@ -216,10 +248,11 @@ export class RunnerService {
     // Find or create a runner Step. shell + a recognised test command
     // surfaces as a "test" step in the timeline so the UI can mark
     // pass/fail at the right granularity (mvp-user-flows Flow 11).
+    const shellCommand = formatProposedCommand(details);
     const isTestShell =
       approval.actionType === "shell" &&
-      typeof details.command === "string" &&
-      isTestCommand(details.command);
+      shellCommand !== undefined &&
+      isTestCommand(shellCommand);
     const stepKind = isTestShell
       ? "test"
       : mapActionToStepKind(approval.actionType);
@@ -248,10 +281,21 @@ export class RunnerService {
       finishedAt: startedAt,
     };
     const controller = new AbortController();
-    this.inflight.set(taskRun.id, controller);
+    this.inflight.set(approval.id, { taskRunId: taskRun.id, controller });
 
     try {
       switch (approval.actionType) {
+        case "file_delete": {
+          if (!this.deps.trashItem || !details.fileDelete) throw new RunnerError("RUNNER_TRASH_UNAVAILABLE", "휴지통 서비스를 사용할 수 없습니다. 영구 삭제는 하지 않습니다.");
+          const deleted = await new FileDeleteRunner(this.deps.trashItem).run(taskRun.targetDir, details.fileDelete);
+          result.changedFiles = [deleted.path];
+          const artifact = await this.persistArtifact({ taskRunId: taskRun.id, stepId: step.id, kind: "diff",
+            title: `deleted: ${details.fileDelete.path}`,
+            content: `# File moved to OS recycle bin\n\nPath: ${deleted.path}\nSHA-256: ${details.fileDelete.sha256}\nBytes: ${details.fileDelete.sizeBytes}\nRecovery: operating system Recycle Bin.\n`,
+            summary: `Deleted (recycle bin): ${details.fileDelete.path}` });
+          result.artifactIds.push(artifact.id);
+          break;
+        }
         case "file_patch":
           await this.runFilePatch({ approval, taskRun, step, details, result });
           break;
@@ -290,20 +334,27 @@ export class RunnerService {
       await this.settleTaskRunAfterSuccessfulExecution(taskRun.id, approvals);
       result.finishedAt = nowIso();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = maskSecrets(e instanceof Error ? e.message : String(e));
       const cancelled = isRunnerCancelled(e);
       const errorCode = e instanceof RunnerError
         ? e.code
         : "RUNNER_EXECUTION_FAILED";
-      const errorArtifact = await this.persistArtifact({
-        taskRunId: taskRun.id,
-        stepId: step.id,
-        kind: "log",
-        title: `runner error (${approval.actionType})`,
-        content: message,
-        summary: message.slice(0, 200),
-      });
-      result.artifactIds.push(errorArtifact.id);
+      let errorArtifactId: string | undefined;
+      try {
+        const errorArtifact = await this.persistArtifact({
+          taskRunId: taskRun.id,
+          stepId: step.id,
+          kind: "log",
+          title: `runner error (${approval.actionType})`,
+          content: message,
+          summary: message.slice(0, 200),
+        });
+        errorArtifactId = errorArtifact.id;
+        result.artifactIds.push(errorArtifact.id);
+      } catch {
+        // Diagnostic storage is best-effort: preserve the execution error and
+        // continue recording failure/cancellation even when artifacts cannot be saved.
+      }
       result.stderr = message;
       result.finishedAt = nowIso();
       await this.deps.state.setStepStatus(step.id, "failed", {
@@ -313,24 +364,24 @@ export class RunnerService {
         taskRun.id,
         cancelled ? "cancelled" : "blocked",
       );
-      if (!cancelled) {
+      if (!cancelled && errorArtifactId !== undefined) {
         await this.recordPinnedContextOutcome({
           taskRun,
           approval,
           status: "failed",
           summary: `runner ${approval.actionType} failed (${errorCode})`,
           errorCode,
-          errorArtifactId: errorArtifact.id,
+          errorArtifactId,
         });
       }
       // Re-throw so IPC layer maps to HarnessError, but with state already
       // recorded so the UI shows the failure even if the call rejects.
       if (cancelled) throw new RunnerError(RUNNER_CANCELLED, message);
-      if (e instanceof RunnerError) throw e;
-      throw new RunnerError("RUNNER_EXECUTION_FAILED", message);
+      if (e instanceof RunnerError && e.message === message) throw e;
+      throw new RunnerError(errorCode, message);
     } finally {
-      if (this.inflight.get(taskRun.id) === controller) {
-        this.inflight.delete(taskRun.id);
+      if (this.inflight.get(approval.id)?.controller === controller) {
+        this.inflight.delete(approval.id);
       }
     }
 
@@ -368,11 +419,14 @@ export class RunnerService {
 
   private async settleTaskRunAfterSuccessfulExecution(
     taskRunId: string,
-    checkpointApprovals: Approval[],
+    _checkpointApprovals: Approval[],
   ): Promise<void> {
+    const current = await this.deps.state.getTaskRun(taskRunId);
+    if (!current || ["cancelled", "paused", "done"].includes(current.status)) return;
+    const approvals = await this.deps.state.listApprovalsByTaskRun(taskRunId);
     await this.deps.state.setTaskRunStatus(
       taskRunId,
-      checkpointApprovals.some(isUnresolvedApproval)
+      approvals.some(isUnresolvedApproval)
         ? "waiting_for_approval"
         : "ready_for_review",
     );
@@ -561,7 +615,8 @@ export class RunnerService {
         "shell requires proposedAction.command",
       );
     }
-    const safety = classifyShellCommand(details.command);
+    const commandDisplay = formatProposedCommand(details)!;
+    const safety = classifyShellCommand(commandDisplay);
     if (safety.dangerous) {
       throw new RunnerError(
         "RUNNER_BLOCKED_HIGH_RISK",
@@ -571,10 +626,11 @@ export class RunnerService {
     // Test invocations route through TestRunner so we can emit a
     // dedicated test_result artifact alongside the raw shell log
     // (Phase 3 mvp-user-flows.md Flow 8).
-    const isTest = isTestCommand(details.command);
+    const isTest = isTestCommand(commandDisplay);
     const runOutcome = isTest
       ? await this.test.run({
           command: details.command,
+          ...(details.args !== undefined ? { args: details.args } : {}),
           cwd: taskRun.targetDir,
           timeoutMs: DEFAULT_RUNNER_TEST_TIMEOUT_MS,
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
@@ -582,6 +638,7 @@ export class RunnerService {
         })
       : await this.shell.run({
           command: details.command,
+          ...(details.args !== undefined ? { args: details.args } : {}),
           cwd: taskRun.targetDir,
           timeoutMs: DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
@@ -595,10 +652,10 @@ export class RunnerService {
       taskRunId: taskRun.id,
       stepId: step.id,
       kind: "log",
-      title: `${isTest ? "test" : "shell"}: ${details.command.slice(0, 64)}`,
+      title: `${isTest ? "test" : "shell"}: ${commandDisplay.slice(0, 64)}`,
       content: formatShellLog(
-        runOutcome.stdout,
-        runOutcome.stderr,
+        result.stdout,
+        result.stderr,
         runOutcome.exitCode,
       ),
       summary: `exit=${runOutcome.exitCode}, ${runOutcome.durationMs}ms`,
@@ -611,9 +668,9 @@ export class RunnerService {
         taskRunId: taskRun.id,
         stepId: step.id,
         kind: "test_result",
-        title: `test_result: ${details.command.slice(0, 64)}`,
+        title: `test_result: ${commandDisplay.slice(0, 64)}`,
         content: formatTestResult({
-          command: details.command,
+          command: commandDisplay,
           exitCode: runOutcome.exitCode,
           durationMs: runOutcome.durationMs,
           stdout: result.stdout,
@@ -685,6 +742,7 @@ const mapActionToStepKind = (
   switch (action) {
     case "file_patch":
     case "file_write":
+    case "file_delete":
       return "edit";
     case "shell":
       return "shell";
@@ -697,9 +755,11 @@ const summarize = (details: ProposedActionDetails): string => {
   if (details.dbSnapshotExport) {
     return `db snapshot: ${details.dbSnapshotExport.targetPath}`;
   }
-  if (details.command) return `shell: ${details.command}`;
+  const command = formatProposedCommand(details);
+  if (command) return `shell: ${command}`;
   if (details.unifiedPatch) return `patch: ${details.unifiedPatch.path}`;
   if (details.filePatch) return `file: ${details.filePatch.path}`;
+  if (details.fileDelete) return `delete: ${details.fileDelete.path}`;
   return details.type;
 };
 
@@ -708,10 +768,21 @@ const summarizeStepInput = (
   details: ProposedActionDetails,
 ): string => {
   if (details.dbSnapshotExport) return details.dbSnapshotExport.targetPath;
-  if (details.command) return details.command;
+  const command = formatProposedCommand(details);
+  if (command) return command;
   if (details.unifiedPatch) return details.unifiedPatch.path;
   if (details.filePatch) return details.filePatch.path;
+  if (details.fileDelete) return details.fileDelete.path;
   return approval.actionSummary;
+};
+
+const formatProposedCommand = (
+  details: ProposedActionDetails,
+): string | undefined => {
+  if (!details.command) return undefined;
+  return details.args === undefined || details.args.length === 0
+    ? details.command
+    : [details.command, ...details.args].join(" ");
 };
 
 const summarizeStepOutput = (r: RunnerResult): string => {

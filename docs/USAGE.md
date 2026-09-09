@@ -108,36 +108,17 @@ HarnessAgentOS는 AI 에이전트(Claude Code CLI, OpenAI Codex)를 통해 소�
 
 ## 5. Template 모드
 
-**선택 방법**: 입력창 모드 버튼에서 `Template` 선택 (기본값).
+일반 입력창은 **CLI 연결 실패 시 Template 모드로 자동 전환하지 않습니다**. 전송할 때 연결 상태를 다시 확인하고, 실패하면 작업·계획·승인을 만들지 않은 채 입력을 보존합니다.
 
-Template 모드는 미리 정의된 계획 템플릿을 이용해 ActionPlan을 만듭니다. Agent CLI가 없어도 동작합니다.
+Template은 기존 작업 및 명시적인 수동 Fallback/IPC 호환용으로 남아 있습니다. 이 기본 계획은 AI 분석 결과가 아니며, 파일 경로와 내용도 자동 생성하지 않습니다. 기존 Template 계획은 Plan/Artifacts에서 확인할 수 있지만 채팅의 최종 답변으로 표시하지 않습니다.
 
-### 흐름
-
-```
-[사용자 입력] → TaskRun 생성(drafting) → 계획 생성 → ready_for_review
-                                                         ↓
-                                              [Right Panel에서 Approval 확인]
-                                                         ↓
-                                              [승인] → running → done
-                                              [거부] → cancelled
-```
-
-### 예제
-
-**요청**: `README.md 파일에 사용법 섹션을 추가해줘`
-
-1. Template 모드 선택 후 입력, 전송.
-2. Workbench에 요청 버블이 나타나고 `응답 준비 중…` 메시지가 표시됩니다.
-3. 잠시 후 `응답 도착 — 우측 패널에서 확인` 상태로 바뀝니다.
-4. 해당 TaskRun 버블 클릭 → 오른쪽 패널 Plan 탭에서 생성된 계획을 확인합니다.
-5. Approvals 섹션에서 제안된 파일 수정을 승인하거나 거부합니다.
+`Missing proposedAction`이 있는 기존 작업은 승인만 반복해도 실행되지 않습니다. **CLI 다시 확인**으로 연결을 복구한 다음 요청을 새 작업으로 전송하세요. 기존 승인이나 실패한 명령을 자동 재실행하지는 않습니다.
 
 ---
 
 ## 6. Agent 모드
 
-**선택 방법**: 입력창 모드 버튼에서 `Agent` 선택. (Claude Code CLI 또는 Codex가 설치/설정된 경우에만 활성화됩니다.)
+일반 입력창은 CLI 연결을 확인한 뒤 Agent 모드로 작업을 생성합니다. 별도 모드 선택은 필요하지 않습니다.
 
 Agent 모드는 실제 CLI 프로세스를 실행해 코드를 분석하고, 계획을 수립하며, 파일 수정 등의 작업을 직접 제안합니다.
 
@@ -159,14 +140,16 @@ Agent 모드는 실제 CLI 프로세스를 실행해 코드를 분석하고, 계
 
 ### 6-1. Agent 활성화 확인
 
-하단 상태바에 **Claude** 또는 **Codex** 인디케이터가 초록색(●)으로 표시되어야 합니다. 빨간색(●)이면 해당 CLI가 설치되지 않았거나 PATH에 없는 것입니다.
+하단 상태바의 **Codex** 인디케이터와 입력창의 연결 안내를 확인하세요. 연결 실패 시 **CLI 다시 확인** 버튼으로 다시 탐색할 수 있습니다.
+
+Windows에서는 기존 npm/PATH 경로에 더해 `%LOCALAPPDATA%\OpenAI\Codex\bin` 바로 아래 버전별 폴더의 `codex.exe`도 탐색합니다. 프로젝트 폴더를 재귀 탐색하거나 시스템 PATH를 변경하지 않습니다. 버전 확인 성공은 CLI 실행 가능 여부만 확인하며, 로그인·모델 접근 권한까지 검증하는 것은 아닙니다.
 
 ### 6-2. Agent 모드로 작업 전송
 
 > **예제**: `packages/api/src/auth.ts에서 JWT 만료 시간을 설정에서 읽도록 리팩토링해줘`
 
 1. 스레드의 대상 폴더가 프로젝트 루트로 설정되어 있는지 확인.
-2. 모드 버튼에서 `Agent` 선택.
+2. 작업 목적과 Pipeline/Harness 선택이 요청에 맞는지 확인.
 3. 요청을 입력하고 전송.
 4. 전송 직후 입력창에 `Agent 호출 중…` 메시지가 표시됩니다.
 5. Workbench 버블 상태가 `Agent 응답 중…`으로 바뀝니다.
@@ -281,7 +264,7 @@ TaskRun의 품질 평가 결과. 에이전트가 생성한 결과물에 대해 �
 | **이름** | 에이전트 구분 이름 | `백엔드 코더`, `리뷰어` |
 | **역할** | 이 에이전트의 역할 | `Coder`, `Planner`, `Reviewer`, `Tester` |
 | **Provider** | 사용할 CLI. Codex 전용으로 고정 | `codex` |
-| **Model** | Codex 5.6 모델 | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| **Model** | Codex 모델 | `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
 | **Reasoning effort** | 추론 강도 | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 
 **삭제**: 카드 우측 상단의 **×** 버튼.

@@ -2,6 +2,29 @@ export type JsonParseResult =
   | { ok: true; value: unknown }
   | { ok: false; reason: string };
 
+/** Extract the first envelope without treating Markdown inside a JSON string as
+ * its closing fence. This is only framing; callers still validate JSON/schema. */
+export const extractAgentPlanEnvelope = (text: string): { json: string; start: number; end: number } | null => {
+  const opening = /```harness_agent_plan(?=\s)\s*/.exec(text);
+  if (!opening) return null;
+  const contentStart = opening.index + opening[0].length;
+  let inString = false;
+  let escaped = false;
+  for (let i = contentStart; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') {
+      inString = true;
+    } else if (text.startsWith("```", i)) {
+      return { json: text.slice(contentStart, i).trim(), start: opening.index, end: i + 3 };
+    }
+  }
+  return null;
+};
+
 export const parseJsonAllowingMultilineStrings = (
   rawJson: string,
 ): JsonParseResult => {

@@ -10,6 +10,7 @@ import {
   type CapabilitySuggestion,
   type Instinct,
   type LearningTrace,
+  type Observation,
   type RecordTopologyFeedbackInput,
   type RecommendTopologyInput,
   type TopologyRecommendation,
@@ -32,6 +33,7 @@ export type CapabilityMetadataLookup = (
 export interface TopologyAdvisorDeps {
   state: LocalStateService;
   metadataForCapability?: CapabilityMetadataLookup;
+  onObservationRecorded?: (observation: Observation) => Promise<void>;
 }
 
 export class TopologyAdvisorError extends Error {
@@ -177,6 +179,13 @@ export class TopologyAdvisor {
         projectKey,
       }),
     ]);
+    const projectTraces = traces.filter(
+      (trace) => trace.projectKey === projectKey,
+    );
+    const relevantTraces =
+      projectTraces.length > 0
+        ? projectTraces
+        : traces.filter((trace) => trace.projectKey === undefined);
 
     const warningSet = new Set<string>();
     const suggestions = filterTrustedSuggestions(
@@ -192,7 +201,7 @@ export class TopologyAdvisor {
     const signals = buildRoleSignals({
       prompt: taskRun.userRequest,
       suggestions,
-      traces,
+      traces: relevantTraces,
       instincts,
       metadataForCapability: this.deps.metadataForCapability,
     });
@@ -265,7 +274,7 @@ export class TopologyAdvisor {
       typeof input.reason === "string" && input.reason.trim().length > 0
         ? redactSecrets(input.reason.trim())
         : null;
-    await this.deps.state.createObservation({
+    const observation = await this.deps.state.createObservation({
       taskRunId: taskRun.id,
       threadId: taskRun.threadId,
       projectKey,
@@ -282,6 +291,7 @@ export class TopologyAdvisor {
         reason,
       },
     });
+    await this.deps.onObservationRecorded?.(observation);
   }
 }
 

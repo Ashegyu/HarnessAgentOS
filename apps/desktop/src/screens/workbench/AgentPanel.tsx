@@ -275,7 +275,14 @@ export const AgentPanel = ({
           </div>
         ) : (
           <div className="empty-state">
-            Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요.
+            {taskRun.status === "blocked" ? (
+              <div role="alert">
+                <p>모델 실행이 차단되었습니다. 자동으로 재시도하지 않습니다.</p>
+                <p>{[...steps].sort((a, b) => b.index - a.index)
+                  .find(step => step.kind === "plan" && step.status === "failed")?.outputSummary}</p>
+                <p>설정 → 에이전트에서 선택한 프로필의 비용 한도를 확인하세요. 현재 CLI는 USD 상한을 보장하지 못합니다. 제한 변경은 사용자가 결정해야 하며, 설정을 수정한 뒤 아래 버튼으로 다시 실행할 수 있습니다.</p>
+              </div>
+            ) : "Agent mode TaskRun입니다. 계획을 생성하려면 아래 버튼을 누르세요."}
           </div>
         )}
         <InternalHandoffPanel handoffs={handoffs} />

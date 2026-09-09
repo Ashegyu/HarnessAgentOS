@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 36;
+export const SCHEMA_VERSION = 40;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -35,6 +35,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY(thread_id) REFERENCES threads(id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS task_contracts (
+    task_run_id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL CHECK(revision = 1),
+    contract_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS steps (
     id TEXT PRIMARY KEY,
@@ -112,7 +119,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS learning_traces (
     id TEXT PRIMARY KEY,
     task_run_id TEXT NOT NULL,
+    project_key TEXT,
     selected_model TEXT,
+    selected_models_json TEXT NOT NULL,
     selected_capabilities_json TEXT NOT NULL,
     reward REAL,
     cost_estimate REAL,
@@ -120,6 +129,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     success INTEGER,
     failure_reason TEXT,
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     FOREIGN KEY(task_run_id) REFERENCES task_runs(id)
   )`,
   `CREATE TABLE IF NOT EXISTS observations (

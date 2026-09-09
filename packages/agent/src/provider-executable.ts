@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { win32 } from "node:path";
 import type { AgentProvider } from "@harness/core";
 
@@ -7,6 +7,7 @@ export interface ProviderCommandCandidateOptions {
   env?: NodeJS.ProcessEnv;
   exists?: (path: string) => boolean;
   cliPathOverride?: string;
+  listDirectories?: (root: string) => { name: string; modifiedAt: number }[];
 }
 
 export const getProviderCommandCandidates = (
@@ -30,11 +31,39 @@ export const getProviderCommandCandidates = (
     for (const candidate of windowsCodexCandidates(env)) {
       pushExisting(candidate);
     }
+    const localAppData = env["LOCALAPPDATA"];
+    if (localAppData) {
+      const root = win32.join(localAppData, "OpenAI", "Codex", "bin");
+      try {
+        // Desktop updates install into versioned directories. Explorer does not
+        // inherit the version-specific PATH injected into a Codex terminal.
+        const versions = (options.listDirectories ?? listInstallDirectories)(root)
+          .filter(row => /^[a-z0-9][a-z0-9._-]*$/i.test(row.name))
+          .sort((a, b) => b.modifiedAt - a.modifiedAt || a.name.localeCompare(b.name));
+        for (const version of versions) {
+          pushExisting(win32.join(root, version.name, "codex.exe"));
+        }
+      } catch {
+        // Missing or inaccessible desktop installs must not hide npm/PATH CLIs.
+      }
+    }
   }
 
   candidates.push(provider);
   return [...new Set(candidates)];
 };
+
+const listInstallDirectories = (root: string): { name: string; modifiedAt: number }[] =>
+  readdirSync(root, { withFileTypes: true }).flatMap(entry => {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) return [];
+    try {
+      const executable = statSync(win32.join(root, entry.name, "codex.exe"));
+      return executable.isFile() ? [{ name: entry.name, modifiedAt: executable.mtimeMs }] : [];
+    } catch {
+      // An update can leave an incomplete installation beside the usable one.
+      return [];
+    }
+  });
 
 export const resolveProviderCommand = (
   provider: AgentProvider,

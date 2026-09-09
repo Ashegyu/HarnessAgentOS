@@ -427,6 +427,12 @@ test("AgentProfileRepository.ensureSeed upgrades existing seed profiles to Codex
       }),
     );
 
+    // create() normalizes current inputs; simulate persisted legacy rows.
+    for (const profile of [planner, tdd]) {
+      db.prepare("UPDATE agent_profiles SET provider = ?, tuning_json = ? WHERE id = ?").run(
+        "claude", JSON.stringify({ ...profile.tuning, model: "claude-sonnet-4" }), profile.id,
+      );
+    }
     await repo.ensureSeed();
 
     const refreshedPlanner = await repo.get(planner.id);
@@ -449,6 +455,102 @@ test("AgentProfileRepository.ensureSeed upgrades existing seed profiles to Codex
       AGENT_ROLE_MODEL_DEFAULTS.tester,
     );
     assert.equal(refreshedTdd.tuning.systemPromptPrefix, "keep-tdd-prefix");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("AgentProfileRepository.ensureSeed preserves supported model pins even on seed-named profiles", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const generated = await repo.create(
+      makeProfileInput({
+        name: "ECC TDD Guide",
+        role: "tester",
+        tuning: {
+          ...makeProfileInput().tuning,
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
+        },
+      }),
+    );
+    const orchestrator = await repo.create(
+      makeProfileInput({
+        name: "Ruflo Orchestrator",
+        role: "orchestrator",
+        tuning: {
+          ...makeProfileInput().tuning,
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
+        },
+      }),
+    );
+    const custom = await repo.create(
+      makeProfileInput({
+        name: "Pinned custom tester",
+        role: "tester",
+        tuning: {
+          ...makeProfileInput().tuning,
+          model: "gpt-5.6-terra",
+          reasoningEffort: "low",
+        },
+      }),
+    );
+
+    await repo.ensureSeed();
+
+    const refreshedGenerated = await repo.get(generated.id);
+    assert.equal(refreshedGenerated.tuning.model, "gpt-5.6-terra");
+    assert.equal(refreshedGenerated.tuning.reasoningEffort, "high");
+    const refreshedOrchestrator = await repo.get(orchestrator.id);
+    assert.equal(refreshedOrchestrator.tuning.model, "gpt-5.6-terra");
+    assert.equal(refreshedOrchestrator.tuning.reasoningEffort, "high");
+    const refreshedCustom = await repo.get(custom.id);
+    assert.equal(refreshedCustom.tuning.model, "gpt-5.6-terra");
+    assert.equal(refreshedCustom.tuning.reasoningEffort, "low");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("canonical seed model pins survive repeated startup and database reopen", async () => {
+  const t = tmp();
+  let db = openDb({ filePath: t.file });
+  try {
+    let repo = new SqliteAgentProfileRepository(db);
+    await repo.ensureSeed();
+    const original = (await repo.list()).find(profile => profile.role === "orchestrator");
+    assert.ok(original);
+    await repo.update({ ...original, tuning: { ...original.tuning, model: "gpt-5.6-luna", reasoningEffort: "low" } });
+    await repo.ensureSeed();
+    closeDb(db);
+    db = openDb({ filePath: t.file });
+    repo = new SqliteAgentProfileRepository(db);
+    await repo.ensureSeed();
+    const reopened = await repo.get(original.id);
+    assert.equal(reopened.tuning.model, "gpt-5.6-luna");
+    assert.equal(reopened.tuning.reasoningEffort, "low");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("a missing legacy reasoning effort does not replace a supported custom model pin", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteAgentProfileRepository(db);
+    const profile = await repo.create(makeProfileInput({ name: "Custom pinned orchestrator", role: "orchestrator" }));
+    db.prepare("UPDATE agent_profiles SET tuning_json = ? WHERE id = ?").run(
+      JSON.stringify({ ...profile.tuning, model: "gpt-5.6-luna", reasoningEffort: undefined }), profile.id,
+    );
+    await repo.ensureSeed();
+    assert.equal((await repo.get(profile.id)).tuning.model, "gpt-5.6-luna");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -854,12 +956,17 @@ test("AgentProfileRepository.ensureSeed migrates unsupported custom profile mode
   }
 });
 
-test("AgentProfileRepository preserves selectable Codex 5.6 model pins", async () => {
+test("AgentProfileRepository preserves selectable Codex model pins", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   try {
     const repo = new SqliteAgentProfileRepository(db);
-    for (const model of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]) {
+    for (const model of [
+      "gpt-6-astra",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+    ]) {
       const created = await repo.create(
         makeProfileInput({
           name: model,

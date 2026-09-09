@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  buildTaskContract,
 } from "@harness/core";
 import { AgentPlanningService } from "./agent-planning-service.ts";
 
@@ -74,6 +75,115 @@ const deferred = () => {
   });
   return { promise, resolve: resolveFn, reject: rejectFn };
 };
+
+test("persisted read-only intent overrides global writes and worker instructions without MCP preparation", async () => {
+  const taskRun = { id: "tr-contract", threadId: "th-contract", targetDir: process.cwd(),
+    userRequest: "implement feature", status: "drafting",
+    contract: buildTaskContract({ userRequest: "implement feature", intent: "review" }),
+    createdAt: "2026-09-07T00:00:00Z", updatedAt: "2026-09-07T00:00:00Z" };
+  const profile = codexProfile({ id: "ap-contract", tuning: { model: "gpt-5.6-luna" } });
+  let seq = 0;
+  const requests = [];
+  const artifacts = [];
+  const state = makeGateway({
+    getTaskRun: async () => taskRun,
+    listAgentProfiles: async () => [profile],
+    getSettings: async () => ({ ...(await makeGateway().getSettings()),
+      activeAgentProfileId: profile.id,
+      agent: { ...(await makeGateway().getSettings()).agent, codexWorkspaceWrite: true, codexAutoReview: true } }),
+    createStep: async (input) => ({ id: `step-${++seq}`, ...input }),
+    createArtifact: async (input) => { const row = { id: `art-${++seq}`, ...input }; artifacts.push(row); return row; },
+    createAgentInvocation: async (input) => ({ id: `inv-${++seq}`, ...input }),
+    updateAgentInvocation: async (id, patch) => ({ id, ...patch }),
+    setStepStatus: async (id, status) => ({ id, status }),
+    setTaskRunStatus: async () => taskRun,
+    setTaskRunCurrentStep: async () => taskRun,
+    createCheckpoint: async (input) => ({ id: `cp-${++seq}`, ...input }),
+    createApproval: async () => { assert.fail("read-only response must not create file approvals"); },
+  });
+  const service = new AgentPlanningService({ state,
+    getProviderStatus: () => ({ codex: { available: true, queueDepth: 0 } }),
+    getApprovedLearnerModel: async () => ({ model: "gpt-6-astra", reason: "old recommendation" }),
+    prepareMcpInvocation: async () => { assert.fail("read-only task must not prepare profile MCP"); },
+    adapter: { invoke: async (request) => {
+      requests.push(request);
+      const plan = { summary: "Reviewed", assumptions: [], steps: [], questions: [], suggestedQualityChecks: [],
+        proposedActions: [{ type: "file_write", path: "unexpected.txt", after: "unsafe", rationale: "model suggestion" }] };
+      return { provider: "codex", model: "gpt-5.6-sol", exitCode: 0, stderr: "", normalizedEvents: [], latencyMs: 1,
+        stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(plan)}\n\`\`\`` };
+    } },
+  });
+  const plan = await service.generatePlan({ taskRunId: taskRun.id });
+  assert.deepEqual(plan.approvals, []);
+  const worker = await service.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: "delete and rewrite files" });
+  assert.deepEqual(worker.proposedActions ?? [], []);
+  assert.equal(requests.length, 2);
+  for (const request of requests) {
+    assert.equal(request.sandbox.mode, "read-only");
+    assert.equal(request.sandbox.autoReview, false);
+    assert.equal(request.sandbox.readOnlyTask, true);
+    assert.equal(request.modelConfig.model, "gpt-5.6-luna", "saved profile pin must beat an older learner recommendation");
+    assert.match(request.systemPrompt, /Intent: review/);
+    assert.equal(request.outputContract.intent, "review");
+    assert.equal(request.outputContract.authorization.mode, "read_only");
+    assert.match(request.systemPrompt, /STRICT JSON v1/);
+    assert.doesNotMatch(request.systemPrompt, /Then a single fenced JSON block/);
+  }
+  assert.ok(artifacts.some((row) => /read-only task contract/.test(row.summary)));
+});
+
+for (const budget of [{ perInvocationUsd: 0.1 }, { perTaskRunUsd: 1 }, { perDayUsd: 5 }]) {
+  test(`planner and parallel workers reject unverified USD budget before model/MCP preparation ${JSON.stringify(budget)}`, async () => {
+    const taskRun = { id: "tr-budget", threadId: "th-budget", targetDir: process.cwd(), userRequest: "수정해줘", status: "drafting" };
+    const profile = codexProfile({ id: "ap-budget", permissions: { budget } });
+    let modelCalls = 0;
+    const steps = [];
+    let status = taskRun.status;
+    const service = new AgentPlanningService({
+      state: makeGateway({ getTaskRun: async () => taskRun, listAgentProfiles: async () => [profile],
+        listStepsByTaskRun: async () => steps,
+        createStep: async input => { const step = { id: `step-${steps.length}`, ...input }; steps.push(step); return step; },
+        setStepStatus: async (id, status, patch) => { const step = steps.find(row => row.id === id); Object.assign(step, { status }, patch); return step; },
+        setTaskRunStatus: async (_id, next) => { status = next; return { ...taskRun, status }; },
+        getSettings: async () => ({ ...(await makeGateway().getSettings()), activeAgentProfileId: profile.id }) }),
+      getProviderStatus: () => ({ codex: { available: true, queueDepth: 0 } }),
+      prepareMcpInvocation: async () => assert.fail("budget must be checked before external tool preparation"),
+      adapter: { invoke: async () => { modelCalls += 1; throw new Error("must not invoke"); } },
+    });
+    const attempts = [service.generatePlan({ taskRunId: taskRun.id }), ...[1, 2].map(() => service.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: "수정해줘" }))];
+    for (const result of await Promise.allSettled(attempts)) {
+      assert.equal(result.status, "rejected");
+      assert.equal(result.reason.code, "AGENT_BUDGET_UNVERIFIABLE");
+    }
+    assert.equal(modelCalls, 0);
+    assert.equal(status, "blocked", "a rejected start must not leave the task drafting forever");
+    assert.ok(steps.some(step => step.status === "failed" && step.outputSummary?.includes("AGENT_BUDGET_UNVERIFIABLE")));
+  });
+}
+
+test("malformed worker output fails rather than recording success or producing approvals", async () => {
+  const patches = [];
+  const artifacts = [];
+  const events = [];
+  const taskRun = { id: "tr-invalid-worker", threadId: "th-invalid-worker", targetDir: process.cwd(), userRequest: "수정해줘", status: "drafting" };
+  const service = new AgentPlanningService({
+    state: makeGateway({
+      getTaskRun: async () => taskRun,
+      createArtifact: async input => { const row = { id: `art-${artifacts.length}`, ...input }; artifacts.push(row); return row; },
+      createAgentInvocation: async input => ({ id: "inv-invalid-worker", ...input }),
+      updateAgentInvocation: async (id, patch) => { patches.push(patch); return { id, ...patch }; },
+      createApproval: async () => assert.fail("invalid output must not create approval"),
+    }),
+    getProviderStatus: () => ({ codex: { available: true, queueDepth: 0 } }),
+    emit: event => events.push(event),
+    adapter: { invoke: async () => ({ provider: "codex", model: "gpt-5.6-sol", exitCode: 0, stdout: "invalid output", stderr: "", normalizedEvents: [], latencyMs: 1 }) },
+  });
+  await assert.rejects(service.invokeForWorker({ taskRunId: taskRun.id, profile: workerProfile(), userRequest: "수정해줘" }), { code: "AGENT_INVALID_OUTPUT" });
+  assert.equal(patches.some(p => p.status === "succeeded"), false);
+  assert.equal(patches.at(-1).status, "failed");
+  assert.equal(patches.at(-1).errorCode, "AGENT_INVALID_OUTPUT");
+  assert.ok(artifacts.some(a => a.title.startsWith("Worker diagnostic log")));
+});
 
 test("generatePlan persists post-hoc workspace change evidence for workspace-write", async () => {
   const targetDir = await mkdtemp(join(tmpdir(), "harness-plan-evidence-"));
@@ -314,6 +424,34 @@ test("cancelInvocation returns immediately if invocation already succeeded", asy
   const result = await svc.cancelInvocation({ invocationId: "inv-1" });
   assert.equal(result.status, "succeeded");
   assert.equal(result.id, "inv-1");
+});
+
+test("cancelTaskInvocations cancels every queued or running invocation for the task", async () => {
+  const invocations = [
+    { id: "inv-queued", taskRunId: "tr-wave", provider: "codex", model: "gpt-5.6-sol", status: "queued", promptArtifactId: "a1", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+    { id: "inv-running", taskRunId: "tr-wave", provider: "codex", model: "gpt-5.6-sol", status: "running", promptArtifactId: "a2", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+    { id: "inv-done", taskRunId: "tr-wave", provider: "codex", model: "gpt-5.6-sol", status: "succeeded", promptArtifactId: "a3", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z" },
+  ];
+  const updates = [];
+  const svc = new AgentPlanningService({
+    state: makeGateway({
+      listAgentInvocationsByTaskRun: async () => invocations,
+      getAgentInvocation: async (id) => invocations.find((item) => item.id === id) ?? null,
+      updateAgentInvocation: async (id, patch) => {
+        updates.push([id, patch.status]);
+        return { ...invocations.find((item) => item.id === id), ...patch };
+      },
+    }),
+    getProviderStatus: () => null,
+  });
+
+  const cancelled = await svc.cancelTaskInvocations({ taskRunId: "tr-wave" });
+
+  assert.deepEqual(cancelled.map((item) => item.id), ["inv-queued", "inv-running"]);
+  assert.deepEqual(updates, [
+    ["inv-queued", "cancelled"],
+    ["inv-running", "cancelled"],
+  ]);
 });
 
 test("retryInvocation rejects unknown invocationId with AGENT_INVOCATION_NOT_FOUND", async () => {
@@ -691,6 +829,7 @@ test("generatePlan emits progress events before and after CLI invocation", async
   const createStepInputs = [];
   const events = [];
   const artifacts = [];
+  const learnerSelections = [];
   let capabilityContextInput = null;
   let activeInstinctInput = null;
   let contextPackObservationInput = null;
@@ -845,6 +984,9 @@ test("generatePlan emits progress events before and after CLI invocation", async
     recordContextPackObservation: async (input) => {
       contextPackObservationInput = input;
     },
+    recordLearnerSelection: async (input) => {
+      learnerSelections.push(input);
+    },
     emitStreamEvent: (event) => events.push(event),
     adapter: {
       invoke: async (request, onEvent, signal) => {
@@ -927,6 +1069,12 @@ test("generatePlan emits progress events before and after CLI invocation", async
     pinnedObservations: 1,
   });
   assert.equal(createAgentInvocationInput?.profileId, activeProfile.id);
+  assert.deepEqual(learnerSelections, [
+    {
+      taskRunId: "tr-progress",
+      selectedModel: "gpt-5.6-sol",
+    },
+  ]);
   assert.equal(adapterSignal instanceof AbortSignal, true);
   assert.equal(
     createStepInputs[0]?.title,
@@ -1460,7 +1608,7 @@ test("generatePlan includes previous TaskRuns from the same thread in the prompt
   assert.match(promptArtifactSummary, /FOLLOW-UP ANCHOR/);
 });
 
-test("generatePlan persists token usage from provider metadata", async () => {
+test("generatePlan persists captured token usage instead of misleading retained metadata", async () => {
   const taskRun = {
     id: "tr-token-usage",
     threadId: "th-token-usage",
@@ -1578,11 +1726,12 @@ test("generatePlan persists token usage from provider metadata", async () => {
         rawStdout: JSON.stringify({
           type: "turn.completed",
           usage: {
-            input_tokens: 100,
-            output_tokens: 20,
+            input_tokens: 1,
+            output_tokens: 1,
             reasoning_output_tokens: 5,
           },
         }),
+        tokenUsage: { inputTokens: 100, outputTokens: 25, cachedInputTokens: 40, reasoningOutputTokens: 5 },
         stderr: "",
         normalizedEvents: [],
         latencyMs: 10,
@@ -1703,6 +1852,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   let lastRequest = null;
   let createAgentInvocationInput = null;
   let workerCapabilityContextInput = null;
+  const workerUsagePatches = [];
   let artifactSeq = 0;
   const artifacts = [];
   const rawProviderOutput =
@@ -1750,7 +1900,10 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
         createAgentInvocationInput = input;
         return { ...invocation, stepId: input.stepId };
       },
-      updateAgentInvocation: async (_id, patch) => ({ ...invocation, ...patch }),
+      updateAgentInvocation: async (_id, patch) => {
+        workerUsagePatches.push(patch);
+        return { ...invocation, ...patch };
+      },
     }),
     getProviderStatus: () =>
       /** @type {any} */ ({ codex: { available: true, queueDepth: 0 } }),
@@ -1767,6 +1920,7 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
           exitCode: 0,
           stdout: `\`\`\`harness_agent_plan\n${JSON.stringify(planOutput)}\n\`\`\``,
           rawStdout: rawProviderOutput,
+          tokenUsage: { inputTokens: 123, outputTokens: 45, cachedInputTokens: 23, reasoningOutputTokens: 5 },
           stderr: "",
           normalizedEvents: [],
           latencyMs: 12,
@@ -1793,6 +1947,11 @@ test("invokeForWorker asks for harness plan output and returns parsed actions", 
   });
 
   assert.equal(result.proposedActions?.length, 1);
+  const workerUsage = workerUsagePatches.find((patch) => patch.inputTokens !== undefined);
+  assert.equal(workerUsage.inputTokens, 123);
+  assert.equal(workerUsage.outputTokens, 45);
+  assert.equal(workerUsage.totalTokens, 168);
+  assert.equal(workerUsage.usageApproximate, false);
   assert.deepEqual(workerCapabilityContextInput, {
     taskRunId: taskRun.id,
     profileId: profile.id,
@@ -1857,10 +2016,10 @@ test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
     updatedAt: "2026-01-01T00:00:00.000Z",
   };
   const planOutput = {
-    summary: "Use invoker",
+    summary: "Use invoker " + "x".repeat(210_000),
     assumptions: [],
     steps: [{ title: "Answer", rationale: "test", risk: "low" }],
-    proposedActions: [],
+    proposedActions: [{ type: "file_write", path: "example.txt", after: "const token=private_value", rationale: "test redaction" }],
     suggestedQualityChecks: [],
     questions: [],
   };
@@ -1940,7 +2099,7 @@ test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
 
   assert.equal(invokerCalled, true);
   assert.equal(legacyAdapterCalled, false);
-  assert.deepEqual(result.proposedActions ?? [], []);
+  assert.equal(result.proposedActions[0].after, "const [REDACTED]");
 });
 
 test("invokeForWorker runs same-provider workers on independent lanes", async () => {
@@ -2046,7 +2205,7 @@ test("invokeForWorker runs same-provider workers on independent lanes", async ()
           provider: request.modelConfig.provider,
           model: request.modelConfig.model,
           exitCode: 0,
-          stdout: `worker output from ${request.invocationId}`,
+          stdout: "```harness_agent_plan\n" + JSON.stringify({ summary: `worker output from ${request.invocationId}`, assumptions: [], steps: [], proposedActions: [], suggestedQualityChecks: [], questions: [] }) + "\n```",
           stderr: "",
           normalizedEvents: [],
           latencyMs: 10,

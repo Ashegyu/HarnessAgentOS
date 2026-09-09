@@ -14,6 +14,21 @@ const tmp = () => {
   };
 };
 
+test("deterministic template plans are retained as artifacts but never presented as final answers", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const svc = new LocalStateService(db);
+    const { ConversationService } = await import("../../../core/src/conversation/conversation-service.ts");
+    const conversation = new ConversationService({ state: svc, pathExists: () => true });
+    const thread = await svc.createThread({ title: "CLI unavailable" });
+    const draft = await conversation.createTask({ threadId: thread.id, targetDir: t.file, userRequest: "현재 프로젝트를 분석해서 HTML 파일로 저장해줘", mode: "template" });
+    const detail = await svc.getThreadDetail(thread.id);
+    assert.equal(detail.agentAnswers[draft.taskRun.id], undefined);
+    assert.ok((await svc.listArtifactsByTaskRun(draft.taskRun.id)).some(row => row.id === draft.planArtifact.id));
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("createThread rejects empty title", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

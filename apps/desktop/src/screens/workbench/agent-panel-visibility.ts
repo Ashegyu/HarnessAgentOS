@@ -8,7 +8,7 @@ export const shouldRenderAgentPanel = (input: {
 }): boolean => {
   if (input.invocationCount > 0) return true;
   if (input.handoffCount > 0) return true;
-  if (input.taskRunStatus !== "drafting") return false;
+  if (input.taskRunStatus !== "drafting" && input.taskRunStatus !== "blocked") return false;
   return !input.orchestrationDriven;
 };
 

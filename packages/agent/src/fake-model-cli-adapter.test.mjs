@@ -20,6 +20,14 @@ const request = (prompt) => ({
   },
 });
 
+test("HTML report fixture proposes approved-runner delivery, never writes directly", async () => {
+  const adapter = new FakeModelCliAdapter({ scenario: "ok-html-report", chunkDelayMs: 0 });
+  const result = await adapter.invoke(request("현재 프로젝트를 분석해서 HTML 파일로 저장해줘"), () => {});
+  assert.match(result.stdout, /report\.html/);
+  assert.match(result.stdout, /file_write/);
+  assert.match(result.stdout, /<!doctype html>/);
+});
+
 test("FakeModelCliAdapter records every invoke request", async () => {
   const adapter = new FakeModelCliAdapter({
     scenario: "ok-answer-only",

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import {
   IPC_CHANNELS,
   type HarnessResult,
@@ -10,6 +10,7 @@ import {
   APP_RUNTIME_UNAVAILABLE,
 } from "@harness/core";
 import { runtimeService } from "../services/runtime-service";
+import { copyAnswerTextWithRetry } from "../services/clipboard-service";
 
 export interface AppIpcDeps {
   diagnostics?: {
@@ -22,6 +23,12 @@ export interface AppIpcDeps {
  * preload unwraps to either resolved value or thrown HarnessError.
  */
 export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
+  ipcMain.handle(
+    IPC_CHANNELS.app.copyText,
+    (_event, input: unknown): Promise<HarnessResult<void>> =>
+      copyAnswerTextWithRetry(input, (text) => clipboard.writeText(text), () => clipboard.readText()),
+  );
+
   ipcMain.handle(
     IPC_CHANNELS.app.getVersion,
     async (): Promise<HarnessResult<string>> => {

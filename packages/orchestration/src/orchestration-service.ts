@@ -43,6 +43,7 @@ export interface OrchestrationServiceDeps {
 }
 
 export class OrchestrationService {
+  private readonly inflight = new Map<string, Promise<OrchestrationRunResult>>();
   private readonly planner: OrchestrationPlanner;
   private readonly worker: WorkerRunner;
   private readonly deps: OrchestrationServiceDeps;
@@ -77,7 +78,15 @@ export class OrchestrationService {
     }
   }
 
-  async runApproved(input: {
+  runApproved(input: { approvalId: string }): Promise<OrchestrationRunResult> {
+    const existing = this.inflight.get(input.approvalId);
+    if (existing) return existing;
+    const work = this.runApprovedOnce(input).finally(() => this.inflight.delete(input.approvalId));
+    this.inflight.set(input.approvalId, work);
+    return work;
+  }
+
+  private async runApprovedOnce(input: {
     approvalId: string;
   }): Promise<OrchestrationRunResult> {
     this.assertEnabled();
@@ -128,15 +137,13 @@ export class OrchestrationService {
       throw e;
     }
     if (!result.needsContinuation) {
-      try {
-        await this.deps.state.decideApproval(
+      const failed = result.workerSteps.some(step => step.status === "failed");
+      await this.deps.state.decideApproval(
           input.approvalId,
           "executed",
-          `Worker ${result.workerSteps.length}개 완료 — Artifacts 탭에서 결과 확인`,
+          failed ? "Worker 실행 실패 — 오류와 결과를 확인하세요."
+            : `Worker ${result.workerSteps.length}개 실행 종료 — 작업 완료 여부는 검증 후 결정됩니다.`,
         );
-      } catch {
-        // non-fatal: status update is best-effort
-      }
     }
     return result;
   }
@@ -313,7 +320,7 @@ export class OrchestrationService {
 }
 
 const planJsonRe = /```json\s*([\s\S]+?)\s*```/;
-const parseEmbeddedPlanJson = (
+export const parseEmbeddedPlanJson = (
   summary: string,
 ):
   | {

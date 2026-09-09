@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
     getVersion: "app:getVersion",
     getRuntimeInfo: "app:getRuntimeInfo",
     getDiagnostics: "app:getDiagnostics",
+    copyText: "app:copyText",
     selectDirectory: "app:selectDirectory",
     selectFile: "app:selectFile",
   },
@@ -22,6 +23,7 @@ export const IPC_CHANNELS = {
     exportThreadMarkdown: "state:exportThreadMarkdown",
   },
   conversation: {
+    startTask: "conversation:startTask",
     createTask: "conversation:createTask",
     redirectTask: "conversation:redirectTask",
     approve: "conversation:approve",

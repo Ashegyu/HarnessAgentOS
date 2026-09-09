@@ -36,6 +36,9 @@ export interface AgentPlanningStateGateway {
   setApprovalProposedAction(id: string, details: ProposedActionDetails): Promise<Approval>;
   setTaskRunCurrentStep(id: string, stepId: string | null): Promise<TaskRun>;
   getAgentInvocation(id: string): Promise<AgentInvocation | null>;
+  listAgentInvocationsByTaskRun?(
+    taskRunId: string,
+  ): Promise<AgentInvocation[]>;
   /** Look up the thread that owns a TaskRun — used to chain agent sessions. */
   getThread(id: string): Promise<Thread | null>;
   /**

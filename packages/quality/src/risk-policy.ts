@@ -43,6 +43,7 @@ export const collectRisks = (
 
   if (
     evidence.diffArtifactIds.length > 0 &&
+    !req.verifiedReportDelivery &&
     evidence.testEvidence.length === 0
   ) {
     risks.push(

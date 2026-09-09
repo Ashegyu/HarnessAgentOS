@@ -98,12 +98,36 @@ test("planWorkerWaves marks side-effect, role, and remote blockers", () => {
   );
 
   const step = plan.waves[0].steps[0];
-  assert.equal(step.canRunReadOnlyParallel, false);
+  assert.equal(step.canRunParallel, false);
   assert.equal(step.remoteEndpointTrusted, false);
   assert.ok(step.blockers.some((blocker) => /side-effect/.test(blocker)));
   assert.ok(step.blockers.some((blocker) => /coder role/.test(blocker)));
   assert.ok(step.blockers.some((blocker) => /untrusted/.test(blocker)));
   assert.equal(plan.waves[0].hasSideEffects, true);
+});
+
+test("planWorkerWaves allows explicit approval-gated local action workers when enabled", () => {
+  const plan = planWorkerWaves(
+    [
+      worker({
+        id: "code",
+        role: "coder",
+        dependsOn: [],
+        allowedActions: ["file_patch"],
+      }),
+      worker({
+        id: "test",
+        role: "tester",
+        dependsOn: [],
+        allowedActions: ["shell"],
+      }),
+    ],
+    [],
+    { allowApprovalGatedLocalParallelism: true },
+  );
+
+  assert.equal(plan.waves[0].parallelizable, true);
+  assert.equal(plan.waves[0].steps.every((step) => step.canRunParallel), true);
 });
 
 test("planWorkerWaves preserves deterministic output order across dependency waves", () => {

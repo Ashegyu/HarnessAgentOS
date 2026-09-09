@@ -1,4 +1,5 @@
 import {
+  AGENT_BUDGET_UNVERIFIABLE,
   AGENT_CANCELLED,
   AGENT_INVALID_OUTPUT,
   AGENT_INVOCATION_BUSY,
@@ -9,8 +10,11 @@ import {
   AGENT_TASK_RUN_NOT_FOUND,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  evaluateBudget,
   formatDiagnosticLog,
   isHarnessError,
+  taskContractFor,
+  taskContractBlocksAction,
   validateProposedActionDetails,
   type AgentInvocation,
   type AgentPlanningStateGateway,
@@ -227,6 +231,7 @@ export class AgentPlanningService {
   private readonly deps: AgentPlanningServiceDeps;
   private readonly invoker: ModelInvoker;
   private readonly queue: AgentInvocationQueue;
+  private readonly budgetBlockWrites = new Map<string, Promise<void>>();
   private readonly defaults: { timeoutMs: number; stallTimeoutMs: number };
   private readonly workspaceChangeTracker: WorkspaceChangeTracker | null;
 
@@ -280,11 +285,6 @@ export class AgentPlanningService {
       );
     }
 
-    const approvedLearnerModel =
-      input.model === undefined
-        ? await this.loadApprovedLearnerModel(taskRun.id)
-        : null;
-
     // Phase 4: resolve the active AgentProfile so persona / prefix /
     // suffix flow into the prompt, and so the visible invocation step
     // carries the actual profile name used by the renderer.
@@ -295,6 +295,13 @@ export class AgentPlanningService {
       activeAgentProfileId: settings.activeAgentProfileId,
       legacyAgent: settings.agent,
     });
+
+    // A saved profile is a fixed model choice. Advisory learning must not
+    // silently replace it (or an explicit per-invocation override).
+    const approvedLearnerModel =
+      input.model === undefined && resolved.profile === null
+        ? await this.loadApprovedLearnerModel(taskRun.id)
+        : null;
 
     const modelHint =
       input.model ?? approvedLearnerModel?.model ?? resolved.tuning.model;
@@ -310,9 +317,17 @@ export class AgentPlanningService {
       }
     }
     const model = resolveModel(provider, modelHint);
-    const codexRuntime = codexRuntimeOptions(settings.agent);
+    const codexRuntime = codexRuntimeOptions(settings.agent, taskRun);
     const agentStepName = formatStepAgentName(resolved.profile?.name);
     assertProviderSupportsProfileBoundaries(provider, resolved.profile);
+    try {
+      assertModelBudgetVerifiable(resolved.profile);
+    } catch (error) {
+      if (error instanceof AgentPlanningError && error.code === AGENT_BUDGET_UNVERIFIABLE) {
+        await this.recordBudgetBlock(taskRun.id, error);
+      }
+      throw error;
+    }
 
     // 1. plan step
     const stepIndex = (await this.deps.state.listStepsByTaskRun(taskRun.id))
@@ -351,6 +366,7 @@ export class AgentPlanningService {
 
     const splitPrompt = buildSplitAgentPrompt({
       taskRun,
+      outputContract: taskContractFor(taskRun),
       repoContext,
       threadContext,
       recentArtifacts,
@@ -487,7 +503,7 @@ export class AgentPlanningService {
     // Phase 4b — Codex receives verified `-c mcp_servers.*` overrides.
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
-    if (this.deps.prepareMcpInvocation) {
+    if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
       const prep = await this.deps.prepareMcpInvocation({
         profileId: resolved.profile?.id ?? null,
         provider,
@@ -509,6 +525,7 @@ export class AgentPlanningService {
         cwd: taskRun.targetDir,
         prompt: redactedUserPrompt,
         systemPrompt: redactedSystemPrompt,
+        outputContract: taskContractFor(taskRun),
         modelConfig: {
           provider,
           model,
@@ -530,6 +547,8 @@ export class AgentPlanningService {
           primaryDir: taskRun.targetDir,
           mode: codexRuntime.sandboxMode,
           autoReview: codexRuntime.autoReview,
+          readOnlyTask: codexRuntime.readOnlyTask,
+          disableWebSearch: codexRuntime.disableWebSearch,
           enforceInPrompt: true,
         },
         ...(resolved.profile?.cli.cliPathOverride
@@ -539,7 +558,7 @@ export class AgentPlanningService {
       };
       await this.recordLearnerSelection({
         taskRunId: taskRun.id,
-        ...(approvedLearnerModel ? { selectedModel: model } : {}),
+        selectedModel: model,
         ...(capabilityContexts.length > 0
           ? {
               selectedCapabilities: capabilityContexts.map(
@@ -553,6 +572,7 @@ export class AgentPlanningService {
       let latencyMs = 0;
       let costEstimate: number | undefined;
       let cliTruncation: ModelCliResult["truncation"];
+      let tokenUsage: ModelCliResult["tokenUsage"];
       try {
         const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
         emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
@@ -575,6 +595,7 @@ export class AgentPlanningService {
         latencyMs = result.latencyMs;
         costEstimate = result.costEstimate;
         cliTruncation = result.truncation;
+        tokenUsage = result.tokenUsage;
       } catch (e) {
       const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
       const code = isCancelled
@@ -667,6 +688,7 @@ export class AgentPlanningService {
       prompt: redactedUserPrompt,
       output: redactedOutput,
       rawOutput: redactedRawOutput,
+      ...(tokenUsage !== undefined ? { tokenUsage } : {}),
     });
     const providerCostEstimate = costEstimate;
     costEstimate = costEstimate ?? usageEstimate.costUsd;
@@ -707,7 +729,7 @@ export class AgentPlanningService {
 
     // 6. parse
     emitProgress("parse", "응답 파싱 중", `${redactedOutput.length}자 출력`);
-    const parsed = parseAgentPlan(redactedOutput);
+    const parsed = parseAgentPlan(assistantOutput, text => redactSecrets(text, Number.MAX_SAFE_INTEGER));
     if (!parsed.ok) {
       const finishedAt = new Date().toISOString();
       const errorArtifact = await this.deps.state.createArtifact({
@@ -746,6 +768,10 @@ export class AgentPlanningService {
       details: ProposedActionDetails;
     }> = [];
     for (const [i, raw] of plan.proposedActions.entries()) {
+      if (taskContractBlocksAction(taskContractFor(taskRun), raw.type)) {
+        policyReport.push(`- [${i}] ${raw.type} rejected: read-only task contract`);
+        continue;
+      }
       const details = toProposedActionDetails(raw);
       const expected = raw.type;
       const validation = validateProposedActionDetails(details, expected);
@@ -898,6 +924,24 @@ export class AgentPlanningService {
     });
   }
 
+  async cancelTaskInvocations(input: {
+    taskRunId: string;
+  }): Promise<AgentInvocation[]> {
+    const invocations =
+      (await this.deps.state.listAgentInvocationsByTaskRun?.(
+        input.taskRunId,
+      )) ?? [];
+    const active = invocations.filter(
+      (invocation) =>
+        invocation.status === "queued" || invocation.status === "running",
+    );
+    return Promise.all(
+      active.map((invocation) =>
+        this.cancelInvocation({ invocationId: invocation.id }),
+      ),
+    );
+  }
+
   async retryInvocation(input: {
     invocationId: string;
     timeoutMs?: number;
@@ -984,13 +1028,14 @@ export class AgentPlanningService {
     }
     const tuning = input.profile.tuning;
     const model = resolveModel(provider, tuning.model);
-    const codexRuntime = codexRuntimeOptions(settings.agent);
+    const codexRuntime = codexRuntimeOptions(settings.agent, taskRun);
     assertProviderSupportsProfileBoundaries(provider, input.profile);
+    assertModelBudgetVerifiable(input.profile);
 
     // Per-invocation Codex MCP overrides (Phase 4b).
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
-    if (this.deps.prepareMcpInvocation) {
+    if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
       const prep = await this.deps.prepareMcpInvocation({
         profileId: input.profile.id,
         provider,
@@ -1006,7 +1051,8 @@ export class AgentPlanningService {
     const repoContext = await this.loadRepoContext(taskRun, input.userRequest);
     const threadContext = await this.loadThreadContext(taskRun);
     const prompt = buildSplitAgentPrompt({
-      taskRun: { ...taskRun, userRequest: input.userRequest },
+      taskRun: { ...taskRun, userRequest: input.userRequest, contract: taskContractFor(taskRun) },
+      outputContract: taskContractFor(taskRun),
       repoContext,
       threadContext,
       persona: input.profile.persona,
@@ -1052,6 +1098,17 @@ export class AgentPlanningService {
     await this.deps.state.updateAgentInvocation(invocation.id, {
       status: "running",
       startedAt,
+    });
+    await this.recordLearnerSelection({
+      taskRunId: taskRun.id,
+      selectedModel: model,
+      ...(capabilityContexts.length > 0
+        ? {
+            selectedCapabilities: capabilityContexts.map(
+              (context) => context.capability.id,
+            ),
+          }
+        : {}),
     });
 
     const emit = this.deps.emitStreamEvent ?? (() => {});
@@ -1107,6 +1164,7 @@ export class AgentPlanningService {
         cwd: taskRun.targetDir,
         prompt: userPrompt,
         systemPrompt,
+        outputContract: taskContractFor(taskRun),
         modelConfig: {
           provider,
           model,
@@ -1121,6 +1179,8 @@ export class AgentPlanningService {
           primaryDir: taskRun.targetDir,
           mode: codexRuntime.sandboxMode,
           autoReview: codexRuntime.autoReview,
+          readOnlyTask: codexRuntime.readOnlyTask,
+          disableWebSearch: codexRuntime.disableWebSearch,
           enforceInPrompt: true,
         },
         ...(input.profile.cli.cliPathOverride
@@ -1158,6 +1218,7 @@ export class AgentPlanningService {
         prompt: userPrompt,
         output: redactedOutput,
         rawOutput: redactedRawOutput,
+        ...(result.tokenUsage !== undefined ? { tokenUsage: result.tokenUsage } : {}),
       });
       const costEstimate = result.costEstimate ?? usageEstimate.costUsd;
       const persistedStreamTranscript = buildPersistedStreamTranscript({
@@ -1177,10 +1238,7 @@ export class AgentPlanningService {
         },
         ...(result.truncation ? { cliTruncation: result.truncation } : {}),
       });
-      const parsedPlan = parseAgentPlan(redactedOutput);
-      const proposedActions = parsedPlan.ok
-        ? parsedPlan.plan.proposedActions
-        : [];
+      const parsedPlan = parseAgentPlan(result.stdout, text => redactSecrets(text, Number.MAX_SAFE_INTEGER));
       const rawOutputArtifact = await this.deps.state.createArtifact({
         taskRunId: taskRun.id,
         ...(input.stepId ? { stepId: input.stepId } : {}),
@@ -1189,6 +1247,16 @@ export class AgentPlanningService {
         uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
         summary: persistedStreamTranscript,
       });
+      if (!parsedPlan.ok) {
+        await this.deps.state.updateAgentInvocation(invocation.id, {
+          rawOutputArtifactId: rawOutputArtifact.id, latencyMs: result.latencyMs,
+          inputTokens: usageEstimate.inputTokens, outputTokens: usageEstimate.outputTokens,
+          totalTokens: usageEstimate.totalTokens, usageApproximate: usageEstimate.approximate,
+          ...(costEstimate !== undefined ? { costEstimate } : {}),
+        });
+        throw new AgentCliError(AGENT_INVALID_OUTPUT, "fatal", "작업자 응답 형식이 올바르지 않아 실패로 처리했습니다. 실행 제안을 생성하지 않았습니다.");
+      }
+      const proposedActions = parsedPlan.plan.proposedActions.filter((action) => !taskContractBlocksAction(taskContractFor(taskRun), action.type));
       const finishedAt = new Date().toISOString();
       await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "succeeded",
@@ -1376,6 +1444,28 @@ export class AgentPlanningService {
     }
   }
 
+  private async recordBudgetBlock(taskRunId: string, error: AgentPlanningError): Promise<void> {
+    const pending = this.budgetBlockWrites.get(taskRunId);
+    if (pending) return pending;
+    const write = (async () => {
+      const current = await this.deps.state.getTaskRun(taskRunId);
+      if (!current || !["drafting", "blocked", "quality_failed"].includes(current.status)) return;
+      const steps = await this.deps.state.listStepsByTaskRun(taskRunId);
+      const message = `[${error.code}] ${error.message}`;
+      const latest = [...steps].sort((a, b) => b.index - a.index)[0];
+      if (latest?.status !== "failed" || latest.outputSummary !== message) {
+        const step = await this.deps.state.createStep({
+          taskRunId, index: Math.max(-1, ...steps.map(row => row.index)) + 1,
+          kind: "plan", title: "모델 실행 차단", status: "running",
+        });
+        await this.deps.state.setStepStatus(step.id, "failed", { outputSummary: message });
+      }
+      await this.deps.state.setTaskRunStatus(taskRunId, "blocked");
+    })();
+    this.budgetBlockWrites.set(taskRunId, write);
+    try { await write; } finally { this.budgetBlockWrites.delete(taskRunId); }
+  }
+
   private async loadApprovedLearnerModel(
     taskRunId: string,
   ): Promise<LearnerModelContext | null> {
@@ -1534,6 +1624,7 @@ const toProposedActionDetails = (
       filePatch: { path: raw.path, after: raw.after },
     };
   }
+  if (raw.type === "file_delete") return { type: "file_delete", fileDelete: { path: raw.path } };
   if (raw.type === "file_patch") {
     return {
       type: "file_patch",
@@ -1555,10 +1646,13 @@ const resolveModel = (
 
 const codexRuntimeOptions = (
   settings: AgentSettings,
-): { sandboxMode: "read-only" | "workspace-write"; autoReview: boolean } => ({
+  taskRun: TaskRun,
+): { sandboxMode: "read-only" | "workspace-write"; autoReview: boolean; readOnlyTask: boolean; disableWebSearch: boolean } => ({
   sandboxMode:
-    settings.codexWorkspaceWrite === true ? "workspace-write" : "read-only",
-  autoReview: settings.codexAutoReview === true,
+    taskContractFor(taskRun).authorization.mode !== "read_only" && settings.codexWorkspaceWrite === true ? "workspace-write" : "read-only",
+  autoReview: taskContractFor(taskRun).authorization.mode !== "read_only" && settings.codexAutoReview === true,
+  readOnlyTask: taskContractFor(taskRun).authorization.mode === "read_only",
+  disableWebSearch: taskContractFor(taskRun).externalSearch === "forbidden",
 });
 
 const formatStepAgentName = (name: string | undefined): string | null => {
@@ -1581,8 +1675,8 @@ const shortRationale = (a: AgentProposedAction): string => {
   const head =
     a.type === "file_write"
       ? `file_write ${a.path}`
-      : a.type === "file_patch"
-        ? `file_patch ${a.path}`
+      : a.type === "file_patch" || a.type === "file_delete"
+        ? `${a.type} ${a.path}`
       : `shell ${a.command.slice(0, 80)}`;
   return `${head} — ${a.rationale.slice(0, 160)}`;
 };
@@ -1611,8 +1705,8 @@ const renderPlanMarkdown = (
   for (const a of plan.proposedActions) {
     if (a.type === "file_write") {
       lines.push(`- \`file_write\` \`${a.path}\` — ${a.rationale}`);
-    } else if (a.type === "file_patch") {
-      lines.push(`- \`file_patch\` \`${a.path}\` — ${a.rationale}`);
+    } else if (a.type === "file_patch" || a.type === "file_delete") {
+      lines.push(`- \`${a.type}\` \`${a.path}\` — ${a.rationale}`);
     } else {
       lines.push(`- \`shell\` \`${a.command}\` — ${a.rationale}`);
     }
@@ -1628,6 +1722,17 @@ const renderPlanMarkdown = (
     }
   }
   return lines.join("\n");
+};
+
+const assertModelBudgetVerifiable = (profile: AgentProfile | null): void => {
+  // This CLI path has neither verified billing mode nor a bounded preflight
+  // quote. Do not interpret unavailable cost as zero, even for approved work.
+  const budget = evaluateBudget({ approval: { actionType: "model_use" }, profile });
+  if (budget.kind !== "blocked") return;
+  throw new AgentPlanningError(
+    AGENT_BUDGET_UNVERIFIABLE,
+    "프로필의 USD 예산 한도를 검증할 수 없어 모델 실행을 중단했습니다. 현재 CLI 경로는 과금 방식과 호출 전 비용이 미확인입니다.",
+  );
 };
 
 const assertProviderSupportsProfileBoundaries = (

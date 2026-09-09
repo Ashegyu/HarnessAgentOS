@@ -27,8 +27,9 @@ export const ConfigureActionDialog = ({
 }: ConfigureActionDialogProps): JSX.Element => {
   const existing = approval.proposedAction;
   const [command, setCommand] = useState(existing?.command ?? "");
+  const [argsJson, setArgsJson] = useState(existing?.args !== undefined ? JSON.stringify(existing.args) : "");
   const [path, setPath] = useState(
-    existing?.filePatch?.path ?? existing?.unifiedPatch?.path ?? "",
+    existing?.filePatch?.path ?? existing?.unifiedPatch?.path ?? existing?.fileDelete?.path ?? "",
   );
   const [before, setBefore] = useState(existing?.filePatch?.before ?? "");
   const [after, setAfter] = useState(existing?.filePatch?.after ?? "");
@@ -47,6 +48,17 @@ export const ConfigureActionDialog = ({
           return;
         }
         details.command = command.trim();
+        if (argsJson.trim()) {
+          const args: unknown = JSON.parse(argsJson);
+          if (!Array.isArray(args) || !args.every(value => typeof value === "string")) {
+            setError("Arguments must be a JSON string array.");
+            return;
+          }
+          details.args = args;
+        }
+      } else if (approval.actionType === "file_delete") {
+        if (!path.trim()) { setError("대상 파일 경로를 입력하세요"); return; }
+        details.fileDelete = { path: path.trim() };
       } else if (approval.actionType === "file_write") {
         if (path.trim().length === 0) {
           setError("대상 파일 경로를 입력하세요");
@@ -124,7 +136,12 @@ export const ConfigureActionDialog = ({
             </label>
           )}
 
-          {(approval.actionType === "file_write" ||
+          {approval.actionType === "shell" && <label className="modal__field">
+            <span>Arguments (optional JSON array; empty means shell command)</span>
+            <textarea value={argsJson} onChange={event => setArgsJson(event.target.value)} rows={3} placeholder={'["run", "check"]'} />
+          </label>}
+
+          {(approval.actionType === "file_delete" || approval.actionType === "file_write" ||
             approval.actionType === "file_patch") && (
             <>
               <label className="modal__field">
@@ -184,7 +201,7 @@ export const ConfigureActionDialog = ({
                     />
                   </label>
                 </>
-              ) : (
+              ) : approval.actionType === "file_patch" ? (
                 <label className="modal__field">
                   <span>patch (필수, single-file unified diff)</span>
                   <textarea
@@ -194,7 +211,7 @@ export const ConfigureActionDialog = ({
                     rows={10}
                   />
                 </label>
-              )}
+              ) : <p>Single-file recycle only; review and approve after saving.</p>}
             </>
           )}
 

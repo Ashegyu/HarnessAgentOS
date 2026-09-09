@@ -17,6 +17,7 @@ export class TestRunner {
 
   async run(input: {
     command: string;
+    args?: string[];
     cwd: string;
     timeoutMs?: number;
     idleTimeoutMs?: number;

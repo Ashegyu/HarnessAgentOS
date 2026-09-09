@@ -85,6 +85,77 @@ test("HarnessPackageRepository saves and reloads a definition snapshot", async (
   }
 });
 
+test("HarnessPackageRepository seeds eighteen useful workflow templates idempotently", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteHarnessPackageRepository(db);
+    await repo.ensureSeed();
+
+    const seeded = await repo.list();
+    assert.equal(seeded.length, 18);
+    assert.equal(seeded.every((item) => item.validation.status === "valid"), true);
+    assert.equal(seeded.every((item) => item.agents.length >= 1), true);
+    assert.equal(seeded.filter((item) => item.workflows[0].steps.length > 1).length, 8);
+    assert.equal(seeded.every((item) => item.skills.length === 1), true);
+    assert.equal(seeded.every((item) => item.workflows.length === 1), true);
+    assert.equal(seeded.some((item) => item.name === "기능 개발 하네스"), true);
+    assert.equal(seeded.some((item) => item.name === "릴리스 준비 하네스"), true);
+    const localized = seeded.find(
+      (item) => item.id === "harness_seed_feature_delivery",
+    );
+    assert.equal(
+      localized?.skills[0]?.rawFrontmatter.harnessLocalization.key,
+      "builtin.harness.featureDelivery",
+    );
+    assert.equal(
+      localized?.skills[0]?.rawFrontmatter.harnessLocalization.en.name,
+      "Feature Delivery Harness",
+    );
+    assert.equal(
+      localized?.skills[0]?.rawFrontmatter.harnessLocalization.ko.name,
+      "기능 개발 하네스",
+    );
+
+    const legacy = {
+      ...seeded.find((item) => item.id === "harness_seed_feature_delivery"),
+      name: "Feature Delivery Harness",
+    };
+    await repo.save(legacy);
+    await repo.ensureSeed();
+    assert.equal((await repo.get("harness_seed_feature_delivery"))?.name, "기능 개발 하네스");
+
+    const customized = {
+      ...seeded[0],
+      name: "My Customized Harness",
+    };
+    await repo.save(customized);
+    await repo.ensureSeed();
+
+    assert.equal((await repo.list()).length, 18);
+    assert.equal((await repo.get(customized.id))?.name, "My Customized Harness");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("seed refresh preserves custom instructions even when the built-in name is unchanged", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteHarnessPackageRepository(db);
+    await repo.ensureSeed();
+    const customized = await repo.get("harness_seed_documentation");
+    customized.workflows[0].steps[0].instruction = "사용자 지정 문서 정책을 반드시 보존하세요.";
+    await repo.save(customized);
+    const before = db.prepare("SELECT * FROM harness_packages ORDER BY id").all();
+    await repo.ensureSeed();
+    assert.deepEqual(await repo.get(customized.id), customized);
+    assert.deepEqual(db.prepare("SELECT * FROM harness_packages ORDER BY id").all(), before);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("HarnessPackageRepository updates existing snapshots by id", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

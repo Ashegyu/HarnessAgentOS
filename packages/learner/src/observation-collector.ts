@@ -6,6 +6,7 @@ import type {
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import { deriveProjectKey } from "./project-key.ts";
+import { redactSecrets } from "./redact-secrets.ts";
 
 export interface ObservationCollectorDeps {
   state: LocalStateService;
@@ -41,9 +42,11 @@ export class ObservationCollector {
       payload: {
         approvalId: approval.id,
         actionType: approval.actionType,
-        actionSummary: approval.actionSummary,
+        actionSummary: redactSecrets(approval.actionSummary, 320),
         status: approval.status,
-        decisionMessage: approval.decisionMessage ?? null,
+        decisionMessage: approval.decisionMessage
+          ? redactSecrets(approval.decisionMessage, 320)
+          : null,
         policyDecision: approval.policyEvaluation?.decision ?? null,
       },
     });

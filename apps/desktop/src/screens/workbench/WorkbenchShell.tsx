@@ -4,18 +4,14 @@ import type {
   AgentProfile,
   AgentProviderStatusMap,
   Approval,
-  AutoApproveDecision,
   LearnerContextDecisionSurface,
   ObservationRecallResult,
   OrchestrationMode,
   ProposedActionDetails,
   TaskRun,
-  TaskRunDetail,
 } from "@harness/core";
 import {
   evaluateBudget,
-  isWorkerFileActionApproval,
-  shouldAutoApprove,
 } from "@harness/core";
 import { ThreadSidebar } from "./ThreadSidebar";
 import { ConversationWorkbench } from "./ConversationWorkbench";
@@ -45,14 +41,6 @@ import {
   hasPipelineSourcePlanArtifact,
   pipelineAutoApproveDecision,
 } from "./pipeline-auto-approval";
-import {
-  autoExecutableRunnerApprovalIssue,
-  buildAutoApprovedExecutionPlan,
-  canRunAutoApprovedExecutionForStatus,
-  isApprovedForPipelineAutoExecution,
-  isRunnerExecutionApproval,
-  runAutoApprovedExecutionPlan,
-} from "./auto-execution-plan";
 import {
   beginTaskRunDetailRefresh,
   beginThreadDetailRefresh,
@@ -87,19 +75,6 @@ const COMMAND_TAB_ITEMS: ReadonlyArray<{
 const errorMessage = (e: unknown): string =>
   e instanceof Error ? e.message : String(e);
 
-const continuationOrchestrationApprovalIds = (
-  detail: TaskRunDetail,
-  excludeIds: ReadonlySet<string> = new Set(),
-): string[] =>
-  detail.approvals
-    .filter(
-      (approval) =>
-        approval.actionType === "orchestration_plan" &&
-        !excludeIds.has(approval.id) &&
-        (approval.status === "approved" ||
-          approval.status === "always_approved_for_run"),
-    )
-    .map((approval) => approval.id);
 
 const taskRunTitle = (taskRun: TaskRun): string => {
   const trimmed = taskRun.userRequest.trim();
@@ -129,8 +104,6 @@ export const WorkbenchShell = (): JSX.Element => {
     [],
   );
   const [autoApprove, setAutoApprove] = useState(false);
-  const [autoExecuteWorkerFileActions, setAutoExecuteWorkerFileActions] =
-    useState(false);
   const [activeAgentProfile, setActiveAgentProfile] =
     useState<AgentProfile | null>(null);
   const [agentProgressByTaskRunId, setAgentProgressByTaskRunId] = useState<
@@ -140,11 +113,6 @@ export const WorkbenchShell = (): JSX.Element => {
     pinnedObservationContextsByTaskRunId,
     setPinnedObservationContextsByTaskRunId,
   ] = useState<Record<string, ObservationRecallResult[]>>({});
-  // Tracks approval IDs that the auto-approver has already kicked off so
-  // the effect doesn't double-fire on the eventual taskRunChanged event
-  // before the row's status flips out of "pending".
-  const autoInFlightRef = useRef<Set<string>>(new Set());
-  const advisoryResumeInFlightRef = useRef<Set<string>>(new Set());
 
   const pushAgentProgress = useCallback(
     (taskRunId: string, item: AgentProgressItem): void => {
@@ -173,41 +141,12 @@ export const WorkbenchShell = (): JSX.Element => {
     [pushAgentProgress],
   );
 
-  // Tracks TaskRun IDs that were created via pipeline-pick at submit
-  // time. For these runs we auto-approve the orchestration_plan and any
-  // well-formed runner approvals that can actually execute. Picking a
-  // pipeline is itself the user's consent, but malformed runner payloads
-  // remain pending for manual repair.
+  // Suppresses a manual-plan button flash before the host plan arrives.
+  // This renderer-local hint never grants approval or controls execution.
   const pipelineAutoTaskRunIdsRef = useRef<Set<string>>(new Set());
-  const PIPELINE_AUTO_LS_KEY = "harness.pipelineAutoTaskRunIds";
-  // Initial load — pre-populate the Set from localStorage so reloads
-  // mid-run don't lose the auto-approve consent.
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(PIPELINE_AUTO_LS_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as unknown;
-      if (Array.isArray(parsed)) {
-        pipelineAutoTaskRunIdsRef.current = new Set(
-          parsed.filter((x): x is string => typeof x === "string"),
-        );
-      }
-    } catch {
-      // Corrupt LS — drop silently; worst case the user re-consents on
-      // their next pipeline submission.
-    }
-  }, []);
   const markPipelineAutoTaskRun = useCallback((taskRunId: string): void => {
+    // UI flash suppression only. Persisted host plan owns approval consent.
     pipelineAutoTaskRunIdsRef.current.add(taskRunId);
-    try {
-      window.localStorage.setItem(
-        PIPELINE_AUTO_LS_KEY,
-        JSON.stringify(Array.from(pipelineAutoTaskRunIdsRef.current)),
-      );
-    } catch {
-      // Quota / disabled storage — in-memory Set still works for this
-      // session, just won't survive reload.
-    }
   }, []);
 
   // V1 → V2 migration flag. Width keys (sidebarWidth/rightPanelWidth) carry
@@ -550,8 +489,10 @@ export const WorkbenchShell = (): JSX.Element => {
     try {
       const next = await window.harness.agent.checkProviders();
       setProviders(next);
+      return next;
     } catch {
       setProviders(null);
+      return null;
     }
   }, []);
 
@@ -559,9 +500,6 @@ export const WorkbenchShell = (): JSX.Element => {
     try {
       const s = await window.harness.settings.get();
       setAutoApprove(s.approval.autoApprove);
-      setAutoExecuteWorkerFileActions(
-        s.approval.autoExecuteWorkerFileActions,
-      );
       // Also resolve which AgentProfile is active so the auto-approve
       // policy can layer per-profile permissions on top of the global flag.
       const profiles = await window.harness.agents.list();
@@ -573,7 +511,6 @@ export const WorkbenchShell = (): JSX.Element => {
       setActiveAgentProfile(next);
     } catch {
       setAutoApprove(false);
-      setAutoExecuteWorkerFileActions(false);
       setActiveAgentProfile(null);
     }
   }, []);
@@ -654,194 +591,7 @@ export const WorkbenchShell = (): JSX.Element => {
     refreshThreadDetail,
   ]);
 
-  // Auto-approve + auto-execute. Combines three triggers:
-  //   1. The global `approval.autoApprove` toggle.
-  //   2. The active AgentProfile's per-action permissions.
-  //   3. The narrow worker-file automation toggle.
-  //   4. Pipeline-pick consent (this TaskRun was started by picking a
-  //      pipeline in ConversationInput — every approval it produces is
-  //      pre-approved, including downstream worker actions).
-  //
-  // Active profile block/budget rules are the floor for every auto-approve
-  // trigger, including explicit pipeline selection. A blocked row stays
-  // pending so ApprovalPanel can expose a deliberate manual decision.
-  useEffect(() => {
-    if (taskRunDetail.kind !== "ready") return;
-    const inFlight = autoInFlightRef.current;
-    const taskRunId = taskRunDetail.detail.taskRun.id;
-    if (
-      !canRunAutoApprovedExecutionForStatus(taskRunDetail.detail.taskRun.status)
-    ) {
-      return;
-    }
-    const isPipelineAutoTask =
-      pipelineAutoTaskRunIdsRef.current.has(taskRunId) ||
-      hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts);
-    if (
-      isPipelineAutoTask &&
-      !pipelineAutoTaskRunIdsRef.current.has(taskRunId)
-    ) {
-      markPipelineAutoTaskRun(taskRunId);
-    }
-    const blockedActions =
-      activeAgentProfile?.permissions.blockedActions ?? [];
-    const budgetUsage = taskRunDetail.detail.budgetUsage;
-    const isWorkerFileAction = (approval: Approval): boolean =>
-      isWorkerFileActionApproval({
-        approval,
-        checkpoints: taskRunDetail.detail.checkpoints,
-      });
-    const isBudgetBlocked = (approval: Approval): boolean =>
-      evaluateBudget({
-        approval,
-        profile: activeAgentProfile,
-        accumulatedTaskRunCostUsd:
-          budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
-        accumulatedDailyCostUsd:
-          budgetUsage?.accumulatedDailyCostUsd ?? 0,
-      }).kind === "blocked";
-    const autoApproveDecisions = new Map<string, AutoApproveDecision>();
-    const autoApproveMessage = (approval: Approval): string => {
-      if (isPipelineAutoTask) return "auto-approved (pipeline task)";
-      if (
-        autoExecuteWorkerFileActions &&
-        isWorkerFileAction(approval)
-      ) {
-        return "auto-approved (settings.approval.autoExecuteWorkerFileActions)";
-      }
-      return "auto-approved (settings.approval.autoApprove)";
-    };
-    const pending = taskRunDetail.detail.approvals.filter(
-      (a: Approval): boolean => {
-        if (a.status !== "pending") return false;
-        if (inFlight.has(a.id)) return false;
-        if (
-          isRunnerExecutionApproval(a) &&
-          autoExecutableRunnerApprovalIssue(a) !== null
-        ) {
-          return false;
-        }
-        if (isPipelineAutoTask) {
-          // 명시적으로 선택한 pipeline도 profile block과 budget 상한은 넘지 않는다.
-          const decision = pipelineAutoApproveDecision(a, {
-            activeProfile: activeAgentProfile,
-            accumulatedTaskRunCostUsd:
-              budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
-            accumulatedDailyCostUsd:
-              budgetUsage?.accumulatedDailyCostUsd ?? 0,
-          });
-          autoApproveDecisions.set(a.id, decision);
-          return decision.approved;
-        }
-        // Block list trumps non-pipeline auto-approve triggers.
-        if (blockedActions.includes(a.actionType)) return false;
-        if (isBudgetBlocked(a)) return false;
-        const decision = shouldAutoApprove({
-          approval: a,
-          globalAutoApprove: autoApprove,
-          activeProfile: activeAgentProfile,
-          accumulatedTaskRunCostUsd:
-            budgetUsage?.accumulatedTaskRunCostUsd ?? 0,
-          accumulatedDailyCostUsd:
-            budgetUsage?.accumulatedDailyCostUsd ?? 0,
-          workerFileActionAutoApprove: autoExecuteWorkerFileActions,
-          isWorkerFileAction: isWorkerFileAction(a),
-        });
-        if (decision.approved) autoApproveDecisions.set(a.id, decision);
-        return decision.approved;
-      },
-    );
-    const alreadyApprovedForAutoExecute = taskRunDetail.detail.approvals.filter(
-      (a: Approval): boolean => {
-        if (inFlight.has(a.id)) return false;
-        if (!isPipelineAutoTask) return false;
-        return isApprovedForPipelineAutoExecution(a);
-      },
-    );
-    if (pending.length === 0 && alreadyApprovedForAutoExecute.length === 0) {
-      return;
-    }
-    void (async () => {
-      const approvedIds = new Set<string>();
-      for (const approval of pending) {
-        inFlight.add(approval.id);
-        try {
-          await window.harness.conversation.approve({
-            approvalId: approval.id,
-            message: autoApproveMessage(approval),
-            autoApproveDecision:
-              autoApproveDecisions.get(approval.id) ?? null,
-          });
-          approvedIds.add(approval.id);
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error("auto-approve failed", approval.id, e);
-          // Drop from in-flight so a future refresh can retry rather than
-          // silently leaving the approval stuck in pending.
-          inFlight.delete(approval.id);
-        }
-      }
-      for (const approval of alreadyApprovedForAutoExecute) {
-        inFlight.add(approval.id);
-        approvedIds.add(approval.id);
-      }
-      const approvalsForExecution = [
-        ...pending.filter((approval) => approvedIds.has(approval.id)),
-        ...alreadyApprovedForAutoExecute,
-      ];
-      const executionApprovalIds = new Set(
-        approvalsForExecution.map((approval) => approval.id),
-      );
-      const executionPlan = buildAutoApprovedExecutionPlan(
-        taskRunId,
-        approvalsForExecution,
-      );
-      const runResult = await runAutoApprovedExecutionPlan({
-        executionPlan: {
-          ...executionPlan,
-          continuationOrchestrationApprovalIds:
-            isPipelineAutoTask || hasPipelineSourcePlanArtifact(taskRunDetail.detail.artifacts)
-              ? continuationOrchestrationApprovalIds(
-                  taskRunDetail.detail,
-                  executionApprovalIds,
-                )
-              : [],
-        },
-        isPipelineAutoTask,
-        api: {
-          runOrchestrationApproved: (input) =>
-            window.harness.orchestration.runApproved(input),
-          executeCodeChangeAttempt: (input) =>
-            window.harness.runner.executeCodeChangeAttempt(input),
-          createRepairPlan: (input) =>
-            window.harness.quality.createRepairPlan(input),
-          executeApproved: (input) =>
-            window.harness.runner.executeApproved(input),
-        },
-        onError: (context, error) => {
-          // eslint-disable-next-line no-console
-          console.error("auto execution failed", context, error);
-        },
-      });
-      for (const approvalId of runResult.failedApprovalIds) {
-        // Drop from in-flight so a future refresh can retry rather than
-        // silently leaving the approval stuck in "approved but not run".
-        inFlight.delete(approvalId);
-      }
-      if (selectedTaskRunId) await refreshTaskRunDetail(selectedTaskRunId);
-      if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
-    })();
-  }, [
-    autoApprove,
-    autoExecuteWorkerFileActions,
-    activeAgentProfile,
-    taskRunDetail,
-    markPipelineAutoTaskRun,
-    selectedTaskRunId,
-    selectedThreadId,
-    refreshTaskRunDetail,
-    refreshThreadDetail,
-  ]);
+  // Approval execution is owned by main. Renderer only subscribes to persisted changes.
 
   const handleCreateThread = useCallback(
     async (input: {
@@ -860,6 +610,7 @@ export const WorkbenchShell = (): JSX.Element => {
   const handleCreateTask = useCallback(
     async (input: {
       userRequest: string;
+      intent?: import("@harness/core").TaskIntent;
       targetDir?: string;
       mode: ConversationMode;
       followUpTaskRunId?: string;
@@ -875,291 +626,22 @@ export const WorkbenchShell = (): JSX.Element => {
       if (!selectedThreadId) {
         throw new Error("스레드를 먼저 선택하세요");
       }
-      // Routing is now per-message: whatever ConversationInput's
-      // dropdown carries in `input.orchPipelineId` is what gets used.
-      // `Thread.pipelineId` only seeds the dropdown's initial value
-      // (so threads "remember" the user's last choice). The user
-      // freely changes it for every submission.
-      const usingPipeline =
-        input.orchPipelineId !== undefined && input.orchPipelineId.length > 0;
-      const usingHarness =
-        input.orchHarness !== undefined &&
-        input.orchHarness.packageId.length > 0 &&
-        input.orchHarness.bindingSetId.length > 0;
-      const usingOrchestrationPick = usingPipeline || usingHarness;
-      const payload: {
-        threadId: string;
-        userRequest: string;
-        targetDir?: string;
-        followUpTaskRunId?: string;
-        mode: ConversationMode;
-      } = {
-        threadId: selectedThreadId,
-        userRequest: input.userRequest,
-        mode: input.mode,
-      };
-      if (input.targetDir !== undefined) payload.targetDir = input.targetDir;
-      if (input.followUpTaskRunId !== undefined) {
-        payload.followUpTaskRunId = input.followUpTaskRunId;
+      const { mode: _mode, ...request } = input;
+      const draft = await window.harness.conversation.startTask({
+        ...request, threadId: selectedThreadId,
+      });
+      const contract = draft.taskRun.contract;
+      if (contract?.authorization.mode !== "read_only" && contract?.externalSearch !== "forbidden" &&
+          (input.orchPipelineId || input.orchHarness)) {
+        markPipelineAutoTaskRun(draft.taskRun.id);
       }
-      const draft = await window.harness.conversation.createTask(payload);
-      // Mark this TaskRun as pipeline-auto BEFORE the render that
-      // mounts the detail panels. There's a race window between the
-      // setSelectedTaskRunId → first taskRunDetail fetch and the
-      // orchestration.draftPlan call below: if we only mark inside
-      // the draftPlan branch, the first render of AgentPanel sees
-      // no orchestration_plan approval and would show the "Agent
-      // plan 생성" button. Pre-marking lets RightPanel pass
-      // `pipelineAutoLaunched` through to AgentPanel on the very
-      // first render so the manual button never flashes.
-      if (usingOrchestrationPick) markPipelineAutoTaskRun(draft.taskRun.id);
       setSelectedTaskRunId(draft.taskRun.id);
-      if (input.followUpTaskRunId !== undefined) {
-        noteAgentProgress(
-          draft.taskRun.id,
-          "context",
-          "이전 Task 이어받기",
-          input.followUpTaskRunId,
-        );
-      }
-      let advisoryApprovalCount = 0;
-      if (input.mode === "agent" && !usingOrchestrationPick) {
-        try {
-          const capabilityCandidates =
-            await window.harness.capability.proposeCandidates({
-              taskRunId: draft.taskRun.id,
-              prompt: input.userRequest,
-              profileId: activeAgentProfile?.id ?? null,
-            });
-          advisoryApprovalCount += capabilityCandidates.approvals.length;
-          if (capabilityCandidates.approvals.length > 0) {
-            noteAgentProgress(
-              draft.taskRun.id,
-              "context",
-              "Skill 후보 승인 대기",
-              `${capabilityCandidates.approvals.length}개 후보가 자동으로 올라갔습니다. 승인하면 다음 Agent 프롬프트에 반영됩니다.`,
-            );
-          }
-        } catch (e) {
-          noteAgentProgress(
-            draft.taskRun.id,
-            "context",
-            "Skill 후보 확인 실패",
-            errorMessage(e),
-          );
-        }
-        try {
-          const learnerCandidates =
-            await window.harness.learner.proposeRecommendation({
-              taskRunId: draft.taskRun.id,
-            });
-          advisoryApprovalCount += learnerCandidates.approvals.length;
-          if (learnerCandidates.approvals.length > 0) {
-            noteAgentProgress(
-              draft.taskRun.id,
-              "context",
-              "Learner 추천 승인 대기",
-              `${learnerCandidates.approvals.length}개 추천이 과거 trace 기반 후보로 올라갔습니다. 승인하면 다음 Agent 호출에 반영됩니다.`,
-            );
-          }
-        } catch (e) {
-          noteAgentProgress(
-            draft.taskRun.id,
-            "context",
-            "Learner 추천 확인 실패",
-            errorMessage(e),
-          );
-        }
-      }
-      // Agent mode: chain into generatePlan immediately so the user
-      // sees streaming output instead of a sitting-still placeholder.
-      // Skipped when the message routes through a pipeline —
-      // orchestration owns the response generation in that case.
-      if (
-        input.mode === "agent" &&
-        !usingOrchestrationPick &&
-        advisoryApprovalCount === 0
-      ) {
-        noteAgentProgress(
-          draft.taskRun.id,
-          "context",
-          "에이전트 시작 준비",
-          "Provider 상태, 프로필, 최근 컨텍스트를 확인하는 중",
-        );
-        try {
-          await window.harness.agent.generatePlan({
-            taskRunId: draft.taskRun.id,
-            pinnedObservationContexts:
-              pinnedObservationContextsByTaskRunId[draft.taskRun.id] ?? [],
-          });
-        } catch (e) {
-          noteAgentProgress(
-            draft.taskRun.id,
-            "cli",
-            "에이전트 실행 실패",
-            errorMessage(e),
-          );
-          // Surface but don't unwind — the placeholder TaskRun stays
-          // around so the user can retry or fall back manually.
-          // eslint-disable-next-line no-console
-          console.error("agent.generatePlan failed", e);
-        }
-      }
-      // Auto-draft orchestration plan when this message uses a pipeline,
-      // a saved direct-harness binding set, OR the caller passed an
-      // explicit legacy orchMode (still possible from the side
-      // OrchestrationPanel).
-      const effectiveOrchMode: OrchestrationMode | undefined = usingOrchestrationPick
-        ? "single_worker"
-        : input.orchMode;
-      if (effectiveOrchMode) {
-        try {
-          const drafted = await window.harness.orchestration.draftPlan({
-            taskRunId: draft.taskRun.id,
-            mode: effectiveOrchMode,
-            ...(input.orchInstruction
-              ? { instruction: input.orchInstruction }
-              : {}),
-            ...(input.orchPipelineId
-              ? { pipelineId: input.orchPipelineId }
-              : {}),
-            ...(input.orchHarness ? { harness: input.orchHarness } : {}),
-          });
-          // Picking a pipeline from ConversationInput IS the user's
-          // approval — they explicitly chose to run this pipeline for
-          // this message. Skip the extra "approve the plan?" friction
-          // and run immediately. The orchestration_plan approval row
-          // is still created (audit trail) and decideApproval marks it
-          // executed via runApproved's tail. Legacy orchMode (no
-          // pipeline) keeps the manual approval flow so the existing
-          // OrchestrationPanel UX is unchanged.
-          //
-          // Pre-claim the approval id in autoInFlightRef so the global
-          // auto-approve useEffect skips it — otherwise both paths can
-          // race on the same id when `settings.approval.autoApprove`
-          // is on, and the second runApproved fails with "approval is
-          // executed". Always run for pipeline picks regardless of
-          // global autoApprove: the user already opted in by selecting
-          // a pipeline for this message.
-          if (usingOrchestrationPick) {
-            // The TaskRun was already marked pipeline-auto before
-            // setSelectedTaskRunId (above) so AgentPanel could hide
-            // the manual button on the very first render. Here we
-            // just pre-claim the orchestration_plan approval id so
-            // the global auto-approve useEffect doesn't race with
-            // the explicit approve / runApproved call below.
-            autoInFlightRef.current.add(drafted.approval.id);
-            try {
-              await window.harness.conversation.approve({
-                approvalId: drafted.approval.id,
-                message: "auto-approved (per-message pipeline pick)",
-                autoApproveDecision: {
-                  approved: true,
-                  decidedAt: "global_toggle",
-                  reason:
-                    usingPipeline
-                      ? "Pipeline plan was pre-approved by explicit per-message pipeline selection."
-                      : "Harness plan was pre-approved by explicit per-message harness selection.",
-                },
-              });
-              await window.harness.orchestration.runApproved({
-                approvalId: drafted.approval.id,
-              });
-            } catch (e) {
-              // Drop the claim so the global handler / a user retry can
-              // pick it back up. Re-throw so ConversationInput's error
-              // surface tells the user the auto-flow failed (instead of
-              // silently leaving them looking at a "still working…"
-              // placeholder while the task is actually stuck). The
-              // user's recovery action is re-submitting the same
-              // message: that creates a fresh TaskRun + plan +
-              // approval and the auto-flow tries again on a clean
-              // slate. Cleaner than wiring a retry button into the
-              // orchestration panel that we've just hidden.
-              autoInFlightRef.current.delete(drafted.approval.id);
-              const message = e instanceof Error ? e.message : String(e);
-              // eslint-disable-next-line no-console
-              console.error(
-                "auto-run after pipeline draftPlan failed",
-                drafted.approval.id,
-                e,
-              );
-              throw new Error(
-                `${usingPipeline ? "파이프라인" : "Harness"} 자동 실행 실패 (${drafted.approval.id.slice(0, 8)}…): ${message}`,
-              );
-            }
-          }
-        } catch (e) {
-          // eslint-disable-next-line no-console
-          console.error("orchestration.draftPlan failed", e);
-          if (usingOrchestrationPick) throw e;
-        }
-      }
+      noteAgentProgress(draft.taskRun.id, "context", "작업 시작 준비",
+        "메인에서 추천·승인·실행을 이어갑니다. 다른 작업으로 이동해도 진행됩니다.");
       await refreshThreadDetail(selectedThreadId);
-      if (selectedTaskRunId === draft.taskRun.id)
-        await refreshTaskRunDetail(draft.taskRun.id);
     },
-    [
-      refreshThreadDetail,
-      refreshTaskRunDetail,
-      selectedTaskRunId,
-      selectedThreadId,
-      autoApprove,
-      activeAgentProfile,
-      noteAgentProgress,
-      pinnedObservationContextsByTaskRunId,
-    ],
+    [selectedThreadId, refreshThreadDetail, markPipelineAutoTaskRun, noteAgentProgress],
   );
-
-  useEffect(() => {
-    if (!agentAvailable) return;
-    if (taskRunDetail.kind !== "ready") return;
-    const { taskRun, approvals, agentInvocations } = taskRunDetail.detail;
-    if (taskRun.status !== "drafting") return;
-    if (pipelineAutoTaskRunIdsRef.current.has(taskRun.id)) return;
-    if (agentInvocations.length > 0) return;
-    const advisoryApprovals = approvals.filter(
-      (a) => a.actionType === "capability_use" || a.actionType === "model_use",
-    );
-    if (advisoryApprovals.length === 0) return;
-    if (advisoryApprovals.some((a) => a.status === "pending")) return;
-    const inFlight = advisoryResumeInFlightRef.current;
-    if (inFlight.has(taskRun.id)) return;
-    inFlight.add(taskRun.id);
-    noteAgentProgress(
-      taskRun.id,
-      "context",
-      "추천 후보 결정 완료",
-      "승인/거절 결과를 반영해 Agent plan 생성을 시작합니다.",
-    );
-    void (async () => {
-      try {
-        await window.harness.agent.generatePlan({
-          taskRunId: taskRun.id,
-          pinnedObservationContexts:
-            pinnedObservationContextsByTaskRunId[taskRun.id] ?? [],
-        });
-      } catch (e) {
-        noteAgentProgress(
-          taskRun.id,
-          "cli",
-          "에이전트 실행 실패",
-          errorMessage(e),
-        );
-        inFlight.delete(taskRun.id);
-      }
-      await refreshTaskRunDetail(taskRun.id);
-      if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
-    })();
-  }, [
-    agentAvailable,
-    noteAgentProgress,
-    refreshTaskRunDetail,
-    refreshThreadDetail,
-    selectedThreadId,
-    taskRunDetail,
-    pinnedObservationContextsByTaskRunId,
-  ]);
 
   const handleAgentGenerate = useCallback(
     async (taskRunId: string): Promise<void> => {
@@ -1247,6 +729,8 @@ export const WorkbenchShell = (): JSX.Element => {
   const handleApprove = useCallback(
     async (input: {
       approvalId: string;
+      expectedRevision: number;
+      manualConfirmation?: boolean;
       message?: string;
       scope?: "once" | "run_action_class";
     }): Promise<void> => {
@@ -1312,12 +796,6 @@ export const WorkbenchShell = (): JSX.Element => {
     async (input: { approvalId: string }): Promise<void> => {
       await window.harness.runner.executeApproved(input);
       if (selectedTaskRunId) {
-        const detail = await window.harness.conversation.getTaskRunDetail({
-          taskRunId: selectedTaskRunId,
-        });
-        for (const approvalId of continuationOrchestrationApprovalIds(detail)) {
-          await window.harness.orchestration.runApproved({ approvalId });
-        }
         await refreshTaskRunDetail(selectedTaskRunId);
       }
       if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
@@ -1381,18 +859,16 @@ export const WorkbenchShell = (): JSX.Element => {
   // Pending approval should pull the user's attention to the context drawer —
   // but only the FIRST time a given TaskRun has pending approvals. If the
   // user explicitly closes the drawer during an active run, subsequent
-  // approval events shouldn't keep re-opening it. Also skip entirely when
-  // auto-approve is on — the user opted out of manual approval, so don't
-  // disrupt their flow.
+  // approval events shouldn't keep re-opening it. Auto approval never means
+  // that mandatory individual confirmations can be hidden.
   const autoOpenedForTaskRunRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (autoApprove) return;
     if (!selectedTaskRunId) return;
     if (pendingApprovalCount === 0) return;
     if (autoOpenedForTaskRunRef.current.has(selectedTaskRunId)) return;
     autoOpenedForTaskRunRef.current.add(selectedTaskRunId);
     if (!contextDrawerOpen) setContextDrawerOpen(true);
-  }, [pendingApprovalCount, contextDrawerOpen, selectedTaskRunId, autoApprove]);
+  }, [pendingApprovalCount, contextDrawerOpen, selectedTaskRunId]);
 
   const commandPaletteItems = useMemo<CommandPaletteItem[]>(() => {
     const items: CommandPaletteItem[] = COMMAND_TAB_ITEMS.map((tab) => ({
@@ -1546,6 +1022,7 @@ export const WorkbenchShell = (): JSX.Element => {
               threadId={selectedThreadId}
               threadPipelineId={selectedThread?.pipelineId}
               agentAvailable={agentAvailable}
+              onCheckProviders={refreshProviders}
               contextDrawerOpen={contextDrawerOpen}
               onToggleContextDrawer={toggleContextDrawer}
               pendingApprovalCount={pendingApprovalCount}
@@ -1568,6 +1045,11 @@ export const WorkbenchShell = (): JSX.Element => {
               activeTaskRunInvocations={
                 taskRunDetail.kind === "ready"
                   ? taskRunDetail.detail.agentInvocations
+                  : []
+              }
+              activeTaskRunArtifacts={
+                taskRunDetail.kind === "ready"
+                  ? taskRunDetail.detail.artifacts
                   : []
               }
               agentProgressByTaskRunId={agentProgressByTaskRunId}

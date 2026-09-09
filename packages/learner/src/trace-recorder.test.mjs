@@ -68,6 +68,39 @@ test("recordSelection stores selectedModel and capabilities", async () => {
   }
 });
 
+test("recordSelection merges capabilities collected by multiple invocations", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const recorder = new TraceRecorder({ state });
+    await recorder.recordSelection({
+      taskRunId: taskRun.id,
+      selectedModel: "gpt-5.6-sol",
+      selectedCapabilities: ["cap_planning"],
+    });
+
+    const trace = await recorder.recordSelection({
+      taskRunId: taskRun.id,
+      selectedModel: "gpt-5.6-terra",
+      selectedCapabilities: ["cap_testing", "cap_planning"],
+    });
+
+    assert.deepEqual(trace.selectedCapabilities, [
+      "cap_planning",
+      "cap_testing",
+    ]);
+    assert.deepEqual(trace.selectedModels, [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+    ]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("recordOutcome computes reward and redacts secrets in failureReason", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

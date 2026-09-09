@@ -4,6 +4,7 @@ import type {
   TaskRunStatus,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
+import { buildTaskContract } from "@harness/core";
 import { newId, nowIso } from "../id.ts";
 import { rowToTaskRun } from "./row-mappers.ts";
 
@@ -31,6 +32,10 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
       id: newId("taskRun"),
       threadId: input.threadId,
       userRequest: input.userRequest,
+      contract: buildTaskContract({
+        userRequest: input.userRequest,
+        ...(input.intent !== undefined ? { intent: input.intent } : {}),
+      }),
       targetDir: input.targetDir,
       status: input.status ?? "drafting",
       createdAt: now,
@@ -40,21 +45,26 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
       taskRun.followUpTaskRunId = input.followUpTaskRunId;
     }
 
-    this.db
-      .prepare(
-        `INSERT INTO task_runs(id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at)
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO task_runs(id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at)
          VALUES(@id, @threadId, @userRequest, @targetDir, @followUpTaskRunId, @status, NULL, @createdAt, @updatedAt)`,
-      )
-      .run({
-        id: taskRun.id,
-        threadId: taskRun.threadId,
-        userRequest: taskRun.userRequest,
-        targetDir: taskRun.targetDir,
-        followUpTaskRunId: taskRun.followUpTaskRunId ?? null,
-        status: taskRun.status,
-        createdAt: taskRun.createdAt,
-        updatedAt: taskRun.updatedAt,
-      });
+        )
+        .run({
+          id: taskRun.id,
+          threadId: taskRun.threadId,
+          userRequest: taskRun.userRequest,
+          targetDir: taskRun.targetDir,
+          followUpTaskRunId: taskRun.followUpTaskRunId ?? null,
+          status: taskRun.status,
+          createdAt: taskRun.createdAt,
+          updatedAt: taskRun.updatedAt,
+        });
+      this.db.prepare(
+        `INSERT INTO task_contracts(task_run_id, revision, contract_json, created_at) VALUES (?, 1, ?, ?)`,
+      ).run(taskRun.id, JSON.stringify(taskRun.contract), now);
+    })();
 
     return taskRun;
   }
@@ -62,7 +72,8 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   async listByThread(threadId: string): Promise<TaskRun[]> {
     const rows = this.db
       .prepare(
-        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at
+        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at,
+          (SELECT contract_json FROM task_contracts WHERE task_run_id = task_runs.id) AS contract_json
          FROM task_runs WHERE thread_id = ?
          ORDER BY datetime(created_at) DESC, rowid DESC`,
       )
@@ -73,7 +84,8 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   async get(id: string): Promise<TaskRun | null> {
     const row = this.db
       .prepare(
-        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at
+        `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at,
+          (SELECT contract_json FROM task_contracts WHERE task_run_id = task_runs.id) AS contract_json
          FROM task_runs WHERE id = ?`,
       )
       .get(id) as Parameters<typeof rowToTaskRun>[0] | undefined;

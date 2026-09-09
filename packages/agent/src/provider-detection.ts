@@ -84,6 +84,7 @@ const probeProviderCommand = (
       child = spawn(command, ["--version"], {
         stdio: ["ignore", "pipe", "pipe"],
         shell: false,
+        windowsHide: true,
       });
     } catch (e) {
       settle({

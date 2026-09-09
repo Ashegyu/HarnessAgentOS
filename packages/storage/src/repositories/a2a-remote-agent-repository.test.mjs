@@ -86,6 +86,50 @@ test("A2ARemoteAgentRepository.listEndpoints returns [] on an empty DB", async (
   }
 });
 
+test("A2ARemoteAgentRepository seeds a safe starter catalog idempotently", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteA2ARemoteAgentRepository(db);
+    await repo.ensureSeed();
+
+    const seeded = await repo.listEndpoints();
+    assert.equal(seeded.length, 10);
+    assert.equal(seeded.every((endpoint) => !endpoint.enabled), true);
+    assert.equal(seeded.every((endpoint) => !endpoint.trusted), true);
+    assert.equal(seeded.some((endpoint) => endpoint.name === "코드 리뷰 에이전트"), true);
+    assert.equal(seeded.some((endpoint) => endpoint.name === "보안 감사 에이전트"), true);
+    assert.equal((await repo.getCardSnapshot("a2a_seed_code_review"))?.agentName, "코드 리뷰 에이전트");
+    const rawCard = JSON.parse(
+      (await repo.getCardSnapshot("a2a_seed_code_review"))?.rawCardJson ?? "{}",
+    );
+    assert.equal(rawCard.harnessLocalization.key, "builtin.remoteAgent.codeReview");
+    assert.equal(rawCard.harnessLocalization.en.name, "Code Review Agent");
+    assert.equal(rawCard.harnessLocalization.ko.name, "코드 리뷰 에이전트");
+
+    const legacyEndpoint = await repo.getEndpoint("a2a_seed_code_review");
+    await repo.upsertEndpoint({ ...legacyEndpoint, name: "Code Review Agent" });
+    const legacyCard = await repo.getCardSnapshot("a2a_seed_code_review");
+    await repo.upsertCardSnapshot({ ...legacyCard, agentName: "Code Review Agent" });
+    await repo.ensureSeed();
+    assert.equal((await repo.getEndpoint("a2a_seed_code_review"))?.name, "코드 리뷰 에이전트");
+    assert.equal((await repo.getCardSnapshot("a2a_seed_code_review"))?.agentName, "코드 리뷰 에이전트");
+
+    const edited = {
+      ...seeded[0],
+      name: "My Customized Agent",
+    };
+    await repo.upsertEndpoint(edited);
+    await repo.ensureSeed();
+
+    assert.equal((await repo.listEndpoints()).length, 10);
+    assert.equal((await repo.getEndpoint(edited.id))?.name, "My Customized Agent");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("A2ARemoteAgentRepository.upsertEndpoint creates and updates an endpoint", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

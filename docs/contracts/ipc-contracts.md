@@ -13,6 +13,24 @@
 - renderer는 SQL, filesystem path operation, shell command 실행을 직접 요청할 수 없다. 반드시 domain method를 사용한다.
 - Main IPC handler 내부는 `HarnessResult<T>`를 사용할 수 있지만, preload는 `ok: true`면 `value`를 resolve하고 `ok: false`면 `HarnessError`를 throw한다. 따라서 renderer-facing 계약은 이 문서처럼 raw `Promise<T>`로 유지한다.
 
+## 작업 계약 확장 (2026-09-07, schema v39)
+
+- 기존 `conversation.createTask` payload에 선택적인 `intent`만 추가한다. 새 IPC 채널이나 renderer의 파일/SQL 접근은 추가하지 않는다. main에서 enum을 검증한다.
+- UI가 목적을 지정하면 `origin=user_mode`, 없으면 결정적 규칙으로 `request_rules` 계약을 만든다. 명시적인 변경 금지 문구는 수정 모드보다 우선한다. 인용·코드 블록은 자동 판정 입력에서 제외하지만, 이는 완전한 자연어 권한 판독기가 아니다.
+- `task_contracts`는 `task_runs`와 같은 트랜잭션으로 생성되는 SQLite 종속 테이블이다. 새 계약은 원문·목적·제약·기본 완료 기준을 저장한다. 계약이 없는 기존 작업은 원문으로 legacy 계약을 읽고, 손상된 계약을 읽기 권한이 넓은 기본값으로 대체하지 않는다.
+- 읽기 전용 작업은 전역 workspace-write/자동 리뷰 설정보다 우선한다. 승인·Runner·worker 실행에 Host guard를 적용한다. 해당 작업의 MCP/앱/플러그인은 실행별 비활성화하며, 일반 채팅을 사용한다. 템플릿 모드에서도 변경 승인을 만들지 않는다. CLI가 없으면 작업만 drafting으로 저장된다.
+- 외부 검색 금지는 Codex web search와 외부 도구를 끄며, workspace-write의 네트워크 접근도 끈다. Host shell/skill/git/dependency/network 실행과 파이프라인은 개별 네트워크 sandbox가 없어 보수적으로 차단한다. 파일 patch/write는 기존 승인 정책을 유지한다.
+- 작업의 권한 범위를 바꾸려면 새 메시지로 TaskRun을 생성한다. 읽기 전용 작업의 변경용 fallback 및 범위를 좁히는 재계획은 `TASK_CONTRACT_ACTION_BLOCKED`로 거부한다. 기존 승인 범위와 `QualityGate → Done` 계약은 유지한다.
+- MCP 점검은 모델을 호출하지 않는 `codex mcp list --json`을 사용한다. 점검 실패/잘못된 JSON/CLI override로 표현할 수 없는 서버 ID면 모델 실행 전에 중단한다. 사용자 전역 config는 수정하지 않는다. 점검 이후 외부 프로세스가 config를 바꾸는 경쟁 조건까지 격리하는 기능은 아니다.
+
+## 답변 복사 (2026-09-08)
+
+- `window.harness.app.copyText({ text: string }): Promise<void>` → `app:copyText`.
+- 사용자의 복사 버튼 클릭으로만 OS 클립보드에 일반 텍스트를 기록한다. 에이전트 작업 실행 승인이 아니라 직접 UI 동작이며 DB/파일/명령을 변경하지 않는다.
+- 빈 문자열/공백만 있는 문자열, NUL, 문자열 이외 입력, 4,194,304 UTF-16 코드 단위를 초과한 입력은 `IPC_INVALID_PAYLOAD`로 거부한다. 원문을 자르거나 Markdown을 제거하지 않는다.
+- OS 클립보드 쓰기 실패는 `APP_CLIPBOARD_WRITE_FAILED`로 반환한다. 복사 내용은 로그/DB에 추가 저장하지 않으며 renderer에 클립보드 읽기 또는 raw Electron API를 노출하지 않는다.
+- 기존 `registerAppIpc` 등록 경로와 `HarnessDesktopApi`를 공유하므로 새 도메인 등록 함수나 DB 이관은 필요 없다.
+
 ## 공통 타입
 
 IPC public type의 단일 source of truth는 이 문서다. 구현 단계에서 `packages/core`에 타입을 만들 때는 이 섹션을 그대로 옮기고, 이후 변경은 이 문서와 core 타입을 함께 갱신한다.
@@ -43,6 +61,7 @@ export type ApprovalActionType =
   | "model_use"
   | "file_patch"
   | "file_write"
+  | "file_delete"
   | "shell"
   | "dependency_install"
   | "git_commit"
@@ -88,10 +107,27 @@ export interface AutoApproveDecision {
   reason: string;
 }
 
+export type TaskIntent = "answer" | "review" | "diagnose" | "change" | "research" | "unspecified";
+
+export interface TaskContract {
+  revision: 1;
+  origin: "user_mode" | "request_rules" | "legacy";
+  intent: TaskIntent;
+  deliverable: string;
+  constraints: string[];
+  assumptions: string[];
+  acceptanceCriteria: string[];
+  evidenceRequirements: string[];
+  authorization: { mode: "read_only" | "approval_required" };
+  externalSearch: "allowed" | "forbidden";
+  freshness: "not_requested" | "external_sources";
+}
+
 export interface TaskRun {
   id: string;
   threadId: string;
   userRequest: string;
+  contract?: TaskContract;
   targetDir: string;
   status: TaskRunStatus;
   currentStepId?: string;
@@ -580,9 +616,10 @@ DB snapshot은 `VACUUM INTO ?`, thread markdown은 승인 payload의 `filePatch`
 ## `window.harness.conversation`
 
 ```ts
+conversation.startTask(input: StartConversationTaskInput): Promise<ConversationTaskDraft>;
 conversation.createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;
 conversation.redirectTask(input: { taskRunId: string; instruction: string }): Promise<ConversationTaskDraft>;
-conversation.approve(input: { approvalId: string; message?: string; scope?: ApprovalScope; autoApproveDecision?: AutoApproveDecision | null }): Promise<Approval>;
+conversation.approve(input: { approvalId: string; expectedRevision: number; manualConfirmation?: boolean; message?: string; scope?: ApprovalScope; autoApproveDecision?: AutoApproveDecision | null }): Promise<Approval>;
 conversation.rejectApproval(input: { approvalId: string; message: string }): Promise<Approval>;
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
@@ -598,6 +635,9 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 상태 전이 규칙:
 
 - `createTask`: thread resolution/creation 후 TaskRun, steps, artifacts, checkpoint, approvals는 storage transaction 안에서 생성된다. 중간 실패 시 해당 draft row들은 rollback된다.
+- `startTask`: 일반 입력창의 단일 제출 경로. `userRequest`, 선택적인 `threadId/targetDir/followUpTaskRunId/intent`, `orchMode/orchInstruction/orchPipelineId/orchHarness`만 받는다. 파이프라인과 하네스 동시 선택은 거부한다. `mode`와 호출자 제공 authorization은 사용하지 않고 main에서 agent TaskRun과 작업 계약을 생성한다. draft를 반환한 후 main에서 추천 준비 또는 오케스트레이션 초안을 생성한다. 추천 준비가 끝나면 SQLite의 host-owned `harness:planning-ready/{taskRunId}` snapshot으로 기록하고, 추천 승인/거절 후 AI를 한 번 시작한다. renderer 선택/새로고침은 실행 소유권에 영향을 주지 않는다.
+- `approve`: 승인은 실행과 별개인 revisioned DB 결정으로 유지하되, main 진행 조정자가 승인된 실행 가능한 file/shell/orchestration 작업을 이어 실행한다. renderer는 별도 실행 요청을 중복 전송하지 않는다. 실행 중·결과 불명확 approval은 재실행하거나 완료 처리하지 않는다. 수동 shell/delete 동의, 변경된 승인 내용 재확인, 차단 정책과 예산 검사는 유지한다.
+- main 진행 조정자는 모든 checkpoint의 미해결 승인과 활성 step/invocation이 없어야 QA를 시작한다. passed는 자동 완료, warning은 위험 확인 대기, failed는 실패로 남는다. 처리 오류는 실패 step/log와 blocked 상태로 저장한다. 과거 작업은 앱 시작만으로 자동 재생하지 않는다.
 - `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`.
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
@@ -609,6 +649,7 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 interface CreateConversationTaskInput {
   threadId?: string;
   userRequest: string;
+  intent?: TaskIntent;
   targetDir?: string;
   /**
    * Conversation mode:
@@ -796,11 +837,21 @@ runner.readArtifact(input: { artifactId: string }): Promise<{ artifact: Artifact
 runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 ```
 
-> `retryApproval`은 부모 TaskRun이 `blocked`/`quality_failed`일 때만 허용 (그 외는 `RUNNER_RETRY_NOT_BLOCKED`). 가장 최근 approved approval로 `executeApproved`와 같은 멱등 경로를 재실행한다.
+> `retryApproval`은 부모 TaskRun이 `blocked`/`quality_failed`이고 승인이 아직 실행에 소비되지 않았을 때만 허용한다. `running`, `succeeded`, `uncertain`, `executed` 승인은 재사용하지 않는다. 실제 실행 결과를 검토한 뒤 새 작업 승인을 생성해야 한다.
 > `cancelExecution`은 현재 실행 중인 RunnerService 작업이 있을 때만 `{ cancelled: true }`를 반환하고 해당 TaskRun의 AbortSignal을 중단한다. 존재하지 않거나 실행 중이 아닌 `taskRunId`는 throw하지 않고 `{ cancelled: false }`를 반환한다.
 > `executeCodeChangeAttempt`는 이미 approved 상태인 `file_write` approval들을 순서대로 실행하고, 이미 approved 상태인 verification `shell` approval들을 순서대로 실행한다. 이 호출은 raw command나 raw patch를 받지 않으며 기존 approval/runner 정책을 우회하지 않는다. 성공/실패 결과는 attempt manifest artifact와 QualityGateResult로 남긴다.
 
-Runner 실행 가능 approval은 `file_patch`, `file_write`, `shell`뿐이다. 자동 승인/자동 실행 경로는 approval에 `proposedAction`이 없거나 `proposedAction.type !== approval.actionType`이면 자동 approve하지 않고 pending으로 남긴다. RunnerService도 실행 직전에 같은 `validateProposedActionDetails` 검증을 수행하므로, 오래된 approved row나 DB에 남은 malformed payload는 실행되지 않는다.
+Runner 실행 가능 approval은 `file_patch`, `file_write`, `file_delete`, `shell`이다. 자동 승인/자동 실행 경로는 approval에 `proposedAction`이 없거나 `proposedAction.type !== approval.actionType`이면 자동 approve하지 않고 pending으로 남긴다. RunnerService도 실행 직전에 같은 `validateProposedActionDetails` 검증을 수행한다. `file_delete`와 `shell`, 변경 후 재승인 대상은 프로필·전역·pipeline 동의로 자동 승인할 수 없다.
+
+### v40 승인 버전 및 실행 소비 계약
+
+- `Approval.actionRevision`은 세부 변경 시 증가한다. IPC `approve.expectedRevision`이 현재 버전과 다르면 거절한다. `approvedRevision`과 승인 JSON 스냅샷을 SQLite에 함께 저장한다.
+- 승인된 내용을 변경하면 pending으로 되돌리고 `requiresManualApproval=true`로 표시한다. 실행 중/실행 완료/거절/불확실 결과는 변경 및 재승인이 잠긴다. 취소·완료 TaskRun에서도 승인을 되살리지 않는다.
+- 파일·CLI Runner는 SQLite 조건부 UPDATE로 단일 실행을 선점한다. 별도 Runner 인스턴스에서도 같은 승인 ID는 한 번만 수행하고, 다른 승인 ID들의 병렬성은 유지한다. 실행 중단·실패·비정상 종료의 결과는 `executionState=uncertain`으로 유지하며 자동 재시도하지 않는다.
+- `approval_events`는 내용 버전, 승인 결정, 실행 상태의 이력을 트리거로 원자적으로 저장한다. 사용자가 해당 작업을 삭제하면 이력도 함께 삭제된다.
+- `file_delete` 제안은 `{type:"file_delete",fileDelete:{path}}`이며 `path`는 targetDir 기준 단일 상대 경로다. 세부 저장 시 메인 서비스가 크기·수정 시각·SHA-256을 읽어 반환한다. 사용자가 이 정보를 보고 `manualConfirmation:true`로 승인한다. 승인 및 실행 때 다시 비교하며, 실제 이동은 Electron `shell.trashItem`만 사용한다. 실패 시 영구 삭제로 전환하지 않는다.
+- 명령/인수, 파일 경로/본문 등 세부 편집은 기존 `setProposedAction` IPC를 이용한다. 새 서버나 renderer Node 접근은 추가하지 않았다. typed preload/API에서 갱신된 `ApproveInput`과 `ProposedActionDetails`를 공유한다.
+- CLI의 targetDir은 cwd이지 OS sandbox가 아니다. 임의 코드의 외부 파일·네트워크 접근을 차단하지 않으며, 별도 경고를 확인한 수동 승인이 필요하다.
 
 `file_write`와 `file_patch`의 경로 검증은 단순 문자열 prefix가 아니라 canonical
 real path 기준으로 `targetDir` containment를 재확인한다. Windows junction/symlink가
@@ -903,6 +954,14 @@ quality.createRepairPlan(input: { taskRunId: string; instruction?: string }): Pr
 quality.markReadyForReview(input: { taskRunId: string }): Promise<TaskRun>;
 quality.markDone(input: { taskRunId: string }): Promise<TaskRun>;
 ```
+
+평가 근거와 자동 처리:
+
+- `QualityEvaluator`는 같은 TaskRun의 종료된 shell/test step을 실행 근거로 사용한다. 모델 출력·로그 요약의 `passed`/`exit=0` 문자열만으로 성공을 판정하지 않는다. pending/running/skipped step과 가장 최근 기록된 변경 이전의 검사는 현재 검증 근거에서 제외한다. 연결/순서가 불명확한 diff는 이전 검사를 무효화한다.
+- diff는 변경이 존재한다는 근거일 뿐 검토 완료 증거가 아니다. 현재 evaluator는 diff가 있을 때 `changedFilesReviewed=false`를 기록한다.
+- 읽기 전용 계약은 최신 성공 invocation의 `parsedPlanArtifactId`와 같은 작업의 성공 step에 연결된, 내용이 있는 plan artifact가 필요하다. 변경 근거가 있으면 failed, 응답 연결이 없으면 not_run이다. 단순 answer는 다른 필수 검사 누락이 없으면 passed, review/diagnose/research 또는 legacy 계약은 내용 확인을 위한 warning이다. 명시적으로 요구한 빌드·테스트 검사를 무시하지 않는다.
+- 수정 계약에 실제 diff가 없으면 warning으로 남겨 자동 완료를 막는다. 응답 확인은 사실성·요구사항 전체의 의미 검증이나 파일 hash 기반 최신성 증명이 아니다.
+- `ready_for_review` 상태 변경 시 기존 자동 평가 서비스가 위 결정적 검사를 실행한다. 별도 모델을 호출하지 않으며 passed만 자동으로 markDone, warning은 사용자 확인을 기다린다. 화면은 push 이벤트로 받은 최신 gate를 반영한다.
 
 `markDone` 정책 (`TaskRunCompletionService.markDone` 기준):
 
@@ -1406,7 +1465,22 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 
 ## `window.harness.agent`
 
-Phase 8 — CLI 기반 agent planner. `conversation.createTask({mode: "agent"})`로 생성된 TaskRun에 대해 `generatePlan`을 호출하면 `claude` 또는 `codex` CLI가 main process에서 실행되어 plan artifact와 0..N approval row를 만든다. 기본 `read-only` 모드에서는 agent가 파일을 직접 쓰지 않으며 모든 side effect는 기존 approval 흐름을 통과한다. 전역 `agent.codexWorkspaceWrite=true`는 명시적 예외다. 이때 Codex CLI는 targetDir 내부를 직접 수정할 수 있고 해당 변경은 Approval → Runner → Artifact 사전 경로로 자동 변환되지 않는다. 기본값은 `false`이며 UI는 활성화 전에 이 경계를 경고한다. workspace-write 호출은 실행 전후의 bounded 파일 snapshot을 비교해 A/M/D manifest와 가능한 text diff를 secret-redacted `diff` artifact(`Workspace change evidence`)로 남긴다. 이 사후 증거는 사전 approval을 대체하지 않는다.
+Phase 8 — CLI 기반 agent planner. `conversation.createTask({mode: "agent"})`로 생성된 TaskRun에 대해 `generatePlan`을 호출하면 `codex` CLI가 main process에서 실행되어 plan artifact와 0..N approval row를 만든다. 기본 `read-only` 모드에서는 agent가 파일을 직접 쓰지 않으며 모든 side effect는 기존 approval 흐름을 통과한다. 전역 `agent.codexWorkspaceWrite=true`는 명시적 예외다. 이때 Codex CLI는 targetDir 내부를 직접 수정할 수 있고 해당 변경은 Approval → Runner → Artifact 사전 경로로 자동 변환되지 않는다. 기본값은 `false`이며 UI는 활성화 전에 이 경계를 경고한다. workspace-write 호출은 실행 전후의 bounded 파일 snapshot을 비교해 A/M/D manifest와 가능한 text diff를 secret-redacted `diff` artifact(`Workspace change evidence`)로 남긴다. 이 사후 증거는 사전 approval을 대체하지 않는다.
+
+Exec 결과 신뢰성 (2026-09-07):
+
+- stdout은 상태 유지 UTF-8 decoder와 bounded JSONL reader로 처리한다. 프레임과 최종 답변은 각각 기본 4 MiB 상한이다. 로그 tail 상한과 별도로 최종 메시지·terminal·usage를 보존한다.
+- 정상 EOF, 유효한 JSONL, 최종 assistant 메시지, 성공 `turn.completed`, process exit 0이 모두 필요하다. `turn.failed`, fatal `error`, 잘린 EOF, 답변 누락은 `AGENT_INVALID_OUTPUT`이며 성공 result 이벤트를 내보내지 않는다. 이는 작업의 QualityGate 통과를 뜻하지 않는다.
+- usage는 Codex 0.153.x JSONL emitter의 누적 thread total을 마지막 값으로 유지한다. 추론 토큰은 output total의 부분집합이며 다시 더하지 않는다. planner와 worker는 캡처한 사용량을 기존 invocation token 컬럼에 저장한다. 누락/잘못된 usage는 정확한 0으로 처리하지 않고 기존 heuristic + usageApproximate 경로를 사용한다. 캐시/추론 세부 단가와 실패 호출의 부분 사용량 정산은 별도 예산 단계 대상이다.
+- 취소·timeout·stall의 최초 원인을 유지한다. Windows는 이번 spawn의 PID에 한해 숨김 taskkill /T /F를 실행하고 helper 종료와 child close를 모두 기다린 뒤 adapter를 종료한다. 큐는 이 종료를 기다리므로 같은 lane의 다음 호출이 먼저 시작하지 않는다. 트리 정리 실패는 진단에 명시한다. 이미 발생한 변경은 기존 finally snapshot으로 남긴다.
+- 읽기 전용/검색 금지 요청의 MCP inventory를 확인하지 못하면 `TASK_CONTRACT_PREFLIGHT_FAILED`로 모델 spawn 전에 중단한다.
+- planner와 local worker의 기본 Codex adapter는 TaskContract에 맞춘 `--output-schema` v1을 사용한다. schemaVersion과 taskIntent가 고정되고 누락/추가 필드와 잘못된 타입을 host에서도 검증한다. 읽기 전용 계약은 변경 제안과 실행형 quality check가 없어야 하며, 검색 금지 계약은 shell 제안도 허용하지 않는다. 검증 실패는 `AGENT_INVALID_OUTPUT`이고 성공 result 이벤트나 실행 제안을 만들지 않는다. QA 통과/완료를 뜻하지는 않는다.
+- 호출 전 선택된 CLI의 버전 식별과 `exec --help`의 output-schema 지원을 점검한다. 실패하면 `TASK_CONTRACT_PREFLIGHT_FAILED`로 모델 spawn 전에 중단한다. 호출별 임시 스키마는 병렬 실행 간 공유하지 않으며 생성한 파일/빈 디렉터리만 정리한다. 경로 변경이나 정리 오류는 경고로 남기고 원래 오류를 보존한다.
+- 새 IPC 채널/DB migration은 없다. 검증된 JSON은 기존 harness_agent_plan으로 정규화하여 UI/approval과 호환한다. 서비스 파싱은 로그 미리보기 상한과 독립적이며 검증된 필드마다 비밀값을 가린다. 주입형/가짜 adapter와 저장된 legacy plan 호환은 유지하되, worker도 파싱 실패를 성공으로 저장하지 않는다.
+
+최종 출력 스키마 근거: [Codex structured output](https://learn.chatgpt.com/docs/non-interactive-mode), [Structured Outputs 제약](https://developers.openai.com/api/docs/guides/structured-outputs).
+
+사용량 근거: [Codex 0.153.4 JSONL emitter](https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/exec/src/event_processor_with_jsonl_output.rs), [OpenAI reasoning usage](https://developers.openai.com/api/docs/guides/reasoning#managing-the-context-window). 취소 범위: [Windows taskkill](https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/taskkill).
 
 ```ts
 agent.checkProviders(): Promise<AgentProviderStatusMap>;
@@ -1518,6 +1592,9 @@ interface AgentInvocation {
 
 - `AGENT_SPAWN_FAILED` — CLI 바이너리 미설치/권한
 - `AGENT_CANCELLED` — 사용자 cancel
+- `AGENT_BUDGET_UNVERIFIABLE` — 프로필에 USD cap이 있으나 CLI 과금 방식/호출 전 비용 상한을 검증할 수 없어 planner/local worker를 모델·MCP 준비 이전에 차단. 승인이나 호출별 모델 override로 우회할 수 없음.
+
+planner의 이 사전 검사 실패는 TaskRun의 `blocked` 상태와 실패한 plan step의 `outputSummary`에 오류 코드·이유를 저장한다. 같은 TaskRun의 중복 차단 기록은 억제하며, 모델 invocation/approval은 생성하지 않는다. `generatePlan` 오류 반환 시에도 `taskRunChanged`를 전송하므로 renderer는 최신 상태를 다시 읽을 수 있다. 프로필 한도를 자동 해제하거나 자동 재시도하지 않는다. worker의 실패 상태 기록은 기존 orchestration 경로가 담당한다.
 - `AGENT_STALL` — stallTimeoutMs 동안 출력 없음
 - `AGENT_TIMEOUT` — timeoutMs 초과
 - `AGENT_INVALID_OUTPUT` — JSON 또는 스키마 위반
@@ -1541,7 +1618,7 @@ settings.update(input: HarnessSettings): Promise<HarnessSettings>;
 
 주요 필드:
 
-- `agent`: legacy single-agent fallback 설정. provider는 `codex`로 고정되고 모델은 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 하나다. 이전 provider/model 값은 `codex` / `gpt-5.6-sol`로 정규화한다. reasoning effort는 `none` / `low` / `medium` / `high` / `xhigh` / `max` 중 하나이며 기본값은 `medium`이다.
+- `agent`: legacy single-agent fallback 설정. provider는 `codex`로 고정되고 모델은 `gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 하나다. 이전 provider/model 값은 `codex` / `gpt-5.6-sol`로 정규화한다. reasoning effort는 `none` / `low` / `medium` / `high` / `xhigh` / `max` 중 하나이며 기본값은 `medium`이다. `gpt-6-astra`에서 `none`은 실행 시 `low`로 정규화한다.
 - `agent.codexWorkspaceWrite`: 기본값 `false`. `true`이면 Codex CLI direct-write 예외가 활성화되므로 사후 diff 검토가 필요하다.
 - `orchestration`: orchestration enable/default mode/default pipeline 설정
 - `approval`: auto approval 편의 설정. 실제 실행 가능 여부는 service-layer `PolicyEvaluation`이 최종 결정한다.
@@ -1694,7 +1771,9 @@ agents.setActive(input: { profileId: string | null }): Promise<HarnessSettings>;
 - `setActive(null)`은 active profile override를 해제하고 default profile fallback으로 돌아간다.
 - `delete`는 해당 profile을 참조하는 AgentPipeline 또는 Harness binding set이 있으면 각각 `PIPELINE_IN_USE_BY_PROFILE_DELETE`, `HARNESS_BINDING_IN_USE_BY_PROFILE_DELETE`로 거부한다.
 - profile permissions는 approval UI 자동화보다 우선하는 block/allow context로 사용된다.
-- profile permissions의 optional `budget`은 per-invocation / per-TaskRun / per-day USD 자동 승인 상한으로 사용된다. `agent_profiles.budget_json`이 NULL이면 무제한이다.
+- profile permissions의 optional `budget`은 per-invocation / per-TaskRun / per-day USD 자동 승인 및 모델 호출 전 검사의 입력이다. `agent_profiles.budget_json`이 NULL이면 앱의 USD 제한은 적용하지 않는다. 비용이나 필요한 누적 사용량이 미확인이면 cap을 통과시키지 않는다. 현재 CLI의 검증된 과금 방식/호출 전 상한이 없으므로 cap이 설정된 planner/local worker는 `AGENT_BUDGET_UNVERIFIABLE`로 실행 전에 거부한다. 로컬 파일 적용 자체는 새 모델 호출이 아니며 기존 승인·Runner 경계를 유지한다. 병렬 예산의 원자적 예약·정산은 아직 미구현이다.
+- 지원되는 저장 프로필의 모델/추론 수준은 기본 제공 seed도 재시작 시 보존한다. 활성/default 프로필은 고정 선택으로 해석해 Learner 추천보다 우선하며, 명시적인 호출별 모델 override는 유지한다. 지원이 끝난 모델만 역할 기본값으로 호환 변환한다.
+- transcript result 이벤트의 `usage` 메타데이터에는 `cost_status`(estimated/unknown), `cost_source`(api_token_estimate/unavailable), optional `cost_unknown_reason`, `cached_input_tokens`, `reasoning_output_tokens`를 기록한다. 이 상태는 토큰 기반 추정의 상태다. 정확한 모델 ID의 완전한 가격표와 검증된 API 과금 모드가 없으면 USD를 산출하지 않는다. API 토큰 추정은 청구액이 아니며 구독 크레딧과 혼용하지 않는다. 신규 IPC 채널/DB migration은 없다.
 
 ## `window.harness.mcp`
 

@@ -285,7 +285,7 @@ export class CodeChangeLoopService {
     message: string,
   ): Promise<void> {
     const latest = await this.state.getApproval(approval.id);
-    if (!latest || !isUnresolvedApprovalStatus(latest.status)) return;
+    if (!latest || latest.executionState || !isUnresolvedApprovalStatus(latest.status)) return;
     await this.state.decideApproval(
       approval.id,
       "rejected",

@@ -138,6 +138,20 @@ const seedDecisionLogFixture = (db) => {
   );
 };
 
+test("execution order is creation order and is not changed by approval decisions", async () => {
+  const t = tmp(); const db = openDb({ filePath: t.file });
+  try {
+    seedCheckpoint(db);
+    const repo = new SqliteApprovalRepository(db);
+    const ids = [];
+    for (const name of ["first", "second", "third"]) {
+      ids.push((await repo.create({ taskRunId: "tsk_1", checkpointId: "ckp_1", actionType: "file_write", actionSummary: name })).id);
+    }
+    await repo.decide(ids[1], "approved");
+    assert.deepEqual((await repo.listByTaskRun("tsk_1", "execution")).map(a => a.id), ids);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("ApprovalRepository round-trips policyEvaluation", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

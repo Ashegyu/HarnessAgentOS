@@ -35,14 +35,14 @@ test("taskRunWithActiveOverride leaves unrelated rows unchanged", () => {
   assert.equal(taskRunWithActiveOverride(stale, other).status, "running");
 });
 
-test("deriveChatTurnDisplayStatus does not show running after succeeded invocation", () => {
+test("model completion alone cannot override the host execution state", () => {
   assert.equal(
     deriveChatTurnDisplayStatus({
       taskRunStatus: "running",
       invocationStatus: "succeeded",
       approvals: [],
     }),
-    "ready_for_review",
+    "running",
   );
 });
 
@@ -79,7 +79,7 @@ test("deriveChatTurnDisplayStatus maps terminal failure while task row is stale"
   );
 });
 
-test("deriveChatTurnStatusBadge shows execution complete for ready answer", () => {
+test("an answer awaiting validation is never shown as successful task completion", () => {
   assert.deepEqual(
     deriveChatTurnStatusBadge({
       taskRunStatus: "ready_for_review",
@@ -89,11 +89,24 @@ test("deriveChatTurnStatusBadge shows execution complete for ready answer", () =
     }),
     {
       status: "ready_for_review",
-      label: "실행 완료",
-      kind: "success",
     },
   );
 });
+
+test("approved but unexecuted work stays running after a model answer", () => {
+  assert.deepEqual(deriveChatTurnStatusBadge({
+    taskRunStatus: "running", invocationStatus: "succeeded",
+    approvals: [{ status: "approved" }], hasFinalAnswer: true,
+  }), { status: "running" });
+});
+
+for (const status of ["blocked", "paused", "quality_failed", "done", "cancelled"]) {
+  test(`a final answer preserves host state ${status}`, () => {
+    assert.deepEqual(deriveChatTurnStatusBadge({
+      taskRunStatus: status, invocationStatus: "succeeded", hasFinalAnswer: true,
+    }), { status });
+  });
+}
 
 test("deriveChatTurnStatusBadge keeps review pending when no answer is ready yet", () => {
   assert.deepEqual(

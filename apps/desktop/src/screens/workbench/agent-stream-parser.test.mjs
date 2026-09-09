@@ -16,6 +16,14 @@ import {
 
 const line = (obj) => JSON.stringify(obj) + "\n";
 
+test("saved structured answers with inner Markdown fences display summary, not raw JSON", () => {
+  const summary = "분석 결과\n```ts\nconst x = 1;\n```\n끝";
+  const output = "```harness_agent_plan\n" + JSON.stringify({ summary, assumptions: [], steps: [], proposedActions: [], questions: [] }) + "\n```";
+  const s = initStreamParserState();
+  hydrateSavedAgentOutput(s, output, { terminal: true });
+  assert.equal(s.parsed.finalText, summary);
+});
+
 test("text_delta events accumulate into liveText", () => {
   const s = initStreamParserState();
   feedStreamChunk(

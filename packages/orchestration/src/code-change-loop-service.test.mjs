@@ -447,7 +447,7 @@ test("refuses to run an approval that is not approved", async () => {
   try {
     const taskRun = await seedTaskRun(state);
     const approval = await createFileWriteApproval(state, taskRun.id, "src/a.ts");
-    await state.decideApproval(approval.id, "pending");
+    await state.setApprovalProposedAction(approval.id, approval.proposedAction);
     const { executor } = makeRunner();
     const service = new CodeChangeLoopService({ state, runner: executor });
 

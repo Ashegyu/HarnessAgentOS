@@ -19,13 +19,15 @@ export const hasPipelineSourcePlanArtifact = (
   );
 
 export const pipelineAutoApproveDecision = (
-  approval: Pick<Approval, "actionType" | "policyEvaluation">,
+  approval: Pick<Approval, "actionType" | "policyEvaluation" | "requiresManualApproval" | "executionState">,
   options: {
     activeProfile?: {
       permissions: Pick<AgentPermissions, "blockedActions" | "budget">;
     } | null;
     accumulatedTaskRunCostUsd?: number;
     accumulatedDailyCostUsd?: number;
+    unknownTaskRunCostInvocationCount?: number;
+    unknownDailyCostInvocationCount?: number;
   } = {},
 ): AutoApproveDecision => {
   if (
@@ -51,6 +53,8 @@ export const pipelineAutoApproveDecision = (
     profile: options.activeProfile ?? null,
     accumulatedTaskRunCostUsd: options.accumulatedTaskRunCostUsd,
     accumulatedDailyCostUsd: options.accumulatedDailyCostUsd,
+    unknownTaskRunCostInvocationCount: options.unknownTaskRunCostInvocationCount,
+    unknownDailyCostInvocationCount: options.unknownDailyCostInvocationCount,
   });
   if (budgetDecision.kind === "blocked") {
     return {
@@ -58,6 +62,9 @@ export const pipelineAutoApproveDecision = (
       decidedAt: "budget_blocked",
       reason: budgetDecision.reason ?? "Profile budget blocks auto-approve.",
     };
+  }
+  if (approval.actionType === "shell" || approval.actionType === "file_delete" || approval.requiresManualApproval || approval.executionState) {
+    return { approved: false, decidedAt: "policy_disallow_auto", reason: "Individual manual confirmation is required; pipeline consent does not cover this action." };
   }
   return {
     approved: true,

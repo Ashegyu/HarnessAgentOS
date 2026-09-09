@@ -89,7 +89,9 @@ export const registerQualityIpc = (
           await pipelineBackflow?.runForQualityFailure(result);
         }
         await observeQualityGate(instinctService, result);
-        events.taskRunChanged(result.taskRunId);
+        events.taskRunChanged(result.taskRunId, {
+          skipAutomaticQuality: true,
+        });
         return ok(result);
       } catch (e) {
         return wrapErr<QualityGateResult>(e, QUALITY_DONE_BLOCKED);

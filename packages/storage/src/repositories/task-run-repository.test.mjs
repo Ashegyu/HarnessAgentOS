@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { openDb, closeDb } from "../db.ts";
 import { SqliteThreadRepository } from "./thread-repository.ts";
 import { SqliteTaskRunRepository } from "./task-run-repository.ts";
+import { applyMigrations } from "../migrations.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-tr-"));
@@ -14,6 +15,56 @@ const tmp = () => {
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 };
+
+test("TaskContract survives reopen and migration, preserving user-selected scope", async () => {
+  const t = tmp();
+  let db = openDb({ filePath: t.file });
+  try {
+    const thread = await new SqliteThreadRepository(db).create({ title: "contract" });
+    const task = await new SqliteTaskRunRepository(db).create({
+      threadId: thread.id, userRequest: "implement x", intent: "review", targetDir: "/tmp/x",
+    });
+    closeDb(db);
+    db = openDb({ filePath: t.file });
+    applyMigrations(db);
+    const repo = new SqliteTaskRunRepository(db);
+    assert.deepEqual((await repo.get(task.id)).contract, task.contract);
+    assert.equal((await repo.listByThread(thread.id))[0].contract.authorization.mode, "read_only");
+    await repo.delete(task.id);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM task_contracts").get().n, 0);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("v39 additive migration preserves legacy tasks and corrupt contracts fail closed", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const thread = await new SqliteThreadRepository(db).create({ title: "legacy" });
+    const repo = new SqliteTaskRunRepository(db);
+    const task = await repo.create({ threadId: thread.id, userRequest: "원인만 설명해줘", targetDir: "/tmp/x" });
+    db.exec("DROP TABLE task_contracts");
+    applyMigrations(db);
+    const legacy = await repo.get(task.id);
+    assert.equal(legacy.userRequest, task.userRequest);
+    assert.equal(legacy.contract.origin, "legacy");
+    assert.equal(legacy.contract.authorization.mode, "read_only");
+    db.prepare("INSERT INTO task_contracts VALUES (?, 1, ?, ?)").run(task.id, '{"authorization":{"mode":"unsafe"}}', task.createdAt);
+    await assert.rejects(repo.get(task.id), /contract/i);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("TaskRun insert rolls back if its contract cannot be persisted", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const thread = await new SqliteThreadRepository(db).create({ title: "atomic" });
+    db.exec("CREATE TRIGGER reject_contract BEFORE INSERT ON task_contracts BEGIN SELECT RAISE(ABORT, 'contract failed'); END;");
+    await assert.rejects(new SqliteTaskRunRepository(db).create({
+      threadId: thread.id, userRequest: "review", targetDir: "/tmp/x",
+    }), /contract failed/);
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM task_runs").get().n, 0);
+  } finally { closeDb(db); t.cleanup(); }
+});
 
 test("TaskRunRepository creates with default status drafting", async () => {
   const t = tmp();

@@ -27,6 +27,7 @@ import { ActivityLogTab } from "./ActivityLogTab";
 import { KeyboardShortcutsTab } from "./KeyboardShortcutsTab";
 import { SystemDiagnosticsTab } from "./SystemDiagnosticsTab";
 import { BackupExportTab } from "./BackupExportTab";
+import { useI18n } from "../../app/i18n";
 
 interface Props {
   onClose: () => void;
@@ -110,6 +111,7 @@ type Action =
   | { type: "setDefaultMode"; value: OrchestrationMode }
   | { type: "setDefaultInstructions"; value: string }
   | { type: "setDefaultPipelineId"; value: string }
+  | { type: "setMaxParallelWorkers"; value: number }
   | { type: "setAutoApprove"; value: boolean }
   | { type: "setAutoExecuteWorkerFileActions"; value: boolean }
   | { type: "saving" }
@@ -163,6 +165,9 @@ const reducer = (state: FormState, action: Action): FormState => {
   if (action.type === "setDefaultPipelineId") {
     return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, defaultPipelineId: action.value } } };
   }
+  if (action.type === "setMaxParallelWorkers") {
+    return { ...state, draft: { ...state.draft, orchestration: { ...state.draft.orchestration, maxParallelWorkers: action.value } } };
+  }
   if (action.type === "setAutoApprove") {
     return { ...state, draft: { ...state.draft, approval: { ...state.draft.approval, autoApprove: action.value } } };
   }
@@ -195,6 +200,7 @@ export const SettingsPanel = ({
   onClose,
   initialTopologyTaskRunId = null,
 }: Props): JSX.Element => {
+  const { tk } = useI18n();
   const [state, dispatch] = useReducer(reducer, { kind: "loading" });
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
   const [pipelines, setPipelines] = useState<AgentPipeline[]>([]);
@@ -417,7 +423,7 @@ export const SettingsPanel = ({
                   ))}
                 </select>
                 <span className="settings-field__hint">
-                  Sol은 최고 성능, Terra는 균형형, Luna는 빠르고 경제적인 실행에 적합합니다.
+                  Astra는 가장 복잡한 작업, Sol은 고성능, Terra는 균형형, Luna는 빠르고 경제적인 실행에 적합합니다.
                 </span>
               </label>
 
@@ -438,7 +444,7 @@ export const SettingsPanel = ({
                   ))}
                 </select>
                 <span className="settings-field__hint">
-                  none부터 max까지 작업 난이도와 응답 시간에 맞춰 선택합니다.
+                  none부터 max까지 선택할 수 있습니다. GPT-6 Astra에서 none은 지원되는 최저 단계인 low로 실행됩니다.
                 </span>
               </label>
 
@@ -636,6 +642,30 @@ export const SettingsPanel = ({
                 <span className="settings-field__hint">
                   새 task의 planner 프롬프트 앞에 자동으로 붙는 조직/팀 지침입니다.
                   비워두면 사용자 입력만 전달됩니다.
+                </span>
+              </label>
+
+              <label className="settings-field">
+                <span className="settings-field__label">
+                  {tk("settings.parallelWorkers")}
+                </span>
+                <input
+                  className="settings-field__input"
+                  type="number"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={state.draft.orchestration.maxParallelWorkers}
+                  disabled={state.saving}
+                  onChange={(e) =>
+                    dispatch({
+                      type: "setMaxParallelWorkers",
+                      value: Math.min(8, Math.max(1, Number(e.target.value) || 1)),
+                    })
+                  }
+                />
+                <span className="settings-field__hint">
+                  {tk("settings.parallelWorkersHint")}
                 </span>
               </label>
 

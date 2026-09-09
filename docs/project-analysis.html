@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>HarnessAgentOS 프로젝트 분석 — 2026-09-08</title>
+  <style>
+    :root {
+      --bg: #071018;
+      --panel: #0c1822;
+      --panel-2: #112330;
+      --line: #243b49;
+      --text: #e8f1f5;
+      --muted: #9db0ba;
+      --teal: #5eead4;
+      --blue: #7dd3fc;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --green: #86efac;
+      --purple: #c4b5fd;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .24);
+      font-family: Inter, Pretendard, "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; color: var(--text); background: radial-gradient(circle at 80% 0, #123347 0, transparent 36rem), var(--bg); line-height: 1.62; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: "Cascadia Code", Consolas, monospace; color: #c9f4ef; font-size: .92em; }
+    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 100vh; }
+    aside { position: sticky; top: 0; height: 100vh; padding: 28px 22px; border-right: 1px solid var(--line); background: rgba(7, 16, 24, .92); backdrop-filter: blur(18px); overflow: auto; }
+    .brand { color: var(--teal); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; font-size: .8rem; }
+    aside h1 { font-size: 1.18rem; margin: 8px 0 6px; line-height: 1.25; }
+    aside p { color: var(--muted); font-size: .82rem; margin: 0 0 24px; }
+    nav a { display: block; padding: 8px 10px; margin: 3px 0; color: var(--muted); border-left: 2px solid transparent; border-radius: 0 7px 7px 0; font-size: .88rem; }
+    nav a:hover { color: var(--text); background: rgba(125, 211, 252, .07); border-left-color: var(--blue); text-decoration: none; }
+    main { width: min(1220px, 100%); padding: 54px clamp(24px, 5vw, 76px) 96px; }
+    .hero { padding: clamp(28px, 5vw, 58px); border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(145deg, rgba(17,35,48,.96), rgba(8,21,30,.86)); box-shadow: var(--shadow); position: relative; overflow: hidden; }
+    .hero::after { content: ""; position: absolute; width: 260px; height: 260px; right: -80px; top: -90px; border-radius: 50%; border: 50px solid rgba(94, 234, 212, .05); }
+    .eyebrow { color: var(--teal); text-transform: uppercase; font-size: .78rem; letter-spacing: .12em; font-weight: 800; }
+    .hero h2 { margin: 8px 0 12px; font-size: clamp(2rem, 4vw, 3.5rem); letter-spacing: -.04em; line-height: 1.06; max-width: 820px; }
+    .hero .lede { max-width: 850px; color: #bfd0d8; font-size: 1.06rem; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 22px; }
+    .chip, .badge { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; font-size: .76rem; color: var(--muted); background: rgba(7,16,24,.5); }
+    .badge.green { color: var(--green); border-color: rgba(134,239,172,.35); }
+    .badge.amber { color: var(--amber); border-color: rgba(251,191,36,.35); }
+    .badge.red { color: var(--red); border-color: rgba(251,113,133,.35); }
+    .badge.blue { color: var(--blue); border-color: rgba(125,211,252,.35); }
+    section { scroll-margin-top: 22px; margin-top: 56px; }
+    section > h2 { font-size: 1.55rem; margin: 0 0 8px; letter-spacing: -.025em; }
+    section > .section-intro { color: var(--muted); max-width: 900px; margin: 0 0 22px; }
+    .grid { display: grid; gap: 16px; }
+    .grid.stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 20px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { border: 1px solid var(--line); border-radius: 15px; padding: 20px; background: linear-gradient(150deg, rgba(17,35,48,.82), rgba(10,25,35,.84)); box-shadow: 0 10px 30px rgba(0,0,0,.12); }
+    .stat strong { display: block; color: var(--teal); font-size: 2rem; line-height: 1; margin-bottom: 7px; }
+    .stat span { color: var(--muted); font-size: .83rem; }
+    .callout { border-left: 3px solid var(--blue); background: rgba(125,211,252,.06); padding: 16px 18px; border-radius: 0 12px 12px 0; }
+    .callout.warn { border-left-color: var(--amber); background: rgba(251,191,36,.06); }
+    .callout.danger { border-left-color: var(--red); background: rgba(251,113,133,.06); }
+    .flow { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); align-items: stretch; gap: 26px; margin: 24px 0; }
+    .flow .node { position: relative; border: 1px solid var(--line); border-radius: 13px; padding: 16px; background: var(--panel); min-height: 116px; }
+    .flow .node:not(:last-child)::after { content: "→"; position: absolute; right: -23px; top: 42%; color: var(--teal); font-weight: 900; }
+    .node b { color: var(--teal); display: block; margin-bottom: 4px; }
+    .node small { color: var(--muted); }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 15px; background: rgba(12,24,34,.74); }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; min-width: 760px; }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid rgba(36,59,73,.7); vertical-align: top; }
+    th { color: var(--teal); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; background: rgba(17,35,48,.8); }
+    tr:last-child td { border-bottom: 0; }
+    td.num { font-variant-numeric: tabular-nums; text-align: right; }
+    ul.clean { margin: 10px 0 0; padding-left: 20px; }
+    ul.clean li { margin: 6px 0; }
+    .feature h3, .risk h3 { margin: 0 0 6px; font-size: 1rem; }
+    .feature p, .risk p { margin: 0; color: var(--muted); font-size: .88rem; }
+    .feature .source, .risk .source { display: block; margin-top: 10px; font-size: .76rem; }
+    .risk { border-left: 3px solid var(--amber); }
+    .risk[data-severity="high"] { border-left-color: var(--red); }
+    .risk[data-severity="low"] { border-left-color: var(--blue); }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 20px; }
+    button { appearance: none; border: 1px solid var(--line); color: var(--muted); background: var(--panel); border-radius: 999px; padding: 7px 12px; cursor: pointer; }
+    button:hover, button.active { color: var(--text); border-color: var(--teal); }
+    .timeline { border-left: 1px solid var(--line); margin-left: 10px; padding-left: 22px; }
+    .event { position: relative; padding: 0 0 24px; }
+    .event::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--teal); position: absolute; left: -27px; top: 8px; box-shadow: 0 0 0 5px var(--bg); }
+    .event h3 { margin: 0 0 5px; font-size: 1rem; }
+    .event p { margin: 0; color: var(--muted); }
+    .verify-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+    .verify-list h3 { font-size: .95rem; margin: 0 0 10px; }
+    .verify-list ul { padding-left: 18px; margin: 0; color: var(--muted); font-size: .86rem; }
+    .pass { border-top: 3px solid var(--green); }
+    .partial { border-top: 3px solid var(--amber); }
+    .unknown { border-top: 3px solid var(--red); }
+    .footnote { color: var(--muted); font-size: .76rem; }
+    footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 22px; color: var(--muted); font-size: .78rem; }
+    @media (max-width: 980px) {
+      .layout { display: block; }
+      aside { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      nav { display: flex; gap: 4px; overflow-x: auto; }
+      nav a { white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent; }
+      .grid.stats { grid-template-columns: repeat(2, 1fr); }
+      .flow { grid-template-columns: 1fr; }
+      .flow .node:not(:last-child)::after { content: "↓"; right: 50%; top: auto; bottom: -25px; }
+      .verify-list { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) { .grid.two, .grid.stats { grid-template-columns: 1fr; } main { padding: 28px 16px 64px; } }
+    @media print { aside, .filters { display: none; } .layout { display: block; } main { max-width: none; padding: 0; } body { background: white; color: #111; } .card, .hero, .table-wrap { box-shadow: none; break-inside: avoid; } }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">HarnessAgentOS</div>
+      <h1>프로젝트 분석 보고서</h1>
+      <p>현재 checkout 기반 · 2026-09-08 KST</p>
+      <nav aria-label="보고서 목차">
+        <a href="#summary">요약</a>
+        <a href="#scope">범위와 방법</a>
+        <a href="#architecture">아키텍처</a>
+        <a href="#modules">모듈 구조</a>
+        <a href="#features">주요 기능</a>
+        <a href="#changes">변경 현황</a>
+        <a href="#risks">발견된 위험</a>
+        <a href="#verification">검증 경계</a>
+        <a href="#priorities">권고 우선순위</a>
+        <a href="#evidence">근거 색인</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero" id="summary">
+        <div class="eyebrow">Evidence-bounded repository review</div>
+        <h2>사용자 감독형 로컬 개발 워크벤치의 현재 구조와 위험</h2>
+        <p class="lede">HarnessAgentOS는 Electron·React·SQLite 위에서 계획, 승인, 실행, 산출물, 품질 게이트를 하나의 감사 가능한 TaskRun으로 연결한다. 현재 구조적 방향은 일관되지만, 작업 트리가 매우 큰 변경 상태이고 opt-in 직접 쓰기 및 host shell의 잔여 보안 경계가 있어 “검증 완료”가 아니라 “리뷰 가능한 현재 스냅샷”으로 판단해야 한다.</p>
+        <div class="chips">
+          <span class="chip">branch <code>master</code></span>
+          <span class="chip">HEAD <code>572daa8</code></span>
+          <span class="chip">Node <code>v24.18.0</code></span>
+          <span class="chip">schema <code>v40</code></span>
+          <span class="badge amber">고변경 worktree</span>
+        </div>
+      </header>
+
+      <div class="grid stats">
+        <div class="card stat"><strong>740</strong><span>Git 추적 파일</span></div>
+        <div class="card stat"><strong>168</strong><span>보고서 생성 직전 기존 변경 경로</span></div>
+        <div class="card stat"><strong>10</strong><span>워크스페이스 패키지/앱</span></div>
+        <div class="card stat"><strong>240</strong><span>현재 파일 표면의 테스트 파일</span></div>
+      </div>
+
+      <section id="scope">
+        <h2>1. 분석 범위와 방법</h2>
+        <p class="section-intro">repo-scan의 standard-depth 절차를 수동 적용했다. Git 추적/미추적 표면을 분류하고, 각 모듈의 대표 구현과 계약 문서를 읽고, 현재 diff와 최근 커밋을 교차 확인했다.</p>
+        <div class="grid two">
+          <div class="card">
+            <h3>포함</h3>
+            <ul class="clean">
+              <li><code>apps/desktop</code>, 9개 <code>packages/*</code>, <code>docs</code></li>
+              <li>현재 HEAD와 보고서 작성 직전 Git 상태</li>
+              <li>Electron 경계, DB canonical state, 승인/Runner, 품질, agent/orchestration</li>
+              <li>대표 소스의 정적 계약과 선택된 정책 테스트</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>제외 또는 제한</h3>
+            <ul class="clean">
+              <li><code>node_modules</code>, 빌드/패키징 산출물, <code>.git</code> 내부</li>
+              <li>실제 Codex/A2A/MCP 원격 호출과 자격 증명 경로</li>
+              <li>전체 테스트, Electron GUI E2E, 설치본 smoke, 성능 벤치마크</li>
+              <li>의존성 취약점 감사 및 운영 환경 장애 주입</li>
+            </ul>
+          </div>
+        </div>
+        <p class="footnote">수치는 현재 파일 시스템 및 Git 출력에서 산출했다. 기존 사용자 변경은 읽기만 했으며 이 보고서 외 파일은 수정하지 않았다.</p>
+      </section>
+
+      <section id="architecture">
+        <h2>2. 핵심 아키텍처</h2>
+        <p class="section-intro">주요 경계는 코드에서 확인된다. BrowserWindow는 Node 통합을 끄고 context isolation과 sandbox를 켜며, preload가 제한된 <code>window.harness.*</code> API를 노출하고, main의 IPC 계층이 서비스와 SQLite 상태를 연결한다.</p>
+        <div class="flow" aria-label="주요 실행 계층">
+          <div class="node"><b>Renderer</b><small>React workbench. 파일·SQL·process 대신 <code>window.harness.*</code> 사용.</small></div>
+          <div class="node"><b>Preload</b><small><code>contextBridge</code> 기반 typed IPC surface. raw ipcRenderer 비노출.</small></div>
+          <div class="node"><b>Electron Main</b><small>22개 IPC 도메인을 등록하고 도메인 서비스를 조합.</small></div>
+          <div class="node"><b>Services / Runners</b><small>승인 정책, agent, orchestration, file/shell/git/test, quality.</small></div>
+          <div class="node"><b>SQLite WAL</b><small>schema v40, 33개 canonical table, artifact·approval·trace 저장.</small></div>
+        </div>
+        <div class="callout"><b>상태 흐름:</b> 사용자 입력 → Thread → TaskRun → Step → Checkpoint → Approval → Runner → Artifact → QualityGate → ready_for_review → 사용자 markDone. Main은 <code>events:taskRunChanged</code>를 push하고 renderer는 fresh detail을 다시 pull한다.</div>
+        <div class="grid two" style="margin-top:16px">
+          <div class="card">
+            <h3>확인된 강점</h3>
+            <ul class="clean">
+              <li><code>packages/core</code>에서 <code>@harness/storage</code> 실제 import 없음.</li>
+              <li>추적 파일에 금지된 <code>.test.ts/.test.tsx</code> 없음.</li>
+              <li>SQLite open 시 WAL, foreign key, 5초 busy timeout 강제.</li>
+              <li>승인 revision과 실행 claim이 DB 조건부 UPDATE로 묶임.</li>
+              <li>실경로 기반 junction/symlink containment가 file runner에 적용됨.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>설계상 중요한 경계</h3>
+            <ul class="clean">
+              <li>JSON column은 상태 직렬화 수단이며 canonical store는 SQLite다.</li>
+              <li>QualityEvaluator는 증거를 판정하고 TaskRun 전이는 completion service가 담당한다.</li>
+              <li>shell/file_delete는 global/profile auto consent 대상에서 제외된다.</li>
+              <li>Codex workspace-write는 기본값 false인 별도 opt-in 실행 모드다.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="modules">
+        <h2>3. 모듈 구조와 repo-scan 판정</h2>
+        <p class="section-intro">파일·소스·테스트 수는 추적 파일과 현재 미추적 파일을 합쳐 산출했다. “판정”은 자산 가치와 현재 유지보수 방향을 나타내며 품질 통과 판정은 아니다.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>모듈</th><th class="num">파일</th><th class="num">소스</th><th class="num">테스트</th><th>역할</th><th>판정</th></tr></thead>
+            <tbody>
+              <tr><td><code>apps/desktop</code></td><td class="num">265</td><td class="num">164</td><td class="num">95</td><td>Electron main/preload, React workbench, E2E</td><td><span class="badge green">Core Asset</span> 분해 필요</td></tr>
+              <tr><td><code>packages/core</code></td><td class="num">92</td><td class="num">66</td><td class="num">24</td><td>공유 타입, 순수 정책, API/IPC 계약</td><td><span class="badge green">Core Asset</span></td></tr>
+              <tr><td><code>packages/storage</code></td><td class="num">64</td><td class="num">36</td><td class="num">26</td><td>SQLite v40, repository, LocalStateService</td><td><span class="badge green">Core Asset</span></td></tr>
+              <tr><td><code>packages/runners</code></td><td class="num">23</td><td class="num">12</td><td class="num">9</td><td>승인된 file/delete/shell/git/test 실행</td><td><span class="badge amber">Core Asset · Harden</span></td></tr>
+              <tr><td><code>packages/quality</code></td><td class="num">13</td><td class="num">6</td><td class="num">5</td><td>evidence 수집, deterministic gate, repair 지원</td><td><span class="badge green">Core Asset</span></td></tr>
+              <tr><td><code>packages/skillify-adapter</code></td><td class="num">15</td><td class="num">8</td><td class="num">5</td><td>skill metadata와 capability registry</td><td><span class="badge blue">Extractable Boundary</span></td></tr>
+              <tr><td><code>packages/learner</code></td><td class="num">25</td><td class="num">14</td><td class="num">9</td><td>trace, observation, instinct, model/topology 추천</td><td><span class="badge green">Core Asset</span></td></tr>
+              <tr><td><code>packages/orchestration</code></td><td class="num">39</td><td class="num">20</td><td class="num">17</td><td>pipeline, worker wave, handoff/backflow</td><td><span class="badge amber">Core Asset · Stabilize</span></td></tr>
+              <tr><td><code>packages/agent</code></td><td class="num">69</td><td class="num">36</td><td class="num">31</td><td>Codex CLI, strict output, repo context, A2A adapter</td><td><span class="badge amber">Core Asset · Stabilize</span></td></tr>
+              <tr><td><code>packages/evals</code></td><td class="num">55</td><td class="num">23</td><td class="num">19</td><td>capability/regression/safety 평가와 리포팅</td><td><span class="badge blue">Supporting Asset</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout" style="margin-top:16px"><b>제3자 코드 분류:</b> 추적 경로에서 <code>vendor</code>, <code>third_party</code>, <code>external</code> 계열 디렉터리와 루트 LICENSE/NOTICE 묶음을 찾지 못했다. React, Electron, better-sqlite3, TypeScript, Playwright, A2A SDK, Zod 등은 package manifest로 관리된다. 이는 라이선스 적합성이나 transitive dependency 안전성을 검증한 결과는 아니다.</div>
+      </section>
+
+      <section id="features">
+        <h2>4. 주요 기능</h2>
+        <div class="grid two">
+          <article class="card feature"><h3>대화 중심 TaskRun</h3><p>Thread 연속성, follow-up anchor, 상태 전이, timeline과 fresh-state pull을 결합한다.</p><a class="source" href="../packages/core/src/types/task-run.ts">근거: core task-run types</a></article>
+          <article class="card feature"><h3>승인 우선 실행</h3><p>9개 action type을 정책 평가하고 revision, 승인 snapshot, 단일 실행 claim으로 변경 후 재승인과 중복 실행을 통제한다.</p><a class="source" href="../packages/storage/src/repositories/approval-repository.ts">근거: approval repository</a></article>
+          <article class="card feature"><h3>파일·CLI Runner</h3><p>file write/patch/delete, shell, git, test를 artifact와 step에 연결한다. Windows npm/batch 처리와 출력 decoding이 분리되어 있다.</p><a class="source" href="../packages/runners/src/runner-service.ts">근거: RunnerService</a></article>
+          <article class="card feature"><h3>증거 기반 품질 게이트</h3><p>테스트·빌드·smoke·diff artifact를 판정하며 읽기 전용 요청의 변경과 change 요청의 diff 부재를 탐지한다.</p><a class="source" href="../packages/quality/src/quality-evaluator.ts">근거: QualityEvaluator</a></article>
+          <article class="card feature"><h3>Codex agent 실행</h3><p>비대화형 CLI, provider 탐색, invocation queue, timeout/stall, strict JSON v1 output, post-hoc workspace diff 증거를 제공한다.</p><a class="source" href="../packages/agent/src/agent-planning-service.ts">근거: AgentPlanningService</a></article>
+          <article class="card feature"><h3>Pipeline과 A2A</h3><p>worker wave, role/profile binding, handoff, repair/backflow와 원격 A2A endpoint routing을 지원한다.</p><a class="source" href="../packages/orchestration/src/worker-runner.ts">근거: orchestration worker runner</a></article>
+          <article class="card feature"><h3>Capability와 Learner</h3><p>skill source를 capability로 색인하고 observation/instinct/learning trace에서 모델 및 topology 추천을 만든다.</p><a class="source" href="../packages/learner/src/learner-advisor.ts">근거: LearnerAdvisor</a></article>
+          <article class="card feature"><h3>운영 표면</h3><p>Settings, agent profile, MCP, secrets, diagnostics, budget/cost, eval, backup, notification, package 관리가 workbench에 통합된다.</p><a class="source" href="../apps/desktop/src/screens/workbench/WorkbenchShell.tsx">근거: WorkbenchShell</a></article>
+        </div>
+      </section>
+
+      <section id="changes">
+        <h2>5. 변경 현황</h2>
+        <p class="section-intro">현재 HEAD는 2026-09-03의 <code>feat(workbench): Codex 5.6 에이전트 운영 통합</code>이며, 그 이후 작업 트리에는 127개 추적 파일 수정(+4,852/-630)과 41개 미추적 경로가 있다. 아래는 파일명과 diff를 기준으로 묶은 현재 작업 흐름이다.</p>
+        <div class="timeline">
+          <div class="event"><h3>승인·CLI 안전성 v40</h3><p>approval revision/approved snapshot, DB 실행 claim, file recycle-bin delete, Windows command resolution·encoding·cancellation이 추가 또는 강화되고 있다. 이전 검수에서 제기된 승인 후 내용 변경과 중복 실행 문제는 현재 소스 및 선택 테스트에서 보완 근거가 확인된다.</p></div>
+          <div class="event"><h3>Task contract와 strict agent output</h3><p>answer/review/diagnose/research/change 의도별 side-effect 및 web-search 제약, JSON schema v1, non-interactive questions 비허용, Codex stream parsing과 read-only preflight가 작업 중이다.</p></div>
+          <div class="event"><h3>자동 품질·완료 UX</h3><p>automatic quality service, task response quality, evidence reader, quality requirement 모델, answer copy/clipboard, task completion E2E가 추가되고 있다.</p></div>
+          <div class="event"><h3>모델 예산·profile·orchestration 확장</h3><p>model allocation/usage estimator, budget policy, topology advisor, worker wave/handoff, harness package, A2A repository가 동시에 변경 중이다.</p></div>
+          <div class="event"><h3>Workbench 현지화와 복구 경로</h3><p>i18n, CLI 재탐색, provider executable/process tree 관리, 설정/승인/우측 패널과 관련 E2E가 추가되고 있다.</p></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>영역</th><th class="num">수정 파일</th><th class="num">추가</th><th class="num">삭제</th><th>해석</th></tr></thead>
+            <tbody>
+              <tr><td>apps/desktop</td><td class="num">37</td><td class="num">927</td><td class="num">109</td><td>UI, IPC, main 조합, E2E 동시 변화</td></tr>
+              <tr><td>packages/core</td><td class="num">25</td><td class="num">261</td><td class="num">25</td><td>계약·정책·상태 모델 변경</td></tr>
+              <tr><td>packages/storage</td><td class="num">18</td><td class="num">1,020</td><td class="num">47</td><td>schema v40와 repository 확장</td></tr>
+              <tr><td>packages/agent</td><td class="num">15</td><td class="num">1,213</td><td class="num">224</td><td>CLI, parsing, model/budget 경로 집중 변화</td></tr>
+              <tr><td>packages/orchestration</td><td class="num">10</td><td class="num">662</td><td class="num">35</td><td>worker 실행·handoff·wave 확대</td></tr>
+              <tr><td>기타 packages/docs</td><td class="num">22</td><td class="num">769</td><td class="num">190</td><td>learner, runner, quality, 검수 문서</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warn" style="margin-top:16px"><b>해석:</b> 단일 기능 브랜치라기보다 안전성, 출력 계약, 품질, 모델 운영, UI가 한 작업 트리에 겹쳐 있다. 각 기능 자체보다 cross-layer 계약 누락과 검증 결과의 시점 불일치가 현재 가장 큰 통합 위험이다.</div>
+      </section>
+
+      <section id="risks">
+        <h2>6. 발견된 위험</h2>
+        <p class="section-intro">아래는 현재 소스와 Git 상태에서 재확인한 위험이다. 버튼으로 심각도를 필터링할 수 있다.</p>
+        <div class="filters" role="group" aria-label="위험 필터">
+          <button class="active" data-filter="all">전체</button>
+          <button data-filter="high">High</button>
+          <button data-filter="medium">Medium</button>
+          <button data-filter="low">Low</button>
+        </div>
+        <div class="grid two" id="risk-grid">
+          <article class="card risk" data-severity="high"><h3><span class="badge red">High</span> 168개 기존 변경 경로의 통합 불확실성</h3><p>127개 추적 수정과 41개 미추적 파일이 여러 계층을 동시에 바꾼다. HEAD만으로 재현되지 않으며 일부 핵심 구현과 테스트가 아직 미추적이어서 리뷰·백업·bisect의 신뢰도가 낮다.</p><span class="source">근거: <code>git status --porcelain</code>, <code>git diff --numstat</code></span></article>
+          <article class="card risk" data-severity="high"><h3><span class="badge red">High</span> workspace-write의 사전 승인 경계 차이</h3><p>설정이 켜지면 change TaskRun의 Codex가 직접 파일을 쓸 수 있고 시스템은 post-hoc workspace change evidence를 수집한다. 기본값은 false지만, 이 모드는 Runner의 승인→실행→artifact-before-write 의미와 동일하지 않다.</p><a class="source" href="../packages/agent/src/agent-planning-service.ts">근거: AgentPlanningService sandbox 선택·tracker</a></article>
+          <article class="card risk" data-severity="high"><h3><span class="badge red">High</span> host shell은 OS sandbox가 아님</h3><p>shell은 수동 승인과 위험 토큰 차단을 거치지만 실행 프로세스의 파일·네트워크 권한을 OS 수준에서 제한하지 않는다. 명령 분류 정규식과 secret masking은 tripwire이며 완전한 보안 경계가 아니다.</p><a class="source" href="../packages/runners/src/runner-policy.ts">근거: runner policy 및 task-contract 주석</a></article>
+          <article class="card risk" data-severity="medium"><h3><span class="badge amber">Medium</span> 파일 I/O의 잔여 TOCTOU</h3><p>실경로 containment와 승인 preimage 비교가 추가되었지만 검사와 실제 write/trash 사이를 원자적으로 묶지는 못한다. delete 구현도 host trash API에 atomic compare-and-delete가 없음을 명시한다.</p><a class="source" href="../packages/runners/src/file-delete-runner.ts">근거: FileDeleteRunner 재검증 주석</a></article>
+          <article class="card risk" data-severity="medium"><h3><span class="badge amber">Medium</span> IPC 계약 확장에 따른 drift 비용</h3><p>22개 IPC 도메인과 큰 preload/main 조합이 core API, handler, registration, preload, window typing을 함께 바꿔야 한다. 현재처럼 37개 desktop 파일이 동시에 변할 때 한 계층 누락 가능성이 커진다.</p><a class="source" href="../packages/core/src/ipc-channels.ts">근거: IPC_CHANNELS 및 preload/main</a></article>
+          <article class="card risk" data-severity="medium"><h3><span class="badge amber">Medium</span> 단일 provider 정책과 확장 포맷의 불일치</h3><p>현재 <code>AgentProvider</code>와 profile 검증은 <code>codex</code>만 허용하지만 문서/타입 일부는 claude source format과 provider hint를 유지하고 A2A routing을 별도로 제공한다. 호환 레이어와 실제 실행 provider의 경계를 계속 명시해야 한다.</p><a class="source" href="../packages/core/src/types/settings.ts">근거: AgentProvider와 harness-package types</a></article>
+          <article class="card risk" data-severity="medium"><h3><span class="badge amber">Medium</span> 검증 결과의 시점·환경 분산</h3><p>2026-09-07/08 검수 문서의 전체 테스트·E2E 수가 서로 다르고 현재 worktree는 다시 변경되었다. 이번 실행에서도 공식 <code>npm</code> 경로가 PATH에 없어 대체 경로를 사용했다. 결과를 하나의 “전체 통과”로 합치면 안 된다.</p><a class="source" href="analysis/cli-discovery-recovery-2026-09-08.md">근거: 최근 검수 문서와 이번 명령 출력</a></article>
+          <article class="card risk" data-severity="low"><h3><span class="badge blue">Low</span> package-managed 의존성의 별도 감사 필요</h3><p>embedded vendor 디렉터리는 발견하지 못했지만 Electron, better-sqlite3, Playwright 등 native/runtime 의존성의 취약점·ABI·라이선스 검증은 이번 범위에 없다.</p><span class="source">근거: package manifests, tracked-path inventory</span></article>
+        </div>
+      </section>
+
+      <section id="verification">
+        <h2>7. 실제 검증과 미검증의 구분</h2>
+        <p class="section-intro">같은 “검증”이라도 현재 실행, 과거 artifact, 정적 확인은 서로 대체하지 않는다.</p>
+        <div class="verify-list">
+          <div class="card pass"><h3>이번 실행에서 확인</h3><ul>
+            <li>Git HEAD/branch/status와 변경량 집계</li>
+            <li>740 tracked, 240 test files, 모듈별 파일 표면</li>
+            <li>11개 tsconfig의 <code>tsc --noEmit</code> 모두 exit 0</li>
+            <li>선택 정책 테스트 72/72 통과</li>
+            <li>Node v24.18.0, schema v40, 33 table, 22 IPC domain</li>
+            <li>core→storage import 없음, 금지 테스트 확장자 없음</li>
+            <li>embedded vendor 계열 추적 경로 없음</li>
+          </ul></div>
+          <div class="card partial"><h3>부분/대체 경로</h3><ul>
+            <li>shell PATH에 <code>node</code>/<code>npm</code>이 없어 공식 <code>npm run check</code>는 시작 실패</li>
+            <li>typecheck는 Electron의 Node 모드로 tsc를 각 config에 직접 실행</li>
+            <li>tsx가 <code>uv_os_get_passwd ENOMEM</code>으로 실패해 임시 in-process <code>geteuid</code> shim 후 선택 테스트 실행</li>
+            <li>2026-09-07/08 전체 테스트·E2E 결과는 문서 증거이며 이번에 재실행하지 않음</li>
+          </ul></div>
+          <div class="card unknown"><h3>이번에 미검증</h3><ul>
+            <li>공식 <code>npm run test/verify/build</code></li>
+            <li>전체 240개 테스트 파일과 coverage</li>
+            <li>Electron GUI 전체 E2E 및 clipboard 실제 OS round-trip</li>
+            <li>실제 Codex/MCP/A2A provider 호출</li>
+            <li>packaged EXE 설치/업데이트/복구</li>
+            <li>dependency audit, 서명, 라이선스 준수</li>
+            <li>대규모 repo index·stream 성능과 장시간 안정성</li>
+          </ul></div>
+        </div>
+        <div class="callout warn" style="margin-top:18px"><b>선택 테스트 명령의 경계:</b> agent output schema, auto-approve, completion, approval concurrency, path containment/secret masking을 대상으로 72개가 통과했다. 이는 Runner 전체, DB migration 전체, desktop UI 또는 실제 CLI 성공을 증명하지 않는다.</div>
+      </section>
+
+      <section id="priorities">
+        <h2>8. 권고 우선순위와 완료 증거</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>순위</th><th>행동</th><th>이유</th><th>완료로 볼 증거</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge red">P0</span></td><td>현재 대규모 변경을 기능 단위 review set으로 분리</td><td>안전성·계약·UI 변경이 겹쳐 회귀 원인 분리가 어렵다.</td><td>변경 그룹별 diff, 연결된 테스트, migration/IPC 체크리스트</td></tr>
+              <tr><td><span class="badge red">P0</span></td><td>공식 Node/npm 실행 경로를 복구해 <code>npm run verify</code> 재실행</td><td>현재 대체 tsc/선택 테스트는 전체 검증이 아니다.</td><td>동일 checkout에서 check+test+build의 원본 exit/output artifact</td></tr>
+              <tr><td><span class="badge amber">P1</span></td><td>workspace-write와 승인 Runner 모드를 UX·artifact에서 명확히 분리</td><td>사전 승인 의미와 post-hoc 증거 의미가 다르다.</td><td>모드별 E2E, 변경 전후 artifact, 설정 경고와 기본값 검증</td></tr>
+              <tr><td><span class="badge amber">P1</span></td><td>host shell 권한 모델과 residual risk 문서화</td><td>정규식 차단은 containment가 아니다.</td><td>수동 승인 강제, 허용 명령 정책, 네트워크/파일 권한 위협 모델 및 공격 테스트</td></tr>
+              <tr><td><span class="badge amber">P1</span></td><td>Windows reparse/TOCTOU 회귀 테스트 확대</td><td>write/trash 직전의 경합 창은 완전히 제거되지 않는다.</td><td>junction 교체·missing leaf·hardlink·trash failure fault injection 결과</td></tr>
+              <tr><td><span class="badge blue">P2</span></td><td>main/preload/IPC 계약 자동 비교</td><td>22개 도메인의 수동 9-layer 변경 비용을 줄여야 한다.</td><td>core API↔channel↔handler↔preload↔window typing parity test</td></tr>
+              <tr><td><span class="badge blue">P2</span></td><td>repo index·stream 성능 baseline 갱신</td><td>agent 실행마다 500-file context 제한과 다중 stream 보존 비용이 있다.</td><td>cold/warm/changed-only latency, peak memory, event tail 크기, p95</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="evidence">
+        <h2>9. 근거 색인</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>주제</th><th>파일/심볼</th><th>확인 내용</th></tr></thead>
+            <tbody>
+              <tr><td>프로젝트 계약</td><td><a href="../AGENTS.md"><code>AGENTS.md</code></a></td><td>Electron, SQLite, approval, test naming 제약</td></tr>
+              <tr><td>런타임 구성</td><td><a href="../apps/desktop/electron/main.ts"><code>createMainWindow</code>, <code>initServices</code></a></td><td>보안 webPreferences, 서비스 wiring, event observer</td></tr>
+              <tr><td>typed bridge</td><td><a href="../apps/desktop/electron/preload.ts"><code>contextBridge</code></a></td><td>renderer 노출 surface와 event subscription</td></tr>
+              <tr><td>SQLite canonical state</td><td><a href="../packages/storage/src/db.ts"><code>openDb</code></a>, <a href="../packages/storage/src/schema.ts"><code>SCHEMA_VERSION</code></a></td><td>WAL/foreign_keys/busy_timeout, v40 schema</td></tr>
+              <tr><td>승인 원자성</td><td><a href="../packages/storage/src/repositories/approval-repository.ts"><code>setProposedAction</code>, <code>claimExecution</code></a></td><td>revision invalidate, approved snapshot, single claim</td></tr>
+              <tr><td>경로 안전</td><td><a href="../packages/runners/src/runner-policy.ts"><code>isRealPathWithin</code></a></td><td>existing ancestor realpath projection, fail-closed</td></tr>
+              <tr><td>파일 충돌</td><td><a href="../packages/runners/src/file-runner.ts"><code>FileRunner.run</code></a></td><td>approved preimage 비교와 재확인</td></tr>
+              <tr><td>품질 경계</td><td><a href="../packages/quality/src/quality-evaluator.ts"><code>QualityEvaluator.evaluate</code></a></td><td>evidence 집계, read-only/change contract 판정</td></tr>
+              <tr><td>완료 전이</td><td><a href="../packages/core/src/task-run/task-run-completion-service.ts"><code>markDone</code></a></td><td>ready_for_review와 quality gate 기반 전이</td></tr>
+              <tr><td>직접 쓰기 모드</td><td><a href="../packages/agent/src/agent-planning-service.ts"><code>resolveCodexRuntimeOptions</code></a></td><td>workspace-write opt-in과 change tracker</td></tr>
+              <tr><td>2026-09-07 검수</td><td><a href="analysis/file-cli-approval-acceptance-2026-09-07.md">file/CLI/approval acceptance</a></td><td>이전 결함·수정 및 당시 전체 검증 증거</td></tr>
+              <tr><td>2026-09-08 검수</td><td><a href="analysis/cli-discovery-recovery-2026-09-08.md">CLI discovery recovery</a></td><td>CLI 복구, E2E 잔여 실패와 검증 한계</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer>
+        <p><b>결론:</b> 아키텍처의 핵심 경계는 현재 소스에서 유지되고 승인 동시성·실경로 containment도 이전 기준보다 강화되어 있다. 다만 현재 변경 규모와 실행 환경 제약 때문에 release-ready 또는 품질 게이트 완료로 판정할 수 없다. P0의 review set 분리와 공식 verify 재실행이 다음 판단의 선행 조건이다.</p>
+        <p>생성 파일: <code>docs/project-analysis.html</code> · 분석일: 2026-09-08 KST · 외부 CDN/네트워크 리소스 없음</p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    const buttons = document.querySelectorAll('[data-filter]');
+    const risks = document.querySelectorAll('#risk-grid [data-severity]');
+    buttons.forEach((button) => button.addEventListener('click', () => {
+      const filter = button.dataset.filter;
+      buttons.forEach((item) => item.classList.toggle('active', item === button));
+      risks.forEach((risk) => { risk.hidden = filter !== 'all' && risk.dataset.severity !== filter; });
+    }));
+  </script>
+</body>
+</html>

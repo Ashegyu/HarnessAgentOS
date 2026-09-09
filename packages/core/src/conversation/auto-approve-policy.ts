@@ -16,11 +16,13 @@ export interface AutoApproveActiveProfile {
 }
 
 export interface ShouldAutoApproveInput {
-  approval: Pick<Approval, "actionType" | "policyEvaluation">;
+  approval: Pick<Approval, "actionType" | "policyEvaluation" | "requiresManualApproval" | "executionState">;
   globalAutoApprove: boolean;
   activeProfile: AutoApproveActiveProfile | null;
   accumulatedTaskRunCostUsd?: number;
   accumulatedDailyCostUsd?: number;
+  unknownTaskRunCostInvocationCount?: number;
+  unknownDailyCostInvocationCount?: number;
   workerFileActionAutoApprove?: boolean;
   isWorkerFileAction?: boolean;
 }
@@ -96,6 +98,8 @@ export const shouldAutoApprove = (
     profile: activeProfile,
     accumulatedTaskRunCostUsd: input.accumulatedTaskRunCostUsd,
     accumulatedDailyCostUsd: input.accumulatedDailyCostUsd,
+    unknownTaskRunCostInvocationCount: input.unknownTaskRunCostInvocationCount,
+    unknownDailyCostInvocationCount: input.unknownDailyCostInvocationCount,
   });
   if (budgetDecision.kind === "blocked") {
     return decision(
@@ -103,6 +107,9 @@ export const shouldAutoApprove = (
       "budget_blocked",
       budgetDecision.reason ?? "Profile budget blocks auto-approve.",
     );
+  }
+  if (approval.actionType === "shell" || approval.actionType === "file_delete" || approval.requiresManualApproval || approval.executionState) {
+    return decision(false, "policy_disallow_auto", "This action requires individual manual confirmation; host commands are not sandboxed.");
   }
   if (perms?.autoApproveActions.includes(approval.actionType)) {
     return decision(

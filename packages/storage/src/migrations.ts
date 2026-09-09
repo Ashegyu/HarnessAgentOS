@@ -2,7 +2,7 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
 
 const APPROVAL_ACTION_TYPE_CHECK =
-  "'capability_use','model_use','file_patch','file_write','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
+  "'capability_use','model_use','file_patch','file_write','file_delete','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
 const AGENT_PROFILE_ROLE_CHECK =
   "'planner','coder','reviewer','tester','orchestrator','security-reviewer','build-error-resolver','refactor-cleaner','performance-reviewer','documenter'";
 
@@ -18,6 +18,25 @@ export const applyMigrations = (db: DatabaseType): void => {
     for (const stmt of SCHEMA_STATEMENTS) {
       db.exec(stmt);
     }
+
+    // v37 — project-scoped learner history. Existing rows stay unscoped and
+    // are used only as a cold-start fallback; new writes populate project_key.
+    if (!hasColumn(db, "learning_traces", "project_key")) {
+      db.exec(`ALTER TABLE learning_traces ADD COLUMN project_key TEXT`);
+    }
+    if (!hasColumn(db, "learning_traces", "updated_at")) {
+      db.exec(`ALTER TABLE learning_traces ADD COLUMN updated_at TEXT`);
+    }
+    // v38 — preserve every model that contributed to a parallel TaskRun.
+    if (!hasColumn(db, "learning_traces", "selected_models_json")) {
+      db.exec(
+        `ALTER TABLE learning_traces ADD COLUMN selected_models_json TEXT NOT NULL DEFAULT '[]'`,
+      );
+    }
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_learning_traces_project_created
+        ON learning_traces(project_key, created_at)`,
+    );
 
     // Phase 3 — proposed_action_json on approvals.
     if (!hasColumn(db, "approvals", "proposed_action_json")) {
@@ -150,6 +169,43 @@ export const applyMigrations = (db: DatabaseType): void => {
     if (!approvalActionTypeAllows(db, "file_patch")) {
       rebuildApprovals(db);
     }
+
+    // v40 — single-file trash and revision-bound, single-consumption approvals.
+    // Rebuild BEFORE adding lifecycle columns; legacy rebuilds copy only old fields.
+    if (!approvalActionTypeAllows(db, "file_delete")) rebuildApprovals(db);
+    if (!hasColumn(db, "approvals", "action_revision")) {
+      db.exec(`ALTER TABLE approvals ADD COLUMN action_revision INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE approvals ADD COLUMN approved_revision INTEGER;
+        ALTER TABLE approvals ADD COLUMN approved_action_json TEXT;
+        ALTER TABLE approvals ADD COLUMN requires_manual_approval INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE approvals ADD COLUMN execution_state TEXT CHECK(execution_state IN ('running','succeeded','uncertain'));
+        ALTER TABLE approvals ADD COLUMN execution_token TEXT;
+        ALTER TABLE approvals ADD COLUMN execution_started_at TEXT;
+        ALTER TABLE approvals ADD COLUMN execution_finished_at TEXT;
+        UPDATE approvals SET status='pending', requires_manual_approval=1
+          WHERE status IN ('approved','always_approved_for_run')`);
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id);
+      CREATE INDEX IF NOT EXISTS idx_approvals_decided_at ON approvals(decided_at DESC)`);
+    db.exec(`CREATE TABLE IF NOT EXISTS approval_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      approval_id TEXT NOT NULL REFERENCES approvals(id) ON DELETE CASCADE,
+      action_revision INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      execution_state TEXT,
+      proposed_action_json TEXT,
+      decision_message TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_approval_events_approval ON approval_events(approval_id, id);
+    CREATE TRIGGER IF NOT EXISTS approval_events_insert AFTER INSERT ON approvals BEGIN
+      INSERT INTO approval_events(approval_id,action_revision,status,execution_state,proposed_action_json,decision_message,created_at)
+      VALUES(NEW.id,NEW.action_revision,NEW.status,NEW.execution_state,NEW.proposed_action_json,NEW.decision_message,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+    END;
+    CREATE TRIGGER IF NOT EXISTS approval_events_update AFTER UPDATE OF status,proposed_action_json,execution_state ON approvals BEGIN
+      INSERT INTO approval_events(approval_id,action_revision,status,execution_state,proposed_action_json,decision_message,created_at)
+      VALUES(NEW.id,NEW.action_revision,NEW.status,NEW.execution_state,NEW.proposed_action_json,NEW.decision_message,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+    END;`);
 
     // v34 — repaired harness package snapshots may share the same source
     // root_dir as the original import. The row id identifies each immutable

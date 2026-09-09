@@ -1,3 +1,5 @@
+import type { TaskContract, TaskIntent } from "./task-contract.ts";
+
 export type TaskRunStatus =
   | "drafting"
   | "waiting_for_approval"
@@ -25,6 +27,7 @@ export interface TaskRun {
   id: string;
   threadId: string;
   userRequest: string;
+  contract?: TaskContract;
   targetDir: string;
   followUpTaskRunId?: string;
   status: TaskRunStatus;
@@ -36,6 +39,7 @@ export interface TaskRun {
 export interface CreateTaskRunInput {
   threadId: string;
   userRequest: string;
+  intent?: TaskIntent;
   targetDir: string;
   followUpTaskRunId?: string;
   status?: TaskRunStatus;

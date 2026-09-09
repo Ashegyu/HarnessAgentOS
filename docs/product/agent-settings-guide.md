@@ -45,7 +45,7 @@
 | 필드 | 의미 | 예시 |
 |------|------|------|
 | **Provider** | `codex`로 고정. 다른 provider를 선택하거나 실행할 수 없음 | `codex` |
-| **Model** | Codex 5.6 모델 선택. 기본값은 `gpt-5.6-sol` | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
+| **Model** | Codex 모델 선택. 기본값은 `gpt-5.6-sol` | `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` |
 | **Reasoning effort** | Codex 추론 강도. CLI의 `model_reasoning_effort`로 전달 | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | **Timeout (ms)** | 한 invocation의 최대 시간 | `300000` (5분) |
 | **Stall timeout (ms)** | stdout이 일정 시간 chunk 없으면 강제 종료 | `300000` |
@@ -97,7 +97,7 @@ profile.permissions.autoApproveActions
 - **Provider** — 모든 프로필은 `codex`로 고정됩니다. 기존 `claude` / `auto` 데이터는 로드 시 `codex`로 승격됩니다.
 - **Role** — 실행 단계 계약. 일반 단계는 `planner`/`coder`/`reviewer`/`tester`, 전문 단계는 `orchestrator`, `security-reviewer`, `build-error-resolver`, `refactor-cleaner`, `performance-reviewer`, `documenter`를 사용합니다.
 - **Role 설명 카드** — 선택한 role의 책임, 사용 시점, 안전 경계를 표시합니다.
-- **Model** — `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 선택합니다. 새 seed와 지원 목록 밖의 기존 값은 `gpt-5.6-sol`을 사용합니다.
+- **Model** — `gpt-6-astra` / `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna` 중 선택합니다. 새 seed는 역할별 기본값을 사용하고, 지원이 끝난 저장 모델은 시작 시 역할별 호환 값으로 변환됩니다. 지원되는 저장 모델·추론 수준은 기본 제공 프로필을 포함해 재시작 후에도 보존합니다. 활성/default 프로필의 모델은 고정 선택으로 취급하므로 학습 추천이 덮어쓰지 않습니다. 명시적인 호출별 모델 선택은 우선합니다.
 - **CLI 경로 override** — 시스템 PATH의 CLI가 아닌 다른 바이너리를 쓰고 싶을 때
 
 #### 에이전트 프롬프트 섹션
@@ -113,7 +113,7 @@ profile.permissions.autoApproveActions
 #### Tuning 섹션
 - **Temperature** — 0.0~1.0
 - **Max tokens** — 응답 최대 길이
-- **Reasoning effort** — `none` / `low` / `medium` / `high` / `xhigh` / `max`. Codex 실행 시 `model_reasoning_effort` override로 전달됩니다.
+- **Reasoning effort** — `none` / `low` / `medium` / `high` / `xhigh` / `max`. Codex 실행 시 `model_reasoning_effort` override로 전달됩니다. `gpt-6-astra`에서 `none`은 지원되는 최저 단계인 `low`로 정규화됩니다.
 - **Timeout (ms)** / **Stall timeout (ms)** — General 탭과 동일하지만 이 프로필만 override
 - **Context depth** — 이 프로필 전용 turn 수
 
@@ -129,6 +129,17 @@ ActionType별 정책 매트릭스:
 | skill_script | ❌ | ✅ | 🔵 |
 | network | ❌ | ✅ | 🔵 |
 | orchestration_plan | ❌ | ✅ | 🔵 |
+
+#### 비용 한도와 실행 차단
+
+- 단일 호출 / 작업 누적 / 일일 누적 USD 한도를 설정할 수 있습니다. 빈 값은 이 앱에서 USD 제한을 적용하지 않는다는 뜻이며 무료 실행을 의미하지 않습니다.
+- 비용을 모르면 0달러로 취급하지 않습니다. 자동 승인과 pipeline 사전 동의도 미확인 비용을 무시하지 않습니다.
+- **현재 CLI 경로에는 검증된 과금 방식과 호출 전 비용 상한이 없습니다. 따라서 USD 한도를 하나라도 설정하면 planner/local worker 실행을 시작하기 전에 `AGENT_BUDGET_UNVERIFIABLE`로 중단합니다.** 한도를 자동으로 해제하거나 모델을 몰래 바꾸지 않습니다.
+- planner 시작이 이 이유로 막히면 작업은 대기가 아니라 **차단됨**으로 저장됩니다. 작업을 선택하고 오른쪽 에이전트 탭에서 차단 이유를 확인하세요. 화면을 다시 열어도 이유가 유지되며 자동으로 재시도하지 않습니다.
+- 복구 안내는 **설정 → 에이전트 → 선택한 프로필의 비용 한도**를 가리킵니다. 한도 변경 여부는 사용자가 결정해야 합니다. 한도를 유지하면 현재 CLI 실행은 계속 차단되고, 한도를 비우면 이 앱의 USD 상한 보호가 적용되지 않습니다. 설정을 수정한 경우 에이전트 탭의 계획 생성 버튼으로 직접 다시 실행할 수 있습니다.
+- 이미 생성된 로컬 `file_write`/`file_patch`는 그 자체로 모델을 호출하지 않으므로 비용 미확인만으로 막지 않습니다. 별도의 권한·승인·경로 검사는 계속 적용됩니다.
+- API 토큰 가격으로 계산한 참고 비용은 Codex 구독 사용량/크레딧 또는 실제 청구액과 다릅니다. 실제 CLI 비용은 과금 근거를 연결하기 전까지 미확인으로 남습니다. [Codex 과금 안내](https://learn.chatgpt.com/docs/pricing)
+- 병렬 호출의 SQLite 예산 예약·정산, 실패/취소 부분 사용량 회계와 자동/고정 선택 UI는 미구현이며 이번 완료 범위에 포함하지 않습니다. 현재 구현을 전체 병렬 비용 상한 보장으로 해석하지 마세요.
 
 #### MCP / Skill 바인딩
 - **MCP Server IDs** — 이 프로필에서 활성화할 `per-agent` scope MCP들

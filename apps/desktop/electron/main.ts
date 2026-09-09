@@ -25,7 +25,7 @@ import type {
   QualityGateResult,
 } from "@harness/core";
 import type { SkillRootPolicy } from "./ipc/skill-source-ipc";
-import { RunnerService, ShadowWorkspaceService } from "@harness/runners";
+import { RunnerService, ShadowWorkspaceService, inspectDeleteFile } from "@harness/runners";
 import { QualityEvaluator, RepairLoopService } from "@harness/quality";
 import {
   CapabilityRegistry,
@@ -39,10 +39,14 @@ import {
   TopologyAdvisor,
   TraceRecorder,
 } from "@harness/learner";
-import { OrchestrationService } from "@harness/orchestration";
+import {
+  HarnessPackageService,
+  OrchestrationService,
+} from "@harness/orchestration";
 import {
   AgentInvocationQueue,
   AgentPlanningService,
+  FakeModelCliAdapter,
   RepoIndexService,
   buildCodexMcpConfigOverrides,
   checkProviders as probeAgentProviders,
@@ -51,7 +55,12 @@ import {
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
-import { eventBus, setDiagnosticsEmitter } from "./event-bus";
+import { verifyReportDelivery } from "./services/report-delivery-verifier";
+import {
+  eventBus,
+  setDiagnosticsEmitter,
+  setTaskRunChangedObserver,
+} from "./event-bus";
 import { createA2AWorkerRouter } from "./a2a-worker-composition";
 import { createMcpProbe, resolveMcpCommand } from "./mcp-probe";
 import { SystemDiagnosticsService } from "./services/system-diagnostics-service";
@@ -157,12 +166,17 @@ const initServices = (): {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
   mainDb = openDb({ filePath: dbPath });
+  // Only the application startup (not every database connection) recovers lost claims.
+  // Never replay a command after a crash: the external effect may already exist.
+  mainDb.prepare(`UPDATE approvals SET execution_state='uncertain', execution_finished_at=?
+    WHERE execution_state='running'`).run(new Date().toISOString());
 
   const state = new LocalStateService(mainDb);
   const artifactStore = new FilesystemArtifactStore({
     rootDir: join(userData, "artifacts"),
   });
   const conversation = new ConversationService({
+    inspectDeleteFile,
     state,
     pathExists: async (path: string) => {
       try {
@@ -174,6 +188,7 @@ const initServices = (): {
     },
   });
   const runner = new RunnerService({
+    trashItem: path => shell.trashItem(path),
     state,
     artifactStore,
     recordPinnedContextOutcome: async ({
@@ -226,13 +241,28 @@ const initServices = (): {
   const repoIndexService = new RepoIndexService({
     store: state.repoIndex,
   });
-  const qualityEvaluator = new QualityEvaluator({ state });
+  const qualityEvaluator = new QualityEvaluator({ state,
+    verifyReportDelivery: async (task, diffs) => {
+      const approvals = await state.listApprovalsByTaskRun(task.id);
+      const writes = approvals.filter(a => a.actionType === "file_write");
+      // Every observed change must be covered by a completed report write.
+      if (diffs.length !== writes.length) return false;
+      return verifyReportDelivery(task, approvals);
+    },
+  });
   // Trace recorder is constructed first so the completion service can
   // stamp a LearningTrace as part of every markDone (Phase 6 acceptance).
   const traceRecorder = new TraceRecorder({ state });
+  const instinctService = new InstinctService({ state });
+  const refreshInstinctCandidates = async (observation: Observation): Promise<void> => {
+    await instinctService.refreshCandidates(
+      observation.projectKey ? { projectKey: observation.projectKey } : {},
+    );
+  };
   const learnerAdvisor = new LearnerAdvisor({
     state,
     decisionLogDir: join(userData, "learner-decisions"),
+    onObservationRecorded: refreshInstinctCandidates,
   });
   const qualityCompletion = new TaskRunCompletionService({
     state,
@@ -320,8 +350,8 @@ const initServices = (): {
   const topologyAdvisor = new TopologyAdvisor({
     state,
     metadataForCapability: (id) => capabilityRegistry.getMetadata(id),
+    onObservationRecorded: refreshInstinctCandidates,
   });
-  const instinctService = new InstinctService({ state });
   // Phase 7 feature flag — defaults off per phase-07 spec.
   // Mutable ref is seeded from persisted settings in app.whenReady()
   // before IPC is registered; env var acts as OR override for devs.
@@ -336,8 +366,32 @@ const initServices = (): {
   // planning service (concurrency control) and the provider probe
   // (so RuntimeStatusBar can show live queue depth).
   const agentQueue = new AgentInvocationQueue();
-  let cachedProviders: AgentProviderStatusMap | null = null;
+  const useE2eFakeAgent =
+    process.env.HARNESS_E2E_USER_DATA !== undefined &&
+    process.env.HARNESS_E2E_FAKE_AGENT === "1";
+  let cachedProviders: AgentProviderStatusMap | null = useE2eFakeAgent
+    ? {
+        codex: {
+          available: true,
+          version: "e2e-fake",
+          command: "in-process",
+          queueDepth: 0,
+        },
+      }
+    : null;
   const probeProviders = async (): Promise<AgentProviderStatusMap> => {
+    if (useE2eFakeAgent) {
+      const result: AgentProviderStatusMap = {
+        codex: {
+          available: true,
+          version: "e2e-fake",
+          command: "in-process",
+          queueDepth: agentQueue.getDepth("codex"),
+        },
+      };
+      cachedProviders = result;
+      return result;
+    }
     const result = await probeAgentProviders({
       getQueueDepth: (p) => agentQueue.getDepth(p),
     });
@@ -405,6 +459,23 @@ const initServices = (): {
   const agentPlanning = new AgentPlanningService({
     state,
     queue: agentQueue,
+    ...(useE2eFakeAgent
+      ? {
+          adapter: new FakeModelCliAdapter({
+            scenario: process.env.HARNESS_E2E_SCENARIO === "ok-html-report" ? "ok-html-report" : "ok-answer-only",
+            ...(process.env.HARNESS_E2E_SCENARIO === "html-harness" ? {
+              scenarios: ["ok-answer-only", "ok-html-report", "ok-answer-only"] as const,
+            } : {}),
+            ...(process.env.HARNESS_E2E_SCENARIO === "code-harness" ? {
+              scenarios: ["ok-code-patch", "ok-code-test", "ok-answer-only"] as const,
+            } : {}),
+            ...(process.env.HARNESS_E2E_SCENARIO === "failed-harness" ? {
+              scenarios: ["ok-answer-only", "spawn-failed"] as const,
+            } : {}),
+            chunkDelayMs: process.env.HARNESS_E2E_SCENARIO?.endsWith("-harness") ? 10 : 500,
+          }),
+        }
+      : {}),
     getProviderStatus: () => cachedProviders,
     emitStreamEvent: (event) => eventBus.agentStreamEvent(event),
     prepareMcpInvocation,
@@ -577,7 +648,14 @@ const createMainWindow = (): BrowserWindow => {
     height: 800,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: "#0e1116",
+    backgroundColor: "#090e14",
+    autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#090e14",
+      symbolColor: "#edf3f8",
+      height: 52,
+    },
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -587,6 +665,8 @@ const createMainWindow = (): BrowserWindow => {
       preload: join(__dirname, "../preload/preload.cjs"),
     },
   });
+
+  win.removeMenu();
 
   win.once("ready-to-show", () => {
     win.show();
@@ -651,6 +731,33 @@ app.whenReady().then(async () => {
   } catch {
     // non-fatal — UI still works with an empty profile list.
   }
+  // Seed safe, disabled starter endpoints and built-in harness workflows.
+  // Existing rows are preserved and fixed ids keep this idempotent.
+  try {
+    traceStartup("remoteAgents:start");
+    await services.state.a2aRemoteAgents.ensureSeed();
+    traceStartup("remoteAgents:done");
+  } catch {
+    // non-fatal — users can still register remote endpoints manually.
+  }
+  try {
+    traceStartup("harnessPackages:start");
+    await services.state.harnessPackages.ensureSeed();
+    traceStartup("harnessPackages:done");
+  } catch {
+    // non-fatal — users can still import or create harness packages manually.
+  }
+  // Connect built-in starter workflows to exact matching profile roles.
+  // Existing user binding sets always win and imported packages are untouched.
+  try {
+    traceStartup("harnessBindingSets:start");
+    await new HarnessPackageService({
+      state: services.state,
+    }).ensureStarterBindingSets();
+    traceStartup("harnessBindingSets:done");
+  } catch {
+    // non-fatal — users can still create binding sets manually.
+  }
   // Seed reusable role-aware pipeline templates after profiles exist.
   try {
     traceStartup("agentPipelines:start");
@@ -697,6 +804,7 @@ app.on("will-quit", () => {
   diagnosticsHeartbeat?.stop();
   diagnosticsHeartbeat = null;
   setDiagnosticsEmitter(null);
+  setTaskRunChangedObserver(null);
   if (mainDb && mainDb.open) mainDb.close();
   mainDb = null;
 });

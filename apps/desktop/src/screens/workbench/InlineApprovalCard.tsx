@@ -36,7 +36,6 @@ const labelForAction = (actionType: string): string => {
 
 export const InlineApprovalCard = ({
   approvals,
-  autoApprove,
   contextDrawerOpen,
   onOpenDrawer,
 }: InlineApprovalCardProps): JSX.Element | null => {
@@ -49,28 +48,19 @@ export const InlineApprovalCard = ({
     .join(", ");
   const overflow = pending.length > 3 ? ` 외 ${pending.length - 3}건` : "";
 
-  // When auto-approve is on the user doesn't need to act — pending rows are
-  // a transient state between creation and execution. Surface that with a
-  // calmer label + spinner-like glyph so it doesn't look like a stuck queue.
-  const variantClass = autoApprove
-    ? " inline-approval-card--auto"
-    : "";
-
   return (
     <div
-      className={`inline-approval-card${variantClass}`}
+      className="inline-approval-card"
       role="status"
       aria-live="polite"
     >
       <div className="inline-approval-card__body">
         <span className="inline-approval-card__icon" aria-hidden>
-          {autoApprove ? "↻" : "⚠"}
+          ⚠
         </span>
         <div className="inline-approval-card__text">
           <span className="inline-approval-card__title">
-            {autoApprove
-              ? `자동 승인 처리 중 ${pending.length}건`
-              : `승인 대기 ${pending.length}건`}
+            {`승인 대기 ${pending.length}건`}
           </span>
           <span className="inline-approval-card__detail">
             {summary}
@@ -78,7 +68,7 @@ export const InlineApprovalCard = ({
           </span>
         </div>
       </div>
-      {!autoApprove && !contextDrawerOpen && (
+      {!contextDrawerOpen && (
         <button
           type="button"
           className="inline-approval-card__action"

@@ -226,14 +226,17 @@ test("agent namespace exposes Phase 8 verbs", () => {
   ]);
 });
 
-test("app namespace exposes runtime + selectDirectory + selectFile", () => {
+test("app namespace exposes runtime, file pickers, and write-only clipboard", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.app).sort(), [
+    "copyText",
     "getDiagnostics",
     "getRuntimeInfo",
     "getVersion",
     "selectDirectory",
     "selectFile",
   ]);
+  assert.equal(isAllowedChannel("app:copyText"), true);
+  assert.equal(isAllowedChannel("app:readText"), false);
 });
 
 test("state namespace exposes Phase 1 verbs only", () => {
@@ -262,6 +265,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
     "rejectApproval",
     "resumeTask",
     "setProposedAction",
+    "startTask",
   ]);
 });
 

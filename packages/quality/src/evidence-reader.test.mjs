@@ -2,6 +2,24 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collectEvidence } from "./evidence-reader.ts";
 
+test("a complete host snapshot with zero changes is not a change or a test ordering barrier", () => {
+  const evidence = collectEvidence([
+    { id: "check", taskRunId: "task", index: 0, kind: "test", status: "succeeded", title: "test" },
+    { id: "plan", taskRunId: "task", index: 1, kind: "plan", status: "succeeded", title: "plan" },
+  ], [{ id: "snapshot", taskRunId: "task", stepId: "plan", kind: "diff",
+    uri: "harness:workspace-change/task/123", summary: "# Workspace change evidence\n\nTarget: C:\\repo\nChanged files: 0\nSnapshot file list truncated: no\n\n## Changed-file manifest\n\nNo file changes observed.\n\n## Text diffs\n" }]);
+  assert.deepEqual(evidence.diffArtifactIds, []);
+  assert.equal(evidence.testEvidence.length, 1);
+});
+
+test("unknown, truncated, and non-host zero-change claims remain conservative", () => {
+  for (const artifact of [
+    { uri: "artifact://model", summary: "Changed files: 0" },
+    { uri: "harness:workspace-change/task/1", summary: "# Workspace change evidence\nChanged files: 0\nSnapshot file list truncated: yes" },
+    { uri: "harness:workspace-change/task/1", summary: "Changed files: 0" },
+  ]) assert.deepEqual(collectEvidence([], [{ id: "diff", kind: "diff", ...artifact }]).diffArtifactIds, ["diff"]);
+});
+
 const stepBase = {
   id: "stp_x",
   taskRunId: "tsk_x",
@@ -10,10 +28,41 @@ const stepBase = {
   status: "succeeded",
 };
 
+test("model-written pass and exit markers are not execution evidence", () => {
+  const artifacts = ["test_result", "log"].map((kind, index) => ({
+    id: `fake-${index}`, stepId: "plan", taskRunId: "tsk_x", kind,
+    title: "npm run build test smoke", summary: "all passed exit=0",
+  }));
+  const evidence = collectEvidence([{ ...stepBase, id: "plan", kind: "plan" }], artifacts);
+  assert.deepEqual(evidence.testEvidence, []);
+  assert.deepEqual(evidence.buildEvidence, []);
+  assert.deepEqual(evidence.smokeEvidence, []);
+});
+
+test("pending and running checks are not failed or passing evidence", () => {
+  for (const status of ["pending", "running", "skipped"]) {
+    const evidence = collectEvidence([
+      { ...stepBase, kind: "test", status },
+      { ...stepBase, kind: "shell", title: "npm run build", status },
+    ], []);
+    assert.deepEqual(evidence.testEvidence, []);
+    assert.deepEqual(evidence.buildEvidence, []);
+  }
+});
+
+test("checks before the latest file change cannot validate the new change", () => {
+  const evidence = collectEvidence([
+    { ...stepBase, id: "test", kind: "test", index: 0 },
+    { ...stepBase, id: "edit", kind: "edit", index: 1 },
+  ], [{ id: "diff", kind: "diff", taskRunId: "tsk_x", stepId: "edit" }]);
+  assert.deepEqual(evidence.testEvidence, []);
+});
+
 test("collectEvidence flags failed test_result artifact", () => {
-  const evidence = collectEvidence([], [
+  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "test", status: "failed" }], [
     {
       id: "art_1",
+      stepId: stepBase.id,
       taskRunId: "tsk_1",
       kind: "test_result",
       title: "vitest",
@@ -28,9 +77,10 @@ test("collectEvidence flags failed test_result artifact", () => {
 });
 
 test("collectEvidence marks passing test_result artifact", () => {
-  const evidence = collectEvidence([], [
+  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "test" }], [
     {
       id: "art_2",
+      stepId: stepBase.id,
       taskRunId: "tsk_1",
       kind: "test_result",
       title: "jest",
@@ -84,10 +134,11 @@ test("collectEvidence detects shell build steps via title hint", () => {
   assert.equal(evidence.buildEvidence[0].passed, true);
 });
 
-test("collectEvidence detects build log artifacts via command title and exit code", () => {
-  const evidence = collectEvidence([], [
+test("collectEvidence links build logs to terminal runner status", () => {
+  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run build" }], [
     {
       id: "art_b1",
+      stepId: stepBase.id,
       taskRunId: "tsk_1",
       kind: "log",
       title: "shell: npm run build",
@@ -102,9 +153,10 @@ test("collectEvidence detects build log artifacts via command title and exit cod
 });
 
 test("collectEvidence detects failed build log artifacts", () => {
-  const evidence = collectEvidence([], [
+  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "dotnet build", status: "failed" }], [
     {
       id: "art_b2",
+      stepId: stepBase.id,
       taskRunId: "tsk_1",
       kind: "log",
       title: "shell: dotnet build",
@@ -118,7 +170,7 @@ test("collectEvidence detects failed build log artifacts", () => {
   assert.equal(evidence.buildEvidence[0].artifactId, "art_b2");
 });
 
-test("collectEvidence detects shell test invocations via output summary", () => {
+test("collectEvidence detects shell test invocations via command title", () => {
   const evidence = collectEvidence(
     [
       {
@@ -167,10 +219,11 @@ test("collectEvidence detects smoke shell steps", () => {
   assert.equal(evidence.smokeEvidence[0].passed, true);
 });
 
-test("collectEvidence detects smoke log artifacts via command title and exit code", () => {
-  const evidence = collectEvidence([], [
+test("collectEvidence links smoke logs to terminal runner status", () => {
+  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run smoke" }], [
     {
       id: "art_s1",
+      stepId: stepBase.id,
       taskRunId: "tsk_1",
       kind: "log",
       title: "shell: npm run smoke",

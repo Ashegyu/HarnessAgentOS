@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type {
   Approval,
+  ApproveInput,
   A2ARefinementAttempt,
   AutoApproveDecision,
   Checkpoint,
@@ -23,11 +24,7 @@ interface ApprovalPanelProps {
   checkpoints?: Checkpoint[];
   refinementAttempts?: A2ARefinementAttempt[];
   taskRunTargetDir: string;
-  onApprove: (input: {
-    approvalId: string;
-    message?: string;
-    scope?: "once" | "run_action_class";
-  }) => Promise<void>;
+  onApprove: (input: ApproveInput) => Promise<void>;
   onReject: (input: { approvalId: string; message: string }) => Promise<void>;
   onRedirect: (input: { instruction: string }) => Promise<void>;
   onConfigure: (input: {
@@ -89,6 +86,7 @@ export const ApprovalPanel = ({
   getPipelineAutoDecision,
 }: ApprovalPanelProps): JSX.Element => {
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [redirecting, setRedirecting] = useState(false);
@@ -106,8 +104,16 @@ export const ApprovalPanel = ({
     setBusyId(approvalId);
     setError(null);
     try {
-      const payload: { approvalId: string; scope?: "once" | "run_action_class" } = {
+      const approval = approvals.find(item => item.id === approvalId);
+      if (!approval) return;
+      const manual = approval.actionType === "shell" || approval.actionType === "file_delete" || approval.requiresManualApproval;
+      if (manual && !confirmed[`${approvalId}:${approval.actionRevision ?? 1}`]) {
+        throw new Error("Confirm the risk and current action details.");
+      }
+      const payload: ApproveInput = {
         approvalId,
+        expectedRevision: approval.actionRevision ?? 1,
+        manualConfirmation: manual ? true : undefined,
       };
       if (scope) payload.scope = scope;
       await onApprove(payload);
@@ -212,6 +218,8 @@ export const ApprovalPanel = ({
       refinementAttempts,
     );
     const policy = a.policyEvaluation;
+    const manualOnly = a.actionType === "shell" || a.actionType === "file_delete" || a.requiresManualApproval;
+    const locked = Boolean(a.executionState);
     const risk =
       policy?.riskLevel === "blocked"
         ? "high"
@@ -237,7 +245,7 @@ export const ApprovalPanel = ({
       pipelineDecision?.approved === false ? pipelineDecision.reason : null;
     const pipelineAutoIssue = runnerAutoIssue ?? pipelinePolicyIssue;
     const pipelineAutoCanHandle =
-      pipelineAutoLaunched && pipelineAutoIssue === null;
+      pipelineAutoLaunched && pipelineAutoIssue === null && !manualOnly && !locked;
     return (
       <article
         key={a.id}
@@ -251,6 +259,21 @@ export const ApprovalPanel = ({
           </span>
         </header>
         <p className="approval-card__summary">{a.actionSummary}</p>
+        {a.executionState && <p role="status">{a.executionState === "running"
+          ? "Running — editing and duplicate execution are locked."
+          : a.executionState === "uncertain"
+            ? "Review required — no automatic retry. Inspect the result before creating a new approval."
+            : "Completed — this approval cannot be reused."}</p>}
+        {manualOnly && mode === "pending" && <label className="approval-card__policy">
+          <input type="checkbox" aria-label="개별 승인 위험 확인" checked={confirmed[`${a.id}:${a.actionRevision ?? 1}`] ?? false}
+            onChange={event => setConfirmed(previous => ({ ...previous, [`${a.id}:${a.actionRevision ?? 1}`]: event.target.checked }))} />
+          {a.actionType === "shell"
+            ? "I understand this command has no OS sandbox and can access files outside the task folder and the network."
+            : a.actionType === "file_delete"
+              ? "I reviewed the displayed file details and agree to move this single file to the Recycle Bin."
+              : "I reviewed the revised action."}
+        </label>}
+        {a.actionType === "file_delete" && !a.proposedAction?.fileDelete?.sha256 && <p>Save details to inspect the file size, modification time, and hash before approval.</p>}
         {policy && (
           <p className="approval-card__policy">
             policy: {policy.decision} · {policy.reason}
@@ -289,7 +312,7 @@ export const ApprovalPanel = ({
             파일/명령 실행은 하지 않습니다.
           </p>
         )}
-        {mode === "pending" && pipelineAutoCanHandle ? (
+        {locked ? null : mode === "pending" && pipelineAutoCanHandle ? (
           // Pipeline-pick consent already covers this approval; the
           // auto-approve useEffect will mark it approved+executed in
           // the next tick. Showing the manual buttons would race the
@@ -362,14 +385,15 @@ export const ApprovalPanel = ({
             <button
               type="button"
               onClick={() => void guardedApprove(a.id, "once")}
-              disabled={busyId !== null}
+              disabled={busyId !== null || (Boolean(manualOnly) && !confirmed[`${a.id}:${a.actionRevision ?? 1}`]) || (a.actionType === "file_delete" && !a.proposedAction?.fileDelete?.sha256)}
+              title={manualOnly && !confirmed[`${a.id}:${a.actionRevision ?? 1}`] ? "위의 개별 승인 위험 확인을 먼저 선택하세요." : undefined}
             >
-              승인
+              {EXECUTION_NOT_REQUIRED.has(a.actionType) ? "승인" : "승인 후 실행"}
             </button>
             <button
               type="button"
               onClick={() => void guardedApprove(a.id, "run_action_class")}
-              disabled={busyId !== null}
+              disabled={busyId !== null || Boolean(manualOnly)}
               title="이 TaskRun 안의 pending 상태인 같은 actionType approvals를 함께 승인합니다."
             >
               같은 종류 모두 승인

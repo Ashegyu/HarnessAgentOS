@@ -6,7 +6,9 @@ import type { ObservationSource } from "./instinct.ts";
 export interface LearningTrace {
   id: string;
   taskRunId: string;
+  projectKey?: string;
   selectedModel?: string;
+  selectedModels?: string[];
   selectedCapabilities: string[];
   reward?: number;
   costEstimate?: number;
@@ -18,6 +20,7 @@ export interface LearningTrace {
 
 export interface LearningTracePatch {
   selectedModel?: string;
+  selectedModels?: string[];
   selectedCapabilities?: string[];
   reward?: number;
   costEstimate?: number;

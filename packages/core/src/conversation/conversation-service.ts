@@ -13,6 +13,7 @@ import {
 } from "./target-dir.ts";
 import { draftPlan } from "./plan-drafter.ts";
 import { toProposedAction } from "./approval-policy.ts";
+import { buildTaskContract, isTaskIntent, taskContractFor, taskContractBlocksAction } from "../types/task-contract.ts";
 import type { ConversationStateGateway } from "./state-gateway.ts";
 import type {
   ApproveInput,
@@ -39,6 +40,7 @@ export class ConversationServiceError extends Error {
 export interface ConversationServiceDeps {
   state: ConversationStateGateway;
   pathExists: PathExistsFn;
+  inspectDeleteFile?: (targetDir: string, path: string) => Promise<NonNullable<ProposedActionDetails["fileDelete"]>>;
 }
 
 /**
@@ -65,6 +67,9 @@ export class ConversationService {
         "CONVERSATION_EMPTY_REQUEST",
         "userRequest must be a non-empty string",
       );
+    }
+    if (input.intent !== undefined && !isTaskIntent(input.intent)) {
+      throw new ConversationServiceError("STATE_INVALID_INPUT", "Invalid task intent");
     }
 
     // Phase 2 requires an absolute targetDir for any TaskRun.
@@ -168,6 +173,7 @@ export class ConversationService {
       userRequest,
       targetDir,
       status: "drafting",
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
       ...(followUpTaskRunId !== undefined ? { followUpTaskRunId } : {}),
     } as const;
     const taskRun = await this.deps.state.createTaskRun(createTaskRunInput);
@@ -188,7 +194,7 @@ export class ConversationService {
     // Phase 8 — agent mode short-circuit: skip deterministic plan-drafter
     // so we don't create a placeholder approval that the agent would have
     // to invalidate. Caller follows up with `agent.generatePlan`.
-    if (input.mode === "agent") {
+    if (input.mode === "agent" || buildTaskContract({ userRequest, ...(input.intent ? { intent: input.intent } : {}) }).authorization.mode === "read_only") {
       const placeholderStep = await this.deps.state.createStep({
         taskRunId: taskRun.id,
         index: 1,
@@ -320,6 +326,16 @@ export class ConversationService {
         `proposedAction.type (${details.type}) must match approval.actionType (${approval.actionType})`,
       );
     }
+    const taskRun = await this.deps.state.getTaskRun(approval.taskRunId);
+    if (taskRun && taskContractBlocksAction(taskContractFor(taskRun), details.type)) {
+      throw new ConversationServiceError("TASK_CONTRACT_ACTION_BLOCKED", "작업 계약의 읽기 전용 또는 외부 검색 금지 제약으로 이 실행 명령을 추가할 수 없습니다.");
+    }
+    if (details.type === "file_delete") {
+      if (!taskRun || !details.fileDelete || !this.deps.inspectDeleteFile) {
+        throw new ConversationServiceError("APPROVAL_DELETE_PREVIEW_REQUIRED", "삭제 파일 정보를 준비할 수 없습니다.");
+      }
+      details = { type: "file_delete", fileDelete: await this.deps.inspectDeleteFile(taskRun.targetDir, details.fileDelete.path) };
+    }
     return this.deps.state.setApprovalProposedAction(approvalId, details);
   }
 
@@ -331,17 +347,37 @@ export class ConversationService {
         `Approval ${input.approvalId} not found`,
       );
     }
+    const taskRun = await this.deps.state.getTaskRun(approval.taskRunId);
+    if (taskRun && taskContractBlocksAction(taskContractFor(taskRun), approval.actionType)) {
+      throw new ConversationServiceError("TASK_CONTRACT_ACTION_BLOCKED", "작업 계약의 읽기 전용 또는 외부 검색 금지 제약으로 승인할 수 없습니다. 범위를 바꾸려면 새 작업을 생성하세요.");
+    }
+    if (input.expectedRevision !== undefined && input.expectedRevision !== (approval.actionRevision ?? 1)) {
+      throw new ConversationServiceError("APPROVAL_REVISION_MISMATCH", "APPROVAL_REVISION_MISMATCH: 승인 내용이 변경되었습니다. 새로고침 후 확인하세요.");
+    }
+    const manualOnly = approval.actionType === "shell" || approval.actionType === "file_delete" || approval.requiresManualApproval;
+    if (manualOnly && (input.manualConfirmation !== true || input.autoApproveDecision?.approved || input.scope === "run_action_class")) {
+      throw new ConversationServiceError("APPROVAL_MANUAL_REQUIRED", "APPROVAL_MANUAL_REQUIRED: 변경 내용과 호스트 접근 위험을 확인한 뒤 이 작업만 수동 승인하세요.");
+    }
+    if (approval.actionType === "file_delete") {
+      const snapshot = approval.proposedAction?.fileDelete;
+      if (!snapshot?.sha256 || !taskRun || !this.deps.inspectDeleteFile) throw new ConversationServiceError("APPROVAL_DELETE_PREVIEW_REQUIRED", "세부 지정으로 삭제 대상의 파일 정보를 먼저 확인하세요.");
+      const current = await this.deps.inspectDeleteFile(taskRun.targetDir, snapshot.path);
+      if (current.sha256 !== snapshot.sha256 || current.sizeBytes !== snapshot.sizeBytes || current.modifiedAt !== snapshot.modifiedAt) {
+        throw new ConversationServiceError("APPROVAL_DELETE_FILE_CHANGED", "파일이 변경되었습니다. 세부 지정으로 정보를 갱신한 뒤 다시 승인하세요.");
+      }
+    }
     const decision =
       input.scope === "run_action_class" ? "always_approved_for_run" : "approved";
-    const decisionOptions =
-      input.autoApproveDecision !== undefined
-        ? { autoApproveDecision: input.autoApproveDecision }
-        : undefined;
+    const decisionOptions = {
+      autoApproveDecision: input.autoApproveDecision ?? null,
+      expectedRevision: input.expectedRevision ?? approval.actionRevision ?? 1,
+      manualConfirmation: input.manualConfirmation,
+    };
     if (input.scope !== "run_action_class") {
       return this.deps.state.decideApproval(
         input.approvalId,
         decision,
-        input.message,
+        manualOnly ? `${input.message ?? ""}\nManual risk confirmation; revision ${approval.actionRevision ?? 1}`.trim() : input.message,
         decisionOptions,
       );
     }
@@ -350,7 +386,7 @@ export class ConversationService {
       approval.taskRunId,
     );
     const sameActionClass = pending.filter(
-      (a) => a.actionType === approval.actionType,
+      (a) => a.actionType === approval.actionType && !a.requiresManualApproval,
     );
     if (!sameActionClass.some((a) => a.id === approval.id)) {
       sameActionClass.push(approval);
@@ -362,7 +398,7 @@ export class ConversationService {
         a.id,
         decision,
         input.message,
-        decisionOptions,
+        { ...decisionOptions, expectedRevision: a.id === approval.id ? decisionOptions.expectedRevision : a.actionRevision ?? 1 },
       );
       if (a.id === approval.id) updatedSelected = updated;
     }
@@ -423,6 +459,14 @@ export class ConversationService {
         "CONVERSATION_TASK_NOT_FOUND",
         `TaskRun ${input.taskRunId} not found`,
       );
+    }
+
+    const redirectContract = buildTaskContract({ userRequest: instruction });
+    if (taskContractFor(taskRun).authorization.mode === "read_only" ||
+        redirectContract.authorization.mode === "read_only" ||
+        (redirectContract.externalSearch === "forbidden" && taskContractFor(taskRun).externalSearch !== "forbidden")) {
+      throw new ConversationServiceError("TASK_CONTRACT_ACTION_BLOCKED",
+        "재계획으로 작업의 권한 범위를 바꿀 수 없습니다. 새 메시지에서 작업 목적을 선택하세요.");
     }
 
     // 1. Mark any pending approvals as rejected with system reason.
@@ -669,6 +713,10 @@ export class ConversationService {
         "CONVERSATION_INVALID_STATE",
         `Template fallback requires drafting|blocked status (got ${taskRun.status})`,
       );
+    }
+    if (taskContractFor(taskRun).authorization.mode === "read_only") {
+      throw new ConversationServiceError("TASK_CONTRACT_ACTION_BLOCKED",
+        "읽기 전용 작업에는 변경용 기본 계획을 적용할 수 없습니다. 에이전트를 다시 연결하거나 새 작업을 생성하세요.");
     }
 
     // Reject any pending approvals from the agent-mode placeholder so the

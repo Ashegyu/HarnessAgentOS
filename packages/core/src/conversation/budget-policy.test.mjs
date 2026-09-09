@@ -38,14 +38,35 @@ test("evaluateBudget allows when no profile budget is configured", () => {
   assert.equal(decision.kind, "allow");
 });
 
-test("evaluateBudget allows approvals without a cost estimate", () => {
+test("evaluateBudget blocks model approvals without a cost estimate when a cap is configured", () => {
   const decision = evaluateBudget({
     approval: approval(undefined),
     profile: profile({ perInvocationUsd: 0.01 }),
     accumulatedTaskRunCostUsd: 0,
     accumulatedDailyCostUsd: 0,
   });
-  assert.equal(decision.kind, "allow");
+  assert.equal(decision.kind, "blocked");
+  assert.match(decision.reason, /미확인/);
+});
+
+test("unconfigured and local file-only actions remain usable without a model cost", () => {
+  assert.equal(evaluateBudget({ approval: approval(undefined), profile: profile({}) }).kind, "allow");
+  for (const actionType of ["file_write", "file_patch"]) {
+    assert.equal(evaluateBudget({ approval: { ...approval(undefined), actionType }, profile: profile({ perInvocationUsd: 0 }) }).kind, "allow");
+  }
+});
+
+for (const cost of [NaN, Infinity, -1]) {
+  test(`invalid cost ${cost} never bypasses budget`, () => {
+    assert.equal(evaluateBudget({ approval: approval(cost), profile: profile({ perInvocationUsd: 1 }) }).kind, "blocked");
+  });
+}
+
+test("unknown historical cost and absent accumulated usage cannot appear as zero", () => {
+  for (const extra of [{}, { accumulatedTaskRunCostUsd: 0, unknownTaskRunCostInvocationCount: 1 }, { accumulatedTaskRunCostUsd: Infinity }]) {
+    assert.equal(evaluateBudget({ approval: approval(0.01), profile: profile({ perTaskRunUsd: 1 }), ...extra }).kind, "blocked");
+  }
+  assert.equal(evaluateBudget({ approval: approval(0), profile: profile({ perDayUsd: 1 }), accumulatedDailyCostUsd: 0, unknownDailyCostInvocationCount: 1 }).kind, "blocked");
 });
 
 test("evaluateBudget blocks a single invocation above perInvocationUsd", () => {

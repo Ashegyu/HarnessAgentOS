@@ -852,6 +852,165 @@ test("approvedModelContext returns model only after model_use approval", async (
   }
 });
 
+test("recommend does not let another project's model history override local history", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const current = await seedTaskRun(state, "implement local feature");
+    const localHistory = await seedTaskRun(state, "previous local feature");
+    const otherThread = await state.createThread({
+      title: "other",
+      targetDir: "/tmp/unrelated-project",
+    });
+    const otherHistory = await state.createTaskRun({
+      threadId: otherThread.id,
+      userRequest: "unrelated work",
+      targetDir: "/tmp/unrelated-project",
+      status: "running",
+    });
+    const recorder = new TraceRecorder({ state });
+    await recorder.recordSelection({
+      taskRunId: localHistory.id,
+      selectedModel: "gpt-local",
+    });
+    await recorder.recordOutcome({
+      taskRunId: localHistory.id,
+      success: true,
+      qualityGate: {
+        id: "qg_local",
+        taskRunId: localHistory.id,
+        status: "warning",
+        knownRisks: [],
+        evidenceArtifactIds: [],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    await recorder.recordSelection({
+      taskRunId: otherHistory.id,
+      selectedModel: "gpt-other",
+    });
+    for (let index = 0; index < 3; index += 1) {
+      await recorder.recordOutcome({
+        taskRunId: otherHistory.id,
+        success: true,
+        qualityGate: {
+          id: `qg_other_${index}`,
+          taskRunId: otherHistory.id,
+          status: "passed",
+          knownRisks: [],
+          evidenceArtifactIds: [],
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      });
+    }
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const recommendation = await advisor.recommend({ taskRunId: current.id });
+
+    assert.equal(recommendation.recommendedModel, "gpt-local");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("recordDecision persists a redacted SQLite observation and refreshes learning", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const refreshed = [];
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+      onObservationRecorded: async (observation) => {
+        refreshed.push(observation.id);
+      },
+    });
+
+    await advisor.recordDecision({
+      taskRunId: taskRun.id,
+      recommendationId: "rec_sqlite",
+      decision: "rejected",
+      reason: "too expensive api_key=super-secret-value",
+    });
+
+    const observations = await state.listObservations({
+      taskRunId: taskRun.id,
+    });
+    assert.equal(observations.length, 1);
+    assert.equal(observations[0].eventType, "recommendation_rejected");
+    assert.equal(observations[0].payload.recommendationId, "rec_sqlite");
+    assert.match(observations[0].payload.reason, /\[REDACTED\]/);
+    assert.doesNotMatch(JSON.stringify(observations[0]), /super-secret-value/);
+    assert.deepEqual(refreshed, [observations[0].id]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("approvedModelContext returns the most recently decided approved model", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const step = await state.createStep({
+      taskRunId: taskRun.id,
+      index: 0,
+      kind: "plan",
+      title: "Plan",
+      status: "running",
+    });
+    const checkpoint = await state.createCheckpoint({
+      taskRunId: taskRun.id,
+      stepId: step.id,
+      reason: "model selection",
+      stateRef: "learner:test",
+      summary: "Choose model",
+    });
+    const createModelApproval = (model, recommendationId) =>
+      state.createApproval({
+        taskRunId: taskRun.id,
+        checkpointId: checkpoint.id,
+        actionType: "model_use",
+        actionSummary: `Use ${model}`,
+        proposedAction: {
+          modelUse: {
+            model,
+            reason: "test recommendation",
+            recommendationId,
+            confidence: 0.8,
+          },
+        },
+      });
+    const first = await createModelApproval("gpt-5.5", "rec_old");
+    await state.decideApproval(first.id, "approved", "first choice");
+    const second = await createModelApproval("gpt-5.6-sol", "rec_new");
+    await state.decideApproval(second.id, "approved", "new choice");
+
+    const advisor = new LearnerAdvisor({
+      state,
+      decisionLogDir: t.decisionsDir,
+    });
+    const context = await advisor.approvedModelContext({
+      taskRunId: taskRun.id,
+    });
+
+    assert.equal(context.model, "gpt-5.6-sol");
+    assert.equal(context.recommendationId, "rec_new");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("recordDecision redacts secrets and caps reason length", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

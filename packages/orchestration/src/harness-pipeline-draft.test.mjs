@@ -6,6 +6,18 @@ import { convertHarnessWorkflowToPipelineDraft } from "./harness-pipeline-draft.
 
 const IMPORTED_AT = "2026-05-27T00:00:00.000Z";
 
+test("pipeline conversion preserves an explicit read-only action allowlist", () => {
+  const definition = sampleDefinition();
+  definition.workflows[0].steps = [
+    { ...definition.workflows[0].steps[0], allowedActions: [], dependsOn: [] },
+  ];
+  const result = convertHarnessWorkflowToPipelineDraft({ definition, bindings: [
+    { harnessAgentRef: "content-strategist", agentProfileId: "profile-strategist" },
+  ] });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.pipeline.steps[0].allowedActions, []);
+});
+
 const sampleDefinition = () => {
   const result = importHarnessPackageFromFiles({
     rootDir: "C:/sample/youtube-production",

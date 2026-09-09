@@ -7,6 +7,7 @@ import {
 import type { ParsedStreamSection } from "./agent-stream-parser";
 import { parseAnsiSgr, type AnsiStyle } from "./ansi-sgr";
 import { MarkdownText } from "./MarkdownText";
+import { AnswerCopyButton } from "./AnswerCopyButton";
 import {
   groupConsecutiveToolSections,
   type AgentStreamDisplaySection,
@@ -76,6 +77,7 @@ const AgentStreamSection = ({
             </span>
           )}
           <span className={classes.title}>{title}</span>
+          {section.kind === "final" && <AnswerCopyButton text={section.text} />}
         </header>
         {content}
       </section>
@@ -96,6 +98,7 @@ const AgentStreamSection = ({
           ▸
         </span>
       </summary>
+      {section.kind === "response" && <AnswerCopyButton text={section.text} />}
       {content}
     </details>
   );
@@ -155,7 +158,7 @@ const sectionTitle = (section: AgentStreamDisplaySection): string => {
     case "tool_group":
       return `명령어 / 도구 호출 · ${section.tools.length}회`;
     case "final":
-      return "최종 답변";
+      return "AI 답변";
     case "response":
       return section.phase === "live"
         ? "중간 답변 / 응답 작성 중"
@@ -171,7 +174,7 @@ const sectionIcon = (section: AgentStreamDisplaySection): string => {
     case "tool_group":
       return "▷";
     case "final":
-      return "✓";
+      return "◇";
     case "response":
       return "…";
   }

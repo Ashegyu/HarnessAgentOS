@@ -62,6 +62,8 @@ interface RightPanelProps {
   state: TaskRunDetailState;
   onApprove: (input: {
     approvalId: string;
+    expectedRevision: number;
+    manualConfirmation?: boolean;
     message?: string;
     scope?: "once" | "run_action_class";
   }) => Promise<void>;

@@ -22,6 +22,16 @@ const assertDecision = (decision, approved, decidedAt) => {
   assert.ok(decision.reason.length > 0);
 };
 
+test("unknown accumulated model cost prevents profile and global auto approval", () => {
+  const result = shouldAutoApprove({
+    approval: { ...makeApproval("model_use"), policyEvaluation: { costEstimateUsd: 0.01 } },
+    globalAutoApprove: true,
+    activeProfile: { permissions: { blockedActions: [], autoApproveActions: ["model_use"], budget: { perTaskRunUsd: 1 } } },
+    accumulatedTaskRunCostUsd: 0, unknownTaskRunCostInvocationCount: 1,
+  });
+  assertDecision(result, false, "budget_blocked");
+});
+
 test("shouldAutoApprove returns true when global autoApprove is on and no profile override", () => {
   const r = shouldAutoApprove({
     approval: makeApproval("file_write"),
@@ -176,7 +186,7 @@ test("shouldAutoApprove still rejects action types that aren't on the profile wh
       },
     },
   });
-  assertDecision(r, false, "global_toggle");
+  assertDecision(r, false, "policy_disallow_auto");
 });
 
 test("shouldAutoApprove rejects when actionType is in profile.blockedActions, even if global is on", () => {

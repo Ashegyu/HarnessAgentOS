@@ -12,7 +12,8 @@ import {
   resolveProviderCommand,
 } from "./provider-executable.ts";
 
-test("only selectable Codex 5.6 models resolve to the Codex provider", () => {
+test("only selectable Codex models resolve to the Codex provider", () => {
+  assert.equal(providerForModel("gpt-6-astra"), "codex");
   assert.equal(providerForModel("gpt-5.6-sol"), "codex");
   assert.equal(providerForModel("gpt-5.6-terra"), "codex");
   assert.equal(providerForModel("gpt-5.6-luna"), "codex");
@@ -30,12 +31,13 @@ test("defaultModelFor returns the Codex default", () => {
   assert.equal(defaultModelFor("codex"), "gpt-5.6-sol");
 });
 
-test("normalizeModelForProvider preserves only selectable Codex 5.6 models", () => {
+test("normalizeModelForProvider preserves only selectable Codex models", () => {
   assert.equal(normalizeModelForProvider("codex", "gpt-5"), "gpt-5.6-sol");
   assert.equal(normalizeModelForProvider("codex", "gpt-5.5"), "gpt-5.6-sol");
   assert.equal(normalizeModelForProvider("codex", "gpt-5.6-sol"), "gpt-5.6-sol");
   assert.equal(normalizeModelForProvider("codex", "gpt-5.6-terra"), "gpt-5.6-terra");
   assert.equal(normalizeModelForProvider("codex", "gpt-5.6-luna"), "gpt-5.6-luna");
+  assert.equal(normalizeModelForProvider("codex", "gpt-6-astra"), "gpt-6-astra");
 });
 
 test("checkProviders exposes Codex only", async () => {

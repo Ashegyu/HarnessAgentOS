@@ -62,6 +62,37 @@ const validProfileInput = (overrides = {}) => ({
   ...overrides,
 });
 
+test("concurrent orchestration requests share one worker execution", async () => {
+  const t = tmp(); const db = openDb({ filePath: t.file }); const state = new LocalStateService(db);
+  try {
+    const task = await seedTaskRun(state);
+    const service = new OrchestrationService({ state, enabled: () => true });
+    const draft = await service.draftPlan({ taskRunId: task.id, mode: "single_worker" });
+    await state.decideApproval(draft.approval.id, "approved");
+    await Promise.all(Array.from({ length: 8 }, () => service.runApproved({ approvalId: draft.approval.id })));
+    const workers = (await state.listStepsByTaskRun(task.id)).filter(s => s.title.startsWith("Worker["));
+    assert.equal(workers.length, 1);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("a failed worker is not described as successfully completed", async () => {
+  const t = tmp(); const db = openDb({ filePath: t.file }); const state = new LocalStateService(db);
+  try {
+    const task = await seedTaskRun(state);
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const pipeline = await state.agentPipelines.create({ name: "Failure", description: "", steps: [
+      { id: "worker", agentProfileId: profile.id, title: "Worker", instruction: "Work", expectedArtifactKinds: ["log"] },
+    ] });
+    const service = new OrchestrationService({ state, enabled: () => true,
+      agentPlanning: { invokeForWorker: async () => { throw new Error("fixture worker failed"); } } });
+    const draft = await service.draftPlan({ taskRunId: task.id, mode: "single_worker", pipelineId: pipeline.id });
+    await state.decideApproval(draft.approval.id, "approved");
+    await service.runApproved({ approvalId: draft.approval.id });
+    assert.equal((await state.getTaskRun(task.id)).status, "blocked");
+    assert.match((await state.getApproval(draft.approval.id)).decisionMessage, /실패|failed/);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("draftPlan refuses when feature flag is off", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

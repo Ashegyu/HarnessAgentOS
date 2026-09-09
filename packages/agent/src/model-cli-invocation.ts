@@ -13,9 +13,10 @@ export interface CliInvocation {
 
 export const buildCliInvocation = (
   request: ModelCliRequest,
+  outputSchemaPath?: string,
 ): CliInvocation => ({
   command: request.modelConfig.provider,
-  args: buildArgs(request),
+  args: buildArgs(request, outputSchemaPath),
   stdin: buildStdin(request),
 });
 
@@ -36,7 +37,7 @@ export const formatProviderExitFailure = (
     : `${provider} exited with code ${exitCode}`;
 };
 
-const buildArgs = (request: ModelCliRequest): string[] => {
+const buildArgs = (request: ModelCliRequest, outputSchemaPath?: string): string[] => {
   const { model } = request.modelConfig;
   // Codex CLI has no dedicated `--system-prompt` or per-run resume flag.
   // Per-run MCP is passed with verified `-c mcp_servers.*` overrides, not
@@ -45,8 +46,8 @@ const buildArgs = (request: ModelCliRequest): string[] => {
   // subcommand. Use stdin (`-`) so prompts with spaces/non-ASCII never
   // become accidental argv segments.
   const sandboxMode =
-    request.sandbox.mode === "workspace-write" ? "workspace-write" : "read-only";
-  const askForApproval = request.sandbox.autoReview === true ? "on-request" : "never";
+    !request.sandbox.readOnlyTask && request.sandbox.mode === "workspace-write" ? "workspace-write" : "read-only";
+  const askForApproval = !request.sandbox.readOnlyTask && request.sandbox.autoReview === true ? "on-request" : "never";
   const args = [
     "--model",
     model,
@@ -57,21 +58,39 @@ const buildArgs = (request: ModelCliRequest): string[] => {
     "--ask-for-approval",
     askForApproval,
   ];
-  if (request.sandbox.autoReview === true) {
+  if (!request.sandbox.readOnlyTask && request.sandbox.autoReview === true) {
     args.push("-c", 'approvals_reviewer="auto_review"');
   }
   const reasoningEffort = normalizeReasoningEffort(
     request.modelConfig.reasoningEffort,
+    model,
   );
   if (reasoningEffort) {
     args.push("-c", `model_reasoning_effort=${reasoningEffort}`);
   }
   for (const override of normalizeCodexConfigOverrides(
-    request.codexConfigOverrides,
+    request.sandbox.readOnlyTask || request.sandbox.disableWebSearch ? undefined : request.codexConfigOverrides,
   )) {
     args.push("-c", override);
   }
-  args.push("exec", "--json", "--skip-git-repo-check", "-");
+  if (request.sandbox.readOnlyTask || request.sandbox.disableWebSearch) {
+    // External tools have their own write permissions; the filesystem sandbox
+    // cannot enforce the task's scope for MCP or connector side effects.
+    if (!request.readOnlyMcpServerNames) throw new Error("Read-only MCP inventory is required");
+    for (const name of request.readOnlyMcpServerNames) {
+      // Codex -c paths split on dots; quoted TOML keys are not unquoted by
+      // the CLI override parser. Unsupported identities must fail closed.
+      if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error("Unsupported MCP server identity in read-only inventory");
+      args.push("-c", `mcp_servers.${name}.enabled=false`);
+    }
+    args.push("-c", "features.apps=false", "-c", "features.plugins=false");
+  }
+  if (request.sandbox.disableWebSearch) {
+    args.push("-c", 'web_search="disabled"', "-c", "sandbox_workspace_write.network_access=false");
+  }
+  args.push("exec", "--json", "--skip-git-repo-check");
+  if (outputSchemaPath) args.push("--output-schema", outputSchemaPath);
+  args.push("-");
   return args;
 };
 
@@ -94,9 +113,12 @@ const REASONING_EFFORT_SET: ReadonlySet<string> = new Set(
 
 const normalizeReasoningEffort = (
   effort: unknown,
+  model: string,
 ): AgentReasoningEffort | undefined =>
   typeof effort === "string" && REASONING_EFFORT_SET.has(effort)
-    ? (effort as AgentReasoningEffort)
+    ? model === "gpt-6-astra" && effort === "none"
+      ? "low"
+      : (effort as AgentReasoningEffort)
     : undefined;
 
 const buildStdin = (request: ModelCliRequest): string => {

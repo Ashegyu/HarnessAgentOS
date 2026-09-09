@@ -14,6 +14,7 @@ import {
   err,
   harnessError,
   ok,
+  isTaskIntent,
   validateProposedActionDetails,
   type Approval,
   type A2ARefinementActivityInput,
@@ -37,8 +38,10 @@ import {
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import type { InstinctService } from "@harness/learner";
+import type { AgentPlanningService } from "@harness/agent";
 import type { HarnessEventBus } from "../event-bus";
 import { deriveA2ARefinementProposals } from "../a2a-refinement-proposals";
+import { parseStartTaskInput, type ConversationStartService } from "../services/conversation-start-service";
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null;
@@ -291,7 +294,17 @@ export const registerConversationIpc = (
   state: LocalStateService,
   events: HarnessEventBus,
   instinctService?: InstinctService,
+  agentPlanning?: Pick<AgentPlanningService, "cancelTaskInvocations">,
+  startService?: Pick<ConversationStartService, "start">,
 ): void => {
+  ipcMain.handle(IPC_CHANNELS.conversation.startTask, async (_e, input: unknown): Promise<HarnessResult<ConversationTaskDraft>> => {
+    let parsed;
+    try { parsed = parseStartTaskInput(input); }
+    catch (error) { return err(harnessError(STATE_INVALID_INPUT, error instanceof Error ? error.message : "Invalid input")); }
+    if (!startService) return err(harnessError(STATE_DB_ERROR, "작업 시작 서비스가 준비되지 않았습니다."));
+    try { return ok(await startService.start(parsed)); }
+    catch (error) { return mapServiceError<ConversationTaskDraft>(error); }
+  });
   ipcMain.handle(
     IPC_CHANNELS.conversation.createTask,
     async (
@@ -307,6 +320,7 @@ export const registerConversationIpc = (
         targetDir?: unknown;
         followUpTaskRunId?: unknown;
         mode?: unknown;
+        intent?: unknown;
       };
       if (!isNonEmptyString(cast.userRequest)) {
         return err(
@@ -355,6 +369,10 @@ export const registerConversationIpc = (
       const payload: CreateConversationTaskInput = {
         userRequest: cast.userRequest,
       };
+      if (cast.intent !== undefined) {
+        if (!isTaskIntent(cast.intent)) return err(harnessError(STATE_INVALID_INPUT, "Invalid task intent"));
+        payload.intent = cast.intent;
+      }
       if (typeof cast.threadId === "string") payload.threadId = cast.threadId;
       if (typeof cast.targetDir === "string") payload.targetDir = cast.targetDir;
       if (typeof cast.followUpTaskRunId === "string") {
@@ -423,13 +441,19 @@ export const registerConversationIpc = (
         message?: unknown;
         scope?: unknown;
         autoApproveDecision?: unknown;
+        expectedRevision?: unknown;
+        manualConfirmation?: unknown;
       };
       if (!isNonEmptyString(cast.approvalId)) {
         return err(
           harnessError(APPROVAL_NOT_FOUND, "approvalId must be a non-empty string"),
         );
       }
-      const payload: ApproveInput = { approvalId: cast.approvalId };
+      if (!Number.isSafeInteger(cast.expectedRevision) || (cast.expectedRevision as number) < 1) {
+        return err(harnessError(STATE_INVALID_INPUT, "expectedRevision must identify the displayed approval revision"));
+      }
+      const payload: ApproveInput = { approvalId: cast.approvalId, expectedRevision: cast.expectedRevision as number };
+      payload.manualConfirmation = cast.manualConfirmation === true;
       if (typeof cast.message === "string") payload.message = cast.message;
       if (cast.scope === "once" || cast.scope === "run_action_class") {
         payload.scope = cast.scope;
@@ -809,6 +833,7 @@ export const registerConversationIpc = (
           taskRunId: cast.taskRunId,
           reason: cast.reason,
         });
+        await agentPlanning?.cancelTaskInvocations({ taskRunId: tr.id });
         events.taskRunChanged(tr.id);
         return ok(tr);
       } catch (e) {

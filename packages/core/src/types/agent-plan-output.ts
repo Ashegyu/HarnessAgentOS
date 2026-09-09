@@ -8,6 +8,7 @@
  * just before approval rows are created.
  */
 export type AgentProposedAction =
+  | { type: "file_delete"; path: string; rationale: string }
   | {
       type: "file_patch";
       path: string;

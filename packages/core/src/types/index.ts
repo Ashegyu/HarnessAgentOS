@@ -1,6 +1,7 @@
 export * from "./thread.ts";
 export * from "./topology-recommendation.ts";
 export * from "./task-run.ts";
+export * from "./task-contract.ts";
 export * from "./step.ts";
 export * from "./checkpoint.ts";
 export * from "./approval.ts";

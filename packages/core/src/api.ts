@@ -110,6 +110,7 @@ import type {
   ApproveInput,
   ConversationTaskDraft,
   CreateConversationTaskInput,
+  StartConversationTaskInput,
   RedirectTaskInput,
   RejectApprovalInput,
 } from "./conversation/index.ts";
@@ -168,6 +169,8 @@ export interface HarnessDesktopApi {
     getVersion(): Promise<string>;
     getRuntimeInfo(): Promise<RuntimeInfo>;
     getDiagnostics(): Promise<SystemDiagnostics>;
+    /** User-initiated text copy only; clipboard reading is not exposed. */
+    copyText(input: { text: string }): Promise<void>;
     /** Returns null when the user cancels the dialog. */
     selectDirectory(): Promise<string | null>;
     /**
@@ -200,6 +203,7 @@ export interface HarnessDesktopApi {
     }): Promise<ExportApprovalResult>;
   };
   conversation: {
+    startTask(input: StartConversationTaskInput): Promise<ConversationTaskDraft>;
     createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;
     redirectTask(input: RedirectTaskInput): Promise<ConversationTaskDraft>;
     approve(input: ApproveInput): Promise<Approval>;

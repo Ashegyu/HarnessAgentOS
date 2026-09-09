@@ -6,6 +6,11 @@ import {
   taskRunIdToRefreshForAgentEvent,
 } from "./agent-panel-visibility.ts";
 
+test("a blocked standalone task still exposes recovery without an invocation", () => {
+  assert.equal(shouldRenderAgentPanel({ taskRunStatus: "blocked", invocationCount: 0, handoffCount: 0, orchestrationDriven: false }), true);
+  assert.equal(shouldRenderAgentPanel({ taskRunStatus: "blocked", invocationCount: 0, handoffCount: 0, orchestrationDriven: true }), false);
+});
+
 test("shouldRenderAgentPanel keeps internal handoff UI visible without invocation rows", () => {
   assert.equal(
     shouldRenderAgentPanel({

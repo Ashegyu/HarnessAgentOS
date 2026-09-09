@@ -264,7 +264,7 @@ export class LocalStateService implements ConversationStateGateway {
     // the conversation workbench can render an agent reply bubble in a
     // single fetch. Prefer raw provider output logs because they can be
     // rehydrated into thinking/tool/intermediate/final stream sections;
-    // fall back to the latest plan summary for older runs.
+    // fall back to the latest non-template plan summary for older runs.
     const agentAnswers: Record<string, string> = {};
     if (taskRuns.length > 0) {
       const placeholders = taskRuns.map(() => "?").join(",");
@@ -313,11 +313,13 @@ export class LocalStateService implements ConversationStateGateway {
              a.summary AS summary
            FROM artifacts a
            WHERE a.kind = 'plan'
+             AND a.uri NOT LIKE 'harness:plan/%'
              AND a.task_run_id IN (${placeholders})
              AND a.rowid = (
                SELECT a2.rowid
                FROM artifacts a2
                WHERE a2.kind = 'plan'
+                 AND a2.uri NOT LIKE 'harness:plan/%'
                  AND a2.task_run_id = a.task_run_id
                ORDER BY datetime(a2.created_at) DESC, a2.rowid DESC
                LIMIT 1
@@ -365,6 +367,7 @@ export class LocalStateService implements ConversationStateGateway {
       threadId: input.threadId,
       userRequest: input.userRequest,
       targetDir: v.normalized,
+      ...(input.intent !== undefined ? { intent: input.intent } : {}),
       ...(input.followUpTaskRunId !== undefined
         ? { followUpTaskRunId: input.followUpTaskRunId }
         : {}),
@@ -433,6 +436,14 @@ export class LocalStateService implements ConversationStateGateway {
 
   async getApproval(id: string): Promise<Approval | null> {
     return this.approvals.get(id);
+  }
+
+  async claimApprovalExecution(id: string, revision: number, token: string): Promise<Approval> {
+    return this.approvals.claimExecution(id, revision, token);
+  }
+
+  async finishApprovalExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void> {
+    return this.approvals.finishExecution(id, token, outcome);
   }
 
   async decideApproval(
@@ -523,6 +534,7 @@ export class LocalStateService implements ConversationStateGateway {
 
   async createLearningTrace(input: {
     taskRunId: string;
+    projectKey?: string;
   }): Promise<LearningTrace> {
     return this.learningTraces.create(input);
   }

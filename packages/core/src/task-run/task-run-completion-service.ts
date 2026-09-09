@@ -136,13 +136,36 @@ export class TaskRunCompletionService {
         `TaskRun must be ready_for_review to mark done (current: ${taskRun.status})`,
       );
     }
+    await this.ensureExecutionSettled(taskRun.id);
     // Stamp the LearningTrace BEFORE flipping to done so a `done` row
     // never exists without a corresponding trace entry. Failures bubble
     // up — the renderer surfaces them like any other completion error.
     if (this.deps.onTaskRunDone) {
       await this.deps.onTaskRunDone(taskRun.id);
     }
+    const latest = await this.requireTaskRun(taskRun.id);
+    const latestGate = await this.deps.state.getLatestQualityGateResult(taskRun.id);
+    if (latestGate?.id !== gate.id || latestGate?.status !== gate.status) {
+      throw new TaskRunCompletionError("QUALITY_DONE_BLOCKED", "완료 처리 중 검증 결과가 변경되었습니다.");
+    }
+    await this.ensureExecutionSettled(taskRun.id);
+    if (latest.status !== "ready_for_review") {
+      throw new TaskRunCompletionError("QUALITY_DONE_BLOCKED", "완료 처리 중 작업 상태가 변경되었습니다.");
+    }
     return this.deps.state.setTaskRunStatus(taskRun.id, "done");
+  }
+
+  private async ensureExecutionSettled(taskRunId: string): Promise<void> {
+    const [approvals, steps] = await Promise.all([
+      this.deps.state.listApprovalsByTaskRun(taskRunId),
+      this.deps.state.listStepsByTaskRun(taskRunId),
+    ]);
+    if (approvals.some(a => a.executionState === "running" || a.executionState === "uncertain" || a.status === "pending" ||
+      ((a.status === "approved" || a.status === "always_approved_for_run") &&
+        a.actionType !== "capability_use" && a.actionType !== "model_use")) ||
+      steps.some(step => step.status === "running")) {
+      throw new TaskRunCompletionError("QUALITY_DONE_BLOCKED", "아직 승인 또는 실행이 끝나지 않은 작업이 있습니다.");
+    }
   }
 
   /**

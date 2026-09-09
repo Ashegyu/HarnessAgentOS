@@ -1,4 +1,5 @@
 import { WorkbenchIcon } from "./WorkbenchIcon";
+import { useI18n } from "../../app/i18n";
 
 interface SlimRailProps {
   threadCount: number;
@@ -29,6 +30,7 @@ export const SlimRail = ({
   onToggleTheme,
   onOpenSettings,
 }: SlimRailProps): JSX.Element => {
+  const { locale, toggleLocale } = useI18n();
   return (
     <nav className="slim-rail" aria-label="App navigation">
       <div className="slim-rail__brand" title="HarnessAgentOS" aria-label="HarnessAgentOS">
@@ -75,6 +77,17 @@ export const SlimRail = ({
       </button>
 
       <div className="slim-rail__spacer" />
+
+      <button
+        type="button"
+        className="slim-rail__btn slim-rail__locale"
+        onClick={() => void toggleLocale()}
+        aria-label={locale === "ko" ? "Switch to English" : "한국어로 전환"}
+        title={locale === "ko" ? "English" : "한국어"}
+        data-i18n-skip
+      >
+        {locale === "ko" ? "EN" : "한"}
+      </button>
 
       <button
         type="button"

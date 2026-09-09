@@ -1,6 +1,7 @@
 import { WORKER_OUTPUT_CONTRACTS } from "@harness/core";
 import type {
   Approval,
+  AgentProfile,
   AgentProviderStatusMap,
   CreateHarnessBindingSetInput,
   CreateHarnessPackageInput,
@@ -25,7 +26,10 @@ import {
   importHarnessPackageFromDirectory,
   type ImportHarnessPackageFromDirectoryInput,
 } from "./harness-directory-import.ts";
-import { assessHarnessBindingReadiness } from "./harness-binding-readiness.ts";
+import {
+  assessHarnessBindingReadiness,
+  harnessAgentBindingCandidates,
+} from "./harness-binding-readiness.ts";
 import { exportHarnessPackage } from "./harness-package-export.ts";
 import { applyHarnessPackageRepair } from "./harness-package-repair.ts";
 import { convertHarnessWorkflowToPipelineDraft } from "./harness-pipeline-draft.ts";
@@ -46,6 +50,16 @@ export interface HarnessPackagePipelinePreviewInput {
   workflowId?: string;
   bindings: readonly HarnessAgentProfileBinding[];
   providers?: AgentProviderStatusMap;
+}
+
+export interface EnsureStarterBindingSetsResult {
+  created: readonly HarnessBindingSet[];
+  skippedExisting: number;
+  skippedUnmatched: readonly {
+    packageId: string;
+    workflowId: string;
+    harnessAgentRefs: readonly string[];
+  }[];
 }
 
 export class HarnessPackageService {
@@ -92,6 +106,72 @@ export class HarnessPackageService {
 
   async getBindingSet(id: string): Promise<HarnessBindingSet | null> {
     return this.deps.state.harnessBindingSets.get(id);
+  }
+
+  async ensureStarterBindingSets(): Promise<EnsureStarterBindingSetsResult> {
+    const [packages, profiles, existingSets] = await Promise.all([
+      this.listPackages(),
+      this.deps.state.agentProfiles.list(),
+      this.listBindingSets(),
+    ]);
+    const existingRoutes = new Set(
+      existingSets.map((set) => bindingRouteKey(set.packageId, set.workflowId)),
+    );
+    const created: HarnessBindingSet[] = [];
+    const skippedUnmatched: EnsureStarterBindingSetsResult["skippedUnmatched"][number][] =
+      [];
+    let skippedExisting = 0;
+
+    for (const definition of packages) {
+      if (!isCanonicalStarterPackage(definition)) continue;
+      for (const workflow of definition.workflows) {
+        const routeKey = bindingRouteKey(definition.id, workflow.id);
+        if (existingRoutes.has(routeKey)) {
+          skippedExisting += 1;
+          continue;
+        }
+        const bindings: HarnessAgentProfileBinding[] = [];
+        const unmatched: string[] = [];
+        for (const candidate of harnessAgentBindingCandidates(
+          definition,
+          workflow.id,
+        )) {
+          const profile = matchStarterProfile(
+            definition,
+            candidate.harnessAgentRef,
+            candidate.label,
+            profiles,
+          );
+          if (!profile) {
+            unmatched.push(candidate.harnessAgentRef);
+            continue;
+          }
+          bindings.push({
+            harnessAgentRef: candidate.harnessAgentRef,
+            agentProfileId: profile.id,
+          });
+        }
+        if (unmatched.length > 0 || bindings.length === 0) {
+          skippedUnmatched.push({
+            packageId: definition.id,
+            workflowId: workflow.id,
+            harnessAgentRefs: unmatched,
+          });
+          continue;
+        }
+        created.push(
+          await this.saveBindingSet({
+            packageId: definition.id,
+            workflowId: workflow.id,
+            name: `${definition.name} / ${workflow.name} (자동)`,
+            bindings,
+          }),
+        );
+        existingRoutes.add(routeKey);
+      }
+    }
+
+    return { created, skippedExisting, skippedUnmatched };
   }
 
   async saveBindingSet(
@@ -491,6 +571,54 @@ const bindingRecord = (
   }
   return out;
 };
+
+const bindingRouteKey = (packageId: string, workflowId: string): string =>
+  `${packageId}\u0000${workflowId}`;
+
+const isCanonicalStarterPackage = (definition: HarnessDefinition): boolean =>
+  definition.id.startsWith("harness_seed_") &&
+  definition.source.rootDir === `harness://starter/${definition.id}`;
+
+export const matchStarterProfile = (
+  definition: HarnessDefinition,
+  harnessAgentRef: string,
+  label: string,
+  profiles: readonly AgentProfile[],
+): AgentProfile | null => {
+  const ref = normalizeMatchText(harnessAgentRef);
+  const normalizedLabel = normalizeMatchText(label);
+  const agent = definition.agents.find(
+    (item) =>
+      normalizeMatchText(item.id) === ref ||
+      normalizeMatchText(item.roleHint) === ref,
+  );
+  const roleHint = normalizeMatchText(agent?.roleHint ?? "");
+  const actions = definition.workflows.flatMap(workflow => workflow.steps)
+    .filter(step => normalizeMatchText(step.agentRef ?? step.roleHint) === ref)
+    .flatMap(step => step.allowedActions);
+  const compatible = profiles.filter(profile => roleHint.length > 0 &&
+    normalizeMatchText(profile.role) === roleHint &&
+    actions.every(action => !profile.permissions.blockedActions.includes(action)));
+  const matches = (value: string): boolean => value.length > 0 &&
+    (value === ref || value === normalizedLabel);
+  const exact = compatible.find((profile) => {
+    const name = normalizeMatchText(profile.name);
+    return matches(name);
+  });
+  if (exact) return exact;
+  const tagged = compatible.find((profile) =>
+    profile.tags.some((tag) => {
+      const normalized = normalizeMatchText(tag);
+      return matches(normalized);
+    }),
+  );
+  if (tagged) return tagged;
+  return compatible.find(profile => normalizeMatchText(profile.name) === roleHint)
+    ?? compatible.find(profile => profile.isDefault) ?? compatible[0] ?? null;
+};
+
+const normalizeMatchText = (value: string): string =>
+  value.normalize("NFKC").trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 const readinessIssueToPipelineIssue = (
   issue: HarnessBindingReadinessSummary["issues"][number],

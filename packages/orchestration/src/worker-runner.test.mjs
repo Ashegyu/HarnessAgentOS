@@ -72,6 +72,28 @@ const validEndpointInput = (overrides = {}) => ({
 const approvePlanApproval = async (state, approval) =>
   state.decideApproval(approval.id, "approved", "ok");
 
+test("read-only contract blocks a pre-approved orchestration before worker side effects", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, { userRequest: "코드를 검토만 해줘" });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({ taskRunId: taskRun.id, mode: "single_worker" });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const before = await state.listStepsByTaskRun(taskRun.id);
+    const runner = new WorkerRunner({ state });
+    await assert.rejects(runner.runApproved({ approval: { ...approved, taskRunId: "different-task" }, plan: drafted.plan }),
+      (error) => error.code === "ORCH_APPROVAL_TASK_MISMATCH");
+    await assert.rejects(runner.runApproved({ approval: approved, plan: drafted.plan }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+    assert.deepEqual(await state.listStepsByTaskRun(taskRun.id), before);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 const deferred = () => {
   let resolve;
   let reject;
@@ -886,6 +908,318 @@ test("runApproved executes read-only dependency waves in parallel", async () => 
       result.workerSteps.map((step) => step.status),
       ["succeeded", "succeeded", "succeeded"],
     );
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved executes independent approval-gated local workers in parallel when direct writes are disabled", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const coderProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Coder", role: "coder" }),
+    );
+    const testerProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "Tester", role: "tester" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Parallel implementation",
+      description: "",
+      steps: [
+        {
+          id: "code",
+          agentProfileId: coderProfile.id,
+          title: "Code",
+          instruction: "Propose the code change.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: ["file_patch"],
+        },
+        {
+          id: "test",
+          agentProfileId: testerProfile.id,
+          title: "Test",
+          instruction: "Propose the tests.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: ["file_write", "shell"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const coderGate = deferred();
+    const testerGate = deferred();
+    const starts = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        if (input.profile.name === "Coder") await coderGate.promise;
+        if (input.profile.name === "Tester") await testerGate.promise;
+        if (input.profile.name === "Coder") {
+          return {
+            outputText: "Coder output",
+            proposedActions: [
+              {
+                type: "file_patch",
+                path: "src/parallel.ts",
+                patch:
+                  "--- a/src/parallel.ts\n+++ b/src/parallel.ts\n@@ -1 +1 @@\n-old\n+new\n",
+                rationale: "apply the proposed implementation",
+              },
+            ],
+          };
+        }
+        return {
+          outputText: "Tester output",
+          proposedActions: [
+            {
+              type: "shell",
+              command: "npm",
+              args: ["run", "check"],
+              rationale: "verify the proposed implementation",
+            },
+          ],
+        };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () => starts.includes("Coder") && starts.includes("Tester"),
+      "independent workers should both start while proposed actions remain approval-gated",
+    );
+
+    coderGate.resolve();
+    testerGate.resolve();
+    const result = await run;
+
+    assert.deepEqual(starts, ["Coder", "Tester"]);
+    assert.deepEqual(
+      result.workerSteps.map((step) => step.status),
+      ["succeeded", "succeeded"],
+    );
+    assert.equal(result.proposedApprovalIds.length, 2);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved keeps approval-gated workers serial when direct workspace writes are enabled", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const currentSettings = await state.getSettings();
+    await state.updateSettings({
+      ...currentSettings,
+      agent: { ...currentSettings.agent, codexWorkspaceWrite: true },
+    });
+    const taskRun = await seedTaskRun(state);
+    const firstProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "DirectWriterOne", role: "reviewer" }),
+    );
+    const secondProfile = await state.agentProfiles.create(
+      validProfileInput({ name: "DirectWriterTwo", role: "reviewer" }),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Serial direct writers",
+      description: "",
+      steps: [
+        {
+          id: "first",
+          agentProfileId: firstProfile.id,
+          title: "First",
+          instruction: "Inspect and edit first.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: ["file_patch"],
+        },
+        {
+          id: "second",
+          agentProfileId: secondProfile.id,
+          title: "Second",
+          instruction: "Inspect and edit second.",
+          expectedArtifactKinds: ["log"],
+          dependsOn: [],
+          allowedActions: ["file_patch"],
+        },
+      ],
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const firstGate = deferred();
+    const starts = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        if (input.profile.name === "DirectWriterOne") await firstGate.promise;
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+
+    await waitFor(
+      () => starts.includes("DirectWriterOne"),
+      "first direct writer should start",
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(starts, ["DirectWriterOne"]);
+
+    firstGate.resolve();
+    await waitFor(
+      () => starts.includes("DirectWriterTwo"),
+      "second direct writer should wait for the first",
+    );
+    await run;
+    assert.deepEqual(starts, ["DirectWriterOne", "DirectWriterTwo"]);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved limits concurrent workers and starts queued work when a slot opens", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const currentSettings = await state.getSettings();
+    await state.updateSettings({
+      ...currentSettings,
+      orchestration: {
+        ...currentSettings.orchestration,
+        maxParallelWorkers: 2,
+      },
+    });
+    const taskRun = await seedTaskRun(state);
+    const profiles = await Promise.all(
+      ["One", "Two", "Three"].map((name) =>
+        state.agentProfiles.create(
+          validProfileInput({ name, role: "reviewer" }),
+        ),
+      ),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Bounded parallel review",
+      description: "",
+      steps: profiles.map((profile, index) => ({
+        id: `review-${index}`,
+        agentProfileId: profile.id,
+        title: profile.name,
+        instruction: `Review ${profile.name}.`,
+        expectedArtifactKinds: ["log"],
+        dependsOn: [],
+        allowedActions: [],
+      })),
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({
+      taskRunId: taskRun.id,
+      mode: "multi_worker",
+      pipelineId: pipeline.id,
+    });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const gates = new Map(profiles.map((profile) => [profile.name, deferred()]));
+    const starts = [];
+    const fakeInvoker = {
+      async invokeForWorker(input) {
+        starts.push(input.profile.name);
+        await gates.get(input.profile.name).promise;
+        return { outputText: `${input.profile.name} output` };
+      },
+    };
+    const runner = new WorkerRunner({ state, agentPlanning: fakeInvoker });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+    await waitFor(() => starts.length === 2, "two worker slots should start");
+    assert.deepEqual(starts, ["One", "Two"]);
+
+    gates.get("One").resolve();
+    await waitFor(() => starts.length === 3, "queued worker should start when a slot opens");
+    assert.deepEqual(starts, ["One", "Two", "Three"]);
+
+    gates.get("Two").resolve();
+    gates.get("Three").resolve();
+    await run;
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("runApproved does not start queued workers or overwrite status after TaskRun cancellation", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const currentSettings = await state.getSettings();
+    await state.updateSettings({
+      ...currentSettings,
+      orchestration: { ...currentSettings.orchestration, maxParallelWorkers: 2 },
+    });
+    const taskRun = await seedTaskRun(state);
+    const profiles = await Promise.all(
+      ["CancelOne", "CancelTwo", "NeverStarts"].map((name) =>
+        state.agentProfiles.create(validProfileInput({ name, role: "reviewer" })),
+      ),
+    );
+    const pipeline = await state.agentPipelines.create({
+      name: "Cancellable wave",
+      description: "",
+      steps: profiles.map((profile, index) => ({
+        id: `cancel-${index}`,
+        agentProfileId: profile.id,
+        title: profile.name,
+        instruction: "Review.",
+        expectedArtifactKinds: ["log"],
+        dependsOn: [],
+        allowedActions: [],
+      })),
+    });
+    const planner = new OrchestrationPlanner({ state });
+    const drafted = await planner.draftPlan({ taskRunId: taskRun.id, mode: "multi_worker", pipelineId: pipeline.id });
+    const approved = await approvePlanApproval(state, drafted.approval);
+    const gate = deferred();
+    const starts = [];
+    const runner = new WorkerRunner({
+      state,
+      agentPlanning: {
+        async invokeForWorker(input) {
+          starts.push(input.profile.name);
+          await gate.promise;
+          return { outputText: `${input.profile.name} output` };
+        },
+      },
+    });
+
+    const run = runner.runApproved({ approval: approved, plan: drafted.plan });
+    await waitFor(() => starts.length === 2, "active wave slots should start");
+    await state.setTaskRunStatus(taskRun.id, "cancelled");
+    gate.resolve();
+    await run;
+
+    assert.deepEqual(starts, ["CancelOne", "CancelTwo"]);
+    assert.equal((await state.getTaskRun(taskRun.id)).status, "cancelled");
   } finally {
     closeDb(db);
     t.cleanup();

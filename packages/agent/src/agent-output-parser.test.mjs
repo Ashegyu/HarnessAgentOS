@@ -23,6 +23,13 @@ const validPlan = {
 const wrap = (json) =>
   `요약: 설명\n\n\`\`\`harness_agent_plan\n${JSON.stringify(json, null, 2)}\n\`\`\`\n`;
 
+test('parses a single-file delete proposal without execution metadata', () => {
+  const proposedActions = [{type:'file_delete',path:'obsolete.txt',rationale:'requested'}];
+  const result = parseAgentPlan(wrap({...validPlan,proposedActions}));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.plan.proposedActions, proposedActions);
+});
+
 test("parses a well-formed agent plan", () => {
   const r = parseAgentPlan(wrap(validPlan));
   assert.equal(r.ok, true);
@@ -31,6 +38,14 @@ test("parses a well-formed agent plan", () => {
     assert.equal(r.plan.proposedActions.length, 1);
     assert.equal(r.plan.proposedActions[0].type, "file_write");
   }
+});
+
+test("code fences inside summary and generated file content do not terminate the JSON envelope", () => {
+  const plan = { ...validPlan, summary: "분석 결과\n```ts\nconst x = 1;\n```\n끝",
+    proposedActions: [{ type: "file_write", path: "README.md", after: "```sh\nnpm test\n```", rationale: "docs" }] };
+  const result = parseAgentPlan(wrap(plan));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.plan, plan);
 });
 
 test("rejects output missing the fenced block", () => {

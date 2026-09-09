@@ -125,6 +125,32 @@ test("InstinctService does not create candidates from repeated approval approval
   }
 });
 
+test("ObservationCollector redacts approval details before SQLite storage", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, t.dir);
+    const approval = await seedApproval(state, taskRun);
+    approval.actionSummary = "Run with api_key=super-secret-value";
+    approval.decisionMessage = "token=another-secret";
+    const collector = new ObservationCollector({
+      state,
+      projectKeyForTask: async () => "proj_test",
+    });
+
+    const observation = await collector.recordApprovalDecision(approval);
+
+    assert.match(observation.payload.actionSummary, /\[REDACTED\]/);
+    assert.match(observation.payload.decisionMessage, /\[REDACTED\]/);
+    assert.doesNotMatch(JSON.stringify(observation), /super-secret-value/);
+    assert.doesNotMatch(JSON.stringify(observation), /another-secret/);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
 test("InstinctService approves and disables candidate-backed instincts", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

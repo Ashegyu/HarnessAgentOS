@@ -20,7 +20,7 @@
     "eval:perf": "node --import tsx scripts/eval/run.mjs --suite=all --attempts=10",
     "eval:providers": "node --import tsx scripts/eval/run.mjs --suite=capability --attempts=3 --providers=codex --real-cli",
     "bench:repo-index": "node --import tsx scripts/bench/repo-index-refresh.mjs",
-    "test": "npm run rebuild:node --silent && node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\" \"apps/desktop/**/*.test.mjs\"",
+    "test": "npm run rebuild:node --silent && node --import tsx --test --test-force-exit \"packages/**/*.test.mjs\" \"apps/desktop/src/**/*.test.mjs\" \"apps/desktop/electron/**/*.test.mjs\" \"apps/desktop/scripts/**/*.test.mjs\"",
     "verify": "npm run check && npm run test && npm run build",
     "verify:smoke": "npm --workspace=@harness/desktop run smoke:all",
     "verify:release": "npm run verify && npm run verify:smoke"

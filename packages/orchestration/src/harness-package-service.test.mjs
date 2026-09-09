@@ -322,8 +322,94 @@ test("HarnessPackageService proposes export files as pending file_write approval
   }
 });
 
+test("HarnessPackageService seeds safe starter binding sets without overwriting existing sets", async () => {
+  const dbTemp = dbTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    const state = new LocalStateService(db);
+    await state.agentProfiles.ensureSeed();
+    await state.harnessPackages.ensureSeed();
+    const service = new HarnessPackageService({ state });
+    const packages = await service.listPackages();
+    const featurePackage = packages.find(
+      (definition) => definition.id === "harness_seed_feature_delivery",
+    );
+    assert.ok(featurePackage);
+    const featureWorkflow = featurePackage.workflows[0];
+    const coder = (await state.agentProfiles.list()).find(
+      (profile) => profile.role === "coder",
+    );
+    assert.ok(coder);
+    const existing = await service.saveBindingSet({
+      packageId: featurePackage.id,
+      workflowId: featureWorkflow.id,
+      name: "사용자 지정 기능 개발 연결",
+      bindings: [
+        {
+          harnessAgentRef: featurePackage.agents[0].id,
+          agentProfileId: coder.id,
+        },
+      ],
+    });
+
+    const first = await service.ensureStarterBindingSets();
+    const saved = await service.listBindingSets();
+
+    assert.equal(first.created.length, packages.length - 1);
+    assert.equal(first.skippedExisting, 1);
+    assert.equal(first.skippedUnmatched.length, 0);
+    assert.equal(saved.length, packages.length);
+    assert.deepEqual(
+      saved.filter(
+        (set) =>
+          set.packageId === featurePackage.id &&
+          set.workflowId === featureWorkflow.id,
+      ),
+      [existing],
+    );
+    assert.equal(
+      saved.every(
+        (set) => set.bindings.length > 0 && set.name.trim().length > 0,
+      ),
+      true,
+    );
+
+    const second = await service.ensureStarterBindingSets();
+    assert.equal(second.created.length, 0);
+    assert.equal(second.skippedExisting, packages.length);
+    assert.equal((await service.listBindingSets()).length, packages.length);
+  } finally {
+    closeDb(db);
+    dbTemp.cleanup();
+  }
+});
+
 async function writeFixture(root, relativePath, content) {
   const fullPath = path.join(root, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });
   await writeFile(fullPath, content, "utf8");
 }
+
+test("starter bindings match Korean profile names without empty-string or role collisions", async () => {
+  const dbTemp = dbTmp();
+  const db = openDb({ filePath: dbTemp.file });
+  try {
+    const state = new LocalStateService(db);
+    await state.agentProfiles.ensureSeed();
+    await state.harnessPackages.ensureSeed();
+    const profiles = await state.agentProfiles.list();
+    for (const p of profiles) {
+      await state.agentProfiles.update({ ...p, name: p.role === "coder" ? "개발자" : "다른 역할", tags: [] });
+    }
+    const service = new HarnessPackageService({ state });
+    await service.ensureStarterBindingSets();
+    for (const set of await service.listBindingSets()) {
+      const definition = await service.getPackage(set.packageId);
+      for (const binding of set.bindings) {
+        const agent = definition.agents.find(a => a.id === binding.harnessAgentRef);
+        const bound = await state.agentProfiles.get(binding.agentProfileId);
+        assert.equal(bound.role, agent.roleHint, `${definition.name}: ${agent.name}`);
+      }
+    }
+  } finally { closeDb(db); dbTemp.cleanup(); }
+});

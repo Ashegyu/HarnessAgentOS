@@ -23,9 +23,16 @@ const broadcast = (channel: string, payload: unknown): void => {
 };
 
 let diagnosticsEmitter: (() => void) | null = null;
+let taskRunChangedObserver: ((taskRunId: string) => void) | null = null;
 
 export const setDiagnosticsEmitter = (emitter: (() => void) | null): void => {
   diagnosticsEmitter = emitter;
+};
+
+export const setTaskRunChangedObserver = (
+  observer: ((taskRunId: string) => void) | null,
+): void => {
+  taskRunChangedObserver = observer;
 };
 
 const requestDiagnostics = (): void => {
@@ -33,16 +40,20 @@ const requestDiagnostics = (): void => {
 };
 
 export interface HarnessEventBus {
-  taskRunChanged(taskRunId: string): void;
+  taskRunChanged(
+    taskRunId: string,
+    options?: { skipAutomaticQuality?: boolean },
+  ): void;
   agentStreamEvent(event: AgentStreamEvent): void;
   diagnosticsHeartbeat(diagnostics: SystemDiagnostics): void;
 }
 
 export const eventBus: HarnessEventBus = {
-  taskRunChanged(taskRunId) {
+  taskRunChanged(taskRunId, options) {
     if (!taskRunId) return;
     broadcast(IPC_CHANNELS.events.taskRunChanged, { taskRunId });
     requestDiagnostics();
+    if (!options?.skipAutomaticQuality) taskRunChangedObserver?.(taskRunId);
   },
   agentStreamEvent(event) {
     if (!event || typeof event !== "object") return;

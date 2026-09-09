@@ -71,6 +71,21 @@ export const validateProposedActionDetails = (
   }
 
   switch (type) {
+    case "file_delete": {
+      if (!isPlainObject(raw.fileDelete)) return { ok: false, reason: "file_delete requires fileDelete" };
+      const parsed = validateRelativePath("fileDelete.path", raw.fileDelete.path);
+      if (!parsed.ok) return parsed;
+      const segments = parsed.path.split(/[\\/]/);
+      if (/[<>:"|?*]/.test(parsed.path) || segments.some(part => !part || part === "." || /[. ]$/.test(part) || part.toLowerCase() === ".git" || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part))) {
+        return { ok: false, reason: "Delete requires one regular file, without wildcards, .git, devices, or alternate streams" };
+      }
+      const { sha256, sizeBytes, modifiedAt } = raw.fileDelete;
+      return { ok: true, details: { type, fileDelete: { path: parsed.path,
+        ...(typeof sha256 === "string" && /^[a-f0-9]{64}$/.test(sha256) ? { sha256 } : {}),
+        ...(typeof sizeBytes === "number" && Number.isSafeInteger(sizeBytes) && sizeBytes >= 0 ? { sizeBytes } : {}),
+        ...(typeof modifiedAt === "string" ? { modifiedAt } : {}),
+      } } };
+    }
     case "file_patch":
       return validateFilePatch(raw);
     case "file_write":

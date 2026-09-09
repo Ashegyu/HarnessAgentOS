@@ -32,6 +32,7 @@ const makeGateway = (overrides = {}) => ({
   getLatestQualityGateResult: async () => null,
   listArtifactsByTaskRun: async () => [],
   listStepsByTaskRun: async () => [],
+  listApprovalsByTaskRun: async () => [],
   createStep: async () => {
     throw new Error("not implemented");
   },
@@ -39,6 +40,41 @@ const makeGateway = (overrides = {}) => ({
     throw new Error("not implemented");
   },
   ...overrides,
+});
+
+for (const change of ["approval", "gate"]) {
+  test(`markDone revalidates ${change} after asynchronous completion hooks`, async () => {
+    let changed = false;
+    const service = new TaskRunCompletionService({
+      state: makeGateway({
+        getTaskRun: async () => ({ ...taskRun, status: "ready_for_review" }),
+        getLatestQualityGateResult: async () => ({ ...failedGate, id: changed && change === "gate" ? "new-failed" : "passed", status: changed && change === "gate" ? "failed" : "passed" }),
+        listApprovalsByTaskRun: async () => changed && change === "approval" ? [{ status: "pending", actionType: "file_write" }] : [],
+      }),
+      onTaskRunDone: async () => { changed = true; },
+    });
+    await assert.rejects(service.markDone({ taskRunId: taskRun.id }), /QUALITY_DONE_BLOCKED|변경|승인|실행/);
+  });
+}
+
+for (const status of ["pending", "approved", "always_approved_for_run"]) {
+  test(`markDone rejects ${status} execution even with an old passing gate`, async () => {
+    const service = new TaskRunCompletionService({ state: makeGateway({
+      getTaskRun: async () => ({ ...taskRun, status: "ready_for_review" }),
+      getLatestQualityGateResult: async () => ({ ...failedGate, status: "passed" }),
+      listApprovalsByTaskRun: async () => [{ id: "other-checkpoint", status, actionType: "file_write" }],
+    }) });
+    await assert.rejects(service.markDone({ taskRunId: taskRun.id }), /unresolved|승인|실행/);
+  });
+}
+
+test("markDone rejects active runner steps even if the task row is stale", async () => {
+  const service = new TaskRunCompletionService({ state: makeGateway({
+    getTaskRun: async () => ({ ...taskRun, status: "ready_for_review" }),
+    getLatestQualityGateResult: async () => ({ ...failedGate, status: "passed" }),
+    listStepsByTaskRun: async () => [{ status: "running" }],
+  }) });
+  await assert.rejects(service.markDone({ taskRunId: taskRun.id }), /running|실행/);
 });
 
 test("applyQualityGateResult reports failed gates to advisory learner hook", async () => {

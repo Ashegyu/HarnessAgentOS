@@ -6,6 +6,8 @@ import type {
   Artifact,
   Checkpoint,
   TaskRun,
+  TaskIntent,
+  OrchestrationMode,
 } from "../types";
 
 /**
@@ -28,6 +30,7 @@ export type ConversationTaskMode = "template" | "agent";
 export interface CreateConversationTaskInput {
   threadId?: string;
   userRequest: string;
+  intent?: TaskIntent;
   targetDir?: string;
   /**
    * Previous TaskRun in the same thread that this request continues.
@@ -35,6 +38,14 @@ export interface CreateConversationTaskInput {
    */
   followUpTaskRunId?: string;
   mode?: ConversationTaskMode;
+}
+
+/** One user submission. Main owns preparation and subsequent progression. */
+export interface StartConversationTaskInput extends Omit<CreateConversationTaskInput, "mode"> {
+  orchMode?: OrchestrationMode;
+  orchInstruction?: string;
+  orchPipelineId?: string;
+  orchHarness?: { packageId: string; workflowId?: string; bindingSetId: string };
 }
 
 export interface ConversationTaskDraft {
@@ -60,6 +71,8 @@ export interface ProposedAction {
 
 export interface ApproveInput {
   approvalId: string;
+  expectedRevision: number;
+  manualConfirmation?: boolean;
   message?: string;
   scope?: ApprovalScope;
   autoApproveDecision?: AutoApproveDecision | null;

@@ -23,6 +23,7 @@ export type ApprovalActionType =
   | "model_use"
   | "file_patch"
   | "file_write"
+  | "file_delete"
   | "shell"
   | "dependency_install"
   | "git_commit"
@@ -35,6 +36,7 @@ export const APPROVAL_ACTION_TYPES: readonly ApprovalActionType[] = [
   "model_use",
   "file_patch",
   "file_write",
+  "file_delete",
   "shell",
   "dependency_install",
   "git_commit",
@@ -63,6 +65,8 @@ export interface AutoApproveDecision {
 
 export interface ApprovalDecisionOptions {
   autoApproveDecision?: AutoApproveDecision | null;
+  expectedRevision?: number;
+  manualConfirmation?: boolean;
 }
 
 export interface ProposedFilePatch {
@@ -108,6 +112,7 @@ export interface ProposedActionDetails {
   cwd?: string;
   filePatch?: ProposedFilePatch;
   unifiedPatch?: ProposedUnifiedPatch;
+  fileDelete?: { path: string; sha256?: string; sizeBytes?: number; modifiedAt?: string };
   capabilityUse?: ProposedCapabilityUse;
   modelUse?: ProposedModelUse;
   dbSnapshotExport?: ProposedDbSnapshotExport;
@@ -120,6 +125,12 @@ export interface Approval {
   actionType: ApprovalActionType;
   actionSummary: string;
   status: ApprovalStatus;
+  actionRevision?: number;
+  approvedRevision?: number;
+  requiresManualApproval?: boolean;
+  executionState?: "running" | "succeeded" | "uncertain";
+  executionStartedAt?: string;
+  executionFinishedAt?: string;
   proposedAction?: ProposedActionDetails;
   policyEvaluation?: PolicyEvaluation;
   autoApproveDecision?: AutoApproveDecision | null;

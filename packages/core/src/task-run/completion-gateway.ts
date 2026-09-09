@@ -33,6 +33,7 @@ export interface TaskRunCompletionGateway {
     patch?: { outputSummary?: string },
   ): Promise<Step>;
   listStepsByTaskRun(taskRunId: string): Promise<Step[]>;
+  listApprovalsByTaskRun(taskRunId: string): Promise<Approval[]>;
   createCheckpoint(input: CreateCheckpointInput): Promise<Checkpoint>;
   createApproval(input: CreateApprovalInput): Promise<Approval>;
   createArtifact(input: CreateArtifactInput): Promise<Artifact>;

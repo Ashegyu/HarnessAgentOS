@@ -83,3 +83,58 @@ test("ShellRunner aborts a quiet process on idle timeout", async () => {
     /idle timed out after 50ms/,
   );
 });
+
+test("ShellRunner passes structured arguments without invoking a shell", async () => {
+  const child = createMockChild();
+  const spawnCalls = [];
+  const runner = new ShellRunner({
+    spawn: (...args) => {
+      spawnCalls.push(args);
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    },
+  });
+
+  const result = await runner.run({
+    command: "dotnet",
+    args: [
+      "test",
+      "NOVA.Browser.Tests/NOVA.Browser.Tests.csproj",
+      "-c",
+      "Release",
+    ],
+    cwd: process.cwd(),
+  });
+
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0][0], "dotnet");
+  assert.deepEqual(spawnCalls[0][1], [
+    "test",
+    "NOVA.Browser.Tests/NOVA.Browser.Tests.csproj",
+    "-c",
+    "Release",
+  ]);
+  assert.equal(spawnCalls[0][2].shell, false);
+  assert.equal(result.exitCode, 0);
+});
+
+test("ShellRunner applies the dangerous-command policy to structured arguments", async () => {
+  const spawnCalls = [];
+  const runner = new ShellRunner({
+    spawn: (...args) => {
+      spawnCalls.push(args);
+      return createMockChild();
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      runner.run({
+        command: "powershell",
+        args: ["-NoProfile", "-Command", "Remove-Item -Recurse C:\\unsafe"],
+        cwd: process.cwd(),
+      }),
+    (err) => err.code === "RUNNER_BLOCKED_HIGH_RISK",
+  );
+  assert.equal(spawnCalls.length, 0);
+});

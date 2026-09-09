@@ -6,6 +6,7 @@
  * re-enter through a free-text field or a legacy database row.
  */
 export const CODEX_MODELS = [
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

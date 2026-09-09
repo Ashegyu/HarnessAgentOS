@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildAgentTopology } from "./agent-topology-model.ts";
+import {
+  buildAgentTopology,
+  orchestrationWorkerCountFromArtifacts,
+} from "./agent-topology-model.ts";
 
 const taskRun = (overrides = {}) => ({
   id: "task_1",
@@ -35,6 +38,20 @@ const invocation = (overrides = {}) => ({
   createdAt: "2026-05-15T00:01:00.000Z",
   updatedAt: "2026-05-15T00:01:00.000Z",
   ...overrides,
+});
+
+test("orchestrationWorkerCountFromArtifacts includes runner-level queued workers", () => {
+  const workers = [
+    { id: "worker_1", title: "One", role: "coder", inputSummary: "one", expectedArtifactKinds: ["plan"], status: "pending", dependsOn: [] },
+    { id: "worker_2", title: "Two", role: "reviewer", inputSummary: "two", expectedArtifactKinds: ["plan"], status: "pending", dependsOn: [] },
+    { id: "worker_3", title: "Three", role: "tester", inputSummary: "three", expectedArtifactKinds: ["plan"], status: "pending", dependsOn: [] },
+  ];
+  assert.equal(
+    orchestrationWorkerCountFromArtifacts([
+      orchestrationPlanArtifact(workers),
+    ]),
+    3,
+  );
 });
 
 const approval = (overrides = {}) => ({

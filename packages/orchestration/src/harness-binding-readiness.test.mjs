@@ -7,6 +7,32 @@ import {
 
 const importedAt = "2026-05-27T00:00:00.000Z";
 
+test("binding validation exposes an unenforceable CLI budget without preventing configuration repair", () => {
+  const result = assessHarnessBindingReadiness({ definition: pkg({ workflows: [workflow()] }), workflowId: "wf",
+    bindings: { planner: "profile-planner", reviewer: "reviewer" },
+    profiles: [profile({ permissions: { budget: { perInvocationUsd: 0.1 } } }), profile({ id: "reviewer", role: "reviewer" })] });
+  assert.equal(result.ok, true, "structurally valid bindings may still be saved; the planner blocks execution");
+  assert.ok(result.issues.some(i => i.code === "HARNESS_BUDGET_UNVERIFIABLE" && i.severity === "warning" && i.profileId === "profile-planner"));
+});
+
+test("binding readiness rejects actions blocked by the bound profile", () => {
+  const definition = pkg({ workflows: [workflow()] });
+  const result = assessHarnessBindingReadiness({ definition, workflowId: "wf",
+    bindings: { planner: "profile-planner", reviewer: "reviewer" },
+    profiles: [profile({ permissions: { blockedActions: ["file_write"] } }),
+      profile({ id: "reviewer", role: "reviewer" })],
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(i => i.code === "HARNESS_PROFILE_ACTION_BLOCKED" && i.stepId === "step-1"));
+});
+
+test("binding readiness does not substitute the first workflow for an unknown id", () => {
+  const result = assessHarnessBindingReadiness({ definition: pkg({ workflows: [workflow()] }),
+    workflowId: "missing", bindings: {}, profiles: [] });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(i => i.code === "HARNESS_WORKFLOW_NOT_FOUND"));
+});
+
 const pkg = (overrides = {}) => ({
   id: "harness_demo",
   name: "Demo Harness",

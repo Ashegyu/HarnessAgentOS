@@ -87,6 +87,19 @@ test("pipelineAutoApproveDecision keeps active profile blocks as a non-bypassabl
   );
 });
 
+test("pipeline consent cannot bypass unknown accumulated model cost", () => {
+  const result = pipelineAutoApproveDecision(
+    { actionType: "model_use", policyEvaluation: { costEstimateUsd: 0.01 } },
+    {
+      activeProfile: { permissions: { blockedActions: [], budget: { perTaskRunUsd: 1 } } },
+      accumulatedTaskRunCostUsd: 0,
+      unknownTaskRunCostInvocationCount: 1,
+    },
+  );
+  assert.equal(result.approved, false);
+  assert.equal(result.decidedAt, "budget_blocked");
+});
+
 test("pipelineAutoApproveDecision blocks a pipeline approval that exceeds profile budget", () => {
   assert.deepEqual(
     pipelineAutoApproveDecision(

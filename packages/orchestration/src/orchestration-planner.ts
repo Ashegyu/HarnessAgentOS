@@ -1,4 +1,5 @@
 import { newId, type LocalStateService } from "@harness/storage";
+import { evaluateBudget } from "@harness/core";
 import type {
   AgentPipeline,
   AgentPipelineBackflowRule,
@@ -303,6 +304,13 @@ export class OrchestrationPlanner {
           input.profileMissingCode,
           `${input.label} ${input.name} step "${step.title}" references missing profile ${step.agentProfileId}`,
         );
+      }
+      // Validate every selected profile before any plan approval or worker is
+      // created. The CLI invocation path performs the same check again at use.
+      const budget = evaluateBudget({ approval: { actionType: "model_use" }, profile });
+      if (budget.kind === "blocked") {
+        throw new OrchestrationError("AGENT_BUDGET_BLOCKED",
+          `${step.title} — ${profile.name}: 현재 CLI는 호출 전 USD 비용을 보장하지 못해 설정된 예산 한도로 실행할 수 없습니다. 에이전트 설정에서 예산을 검토하거나 실행 가능한 프로필을 연결하세요. 기존 예산은 변경하지 않았습니다.`);
       }
       let remoteEndpointId: string | undefined;
       if (step.remoteEndpointId !== undefined) {

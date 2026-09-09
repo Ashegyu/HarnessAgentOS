@@ -276,9 +276,11 @@ test("package-derived harness pipeline runs only after approval and yields artif
       taskRunId: taskRun.id,
       requireBuild: true,
     });
-    assert.equal(gate.status, "passed");
-    assert.equal(gate.buildPassed, true);
-    assert.equal(gate.knownRisks.length, 0);
+    // The fake strategist only said "build exit=0". No runner executed a
+    // build, so its prose must not satisfy the required build evidence.
+    assert.equal(gate.status, "warning");
+    assert.equal(gate.buildPassed, undefined);
+    assert.ok(gate.knownRisks.includes("required build evidence is missing"));
     await new TaskRunCompletionService({ state }).applyQualityGateResult(gate);
     assert.equal(
       (await state.getLatestQualityGateResult(taskRun.id))?.id,

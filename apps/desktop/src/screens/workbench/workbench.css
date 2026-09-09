@@ -34,6 +34,30 @@
   transition: grid-template-columns var(--motion-standard);
 }
 
+/* Integrated title-bar drag surfaces. Use the real top-level workbench areas
+   so users have practical targets without fighting the Windows resize edge. */
+.slim-rail,
+.thread-sidebar > .panel-header,
+.conversation-workbench > .panel-header,
+.right-panel > .panel-header,
+.conversation-workbench > .hero-empty {
+  -webkit-app-region: drag;
+}
+
+/* Interactive descendants inside drag surfaces must keep normal hit testing. */
+.workbench :where(
+    button,
+    input,
+    select,
+    textarea,
+    a,
+    [role="button"],
+    [role="separator"],
+    [contenteditable="true"]
+  ) {
+  -webkit-app-region: no-drag;
+}
+
 .workbench--thread-open {
   --thread-drawer-current: var(--thread-drawer-width);
   --thread-drawer-min: 180px;
@@ -4637,6 +4661,58 @@
 }
 .agent-stream-section:first-of-type { border-top: none; }
 
+/* Keep window chrome non-selectable while allowing ordinary answer selection. */
+.chat-bubble__body,
+.markdown-text {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-app-region: no-drag;
+}
+
+.answer-copy {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  margin-left: auto;
+  max-width: 100%;
+  text-transform: none;
+  letter-spacing: normal;
+  user-select: none;
+}
+
+.answer-copy__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.answer-copy__button:hover:not(:disabled) {
+  background: var(--bg-panel-elev);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.answer-copy__button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.answer-copy__error {
+  color: var(--status-failed);
+  font-size: 12px;
+  white-space: normal;
+}
+
 .agent-stream-section__head {
   display: flex;
   align-items: center;
@@ -4845,6 +4921,20 @@ details.agent-stream-section[open] .agent-stream-section__chevron {
   flex-direction: column;
   gap: var(--space-3);
   min-width: 0;
+}
+
+.parallel-execution-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border-subtle));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .inline-agent-stream-stack__item {
@@ -5458,11 +5548,11 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 
 /* Final — primary text, no monospace, no edge. */
 .inline-agent-stream__section--final {
-  border-left-color: rgba(34, 197, 94, 0.65);
-  background: rgba(34, 197, 94, 0.07);
+  border-left-color: rgba(110, 150, 220, 0.65);
+  background: rgba(110, 150, 220, 0.07);
 }
 .inline-agent-stream__section--final .inline-agent-stream__icon {
-  color: rgba(74, 222, 128, 0.95);
+  color: rgba(150, 185, 240, 0.95);
 }
 .inline-agent-stream__final {
   margin: 0;
@@ -6293,8 +6383,18 @@ details.inline-agent-stream__section[open] .inline-agent-stream__chevron {
 .notification-tray {
   position: fixed;
   top: 12px;
-  right: 16px;
+  right: calc(
+    100vw -
+      (env(titlebar-area-x, 0px) + env(titlebar-area-width, 100vw)) + 12px
+  );
   z-index: 1300;
+}
+
+.slim-rail__locale {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .notification-tray__button {

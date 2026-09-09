@@ -6,6 +6,7 @@ import {
   type ApprovalSettings,
   type HarnessSettings,
   type OrchestrationSettings,
+  type UiSettings,
 } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 
@@ -29,10 +30,19 @@ export class SqliteSettingsRepository implements SettingsRepository {
       )
       .get(SETTINGS_KEY);
 
-    if (!row) return structuredClone(DEFAULT_HARNESS_SETTINGS);
+    if (!row) {
+      return this.update(structuredClone(DEFAULT_HARNESS_SETTINGS));
+    }
 
     try {
-      return normalizeSettings(JSON.parse(row.value) as HarnessSettings);
+      const parsed = JSON.parse(row.value) as HarnessSettings;
+      const normalized = normalizeSettings(parsed);
+      if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+        this.db
+          .prepare("UPDATE settings SET value = ? WHERE key = ?")
+          .run(JSON.stringify(normalized), SETTINGS_KEY);
+      }
+      return normalized;
     } catch {
       return structuredClone(DEFAULT_HARNESS_SETTINGS);
     }
@@ -58,6 +68,12 @@ export class SqliteSettingsRepository implements SettingsRepository {
  * any pre-existing row carrying those exact numbers gets bumped up.
  */
 const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
+  const rawUi = (s as Partial<HarnessSettings>).ui as
+    | Partial<UiSettings>
+    | undefined;
+  const ui: UiSettings = {
+    language: rawUi?.language === "en" ? "en" : "ko",
+  };
   const d = DEFAULT_HARNESS_SETTINGS.agent;
   const rawAgent = (s as Partial<HarnessSettings>).agent as
     | Partial<AgentSettings>
@@ -98,6 +114,10 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
           model: normalizeCodexModel(profile.model),
         }))
       : [],
+    maxParallelWorkers: normalizeParallelWorkerLimit(
+      so?.maxParallelWorkers,
+      od.maxParallelWorkers,
+    ),
     defaultPipelineId:
       typeof so?.defaultPipelineId === "string" ? so.defaultPipelineId : "",
   };
@@ -113,5 +133,13 @@ const normalizeSettings = (s: HarnessSettings): HarnessSettings => {
       : DEFAULT_HARNESS_SETTINGS.approval.autoExecuteWorkerFileActions,
     workerFileAutoExecutionConfigured,
   };
-  return { ...s, agent, orchestration, approval };
+  return { ...s, ui, agent, orchestration, approval };
+};
+
+const normalizeParallelWorkerLimit = (
+  value: unknown,
+  fallback: number,
+): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(8, Math.max(1, Math.trunc(value)));
 };

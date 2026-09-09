@@ -25,6 +25,41 @@ const makeService = (t, opts = {}) => {
   return { db, state, conversation };
 };
 
+test("read-only tasks have no template action and reject approval escalation", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const draft = await conversation.createTask({
+      userRequest: "add a feature", intent: "review", targetDir: "/tmp/project",
+    });
+    assert.equal(draft.taskRun.contract.authorization.mode, "read_only");
+    assert.equal(draft.approvals.length, 0);
+    const approval = await state.createApproval({ taskRunId: draft.taskRun.id,
+      checkpointId: draft.checkpoint.id, actionType: "shell", actionSummary: "node -v" });
+    await assert.rejects(conversation.approve({ approvalId: approval.id }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+    await assert.rejects(conversation.setProposedAction(approval.id, { type: "shell", command: "node -v" }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+    assert.equal((await state.getApproval(approval.id)).status, "pending");
+    await assert.rejects(conversation.redirectTask({ taskRunId: draft.taskRun.id, instruction: "수정해줘" }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+    await assert.rejects(conversation.useTemplateFallback({ taskRunId: draft.taskRun.id }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("redirect cannot hide a newly narrowed request behind an older change contract", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    const draft = await conversation.createTask({ userRequest: "기능 수정해줘", targetDir: "/tmp/project" });
+    const before = await state.listStepsByTaskRun(draft.taskRun.id);
+    await assert.rejects(conversation.redirectTask({ taskRunId: draft.taskRun.id, instruction: "원인만 설명해줘" }),
+      (error) => error.code === "TASK_CONTRACT_ACTION_BLOCKED");
+    assert.deepEqual(await state.listStepsByTaskRun(draft.taskRun.id), before);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
 test("createTask emits TaskRun, plan artifact, before_edit checkpoint, approvals", async () => {
   const t = tmp();
   const { db, state, conversation } = makeService(t);

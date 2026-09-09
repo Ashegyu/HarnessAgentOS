@@ -19,8 +19,8 @@ export const AGENT_ROLE_MODEL_DEFAULTS = {
   coder: { model: "gpt-5.6-terra", reasoningEffort: "high" },
   reviewer: { model: "gpt-5.6-terra", reasoningEffort: "high" },
   tester: { model: "gpt-5.6-terra", reasoningEffort: "high" },
-  orchestrator: { model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
-  "security-reviewer": { model: "gpt-5.6-sol", reasoningEffort: "xhigh" },
+  orchestrator: { model: "gpt-6-astra", reasoningEffort: "xhigh" },
+  "security-reviewer": { model: "gpt-6-astra", reasoningEffort: "xhigh" },
   "build-error-resolver": {
     model: "gpt-5.6-terra",
     reasoningEffort: "medium",

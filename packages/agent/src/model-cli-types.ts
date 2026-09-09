@@ -3,6 +3,7 @@ import type {
   AgentProvider,
   AgentStreamEvent,
 } from "@harness/core";
+import type { AgentOutputContract } from "./agent-output-schema.ts";
 
 export type ModelCliSandboxMode = "read-only" | "workspace-write";
 
@@ -21,6 +22,9 @@ export interface ModelCliRequest {
     primaryDir: string;
     mode?: ModelCliSandboxMode;
     autoReview?: boolean;
+    /** Task-scoped read-only intent: no approval escalation or external tool execution. */
+    readOnlyTask?: boolean;
+    disableWebSearch?: boolean;
     /**
      * Always true at Phase 8: the prompt MUST contain the sandbox
      * statement so the model can't claim it wasn't told. The flag is
@@ -33,17 +37,29 @@ export interface ModelCliRequest {
    * folds this block into stdin before the user request.
    */
   systemPrompt?: string;
+  /** Host-pinned task policy for strict final JSON; never inferred from model output. */
+  outputContract?: AgentOutputContract;
   /**
    * Codex per-run config overrides passed as repeated `-c <key=value>`
    * flags before `exec`. Used for verified `mcp_servers.*` settings only.
    * Do not include plaintext secrets here because argv can be inspected.
    */
   codexConfigOverrides?: readonly string[];
+  /** Host preflight result, required for read-only execution; never supplied by the model. */
+  readOnlyMcpServerNames?: readonly string[];
   /**
    * Absolute executable override from AgentProfile.cli.cliPathOverride.
    * When unset, the adapter resolves a provider-specific default command.
    */
   cliPathOverride?: string;
+}
+
+export interface ModelTokenUsage {
+  inputTokens: number;
+  /** Provider output total, including reasoning tokens (do not add them again). */
+  outputTokens: number;
+  cachedInputTokens: number;
+  reasoningOutputTokens: number;
 }
 
 export interface ModelCliResult {
@@ -63,6 +79,8 @@ export interface ModelCliResult {
   rawStdout?: string;
   stderr: string;
   normalizedEvents: AgentStreamEvent[];
+  /** null = stream observed but no authoritative usage; undefined = legacy adapter. */
+  tokenUsage?: ModelTokenUsage | null;
   /** Bytes/events dropped from bounded in-memory buffers during a long run. */
   truncation?: {
     stdoutDroppedBytes: number;

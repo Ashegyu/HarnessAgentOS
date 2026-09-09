@@ -1,5 +1,7 @@
 import type { LocalStateService } from "@harness/storage";
 import {
+  taskContractFor,
+  taskContractBlocksAction,
   validateProposedActionDetails,
   type A2AEndpoint,
   type A2ARegistryEntry,
@@ -169,6 +171,17 @@ export class WorkerRunner {
       );
     }
 
+    if (input.approval.taskRunId !== input.plan.taskRunId) {
+      throw new OrchestrationError("ORCH_APPROVAL_TASK_MISMATCH", "승인과 파이프라인의 작업 ID가 일치하지 않습니다.");
+    }
+    const taskRun = await this.deps.state.getTaskRun(input.approval.taskRunId);
+    if (taskRun && taskContractBlocksAction(taskContractFor(taskRun), "orchestration_plan")) {
+      throw new OrchestrationError(
+        "TASK_CONTRACT_ACTION_BLOCKED",
+        "읽기 전용 작업은 일반 채팅으로 실행하세요. 파이프라인의 외부 작업은 허용되지 않습니다.",
+      );
+    }
+
     const stepArtifactIds: string[] = [];
     const updatedSteps: WorkerStep[] = [];
     const policyReport: string[] = [];
@@ -184,9 +197,14 @@ export class WorkerRunner {
       input.plan.workerSteps.map((step) => [step.id, step] as const),
     );
     const remoteEntries = await this.loadRemoteRegistryEntries();
+    const settings = await this.deps.state.getSettings();
     const executionWaves = planWorkerWaves(
       input.plan.workerSteps,
       remoteEntries,
+      {
+        allowApprovalGatedLocalParallelism:
+          settings.agent.codexWorkspaceWrite !== true,
+      },
     ).waves.map((wave) => ({
       parallelizable: wave.parallelizable,
       steps: wave.stepIds.map((stepId) => stepsById.get(stepId)!),
@@ -237,6 +255,7 @@ export class WorkerRunner {
     const processWorkerResultSideEffects = async (
       result: WorkerStepExecutionResult,
     ): Promise<void> => {
+      if (await this.isTaskRunCancelled(input.plan.taskRunId)) return;
       if (result.acceptedActions.length > 0 && result.status === "succeeded") {
         const createdApprovalIds = await this.createWorkerActionApprovals({
           plan: input.plan,
@@ -320,6 +339,8 @@ export class WorkerRunner {
           preparedWave,
           runOne,
           processWorkerResultSideEffects,
+          settings.orchestration.maxParallelWorkers,
+          () => this.isTaskRunActive(input.plan.taskRunId),
         );
         for (const result of results) {
           if (await handleResult(result)) unresolvedFailure = true;
@@ -329,6 +350,7 @@ export class WorkerRunner {
         }
       } else {
         for (const prepared of preparedWave) {
+          if (!(await this.isTaskRunActive(input.plan.taskRunId))) break;
           const result = await runOne(prepared);
           await processWorkerResultSideEffects(result);
           if (await handleResult(result)) {
@@ -373,19 +395,21 @@ export class WorkerRunner {
     const needsContinuation =
       pausedForWorkerApprovals &&
       input.plan.workerSteps.some((step) => !completedAfterRun.has(step.id));
-    await this.deps.state.setTaskRunStatus(
-      input.plan.taskRunId,
-      lifecycleInterruption !== null
-        ? "paused"
-        : unresolvedFailure ||
-            input.plan.workerSteps.some(
-              (step) => latestStatusByStepId.get(step.id) === "failed",
-            )
-          ? "blocked"
-          : pausedForWorkerApprovals || hasUnresolvedWorkerApprovals
-            ? "waiting_for_approval"
-            : "ready_for_review",
-    );
+    if (!(await this.isTaskRunCancelled(input.plan.taskRunId))) {
+      await this.deps.state.setTaskRunStatus(
+        input.plan.taskRunId,
+        lifecycleInterruption !== null
+          ? "paused"
+          : unresolvedFailure ||
+              input.plan.workerSteps.some(
+                (step) => latestStatusByStepId.get(step.id) === "failed",
+              )
+            ? "blocked"
+            : pausedForWorkerApprovals || hasUnresolvedWorkerApprovals
+              ? "waiting_for_approval"
+              : "ready_for_review",
+      );
+    }
 
     return {
       planId: input.plan.id,
@@ -957,6 +981,14 @@ export class WorkerRunner {
     await this.deps.onTaskRunChanged?.(taskRunId);
   }
 
+  private async isTaskRunCancelled(taskRunId: string): Promise<boolean> {
+    return (await this.deps.state.getTaskRun(taskRunId))?.status === "cancelled";
+  }
+
+  private async isTaskRunActive(taskRunId: string): Promise<boolean> {
+    return !(await this.isTaskRunCancelled(taskRunId));
+  }
+
   /**
    * Phase 2 worker body. Two paths:
    *
@@ -1099,8 +1131,14 @@ export class WorkerRunner {
       status: "running",
       inputSummary: planStep.inputSummary,
     });
-    await this.deps.state.setTaskRunCurrentStep(input.plan.taskRunId, dbStep.id);
-    await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
+    if (!(await this.isTaskRunCancelled(input.plan.taskRunId))) {
+      try {
+        await this.deps.state.setTaskRunCurrentStep(input.plan.taskRunId, dbStep.id);
+        await this.deps.state.setTaskRunStatus(input.plan.taskRunId, "running");
+      } catch (error) {
+        if (!(await this.isTaskRunCancelled(input.plan.taskRunId))) throw error;
+      }
+    }
 
     let body: string;
     let status: WorkerStep["status"] = "succeeded";
@@ -1338,6 +1376,8 @@ const runParallel = async <T, R>(
   items: readonly T[],
   runOne: (item: T) => Promise<R>,
   onResult: (result: R) => Promise<void>,
+  concurrencyLimit: number,
+  shouldContinue: () => Promise<boolean>,
 ): Promise<R[]> => {
   let sideEffectQueue: Promise<void> = Promise.resolve();
   const processResult = async (result: R): Promise<void> => {
@@ -1345,15 +1385,25 @@ const runParallel = async <T, R>(
     sideEffectQueue = next.catch(() => {});
     await next;
   };
-  const results = await Promise.all(
-    items.map(async (item) => {
-      const result = await runOne(item);
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const runLane = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      if (!(await shouldContinue())) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      const result = await runOne(items[index]!);
       await processResult(result);
-      return result;
-    }),
+      results[index] = result;
+    }
+  };
+  const laneCount = Math.min(
+    items.length,
+    Math.max(1, Math.trunc(concurrencyLimit)),
   );
+  await Promise.all(Array.from({ length: laneCount }, () => runLane()));
   await sideEffectQueue;
-  return results;
+  return results.filter((result): result is R => result !== undefined);
 };
 
 const roleBody = (role: WorkerRole): string => {
@@ -1538,6 +1588,7 @@ const toProposedActionDetails = (
       },
     };
   }
+  if (raw.type === "file_delete") return { type: "file_delete", fileDelete: { path: raw.path } };
   if (raw.type === "file_patch") {
     return {
       type: "file_patch",
@@ -1594,8 +1645,8 @@ const shortRationale = (
   const head =
     action.type === "file_write"
       ? `file_write ${action.path}`
-      : action.type === "file_patch"
-        ? `file_patch ${action.path}`
+      : action.type === "file_patch" || action.type === "file_delete"
+        ? `${action.type} ${action.path}`
       : `shell ${action.command.slice(0, 80)}`;
   return `${workerTitle}: ${head} — ${action.rationale.slice(0, 160)}`;
 };

@@ -12,6 +12,7 @@ import {
 
 test("Codex model and reasoning catalogs expose only supported choices", () => {
   assert.deepEqual([...CODEX_MODELS], [
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -51,6 +52,7 @@ test("DEFAULT_HARNESS_SETTINGS is frozen (immutable)", () => {
 
 test("DEFAULT_HARNESS_SETTINGS has expected orchestration defaults", () => {
   assert.equal(DEFAULT_HARNESS_SETTINGS.orchestration.enabled, false);
+  assert.equal(DEFAULT_HARNESS_SETTINGS.orchestration.maxParallelWorkers, 3);
 });
 
 test("DEFAULT_HARNESS_SETTINGS leaves activeAgentProfileId undefined", () => {

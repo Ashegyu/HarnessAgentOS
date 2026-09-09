@@ -5,6 +5,7 @@ import type {
 import type { LocalStateService } from "@harness/storage";
 import { computeReward } from "./reward-evaluator.ts";
 import { redactSecrets } from "./redact-secrets.ts";
+import { deriveProjectKey } from "./project-key.ts";
 
 /**
  * Phase 6 trace recorder. Wraps LocalStateService so the rest of the
@@ -24,7 +25,14 @@ export class TraceRecorder {
   async ensureTrace(taskRunId: string): Promise<LearningTrace> {
     const existing = await this.deps.state.getLearningTraceByTaskRun(taskRunId);
     if (existing) return existing;
-    return this.deps.state.createLearningTrace({ taskRunId });
+    const taskRun = await this.deps.state.getTaskRun(taskRunId);
+    if (!taskRun) {
+      throw new Error(`TaskRun ${taskRunId} not found`);
+    }
+    return this.deps.state.createLearningTrace({
+      taskRunId,
+      projectKey: await deriveProjectKey({ targetDir: taskRun.targetDir }),
+    });
   }
 
   async recordSelection(input: {
@@ -34,10 +42,20 @@ export class TraceRecorder {
   }): Promise<LearningTrace> {
     const trace = await this.ensureTrace(input.taskRunId);
     const patch: Parameters<typeof this.deps.state.updateLearningTrace>[1] = {};
-    if (input.selectedModel !== undefined)
+    if (input.selectedModel !== undefined) {
       patch.selectedModel = input.selectedModel;
-    if (input.selectedCapabilities !== undefined)
-      patch.selectedCapabilities = input.selectedCapabilities;
+      patch.selectedModels = [
+        ...new Set([...(trace.selectedModels ?? []), input.selectedModel]),
+      ].sort((left, right) => left.localeCompare(right));
+    }
+    if (input.selectedCapabilities !== undefined) {
+      patch.selectedCapabilities = [
+        ...new Set([
+          ...trace.selectedCapabilities,
+          ...input.selectedCapabilities,
+        ]),
+      ].sort((left, right) => left.localeCompare(right));
+    }
     return this.deps.state.updateLearningTrace(trace.id, patch);
   }
 

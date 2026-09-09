@@ -22,6 +22,7 @@ export const isHarnessError = (value: unknown): value is HarnessError => {
 
 // Phase 0
 export const APP_RUNTIME_UNAVAILABLE = "APP_RUNTIME_UNAVAILABLE" as const;
+export const APP_CLIPBOARD_WRITE_FAILED = "APP_CLIPBOARD_WRITE_FAILED" as const;
 export const IPC_CHANNEL_NOT_ALLOWED = "IPC_CHANNEL_NOT_ALLOWED" as const;
 export const IPC_INVALID_PAYLOAD = "IPC_INVALID_PAYLOAD" as const;
 
@@ -142,6 +143,7 @@ export const ORCH_PLAN_NOT_FOUND = ORCHESTRATION_PLAN_NOT_FOUND;
 // Phase 8 - agent namespace
 export const AGENT_SPAWN_FAILED = "AGENT_SPAWN_FAILED" as const;
 export const AGENT_CANCELLED = "AGENT_CANCELLED" as const;
+export const AGENT_BUDGET_UNVERIFIABLE = "AGENT_BUDGET_UNVERIFIABLE" as const;
 export const AGENT_STALL = "AGENT_STALL" as const;
 export const AGENT_TIMEOUT = "AGENT_TIMEOUT" as const;
 export const AGENT_INVALID_OUTPUT = "AGENT_INVALID_OUTPUT" as const;
@@ -155,6 +157,10 @@ export const AGENT_INVOCATION_NOT_FOUND =
 export const AGENT_TASK_RUN_NOT_FOUND = "AGENT_TASK_RUN_NOT_FOUND" as const;
 export const AGENT_MODE_MISMATCH = "AGENT_MODE_MISMATCH" as const;
 export const AGENT_INVOCATION_BUSY = "AGENT_INVOCATION_BUSY" as const;
+
+// Task contract enforcement and read-only CLI capability preflight.
+export const TASK_CONTRACT_ACTION_BLOCKED = "TASK_CONTRACT_ACTION_BLOCKED" as const;
+export const TASK_CONTRACT_PREFLIGHT_FAILED = "TASK_CONTRACT_PREFLIGHT_FAILED" as const;
 
 // Detailed-settings (Phase 3) — see docs/design/agent-detailed-settings.md.
 export const AGENT_PROFILE_NOT_FOUND = "AGENT_PROFILE_NOT_FOUND" as const;

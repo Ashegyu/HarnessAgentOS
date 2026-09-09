@@ -30,6 +30,49 @@ test("SettingsRepository returns DEFAULT_HARNESS_SETTINGS when no row exists", a
     assert.equal(settings.agent.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
     assert.equal(settings.agent.stallTimeoutMs, DEFAULT_AGENT_STALL_TIMEOUT_MS);
     assert.equal(settings.agent.contextDepth, 5);
+    assert.equal(settings.ui.language, "ko");
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("harness_settings");
+    assert.equal(JSON.parse(row.value).ui.language, "ko");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository persists the UI language and normalizes malformed values", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    const current = await repo.get();
+    const updated = await repo.update({ ...current, ui: { language: "en" } });
+    assert.equal(updated.ui.language, "en");
+    assert.equal((await repo.get()).ui.language, "en");
+
+    db.prepare("UPDATE settings SET value = ? WHERE key = ?").run(
+      JSON.stringify({ ...current, ui: { language: "invalid" } }),
+      "harness_settings",
+    );
+    assert.equal((await repo.get()).ui.language, "ko");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository persists the Korean UI default into legacy DB rows", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)").run(
+      "harness_settings",
+      JSON.stringify({ agent: { provider: "codex" } }),
+    );
+
+    assert.equal((await repo.get()).ui.language, "ko");
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get("harness_settings");
+    assert.equal(JSON.parse(row.value).ui.language, "ko");
   } finally {
     closeDb(db);
     t.cleanup();
@@ -189,6 +232,57 @@ test("SettingsRepository defaults Codex runtime options when missing", async () 
     const retrieved = await repo.get();
     assert.equal(retrieved.agent.codexWorkspaceWrite, false);
     assert.equal(retrieved.agent.codexAutoReview, false);
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository round-trips GPT-6 Astra selections", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    const current = await repo.get();
+    const updated = await repo.update({
+      ...current,
+      agent: { ...current.agent, model: "gpt-6-astra" },
+    });
+
+    assert.equal(updated.agent.model, "gpt-6-astra");
+    assert.equal((await repo.get()).agent.model, "gpt-6-astra");
+  } finally {
+    closeDb(db);
+    t.cleanup();
+  }
+});
+
+test("SettingsRepository defaults and clamps the parallel worker limit", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  try {
+    const repo = new SqliteSettingsRepository(db);
+    db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)")
+      .run("harness_settings", JSON.stringify({
+        agent: { provider: "codex", timeoutMs: 300_000, stallTimeoutMs: 60_000, model: "", contextDepth: 5 },
+        orchestration: { maxParallelWorkers: 99 },
+      }));
+    assert.equal((await repo.get()).orchestration.maxParallelWorkers, 8);
+    const normalizedRow = db
+      .prepare("SELECT value FROM settings WHERE key = ?")
+      .get("harness_settings");
+    assert.equal(
+      JSON.parse(normalizedRow.value).orchestration.maxParallelWorkers,
+      8,
+      "normalized concurrency limit is persisted back to SQLite",
+    );
+
+    const current = await repo.get();
+    const updated = await repo.update({
+      ...current,
+      orchestration: { ...current.orchestration, maxParallelWorkers: 0 },
+    });
+    assert.equal(updated.orchestration.maxParallelWorkers, 1);
   } finally {
     closeDb(db);
     t.cleanup();

@@ -8,6 +8,24 @@ const { ApprovalPanel } = await import("./ApprovalPanel.tsx");
 
 const now = "2026-05-20T00:00:00.000Z";
 
+test("manual risk confirmation is required before enabling the approval button", () => {
+  const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
+    approvals: [{ id: "a", taskRunId: "t", checkpointId: "c", actionType: "shell", status: "pending",
+      actionSummary: "run test", proposedAction: { type: "shell", shellCommand: { command: "node --test" } } }],
+    taskRunTargetDir: "C:\\repo", pipelineAutoLaunched: false,
+  }));
+  assert.match(html, /<button[^>]*disabled=""[^>]*>승인 후 실행<\/button>/);
+});
+
+test("an executable file proposal explains that approval also starts execution", () => {
+  const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
+    approvals: [{ id: "a", taskRunId: "t", checkpointId: "c", actionType: "file_write", status: "pending",
+      actionSummary: "report", proposedAction: { type: "file_write", filePatch: { path: "report.html", after: "report" } } }],
+    taskRunTargetDir: "C:\\repo", pipelineAutoLaunched: false,
+  }));
+  assert.match(html, /승인 후 실행/);
+});
+
 test("ApprovalPanel renders detailed A2A refinement approval metadata", () => {
   const html = renderToStaticMarkup(
     React.createElement(ApprovalPanel, {

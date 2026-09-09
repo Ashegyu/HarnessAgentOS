@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentInvocation,
+  AgentProviderStatusMap,
   Approval,
+  Artifact,
   TaskRun,
   ThreadDetail,
   Step,
@@ -30,6 +32,8 @@ import {
   orderedAgentInvocationsForDisplay,
 } from "./agent-invocation-display";
 import { WorkbenchIcon } from "./WorkbenchIcon";
+import { useI18n } from "../../app/i18n";
+import { orchestrationWorkerCountFromArtifacts } from "./agent-topology-model";
 
 type DetailState =
   | { kind: "idle" }
@@ -44,6 +48,7 @@ interface ConversationWorkbenchProps {
   onDeleteTask: (id: string) => Promise<void>;
   onCreateTask: (input: {
     userRequest: string;
+    intent?: import("@harness/core").TaskIntent;
     targetDir?: string;
     mode: ConversationMode;
     followUpTaskRunId?: string;
@@ -65,6 +70,7 @@ interface ConversationWorkbenchProps {
    */
   threadPipelineId: string | undefined;
   agentAvailable: boolean;
+  onCheckProviders?: () => Promise<AgentProviderStatusMap | null>;
   contextDrawerOpen: boolean;
   onToggleContextDrawer: () => void;
   pendingApprovalCount: number;
@@ -82,6 +88,7 @@ interface ConversationWorkbenchProps {
    * before the worker step starts in pipeline mode).
    */
   activeTaskRunInvocations: AgentInvocation[];
+  activeTaskRunArtifacts: Artifact[];
   agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
 }
 
@@ -139,6 +146,7 @@ export const ConversationWorkbench = ({
   threadId,
   threadPipelineId,
   agentAvailable,
+  onCheckProviders,
   contextDrawerOpen,
   onToggleContextDrawer,
   pendingApprovalCount,
@@ -149,6 +157,7 @@ export const ConversationWorkbench = ({
   activeTaskRun,
   activeTaskRunSteps,
   activeTaskRunInvocations,
+  activeTaskRunArtifacts,
   agentProgressByTaskRunId,
 }: ConversationWorkbenchProps): JSX.Element => {
   const [composerSeed, setComposerSeed] = useState<
@@ -223,6 +232,7 @@ export const ConversationWorkbench = ({
         activeTaskRunId={activeTaskRunId}
         activeTaskRunApprovals={activeTaskRunApprovals}
         activeTaskRunInvocations={activeTaskRunInvocations}
+        activeTaskRunArtifacts={activeTaskRunArtifacts}
         agentProgressByTaskRunId={agentProgressByTaskRunId}
         autoApprove={autoApprove}
         contextDrawerOpen={contextDrawerOpen}
@@ -237,6 +247,7 @@ export const ConversationWorkbench = ({
         threadTargetDir={threadTargetDir}
         threadPipelineId={threadPipelineId}
         agentAvailable={agentAvailable}
+        {...(onCheckProviders ? { onCheckProviders } : {})}
         composerSeed={composerSeed}
         followUpTaskRun={followUpTaskRun}
         onSubmit={onCreateTask}
@@ -300,6 +311,7 @@ const ChatTranscript = ({
   activeTaskRunId,
   activeTaskRunApprovals,
   activeTaskRunInvocations,
+  activeTaskRunArtifacts,
   agentProgressByTaskRunId,
   autoApprove,
   contextDrawerOpen,
@@ -317,6 +329,7 @@ const ChatTranscript = ({
   activeTaskRunSteps: Step[];
   activeTaskRunApprovals: Approval[];
   activeTaskRunInvocations: AgentInvocation[];
+  activeTaskRunArtifacts: Artifact[];
   agentProgressByTaskRunId: Record<string, AgentProgressItem[]>;
   autoApprove: boolean;
   contextDrawerOpen: boolean;
@@ -333,6 +346,10 @@ const ChatTranscript = ({
   const displayInvocations = useMemo(
     () => orderedAgentInvocationsForDisplay(activeTaskRunInvocations),
     [activeTaskRunInvocations],
+  );
+  const orchestrationWorkerCount = useMemo(
+    () => orchestrationWorkerCountFromArtifacts(activeTaskRunArtifacts),
+    [activeTaskRunArtifacts],
   );
   const latestInvocation = displayInvocations[displayInvocations.length - 1];
 
@@ -379,6 +396,7 @@ const ChatTranscript = ({
             onSelect={() => onSelectTaskRun(tr.id)}
             onDelete={() => void onDeleteTask(tr.id)}
             invocations={isActive ? displayInvocations : []}
+            orchestrationWorkerCount={isActive ? orchestrationWorkerCount : 0}
             steps={isActive ? activeTaskRunSteps : []}
             approvals={isActive ? activeTaskRunApprovals : []}
             progress={agentProgressByTaskRunId[tr.id] ?? []}
@@ -466,6 +484,7 @@ const ChatTurn = ({
   onSelect,
   onDelete,
   invocations,
+  orchestrationWorkerCount,
   steps,
   approvals,
   progress,
@@ -478,12 +497,14 @@ const ChatTurn = ({
   onSelect: () => void;
   onDelete: () => void;
   invocations: readonly AgentInvocation[];
+  orchestrationWorkerCount: number;
   steps: readonly Step[];
   approvals: readonly Approval[];
   progress: readonly AgentProgressItem[];
   threadLink: ChatTurnThreadLink;
   inlineApprovalCard: JSX.Element | null;
 }): JSX.Element => {
+  const { tk } = useI18n();
   // When this turn has a live invocation we render the streaming view
   // INSIDE the agent bubble's body. This keeps the chat-turn structure
   // intact (one user bubble + one agent bubble + inline approval card)
@@ -498,6 +519,22 @@ const ChatTurn = ({
       ? displayInvocations[displayInvocations.length - 1]
       : undefined;
   const hasInvocation = displayInvocations.length > 0;
+  const runningInvocationCount = displayInvocations.filter(
+    (invocation) => invocation.status === "running",
+  ).length;
+  const explicitQueuedInvocationCount = displayInvocations.filter(
+    (invocation) => invocation.status === "queued",
+  ).length;
+  const queuedInvocationCount =
+    explicitQueuedInvocationCount +
+    Math.max(0, orchestrationWorkerCount - displayInvocations.length);
+  const parallelWorkerTotal = Math.max(
+    orchestrationWorkerCount,
+    displayInvocations.length,
+  );
+  const showParallelStatus =
+    parallelWorkerTotal > 1 &&
+    runningInvocationCount + queuedInvocationCount > 0;
   const hasFinalAnswer = answer !== undefined && answer.length > 0;
   const statusBadge = deriveChatTurnStatusBadge({
     taskRunStatus: taskRun.status,
@@ -509,7 +546,10 @@ const ChatTurn = ({
   return (
     <div
       className={`chat-turn${isSelected ? " chat-turn--selected" : ""}`}
-      onClick={onSelect}
+      onClick={() => {
+        if (window.getSelection()?.isCollapsed === false) return;
+        onSelect();
+      }}
     >
       {threadLink.total > 1 ? (
         <div className="chat-turn__thread-link" aria-label="Thread task links">
@@ -546,6 +586,7 @@ const ChatTurn = ({
         <div className="chat-bubble__body">{taskRun.userRequest}</div>
         <div className="chat-bubble__meta">
           <span>{formatTime(taskRun.createdAt)}</span>
+          {taskRun.contract?.authorization.mode === "read_only" && <span>읽기 전용</span>}
           <button
             type="button"
             className="chat-bubble__delete"
@@ -570,6 +611,25 @@ const ChatTurn = ({
             // lives in the right panel's Plan tab, so duplicating it
             // here would just confuse "which one is canonical?".
             <div className="inline-agent-stream-stack">
+              {showParallelStatus ? (
+                <div
+                  className="parallel-execution-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span>
+                    {tk("parallel.running", {
+                      running: runningInvocationCount,
+                      total: parallelWorkerTotal,
+                    })}
+                  </span>
+                  {queuedInvocationCount > 0 ? (
+                    <span>
+                      {tk("parallel.queued", { queued: queuedInvocationCount })}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               {displayInvocations.map((invocation, index) => (
                 <section
                   key={invocation.id}

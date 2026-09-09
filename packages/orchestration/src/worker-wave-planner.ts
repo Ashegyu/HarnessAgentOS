@@ -19,7 +19,7 @@ export interface WorkerWaveStepPreview {
   remoteEndpointEnabled: boolean;
   remoteEndpointTrusted: boolean;
   allowedActions: ApprovalActionType[] | null;
-  canRunReadOnlyParallel: boolean;
+  canRunParallel: boolean;
   blockers: string[];
   warnings: string[];
 }
@@ -39,6 +39,15 @@ export interface WorkerWavePlan {
   warnings: string[];
 }
 
+export interface WorkerWavePlanningOptions {
+  /**
+   * Local workers may run concurrently when their action scope is explicit
+   * and the invoker itself cannot write to the workspace. Proposed actions
+   * still cross the approval boundary after every response completes.
+   */
+  allowApprovalGatedLocalParallelism?: boolean;
+}
+
 const READ_ONLY_PARALLEL_ROLES = new Set<string>([
   "planner",
   "orchestrator",
@@ -51,6 +60,7 @@ const READ_ONLY_PARALLEL_ROLES = new Set<string>([
 export const planWorkerWaves = (
   workerSteps: readonly WorkerStep[],
   remoteEntries: readonly A2ARegistryEntry[] = [],
+  options: WorkerWavePlanningOptions = {},
 ): WorkerWavePlan => {
   const remoteById = new Map(
     remoteEntries.map((entry) => [entry.endpoint.id, entry] as const),
@@ -66,6 +76,11 @@ export const planWorkerWaves = (
     const role = step.role ?? "unknown";
     const allowedActions =
       step.allowedActions !== undefined ? [...step.allowedActions] : null;
+    const remoteEndpointId = step.remoteEndpointId?.trim() || null;
+    const canUseApprovalGatedLocalParallelism =
+      options.allowApprovalGatedLocalParallelism === true &&
+      allowedActions !== null &&
+      remoteEndpointId === null;
     const dependencyIds = dependencyById.get(step.id) ?? [];
     const blockers: string[] = [];
     const warnings: string[] = [];
@@ -73,12 +88,18 @@ export const planWorkerWaves = (
     if (allowedActions === null) {
       blockers.push("Allowed Actions default prevents read-only parallel wave");
       warnings.push("Allowed Actions are not explicit");
-    } else if (allowedActions.length > 0) {
+    } else if (
+      allowedActions.length > 0 &&
+      !canUseApprovalGatedLocalParallelism
+    ) {
       blockers.push(
         `side-effect proposals are allowed (${allowedActions.join(", ")})`,
       );
     }
-    if (!READ_ONLY_PARALLEL_ROLES.has(role)) {
+    if (
+      !READ_ONLY_PARALLEL_ROLES.has(role) &&
+      !canUseApprovalGatedLocalParallelism
+    ) {
       blockers.push(`${role} role is not read-only parallel eligible`);
     }
     for (const depId of dependencyIds) {
@@ -87,7 +108,6 @@ export const planWorkerWaves = (
       }
     }
 
-    const remoteEndpointId = step.remoteEndpointId?.trim() || null;
     const remoteEntry =
       remoteEndpointId !== null ? remoteById.get(remoteEndpointId) : undefined;
     let remoteEndpointLabel = "Local CLI";
@@ -121,7 +141,7 @@ export const planWorkerWaves = (
       remoteEndpointEnabled,
       remoteEndpointTrusted,
       allowedActions,
-      canRunReadOnlyParallel: blockers.length === 0,
+      canRunParallel: blockers.length === 0,
       blockers,
       warnings,
     };
@@ -161,7 +181,7 @@ const buildWavePlan = (
             ...step.blockers,
             "dependency cycle prevents wave assignment",
           ],
-          canRunReadOnlyParallel: false,
+          canRunParallel: false,
         }));
       waves.push(buildWave(waves.length, blocked));
       break;
@@ -189,7 +209,7 @@ const buildWave = (
   );
   const hasDefaultActions = steps.some((step) => step.allowedActions === null);
   const parallelizable =
-    steps.length > 1 && steps.every((step) => step.canRunReadOnlyParallel);
+    steps.length > 1 && steps.every((step) => step.canRunParallel);
   const warnings: string[] = [];
   if (hasSideEffects) {
     warnings.push("wave contains side-effect proposals");

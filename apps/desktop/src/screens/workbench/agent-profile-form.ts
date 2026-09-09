@@ -253,7 +253,7 @@ export const validateDraft = (
   if (!isCodexModel(draft.model)) {
     errors.push({
       field: "model",
-      message: "지원되는 Codex 5.6 모델을 선택해야 합니다",
+      message: "지원되는 Codex 모델을 선택해야 합니다",
     });
   }
   if (

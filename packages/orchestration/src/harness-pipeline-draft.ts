@@ -102,9 +102,8 @@ export const convertHarnessWorkflowToPipelineDraft = (
       instruction: buildPipelineInstruction(input.definition, workflow, step),
       expectedArtifactKinds,
       dependsOn: [...step.dependsOn],
-      ...(step.allowedActions.length > 0
-        ? { allowedActions: [...step.allowedActions] }
-        : {}),
+      // Empty means read-only; omission means the worker's default permissions.
+      allowedActions: [...step.allowedActions],
       outputContract: step.outputContract,
       source: buildStepSourceMetadata(input.definition, workflow, step),
     });

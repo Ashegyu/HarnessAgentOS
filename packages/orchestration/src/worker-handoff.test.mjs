@@ -48,6 +48,13 @@ const payload = {
   nextActions: ["Wire the parsed payload into InternalAgentMessage."],
 };
 
+test('worker handoff preserves single-file delete proposals without granting consent', () => {
+  const proposedActions = [{type:'file_delete',path:'obsolete.txt',rationale:'requested removal'}];
+  const result = parseWorkerHandoffPayload(formatWorkerHandoffPayload({...payload,proposedActions}));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.proposedActions, proposedActions);
+});
+
 test("formatWorkerHandoffPayload emits a fenced JSON payload that parses back", () => {
   const rendered = formatWorkerHandoffPayload(payload);
 

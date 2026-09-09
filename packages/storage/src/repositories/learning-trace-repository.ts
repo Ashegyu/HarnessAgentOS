@@ -11,7 +11,7 @@ import { newId, nowIso } from "../id.ts";
 
 export interface LearningTraceRepository {
   /** Create a fresh trace row keyed by taskRunId. */
-  create(input: { taskRunId: string }): Promise<LearningTrace>;
+  create(input: { taskRunId: string; projectKey?: string }): Promise<LearningTrace>;
   /** Patch an existing trace; ignores fields that are undefined. */
   update(id: string, patch: LearningTracePatch): Promise<LearningTrace>;
   get(id: string): Promise<LearningTrace | null>;
@@ -34,7 +34,9 @@ export interface LearningTraceRepository {
 interface LearningTraceRow {
   id: string;
   task_run_id: string;
+  project_key: string | null;
   selected_model: string | null;
+  selected_models_json: string;
   selected_capabilities_json: string;
   reward: number | null;
   cost_estimate: number | null;
@@ -62,17 +64,28 @@ interface ProfileDayAggregateRow {
 
 const rowToTrace = (r: LearningTraceRow): LearningTrace => {
   let selectedCapabilities: string[] = [];
+  let selectedModels: string[] = [];
   try {
     selectedCapabilities = JSON.parse(r.selected_capabilities_json) as string[];
   } catch {
     selectedCapabilities = [];
   }
+  try {
+    selectedModels = JSON.parse(r.selected_models_json) as string[];
+  } catch {
+    selectedModels = [];
+  }
+  if (selectedModels.length === 0 && r.selected_model !== null) {
+    selectedModels = [r.selected_model];
+  }
   const t: LearningTrace = {
     id: r.id,
     taskRunId: r.task_run_id,
     selectedCapabilities,
+    selectedModels,
     createdAt: r.created_at,
   };
+  if (r.project_key !== null) t.projectKey = r.project_key;
   if (r.selected_model !== null) t.selectedModel = r.selected_model;
   if (r.reward !== null) t.reward = r.reward;
   if (r.cost_estimate !== null) t.costEstimate = r.cost_estimate;
@@ -91,22 +104,26 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
 
   }
 
-  async create(input: { taskRunId: string }): Promise<LearningTrace> {
+  async create(input: { taskRunId: string; projectKey?: string }): Promise<LearningTrace> {
     const trace: LearningTrace = {
       id: newId("learningTrace"),
       taskRunId: input.taskRunId,
       selectedCapabilities: [],
+      selectedModels: [],
       createdAt: nowIso(),
     };
+    if (input.projectKey !== undefined) trace.projectKey = input.projectKey;
     this.db
       .prepare(
-        `INSERT INTO learning_traces(id, task_run_id, selected_model, selected_capabilities_json,
-            reward, cost_estimate, latency_ms, success, failure_reason, created_at)
-         VALUES(@id, @taskRunId, NULL, @selectedCapabilitiesJson, NULL, NULL, NULL, NULL, NULL, @createdAt)`,
+        `INSERT INTO learning_traces(id, task_run_id, project_key, selected_model, selected_models_json, selected_capabilities_json,
+            reward, cost_estimate, latency_ms, success, failure_reason, created_at, updated_at)
+         VALUES(@id, @taskRunId, @projectKey, NULL, @selectedModelsJson, @selectedCapabilitiesJson, NULL, NULL, NULL, NULL, NULL, @createdAt, @createdAt)`,
       )
       .run({
         id: trace.id,
         taskRunId: trace.taskRunId,
+        projectKey: trace.projectKey ?? null,
+        selectedModelsJson: JSON.stringify(trace.selectedModels),
         selectedCapabilitiesJson: JSON.stringify(trace.selectedCapabilities),
         createdAt: trace.createdAt,
       });
@@ -119,6 +136,8 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
     const next: LearningTrace = { ...existing };
     if (patch.selectedModel !== undefined)
       next.selectedModel = patch.selectedModel;
+    if (patch.selectedModels !== undefined)
+      next.selectedModels = patch.selectedModels;
     if (patch.selectedCapabilities !== undefined)
       next.selectedCapabilities = patch.selectedCapabilities;
     if (patch.reward !== undefined) next.reward = patch.reward;
@@ -131,17 +150,20 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
       .prepare(
         `UPDATE learning_traces SET
             selected_model = @selectedModel,
+            selected_models_json = @selectedModelsJson,
             selected_capabilities_json = @selectedCapabilitiesJson,
             reward = @reward,
             cost_estimate = @costEstimate,
             latency_ms = @latencyMs,
             success = @success,
             failure_reason = @failureReason
+            , updated_at = @updatedAt
           WHERE id = @id`,
       )
       .run({
         id: next.id,
         selectedModel: next.selectedModel ?? null,
+        selectedModelsJson: JSON.stringify(next.selectedModels ?? []),
         selectedCapabilitiesJson: JSON.stringify(next.selectedCapabilities),
         reward: next.reward ?? null,
         costEstimate: next.costEstimate ?? null,
@@ -149,6 +171,7 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
         success:
           next.success === undefined ? null : next.success ? 1 : 0,
         failureReason: next.failureReason ?? null,
+        updatedAt: nowIso(),
       });
     return next;
   }
@@ -156,7 +179,7 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
   async get(id: string): Promise<LearningTrace | null> {
     const row = this.db
       .prepare(
-        `SELECT id, task_run_id, selected_model, selected_capabilities_json,
+        `SELECT id, task_run_id, project_key, selected_model, selected_models_json, selected_capabilities_json,
                 reward, cost_estimate, latency_ms, success, failure_reason, created_at
          FROM learning_traces WHERE id = ?`,
       )
@@ -167,7 +190,7 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
   async getByTaskRun(taskRunId: string): Promise<LearningTrace | null> {
     const row = this.db
       .prepare(
-        `SELECT id, task_run_id, selected_model, selected_capabilities_json,
+        `SELECT id, task_run_id, project_key, selected_model, selected_models_json, selected_capabilities_json,
                 reward, cost_estimate, latency_ms, success, failure_reason, created_at
          FROM learning_traces WHERE task_run_id = ?
          ORDER BY datetime(created_at) DESC, rowid DESC LIMIT 1`,
@@ -179,7 +202,7 @@ export class SqliteLearningTraceRepository implements LearningTraceRepository {
   async list(): Promise<LearningTrace[]> {
     const rows = this.db
       .prepare(
-        `SELECT id, task_run_id, selected_model, selected_capabilities_json,
+        `SELECT id, task_run_id, project_key, selected_model, selected_models_json, selected_capabilities_json,
                 reward, cost_estimate, latency_ms, success, failure_reason, created_at
          FROM learning_traces
          ORDER BY datetime(created_at) DESC, rowid DESC`,

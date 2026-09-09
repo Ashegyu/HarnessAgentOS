@@ -24,12 +24,19 @@ export const summarizeModelPerformance = (
 ): ModelStat[] => {
   const buckets = new Map<string, { total: number; count: number }>();
   for (const t of traces) {
-    if (!t.selectedModel) continue;
     if (typeof t.reward !== "number") continue;
-    const cur = buckets.get(t.selectedModel) ?? { total: 0, count: 0 };
-    cur.total += t.reward;
-    cur.count += 1;
-    buckets.set(t.selectedModel, cur);
+    const models =
+      (t.selectedModels?.length ?? 0) > 0
+        ? t.selectedModels ?? []
+        : t.selectedModel
+          ? [t.selectedModel]
+          : [];
+    for (const model of new Set(models)) {
+      const cur = buckets.get(model) ?? { total: 0, count: 0 };
+      cur.total += t.reward;
+      cur.count += 1;
+      buckets.set(model, cur);
+    }
   }
   const out: ModelStat[] = [];
   for (const [model, { total, count }] of buckets) {

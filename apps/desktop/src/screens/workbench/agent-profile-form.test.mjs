@@ -123,7 +123,7 @@ test("validateDraft accepts every supported Codex reasoning effort", () => {
   }
 });
 
-test("validateDraft rejects models outside the Codex 5.6 catalog", () => {
+test("validateDraft rejects models outside the Codex catalog", () => {
   const d = emptyDraft();
   d.name = "Legacy model";
   d.model = "unsupported-model";

@@ -32,7 +32,7 @@ export const deriveChatTurnDisplayStatus = ({
   if (invocationStatus !== "succeeded") return taskRunStatus;
   return approvals?.some((approval) => approval.status === "pending")
     ? "waiting_for_approval"
-    : "ready_for_review";
+    : taskRunStatus;
 };
 
 export const deriveChatTurnStatusBadge = (input: {
@@ -42,15 +42,6 @@ export const deriveChatTurnStatusBadge = (input: {
   hasFinalAnswer: boolean;
 }): ChatTurnStatusBadge => {
   const status = deriveChatTurnDisplayStatus(input);
-  if (
-    status === "ready_for_review" &&
-    (input.hasFinalAnswer || input.invocationStatus === "succeeded")
-  ) {
-    return {
-      status,
-      label: "실행 완료",
-      kind: "success",
-    };
-  }
+  // Only the host's evidence-backed done state means task completion.
   return { status };
 };
