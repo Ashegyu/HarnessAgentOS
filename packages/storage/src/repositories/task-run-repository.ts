@@ -12,7 +12,7 @@ export interface TaskRunRepository {
   create(input: CreateTaskRunInput): Promise<TaskRun>;
   listByThread(threadId: string): Promise<TaskRun[]>;
   get(id: string): Promise<TaskRun | null>;
-  updateStatus(id: string, status: TaskRunStatus): Promise<TaskRun>;
+  updateStatus(id: string, status: TaskRunStatus, expectedStatus?: TaskRunStatus): Promise<TaskRun>;
   setCurrentStep(id: string, stepId: string | null): Promise<TaskRun>;
   delete(id: string): Promise<void>;
 }
@@ -92,7 +92,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
     return row ? rowToTaskRun(row) : null;
   }
 
-  async updateStatus(id: string, status: TaskRunStatus): Promise<TaskRun> {
+  async updateStatus(id: string, status: TaskRunStatus, expectedStatus?: TaskRunStatus): Promise<TaskRun> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`TaskRun ${id} not found`);
     const next: TaskRun = {
@@ -100,11 +100,22 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
       status,
       updatedAt: nowIso(),
     };
-    this.db
+    const updated = this.db
       .prepare(
-        `UPDATE task_runs SET status=@status, updated_at=@updatedAt WHERE id=@id`,
+        `UPDATE task_runs SET status=@status, updated_at=@updatedAt
+         WHERE id=@id AND status=@expectedStatus`,
       )
-      .run({ id: next.id, status: next.status, updatedAt: next.updatedAt });
+      .run({ id: next.id, status: next.status, updatedAt: next.updatedAt,
+        expectedStatus: expectedStatus ?? existing.status });
+    if (updated.changes !== 1) {
+      // Independent runners may publish the same state concurrently. Treat
+      // that as idempotent without writing over a newer, different state.
+      const current = await this.get(id);
+      if (current?.status === status) return current;
+      throw Object.assign(new Error("작업 상태가 변경되었습니다. 최신 상태를 확인한 후 다시 시도하세요."), {
+        code: "TASK_RUN_STATE_CONFLICT",
+      });
+    }
     return next;
   }
 

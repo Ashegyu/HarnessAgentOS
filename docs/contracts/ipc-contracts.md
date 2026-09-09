@@ -642,6 +642,7 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
 - 모든 내부 상태 쓰기는 `LocalStateService.setTaskRunStatus`의 중앙 전이표를 통과한다. 동일 상태 재기록은 멱등이며, 허용되지 않은 전이는 `TASK_RUN_INVALID_TRANSITION`으로 거부되고 SQLite row를 변경하지 않는다.
+- 전이 검증 당시의 상태를 SQLite UPDATE 조건에 포함한다. 다른 요청이 상태를 변경했다면 덮어쓰지 않고 충돌을 반환한다. 이미 동일한 목표 상태에 도달한 요청은 추가 쓰기 없이 성공으로 처리한다.
 - 품질 게이트 결과는 비동기로 도착할 수 있으므로 모든 비종료 상태에서 `quality_failed` 또는 `ready_for_review`로 전이할 수 있다. 재작업은 `ready_for_review -> running`, 승인 기반 refinement는 `ready_for_review|done -> waiting_for_approval`을 사용한다.
 - `done`은 `ready_for_review`에서만 진입하며 `waiting_for_approval` refinement 외의 역행을 허용하지 않는다. `cancelled`는 terminal 상태다.
 
