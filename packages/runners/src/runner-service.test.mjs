@@ -250,6 +250,27 @@ test("cancelExecution during approval claim waits for cleanup and prevents shell
   assert.equal(runner.getInflightCount(), 0);
 });
 
+test("cancelExecution reports unconfirmed termination without replacing persisted cancellation", async () => {
+  const harness = fakeRunnerHarness();
+  let started = false;
+  const runner = new RunnerService({ state: harness.state, artifactStore: harness.artifactStore,
+    shellRunner: { run: async ({ signal }) => new Promise((_, reject) => {
+      started = true;
+      signal.addEventListener("abort", () => reject(Object.assign(new Error("termination unconfirmed"), {
+        code: "RUNNER_TERMINATION_UNCONFIRMED",
+      })), { once: true });
+    }) } });
+  const result = runner.executeApproved(harness.approval.id).catch(error => error);
+  await waitUntil(() => started, "shell did not start");
+  harness.taskRun.status = "cancelled";
+  await assert.rejects(runner.cancelExecution({ taskRunId: harness.taskRun.id }),
+    error => error.code === "RUNNER_TERMINATION_UNCONFIRMED");
+  assert.equal((await result).code, "RUNNER_TERMINATION_UNCONFIRMED");
+  assert.equal(harness.taskRun.status, "cancelled");
+  assert.equal(harness.approval.executionState, "uncertain");
+  assert.equal(runner.getInflightCount(), 0);
+});
+
 test("cancelExecution returns false for a taskRun without inflight execution", async () => {
   const harness = fakeRunnerHarness();
   const runner = new RunnerService({

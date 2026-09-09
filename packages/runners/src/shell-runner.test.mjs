@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { spawn } from "node:child_process";
 import { ShellRunner } from "./shell-runner.ts";
 
 const createMockChild = () => {
@@ -64,6 +65,8 @@ test("ShellRunner abort kills the child and rejects with RUNNER_CANCELLED", asyn
     child.killCalls.includes("SIGKILL"),
     `expected SIGKILL fallback, got ${JSON.stringify(child.killCalls)}`,
   );
+  child.emit("close", null);
+  await rejected;
 });
 
 test("ShellRunner aborts a quiet process on idle timeout", async () => {
@@ -82,8 +85,6 @@ test("ShellRunner aborts a quiet process on idle timeout", async () => {
       }),
     /idle timed out after 50ms/,
   );
-  child.emit("close", null);
-  await rejected;
 });
 
 test("ShellRunner cancellation waits for close and tree cleanup before settling", async () => {
@@ -118,6 +119,60 @@ test("ShellRunner reports unconfirmed termination when close never arrives", asy
   const run = runner.run({ command: "mock", cwd: process.cwd(), signal: controller.signal });
   controller.abort();
   await assert.rejects(run, error => error.code === "RUNNER_TERMINATION_UNCONFIRMED");
+});
+
+test("ShellRunner does not treat root close as confirmed when tree cleanup fails", async () => {
+  const child = createMockChild();
+  child.pid = 12345;
+  const controller = new AbortController();
+  const runner = new ShellRunner({ spawn: () => child, terminateProcessTree: async () => {
+    child.emit("close", null);
+    throw new Error("denied");
+  } });
+  const run = runner.run({ command: "mock", cwd: process.cwd(), signal: controller.signal });
+  controller.abort();
+  await assert.rejects(run, error => error.code === "RUNNER_TERMINATION_UNCONFIRMED");
+});
+
+test("Windows ShellRunner cancellation stops its descendant and leaves an unrelated process alive", {
+  skip: process.platform !== "win32", timeout: 20_000,
+}, async () => {
+  const controller = new AbortController();
+  const sibling = spawn(process.execPath, ["-e", "setTimeout(()=>{},15000)"], { windowsHide: true, stdio: "ignore" });
+  let descendantPid;
+  let root;
+  let ready;
+  const started = new Promise(resolve => { ready = resolve; });
+  const runner = new ShellRunner({ spawn: (...args) => {
+    root = spawn(...args);
+    let output = "";
+    root.stdout.on("data", chunk => {
+      output += chunk;
+      if (output.includes("\n")) { descendantPid = Number(output.trim()); ready(); }
+    });
+    return root;
+  } });
+  const script = "const {spawn}=require('node:child_process'); const c=spawn(process.execPath,['-e','setTimeout(()=>{},15000)'],{windowsHide:true,stdio:'ignore'}); c.on('spawn',()=>console.log(c.pid)); setTimeout(()=>{},15000);";
+  const result = runner.run({ command: process.execPath, args: ["-e", script], cwd: process.cwd(), signal: controller.signal }).catch(error => error);
+  let readyTimeout;
+  try {
+    await Promise.race([started, new Promise((_, reject) => {
+      readyTimeout = setTimeout(() => reject(new Error("child did not start")), 5000);
+    })]);
+    clearTimeout(readyTimeout);
+    assert.ok(Number.isSafeInteger(descendantPid) && descendantPid > 0);
+    controller.abort();
+    assert.equal((await result).code, "RUNNER_CANCELLED");
+    assert.throws(() => process.kill(descendantPid, 0), { code: "ESRCH" });
+    assert.equal(process.kill(sibling.pid, 0), true);
+  } finally {
+    clearTimeout(readyTimeout);
+    controller.abort();
+    if (root?.exitCode === null && root?.signalCode === null) root.kill("SIGKILL");
+    if (descendantPid) { try { process.kill(descendantPid, "SIGKILL"); } catch {} }
+    sibling.kill("SIGKILL");
+    await result;
+  }
 });
 
 test("ShellRunner passes structured arguments without invoking a shell", async () => {

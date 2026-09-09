@@ -192,6 +192,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     ctx.instinctService,
     ctx.agentPlanning,
     startService,
+    ctx.runner,
   );
   registerRunnerIpc(ctx.runner, ctx.state, ctx.artifactStore, eventBus, {
     executeApprovedOverride: ({ approvalId }) =>

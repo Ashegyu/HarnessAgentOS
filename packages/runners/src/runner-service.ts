@@ -82,7 +82,11 @@ export class RunnerService {
   private readonly git: GitRunner;
   private readonly test: TestRunner;
   private readonly deps: RunnerServiceDeps;
-  private readonly inflight = new Map<string, { taskRunId: string; controller: AbortController }>();
+  private readonly inflight = new Map<string, {
+    taskRunId: string;
+    controller: AbortController;
+    finished: Promise<unknown>;
+  }>();
 
   constructor(deps: RunnerServiceDeps) {
     this.deps = deps;
@@ -139,27 +143,42 @@ export class RunnerService {
     }
     if (!approval.proposedAction) throw new RunnerError("RUNNER_EXECUTION_FAILED", "approval.proposedAction is missing");
     const token = newId("step");
-    await this.deps.state.claimApprovalExecution(approvalId, approval.actionRevision ?? 1, token);
+    if (this.inflight.has(approvalId)) throw new RunnerError("APPROVAL_CLAIM_LOCKED", "Action is already running");
+    const controller = new AbortController();
+    let finish!: (error?: unknown) => void;
+    const finished = new Promise<unknown>(resolve => { finish = resolve; });
+    this.inflight.set(approvalId, { taskRunId: approval.taskRunId, controller, finished });
+    let claimed = false;
+    let failure: unknown;
     try {
-      const result = await this.executeApprovedInternal(approvalId, { allowExecuted: false });
+      await this.deps.state.claimApprovalExecution(approvalId, approval.actionRevision ?? 1, token);
+      claimed = true;
+      const result = await this.executeApprovedInternal(approvalId, { allowExecuted: false }, controller.signal);
       await this.deps.state.finishApprovalExecution(approvalId, token, "succeeded");
       return result;
     } catch (error) {
-      await this.deps.state.finishApprovalExecution(approvalId, token, "uncertain");
+      failure = error;
+      if (claimed) await this.deps.state.finishApprovalExecution(approvalId, token, "uncertain");
       throw error;
+    } finally {
+      this.inflight.delete(approvalId);
+      finish(failure);
     }
   }
 
   async cancelExecution(input: {
     taskRunId: string;
   }): Promise<{ cancelled: boolean }> {
-    let cancelled = false;
+    const pending: Promise<unknown>[] = [];
     for (const execution of this.inflight.values()) {
       if (execution.taskRunId !== input.taskRunId) continue;
       execution.controller.abort();
-      cancelled = true;
+      pending.push(execution.finished);
     }
-    return { cancelled };
+    const outcomes = await Promise.all(pending);
+    const unconfirmed = outcomes.find(error => errorCodeOf(error) === "RUNNER_TERMINATION_UNCONFIRMED");
+    if (unconfirmed) throw unconfirmed;
+    return { cancelled: pending.length > 0 };
   }
 
   getInflightCount(): number {
@@ -169,6 +188,7 @@ export class RunnerService {
   private async executeApprovedInternal(
     approvalId: string,
     options: { allowExecuted: boolean },
+    signal: AbortSignal,
   ): Promise<RunnerResult> {
     const approval = await this.deps.state.getApproval(approvalId);
     if (!approval) {
@@ -267,8 +287,6 @@ export class RunnerService {
       inputSummary: stepSummary.slice(0, 200),
     };
     const step = await this.deps.state.createStep(stepInput);
-    await this.deps.state.setTaskRunCurrentStep(taskRun.id, step.id);
-    await this.deps.state.setTaskRunStatus(taskRun.id, "running");
 
     const startedAt = nowIso();
     const result: RunnerResult = {
@@ -280,10 +298,11 @@ export class RunnerService {
       startedAt,
       finishedAt: startedAt,
     };
-    const controller = new AbortController();
-    this.inflight.set(approval.id, { taskRunId: taskRun.id, controller });
-
     try {
+      if (signal.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before side effect");
+      await this.deps.state.setTaskRunCurrentStep(taskRun.id, step.id);
+      await this.deps.state.setTaskRunStatus(taskRun.id, "running");
+      if (signal.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before side effect");
       switch (approval.actionType) {
         case "file_delete": {
           if (!this.deps.trashItem || !details.fileDelete) throw new RunnerError("RUNNER_TRASH_UNAVAILABLE", "휴지통 서비스를 사용할 수 없습니다. 영구 삭제는 하지 않습니다.");
@@ -309,7 +328,7 @@ export class RunnerService {
             step,
             details,
             result,
-            signal: controller.signal,
+            signal,
           });
           break;
         default:
@@ -338,6 +357,8 @@ export class RunnerService {
       const cancelled = isRunnerCancelled(e);
       const errorCode = e instanceof RunnerError
         ? e.code
+        : errorCodeOf(e) === "RUNNER_TERMINATION_UNCONFIRMED"
+          ? "RUNNER_TERMINATION_UNCONFIRMED"
         : "RUNNER_EXECUTION_FAILED";
       let errorArtifactId: string | undefined;
       try {
@@ -360,10 +381,10 @@ export class RunnerService {
       await this.deps.state.setStepStatus(step.id, "failed", {
         outputSummary: message.slice(0, 200),
       });
-      await this.deps.state.setTaskRunStatus(
-        taskRun.id,
-        cancelled ? "cancelled" : "blocked",
-      );
+      const currentTask = await this.deps.state.getTaskRun(taskRun.id);
+      if (currentTask?.status !== "cancelled") {
+        await this.deps.state.setTaskRunStatus(taskRun.id, cancelled ? "cancelled" : "blocked");
+      }
       if (!cancelled && errorArtifactId !== undefined) {
         await this.recordPinnedContextOutcome({
           taskRun,
@@ -379,10 +400,6 @@ export class RunnerService {
       if (cancelled) throw new RunnerError(RUNNER_CANCELLED, message);
       if (e instanceof RunnerError && e.message === message) throw e;
       throw new RunnerError(errorCode, message);
-    } finally {
-      if (this.inflight.get(approval.id)?.controller === controller) {
-        this.inflight.delete(approval.id);
-      }
     }
 
     return result;

@@ -39,6 +39,8 @@ import {
 import type { LocalStateService } from "@harness/storage";
 import type { InstinctService } from "@harness/learner";
 import type { AgentPlanningService } from "@harness/agent";
+import type { RunnerService } from "@harness/runners";
+import { cancelTaskAndExecutions } from "../services/task-cancellation";
 import type { HarnessEventBus } from "../event-bus";
 import { deriveA2ARefinementProposals } from "../a2a-refinement-proposals";
 import { parseStartTaskInput, type ConversationStartService } from "../services/conversation-start-service";
@@ -296,6 +298,7 @@ export const registerConversationIpc = (
   instinctService?: InstinctService,
   agentPlanning?: Pick<AgentPlanningService, "cancelTaskInvocations">,
   startService?: Pick<ConversationStartService, "start">,
+  runner?: Pick<RunnerService, "cancelExecution">,
 ): void => {
   ipcMain.handle(IPC_CHANNELS.conversation.startTask, async (_e, input: unknown): Promise<HarnessResult<ConversationTaskDraft>> => {
     let parsed;
@@ -829,12 +832,10 @@ export const registerConversationIpc = (
         );
       }
       try {
-        const tr = await conversation.cancelTask({
+        const tr = await cancelTaskAndExecutions({
           taskRunId: cast.taskRunId,
           reason: cast.reason,
-        });
-        await agentPlanning?.cancelTaskInvocations({ taskRunId: tr.id });
-        events.taskRunChanged(tr.id);
+        }, { conversation, agentPlanning, runner, changed: id => events.taskRunChanged(id) });
         return ok(tr);
       } catch (e) {
         return mapServiceError<TaskRun>(e);

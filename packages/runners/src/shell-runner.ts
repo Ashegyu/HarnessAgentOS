@@ -1,4 +1,5 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { win32 } from "node:path";
 import {
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
@@ -30,6 +31,8 @@ const DEFAULT_ABORT_KILL_GRACE_MS = 2_000;
 export interface ShellRunnerDeps {
   spawn?: typeof spawn;
   abortKillGraceMs?: number;
+  terminationTimeoutMs?: number;
+  terminateProcessTree?: (pid: number) => Promise<void>;
 }
 
 /**
@@ -45,11 +48,16 @@ export interface ShellRunnerDeps {
 export class ShellRunner {
   private readonly spawn: typeof spawn;
   private readonly abortKillGraceMs: number;
+  private readonly terminationTimeoutMs: number;
+  private readonly terminateProcessTree: ((pid: number) => Promise<void>) | undefined;
 
   constructor(deps: ShellRunnerDeps = {}) {
     this.spawn = deps.spawn ?? spawn;
     this.abortKillGraceMs =
       deps.abortKillGraceMs ?? DEFAULT_ABORT_KILL_GRACE_MS;
+    this.terminationTimeoutMs = deps.terminationTimeoutMs ?? 12_000;
+    this.terminateProcessTree = deps.terminateProcessTree ??
+      (process.platform === "win32" ? terminateOwnedWindowsTree : undefined);
   }
 
   async run(input: {
@@ -125,58 +133,60 @@ export class ShellRunner {
       let idleTimer: NodeJS.Timeout | undefined;
       let abortFallbackTimer: NodeJS.Timeout | undefined;
       let closed = false;
+      let terminationTimer: NodeJS.Timeout | undefined;
+      let stopping: { code: string; message: string } | undefined;
+      let treePending = false;
+      let cleanupFailed = false;
       let onAbort: () => void = () => {};
 
-      const cleanup = (options?: { clearAbortFallback?: boolean }): void => {
+      const cleanup = (): void => {
         if (hardTimer) clearTimeout(hardTimer);
         if (idleTimer) clearTimeout(idleTimer);
         input.signal?.removeEventListener("abort", onAbort);
-        if (options?.clearAbortFallback !== false && abortFallbackTimer) {
-          clearTimeout(abortFallbackTimer);
-        }
-      };
-      const terminateForAbort = (): void => {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          /* ignore */
-        }
-        abortFallbackTimer = setTimeout(() => {
-          if (closed) return;
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            /* ignore */
-          }
-        }, this.abortKillGraceMs);
+        if (abortFallbackTimer) clearTimeout(abortFallbackTimer);
+        if (terminationTimer) clearTimeout(terminationTimer);
       };
       const fail = (
         code: string,
         message: string,
-        options?: { clearAbortFallback?: boolean },
       ): void => {
         if (settled) return;
         settled = true;
-        cleanup(options);
+        cleanup();
         reject(new ShellRunnerError(code, message));
       };
-      const failExecution = (message: string): void => {
-        try {
-          child.kill();
-        } catch {
-          /* ignore */
+      const finishStop = (): void => {
+        if (!stopping || !closed || treePending) return;
+        fail(cleanupFailed ? "RUNNER_TERMINATION_UNCONFIRMED" : stopping.code,
+          cleanupFailed ? `Process tree termination could not be confirmed: ${commandDisplay}` : stopping.message);
+      };
+      const killRoot = (signal: NodeJS.Signals): void => {
+        if (closed || settled) return;
+        try { child.kill(signal); } catch { cleanupFailed = true; }
+      };
+      const stop = (code: string, message: string): void => {
+        if (settled || stopping) return;
+        stopping = { code, message };
+        cleanup();
+        terminationTimer = setTimeout(() => {
+          killRoot("SIGKILL");
+          fail("RUNNER_TERMINATION_UNCONFIRMED", `Process termination could not be confirmed: ${commandDisplay}`);
+        }, this.terminationTimeoutMs);
+        if (this.terminateProcessTree && child.pid !== undefined) {
+          treePending = true;
+          // Keep the root alive while taskkill discovers its descendants.
+          void Promise.resolve().then(() => this.terminateProcessTree!(child.pid!))
+            .catch(() => { cleanupFailed = true; killRoot("SIGKILL"); })
+            .finally(() => { treePending = false; finishStop(); });
+        } else {
+          killRoot("SIGTERM");
+          if (!closed) abortFallbackTimer = setTimeout(() => killRoot("SIGKILL"), this.abortKillGraceMs);
         }
-        fail("RUNNER_EXECUTION_FAILED", message);
       };
-      onAbort = (): void => {
-        terminateForAbort();
-        fail(
-          "RUNNER_CANCELLED",
-          `Command cancelled: ${commandDisplay}`,
-          { clearAbortFallback: false },
-        );
-      };
+      const failExecution = (message: string): void => stop("RUNNER_EXECUTION_FAILED", message);
+      onAbort = (): void => stop("RUNNER_CANCELLED", `Command cancelled: ${commandDisplay}`);
       const armIdleTimer = (): void => {
+        if (settled || stopping) return;
         if (idleTimer) clearTimeout(idleTimer);
         idleTimer = setTimeout(() => {
           failExecution(
@@ -186,6 +196,7 @@ export class ShellRunner {
       };
 
       const onStdout = (b: Buffer): void => {
+        if (settled || stopping) return;
         armIdleTimer();
         stdoutBytes += b.length;
         if (stdoutBytes < STDOUT_LIMIT) stdoutChunks.push(b);
@@ -195,6 +206,7 @@ export class ShellRunner {
         }
       };
       const onStderr = (b: Buffer): void => {
+        if (settled || stopping) return;
         armIdleTimer();
         stderrBytes += b.length;
         if (stderrBytes < STDOUT_LIMIT) stderrChunks.push(b);
@@ -203,19 +215,9 @@ export class ShellRunner {
       child.stdout?.on("data", onStdout);
       child.stderr?.on("data", onStderr);
 
-      if (input.signal) {
-        if (input.signal.aborted) onAbort();
-        else input.signal.addEventListener("abort", onAbort, { once: true });
-      }
-      if (settled) return;
-
-      hardTimer = setTimeout(() => {
-        failExecution(`Command timed out after ${timeoutMs}ms: ${commandDisplay}`);
-      }, timeoutMs);
-      armIdleTimer();
-
       child.on("error", (err) => {
         if (settled) return;
+        if (stopping) { cleanupFailed = true; return; }
         settled = true;
         cleanup();
         reject(
@@ -230,6 +232,7 @@ export class ShellRunner {
         closed = true;
         if (abortFallbackTimer) clearTimeout(abortFallbackTimer);
         if (settled) return;
+        if (stopping) { finishStop(); return; }
         settled = true;
         cleanup();
         resolveResult({
@@ -241,9 +244,29 @@ export class ShellRunner {
           durationMs: Date.now() - start,
         });
       });
+
+      // Register lifecycle listeners before an already-aborted signal can kill.
+      if (input.signal?.aborted) onAbort();
+      else input.signal?.addEventListener("abort", onAbort, { once: true });
+      if (settled || stopping) return;
+      hardTimer = setTimeout(() => {
+        failExecution(`Command timed out after ${timeoutMs}ms: ${commandDisplay}`);
+      }, timeoutMs);
+      armIdleTimer();
     });
   }
 }
+
+const terminateOwnedWindowsTree = (pid: number): Promise<void> => new Promise((resolve, reject) => {
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) {
+    reject(new Error("Invalid owned process PID"));
+    return;
+  }
+  execFile(win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe"),
+    ["/PID", String(pid), "/T", "/F"],
+    { shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 },
+    error => error ? reject(new Error("Process tree cleanup could not be confirmed")) : resolve());
+});
 
 const formatCommand = (command: string, args?: readonly string[]): string =>
   args === undefined || args.length === 0

@@ -641,6 +641,7 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 - `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`.
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
+- 취소 상태 저장 후 Agent와 Runner 취소를 모두 시도한다. 한쪽 실패가 다른 쪽 취소를 막지 않으며, 종료 처리 실패에도 변경 이벤트를 보낸다. Runner 취소는 실행 정리가 끝날 때까지 기다린다. Windows shell은 소유 PID의 프로세스 트리 종료와 `close`를 확인하며, 제한 시간 내 확인하지 못하면 `RUNNER_TERMINATION_UNCONFIRMED` 오류로 보고하고 승인 결과를 `uncertain`으로 남긴다. `cancelled` 작업 상태 자체는 OS 프로세스 종료 확인을 뜻하지 않는다.
 - 모든 내부 상태 쓰기는 `LocalStateService.setTaskRunStatus`의 중앙 전이표를 통과한다. 동일 상태 재기록은 멱등이며, 허용되지 않은 전이는 `TASK_RUN_INVALID_TRANSITION`으로 거부되고 SQLite row를 변경하지 않는다.
 - 전이 검증 당시의 상태를 SQLite UPDATE 조건에 포함한다. 다른 요청이 상태를 변경했다면 덮어쓰지 않고 충돌을 반환한다. 이미 동일한 목표 상태에 도달한 요청은 추가 쓰기 없이 성공으로 처리한다.
 - 품질 게이트 결과는 비동기로 도착할 수 있으므로 모든 비종료 상태에서 `quality_failed` 또는 `ready_for_review`로 전이할 수 있다. 재작업은 `ready_for_review -> running`, 승인 기반 refinement는 `ready_for_review|done -> waiting_for_approval`을 사용한다.
