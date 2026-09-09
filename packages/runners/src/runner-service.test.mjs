@@ -226,6 +226,30 @@ test("Runner rejects pre-approved shell execution for a read-only contract befor
   assert.deepEqual(harness.artifacts, []);
 });
 
+test("cancelExecution during approval claim waits for cleanup and prevents shell spawn", async () => {
+  const harness = fakeRunnerHarness();
+  const claim = harness.state.claimApprovalExecution;
+  let finishClaim;
+  harness.state.claimApprovalExecution = async () => {
+    await claim();
+    await new Promise(resolve => { finishClaim = resolve; });
+  };
+  const runner = new RunnerService({ state: harness.state, artifactStore: harness.artifactStore,
+    shellRunner: { run: async () => assert.fail("must not spawn after cancellation") } });
+  const execution = runner.executeApproved(harness.approval.id).catch(error => error);
+  await waitUntil(() => finishClaim, "claim did not start");
+  let settled = false;
+  const cancelled = runner.cancelExecution({ taskRunId: harness.taskRun.id }).then(result => { settled = true; return result; });
+  await new Promise(resolve => setImmediate(resolve));
+  const wasWaiting = !settled;
+  finishClaim();
+  assert.equal(wasWaiting, true);
+  assert.deepEqual(await cancelled, { cancelled: true });
+  assert.equal((await execution).code, "RUNNER_CANCELLED");
+  assert.equal(harness.approval.executionState, "uncertain");
+  assert.equal(runner.getInflightCount(), 0);
+});
+
 test("cancelExecution returns false for a taskRun without inflight execution", async () => {
   const harness = fakeRunnerHarness();
   const runner = new RunnerService({

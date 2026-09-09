@@ -56,7 +56,7 @@ test("ShellRunner abort kills the child and rejects with RUNNER_CANCELLED", asyn
   await Promise.resolve();
   controller.abort();
 
-  await assert.rejects(() => run, (err) => err.code === "RUNNER_CANCELLED");
+  const rejected = assert.rejects(() => run, (err) => err.code === "RUNNER_CANCELLED");
   assert.equal(child.killCalls[0], "SIGTERM");
 
   await new Promise((resolve) => setTimeout(resolve, 5));
@@ -82,6 +82,42 @@ test("ShellRunner aborts a quiet process on idle timeout", async () => {
       }),
     /idle timed out after 50ms/,
   );
+  child.emit("close", null);
+  await rejected;
+});
+
+test("ShellRunner cancellation waits for close and tree cleanup before settling", async () => {
+  const child = createMockChild();
+  child.pid = 12345;
+  const controller = new AbortController();
+  let finishTree;
+  const calls = [];
+  const runner = new ShellRunner({
+    spawn: () => child,
+    terminateProcessTree: pid => { calls.push(pid); return new Promise(resolve => { finishTree = resolve; }); },
+  });
+  let settled = false;
+  const run = runner.run({ command: "mock", cwd: process.cwd(), signal: controller.signal });
+  const result = run.catch(error => { settled = true; return error; });
+  controller.abort();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.deepEqual(calls, [12345]);
+  assert.deepEqual(child.killCalls, [], "keep root alive until tree cleanup starts");
+  child.emit("close", null);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  finishTree();
+  assert.equal((await result).code, "RUNNER_CANCELLED");
+});
+
+test("ShellRunner reports unconfirmed termination when close never arrives", async () => {
+  const child = createMockChild();
+  const controller = new AbortController();
+  const runner = new ShellRunner({ spawn: () => child, abortKillGraceMs: 1, terminationTimeoutMs: 15 });
+  const run = runner.run({ command: "mock", cwd: process.cwd(), signal: controller.signal });
+  controller.abort();
+  await assert.rejects(run, error => error.code === "RUNNER_TERMINATION_UNCONFIRMED");
 });
 
 test("ShellRunner passes structured arguments without invoking a shell", async () => {
