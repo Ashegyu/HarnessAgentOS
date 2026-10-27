@@ -67,6 +67,17 @@ test("duplicate review is idempotent and stale or unreviewed requests do not cre
   assert.equal((await f.state.listApprovalsByTaskRun(f.draft.taskRun.id)).length, 2);
 });
 
+test("an unresolved legacy execution can be reviewed after newer checks reached ready_for_review", async t => {
+  const f = await fixture(t, "uncertain");
+  await f.state.setTaskRunStatus(f.draft.taskRun.id, "ready_for_review");
+  const next = await f.conversation.prepareActionRetry(f.input);
+  assert.equal(next.status, "pending");
+  assert.equal(next.requiresManualApproval, true);
+  assert.equal((await f.state.getApproval(f.source.id)).executionState, "uncertain");
+  assert.equal((await f.state.getApproval(f.source.id)).retryApprovalId, next.id);
+  assert.equal((await f.state.getTaskRun(f.draft.taskRun.id)).status, "waiting_for_approval");
+});
+
 test("a reviewed unclaimed source cannot be claimed or edited after replacement", async t => {
   const f = await fixture(t);
   await f.conversation.prepareActionRetry(f.input);

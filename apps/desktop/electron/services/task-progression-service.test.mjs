@@ -170,6 +170,40 @@ test("execution failure stops subsequent actions and records a visible blocked s
   assert.ok(f.calls.some(c => c[0] === "failure" && c[2] === "disk write failed"));
 });
 
+test("explicit automation repairs a confirmed checker failure once and stops at the next manual check", async () => {
+  const f = fixture([approval("check", { actionType: "shell", status: "approved", approvedRevision: 1,
+    proposedAction: { type: "shell", command: "node", args: ["--test", "source.test.mjs"] } })], { globalAutoApprove: true });
+  const execute = f.deps.execute;
+  f.deps.execute = async item => {
+    if (item.id !== "check") return execute(item);
+    f.calls.push(["execute", item.id]);
+    Object.assign(f.snapshot.approvals[0], { status: "executed", executionState: "failed" });
+    f.snapshot.taskRun.status = "blocked";
+    throw new Error("checker exit 1");
+  };
+  f.deps.recoverValidationFailure = async id => {
+    f.calls.push(["repair", id]);
+    f.snapshot.approvals.push(approval("fix"), approval("recheck", { actionType: "shell", proposedAction: { type: "shell", command: "node", args: ["--test", "source.test.mjs"] } }));
+    f.snapshot.taskRun.status = "waiting_for_approval";
+    return true;
+  };
+  await f.service.advance("task");
+  assert.deepEqual(f.calls.filter(c => c[0] === "repair"), [["repair", "task"]]);
+  assert.deepEqual(f.calls.filter(c => c[0] === "execute"), [["execute", "check"], ["execute", "fix"]]);
+  assert.equal(f.snapshot.approvals.find(a => a.id === "recheck").status, "pending");
+  assert.equal(f.calls.some(c => c[0] === "failure"), false);
+});
+
+for (const [automation, outcome] of [[false, "failed"], [true, "uncertain"]]) {
+  test(`automatic repair never bypasses consent or unknown outcomes (${automation}/${outcome})`, async () => {
+    const f = fixture([approval("check", { actionType: "shell", status: "approved", approvedRevision: 1 })], { globalAutoApprove: automation });
+    f.deps.execute = async () => { Object.assign(f.snapshot.approvals[0], { status: "executed", executionState: outcome }); f.snapshot.taskRun.status = "blocked"; throw new Error("exit"); };
+    let repairs = 0; f.deps.recoverValidationFailure = async () => { repairs++; return true; };
+    await f.service.advance("task");
+    assert.equal(repairs, 0);
+  });
+}
+
 test("cancellation during an action prevents the next action", async () => {
   const f = fixture([approval("a"), approval("b")], { globalAutoApprove: true });
   const execute = f.deps.execute;
