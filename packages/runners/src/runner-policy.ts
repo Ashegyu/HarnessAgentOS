@@ -7,6 +7,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { isTestInvocationHint } from "./validation-command.ts";
 
 /**
  * Phase 3 runner policy. Pure logic — no FS access — used by
@@ -133,24 +134,8 @@ export interface DangerousCheck {
   reason?: string;
 }
 
-const TEST_TOKENS: readonly RegExp[] = [
-  /\bnpm\s+(?:run\s+)?test\b/i,
-  /\byarn\s+test\b/i,
-  /\bpnpm\s+(?:run\s+)?test\b/i,
-  /\bjest\b/i,
-  /\bvitest\b/i,
-  /\bmocha\b/i,
-  /\bpytest\b/i,
-  /\bgo\s+test\b/i,
-  /\bcargo\s+test\b/i,
-  /\bdotnet\s+test\b/i,
-];
-
-/** Returns true when the shell command looks like a test invocation. */
-export const isTestCommand = (cmd: string): boolean => {
-  if (typeof cmd !== "string" || cmd.length === 0) return false;
-  return TEST_TOKENS.some((re) => re.test(cmd));
-};
+/** Timeline hint only; never a source of quality execution evidence. */
+export const isTestCommand = isTestInvocationHint;
 
 export const classifyShellCommand = (cmd: string): DangerousCheck => {
   if (typeof cmd !== "string" || cmd.trim().length === 0) {

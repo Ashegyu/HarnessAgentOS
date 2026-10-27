@@ -4,6 +4,10 @@ import {
   diagnosticErrorMessage,
   evaluateApprovalActionPolicy,
   formatDiagnosticLog,
+  isWorkerBackflowRule,
+  ORCHESTRATION_MODES,
+  WORKER_ROLES,
+  type Artifact,
   type Approval,
 } from "@harness/core";
 import {
@@ -17,6 +21,8 @@ import {
   type DraftedOrchestration,
 } from "./orchestration-planner.ts";
 import { WorkerRunner, type WorkerCliInvoker } from "./worker-runner.ts";
+import { assertWorkerTaskEntry, setActiveWorkerTaskStatus } from "./worker-task-state.ts";
+import { orderWorkerStepsByDependencies, validateWorkerStep } from "./orchestration-policy.ts";
 
 /**
  * Phase 7 service. Wraps the planner + runner with plan recovery so the
@@ -44,6 +50,12 @@ export interface OrchestrationServiceDeps {
 
 export class OrchestrationService {
   private readonly inflight = new Map<string, Promise<OrchestrationRunResult>>();
+  private stopping = false;
+
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    await Promise.allSettled([...this.inflight.values()]);
+  }
   private readonly planner: OrchestrationPlanner;
   private readonly worker: WorkerRunner;
   private readonly deps: OrchestrationServiceDeps;
@@ -79,6 +91,7 @@ export class OrchestrationService {
   }
 
   runApproved(input: { approvalId: string }): Promise<OrchestrationRunResult> {
+    if (this.stopping) return Promise.reject(new Error("APPLICATION_SHUTTING_DOWN"));
     const existing = this.inflight.get(input.approvalId);
     if (existing) return existing;
     const work = this.runApprovedOnce(input).finally(() => this.inflight.delete(input.approvalId));
@@ -120,6 +133,7 @@ export class OrchestrationService {
         `Policy blocked orchestration approval ${approval.id}: ${policy.reason}`,
       );
     }
+    assertWorkerTaskEntry(await this.deps.state.getTaskRun(approval.taskRunId));
     const plan = await this.recoverPlan(approval);
     const approvalStepId = await this.markApprovalExecutionStarted(approval);
     let result: OrchestrationRunResult;
@@ -159,6 +173,8 @@ export class OrchestrationService {
       await this.deps.state.setStepStatus(checkpoint.stepId, "succeeded", {
         outputSummary: "orchestration plan approved; worker execution started",
       });
+      // Keep a resume anchor even when Pause wins before the first worker starts.
+      await this.deps.state.setTaskRunCurrentStep(approval.taskRunId, checkpoint.stepId);
     }
     const steps = await this.deps.state.listStepsByTaskRun(approval.taskRunId);
     await Promise.all(
@@ -173,13 +189,14 @@ export class OrchestrationService {
           }),
         ),
     );
-    await this.deps.state.setTaskRunStatus(approval.taskRunId, "running");
+    const task = await setActiveWorkerTaskStatus(this.deps.state, approval.taskRunId, "running");
+    assertWorkerTaskEntry(task);
     return checkpoint?.stepId;
   }
 
   private async markTaskBlocked(taskRunId: string): Promise<void> {
     try {
-      await this.deps.state.setTaskRunStatus(taskRunId, "blocked");
+      await setActiveWorkerTaskStatus(this.deps.state, taskRunId, "blocked");
     } catch {
       // non-fatal: the original worker error is more useful to callers
     }
@@ -235,7 +252,7 @@ export class OrchestrationService {
     );
     if (planArtifacts.length === 0) return null;
     const newest = planArtifacts[planArtifacts.length - 1]!;
-    const plan = parseEmbeddedPlanJson(newest.summary ?? "");
+    const plan = parseStoredPlanArtifact(newest, input.taskRunId);
     if (!plan) return null;
     return {
       id: plan.id,
@@ -261,12 +278,20 @@ export class OrchestrationService {
     );
     const checkpoint = checkpoints.find((c) => c.id === approval.checkpointId);
     let artifactIds: string[] = [];
+    let planId: string | undefined;
+    let mode: string | undefined;
     if (checkpoint) {
       try {
         const parsed = JSON.parse(checkpoint.stateRef) as {
-          artifactIds?: string[];
+          artifactIds?: unknown;
+          orchestrationPlanId?: unknown;
+          mode?: unknown;
         };
-        artifactIds = parsed.artifactIds ?? [];
+        if (Array.isArray(parsed.artifactIds) && parsed.artifactIds.every(id => typeof id === "string")) {
+          artifactIds = parsed.artifactIds;
+        }
+        if (typeof parsed.orchestrationPlanId === "string") planId = parsed.orchestrationPlanId;
+        if (typeof parsed.mode === "string") mode = parsed.mode;
       } catch {
         artifactIds = [];
       }
@@ -274,21 +299,21 @@ export class OrchestrationService {
     const artifacts = await this.deps.state.listArtifactsByTaskRun(
       approval.taskRunId,
     );
-    const planArtifact =
-      artifacts.find(
-        (a) => a.kind === "orchestration_plan" && artifactIds.includes(a.id),
-      ) ?? artifacts.find((a) => a.kind === "orchestration_plan");
-    if (!planArtifact) {
+    const planArtifacts = artifacts.filter(
+      (a) => a.kind === "orchestration_plan" && artifactIds.includes(a.id),
+    );
+    const planArtifact = planArtifacts.length === 1 ? planArtifacts[0] : undefined;
+    if (!planArtifact || !planId) {
       throw new OrchestrationError(
         "ORCHESTRATION_PLAN_NOT_FOUND",
         `Could not locate orchestration_plan artifact for approval ${approval.id}`,
       );
     }
-    const parsed = parseEmbeddedPlanJson(planArtifact.summary ?? "");
-    if (!parsed) {
+    const parsed = parseStoredPlanArtifact(planArtifact, approval.taskRunId);
+    if (!parsed || parsed.id !== planId || (mode !== undefined && parsed.mode !== mode)) {
       throw new OrchestrationError(
         "ORCHESTRATION_PLAN_NOT_FOUND",
-        `Plan artifact ${planArtifact.id} has no embedded JSON`,
+        `Plan artifact ${planArtifact.id} does not match its approved checkpoint`,
       );
     }
     return {
@@ -319,7 +344,26 @@ export class OrchestrationService {
   }
 }
 
-const planJsonRe = /```json\s*([\s\S]+?)\s*```/;
+// Marker text inside a JSON string is data, not framing. The planner appends a
+// standalone marker after the display markdown, including any user examples.
+const planMarkerRe = /^[\t ]*<!-- orchestration-plan:json -->[\t ]*\r?$/gm;
+const planJsonRe = /^\s*```json[\t ]*\r?\n([\s\S]*?)\r?\n```[\t ]*\s*$/;
+
+const lastPlanMarkerEnd = (summary: string): number | null => {
+  planMarkerRe.lastIndex = 0;
+  let end: number | null = null;
+  for (let match = planMarkerRe.exec(summary); match !== null; match = planMarkerRe.exec(summary)) {
+    end = match.index + match[0].length;
+  }
+  return end;
+};
+
+const parseStoredPlanArtifact = (artifact: Artifact, taskRunId: string) => {
+  const summary = artifact.summary ?? "";
+  if (artifact.taskRunId !== taskRunId || lastPlanMarkerEnd(summary) === null) return null;
+  const plan = parseEmbeddedPlanJson(summary);
+  return plan && artifact.uri === `harness:orchestration/${taskRunId}/${plan.id}` ? plan : null;
+};
 export const parseEmbeddedPlanJson = (
   summary: string,
 ):
@@ -332,7 +376,9 @@ export const parseEmbeddedPlanJson = (
       backflowRules?: OrchestrationPlan["backflowRules"];
     }
   | null => {
-  const match = planJsonRe.exec(summary);
+  const markerEnd = lastPlanMarkerEnd(summary);
+  // The progression host already supplies the fragment after the marker.
+  const match = planJsonRe.exec(markerEnd === null ? summary : summary.slice(markerEnd));
   if (!match) return null;
   try {
     const parsed = JSON.parse(match[1] ?? "") as {
@@ -343,8 +389,23 @@ export const parseEmbeddedPlanJson = (
       sourceHarness?: unknown;
       backflowRules?: unknown;
     };
-    if (!parsed || !parsed.id || !parsed.mode || !Array.isArray(parsed.workerSteps))
+    if (!parsed || typeof parsed.id !== "string" || parsed.id.trim().length === 0 ||
+        !(ORCHESTRATION_MODES as readonly unknown[]).includes(parsed.mode) || !Array.isArray(parsed.workerSteps))
       return null;
+    for (const step of parsed.workerSteps) {
+      if (!isStoredWorkerStep(step)) return null;
+      validateWorkerStep(step);
+    }
+    orderWorkerStepsByDependencies(parsed.workerSteps);
+    if (parsed.backflowRules !== undefined) {
+      if (!Array.isArray(parsed.backflowRules) || !parsed.backflowRules.every(isWorkerBackflowRule)) return null;
+      const stepIds = new Set(parsed.workerSteps.map(step => step.id));
+      const ruleIds = new Set<string>();
+      for (const rule of parsed.backflowRules) {
+        if (ruleIds.has(rule.id) || !stepIds.has(rule.targetStepId) || !stepIds.has(rule.retryStepId)) return null;
+        ruleIds.add(rule.id);
+      }
+    }
     // `sourcePipelineId` is the marker for "this plan was generated
     // from a pipeline template" — the renderer relies on it to know
     // whether the user already consented to auto-run everything when
@@ -402,4 +463,17 @@ const isSourceHarnessMetadata = (
     typeof record.bindingSetName === "string" &&
     record.bindingSetName.length > 0
   );
+};
+
+const isStoredWorkerStep = (value: unknown): value is OrchestrationPlan["workerSteps"][number] => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const step = value as Record<string, unknown>;
+  return typeof step.id === "string" && step.id.trim().length > 0 &&
+    typeof step.title === "string" && typeof step.inputSummary === "string" &&
+    (WORKER_ROLES as readonly unknown[]).includes(step.role) &&
+    typeof step.status === "string" && ["pending", "running", "succeeded", "failed", "skipped"].includes(step.status) &&
+    Array.isArray(step.expectedArtifactKinds) && step.expectedArtifactKinds.every(kind => typeof kind === "string") &&
+    (step.instruction === undefined || typeof step.instruction === "string") &&
+    (step.agentProfileId === undefined || (typeof step.agentProfileId === "string" && step.agentProfileId.length > 0)) &&
+    (step.remoteEndpointId === undefined || (typeof step.remoteEndpointId === "string" && step.remoteEndpointId.length > 0));
 };

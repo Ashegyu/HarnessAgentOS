@@ -65,7 +65,7 @@ export const FEATURE_HELP: Record<FeatureHelpId, FeatureHelpEntry> = {
       "TaskRun을 선택하면 우측 패널에서 plan, approvals, artifacts, quality 상태를 확인할 수 있습니다.",
       "9가지 상태(drafting, waiting_for_approval, running, paused, blocked, quality_failed, ready_for_review, done, cancelled) 사이를 전이하며, markDone은 통과 또는 경고 수준의 QualityGate가 있어야 호출됩니다.",
       "Pause / Resume / Retry / Cancel은 우측 액션 영역에서 비종료 상태일 때만 노출되며, Cancel은 비어있지 않은 사유와 함께 quality_report artifact를 남깁니다.",
-      "Retry는 blocked / quality_failed 상태에서만 가능하며 가장 최근에 승인된 action을 동일한 idempotent runner 경로로 다시 실행합니다.",
+      "재시도 검토는 blocked / quality_failed 상태에서 이전 결과를 확인한 뒤 새 수동 승인을 만듭니다. 기존 승인을 재사용하지 않으며, 새 승인을 수동 승인하기 전에는 실행하지 않습니다.",
     ],
     location: "중앙 대화 타임라인 및 우측 패널",
   },

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
 import { PipelineBackflowService } from "./pipeline-backflow-service.ts";
+import { ConversationService } from "@harness/core";
+import { createTaskProgressionHost } from "./services/task-progression-host.ts";
 
 const now = "2026-05-20T00:00:00.000Z";
 
@@ -195,4 +197,175 @@ test("PipelineBackflowService runs quality_failed backflow and returns ready_for
     closeDb(db);
     t.cleanup();
   }
+});
+
+const createPendingFixture = async ({ maxAttempts = 1 } = {}) => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  const taskRun = await seedTaskRun(state);
+  await state.setTaskRunStatus(taskRun.id, "running");
+  const profile = await state.agentProfiles.create(validProfileInput({ name: "Resume reviewer", role: "reviewer" }));
+  const plan = {
+    id: "orch_pending_quality", taskRunId: taskRun.id, mode: "multi_worker", requiresApproval: true,
+    workerSteps: [{ id: "review", title: "Review", role: "reviewer", status: "pending",
+      inputSummary: "Review the repair", instruction: "Review the repair", expectedArtifactKinds: ["log"],
+      agentProfileId: profile.id, dependsOn: [] }],
+    backflowRules: [{ id: "pending_quality", trigger: "quality_failed", targetStepId: "review", retryStepId: "review", maxAttempts }],
+  };
+  const attempt = await state.pipelineBackflows.createAttempt({ taskRunId: taskRun.id, planId: plan.id,
+    ruleId: "pending_quality", trigger: "quality_failed", targetStepId: "review", retryStepId: "review", maxAttempts,
+    reason: "quality failed before Pause" });
+  return { db, state, taskRun, plan, attempt };
+};
+
+test("PipelineBackflowService resumes a persisted quality attempt after normal Resume", async () => {
+  const f = await createPendingFixture();
+  try {
+    const calls = [];
+    const service = new PipelineBackflowService({ state: f.state, orchestration: { getLatestPlan: async () => f.plan },
+      agentPlanning: { invokeForWorker: async ({ profile }) => { calls.push(profile.name); return { outputText: "repair verified" }; } } });
+    assert.equal(await service.resumePending(f.taskRun.id), true);
+    assert.deepEqual(calls, ["Resume reviewer"]);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "ready_for_review");
+    const attempts = await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id);
+    assert.equal(attempts.length, 1, "Resume must continue the existing attempt without spending another budget slot");
+    assert.equal(attempts[0].id, f.attempt.id);
+    assert.equal(attempts[0].status, "succeeded");
+  } finally { closeDb(f.db); }
+});
+
+test("PipelineBackflowService never resumes stopped work or an attempt from another plan", async () => {
+  const f = await createPendingFixture();
+  try {
+    let calls = 0;
+    const service = new PipelineBackflowService({ state: f.state,
+      orchestration: { getLatestPlan: async () => ({ ...f.plan, id: "new-plan" }) },
+      agentPlanning: { invokeForWorker: async () => { calls += 1; return { outputText: "unexpected" }; } } });
+    assert.equal(await service.resumePending(f.taskRun.id), false);
+    for (const status of ["paused", "blocked", "cancelled", "done"]) {
+      await f.state.taskRuns.updateStatus(f.taskRun.id, status);
+      assert.equal(await service.resumePending(f.taskRun.id), false);
+    }
+    assert.equal(calls, 0);
+    assert.equal((await f.state.pipelineBackflows.getAttempt(f.attempt.id)).status, "running");
+  } finally { closeDb(f.db); }
+});
+
+test("PipelineBackflowService coalesces initial quality execution and concurrent Resume events", async () => {
+  const f = await createPendingFixture();
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  try {
+    // Start a new quality run; the fixture's pending row belongs to another plan.
+    const plan = { ...f.plan, id: "initial-quality" };
+    let calls = 0;
+    const service = new PipelineBackflowService({ state: f.state, orchestration: { getLatestPlan: async () => plan },
+      agentPlanning: { invokeForWorker: async () => { calls += 1; entered(); await gate; return { outputText: "verified" }; } } });
+    const initial = service.runForQualityFailure(qualityResult(f.taskRun.id, "failed"));
+    await started;
+    const resumes = Array.from({ length: 8 }, () => service.resumePending(f.taskRun.id));
+    const repeated = service.runForQualityFailure(qualityResult(f.taskRun.id, "failed"));
+    release();
+    assert.deepEqual(await Promise.all([initial, repeated, ...resumes]), Array(10).fill(true));
+    assert.equal(calls, 1);
+    assert.equal((await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id)).filter(a => a.planId === plan.id).length, 1);
+  } finally { release(); closeDb(f.db); }
+});
+
+test("quality backflow Pause and normal Resume continue through the real progression host", async () => {
+  const f = await createPendingFixture();
+  try {
+    f.plan.workerSteps.push({ ...f.plan.workerSteps[0], id: "verify", title: "Verify", dependsOn: ["review"] });
+    const parentStep = await f.state.createStep({ taskRunId: f.taskRun.id, index: 0, kind: "approval",
+      title: "Original orchestration", status: "succeeded" });
+    const checkpoint = await f.state.createCheckpoint({ taskRunId: f.taskRun.id, stepId: parentStep.id,
+      reason: "before_edit", stateRef: JSON.stringify({ orchestrationPlanId: f.plan.id }), summary: "Original plan approval" });
+    const parent = await f.state.createApproval({ taskRunId: f.taskRun.id, checkpointId: checkpoint.id,
+      actionType: "orchestration_plan", actionSummary: "Original plan already executed" });
+    await f.state.decideApproval(parent.id, "approved");
+    await f.state.decideApproval(parent.id, "executed");
+    const conversation = new ConversationService({ state: f.state, pathExists: async () => true });
+    let calls = 0;
+    const service = new PipelineBackflowService({ state: f.state, orchestration: { getLatestPlan: async () => f.plan },
+      agentPlanning: { invokeForWorker: async () => {
+        calls += 1;
+        if (calls === 1) await conversation.pauseTask({ taskRunId: f.taskRun.id });
+        return { outputText: `quality worker ${calls}` };
+      } } });
+    let qualityCalls = 0;
+    const host = createTaskProgressionHost({ state: f.state, conversation,
+      execute: async () => { assert.fail("the executed parent approval must not be replayed"); },
+      resumeBackflow: id => service.resumePending(id),
+      evaluateQuality: async () => { qualityCalls += 1; }, changed: () => {} });
+    await host.advance(f.taskRun.id);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal(calls, 1);
+    assert.equal(qualityCalls, 0);
+    await conversation.resumeTask({ taskRunId: f.taskRun.id });
+    await host.advance(f.taskRun.id);
+    assert.equal(calls, 2, "only the unfinished downstream worker may start after Resume");
+    assert.equal(qualityCalls, 1);
+    assert.equal((await f.state.getApproval(parent.id)).status, "executed");
+    const attempts = await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].id, f.attempt.id);
+    assert.equal(attempts[0].status, "succeeded");
+  } finally { closeDb(f.db); }
+});
+
+for (const staleRunningPlan of [false, true]) {
+test(`normal Resume blocks a quality worker that failed after Pause without spending another attempt (stale plan=${staleRunningPlan})`, async () => {
+  const f = await createPendingFixture();
+  try {
+    const conversation = new ConversationService({ state: f.state, pathExists: async () => true });
+    let calls = 0;
+    const service = new PipelineBackflowService({ state: f.state, orchestration: { getLatestPlan: async () => f.plan },
+      agentPlanning: { invokeForWorker: async () => {
+        calls += 1;
+        await conversation.pauseTask({ taskRunId: f.taskRun.id });
+        throw new Error("provider failed after Pause");
+      } } });
+    assert.equal(await service.runForQualityFailure(qualityResult(f.taskRun.id, "failed")), true);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    const failed = await f.state.pipelineBackflows.getAttempt(f.attempt.id);
+    assert.equal(failed.status, "failed");
+    assert.ok(failed.completedAt);
+    if (staleRunningPlan) {
+      await f.state.pipelineBackflows.createAttempt({ taskRunId: f.taskRun.id, planId: "old-plan",
+        ruleId: "stale-quality", trigger: "quality_failed", targetStepId: "old-target", retryStepId: "old-retry", maxAttempts: 1 });
+    }
+    let qualityCalls = 0;
+    const host = createTaskProgressionHost({ state: f.state, conversation,
+      execute: async () => { assert.fail("Resume must not replay a terminal quality attempt"); },
+      resumeBackflow: id => service.resumePending(id),
+      evaluateQuality: async () => { qualityCalls += 1; }, changed: () => {} });
+    await conversation.resumeTask({ taskRunId: f.taskRun.id });
+    await host.advance(f.taskRun.id);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "blocked",
+      "a failed continuation needs attention instead of remaining running forever");
+    assert.equal(calls, 1);
+    assert.equal(qualityCalls, 0);
+    assert.equal((await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id)).length, staleRunningPlan ? 2 : 1);
+    assert.match((await f.state.listArtifactsByTaskRun(f.taskRun.id)).find(a => a.title === "작업 진행 오류").summary,
+      /Backflow|backflow/);
+  } finally { closeDb(f.db); }
+});
+}
+
+test("a new failed quality gate may explicitly retry a completed failed attempt within its budget", async () => {
+  const f = await createPendingFixture({ maxAttempts: 2 });
+  try {
+    await f.state.pipelineBackflows.updateAttempt(f.attempt.id, { status: "failed", completedAt: now });
+    await f.state.setTaskRunStatus(f.taskRun.id, "quality_failed");
+    let calls = 0;
+    const service = new PipelineBackflowService({ state: f.state, orchestration: { getLatestPlan: async () => f.plan },
+      agentPlanning: { invokeForWorker: async () => { calls += 1; return { outputText: "explicit quality retry succeeded" }; } } });
+    assert.equal(await service.runForQualityFailure(qualityResult(f.taskRun.id, "failed")), true);
+    assert.equal(calls, 1);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "ready_for_review");
+    assert.deepEqual((await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id))
+      .sort((a, b) => a.attemptIndex - b.attemptIndex).map(a => a.status), ["failed", "succeeded"]);
+  } finally { closeDb(f.db); }
 });

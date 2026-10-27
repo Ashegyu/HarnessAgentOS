@@ -2,7 +2,7 @@ import type { HarnessDesktopApi } from "@harness/core";
 
 declare global {
   interface Window {
-    /** Typed IPC only; conversation.startTask submits once, main owns progression. */
+    /** Typed IPC only, including bounded state.listRecentTaskRuns; main owns progression. */
     harness: HarnessDesktopApi;
   }
 }

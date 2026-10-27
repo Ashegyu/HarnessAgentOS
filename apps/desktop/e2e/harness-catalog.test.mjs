@@ -17,7 +17,7 @@ test("starter routes expose budget blockers truthfully and the HTML harness rema
       ...(executablePath ? [] : [join(dirname(fileURLToPath(import.meta.url)), "../out/main/main.js")]),
       `--user-data-dir=${userData}`], env, ...(executablePath ? { executablePath } : {}) });
     const page = await app.firstWindow();
-    await expect(page.getByRole("button", { name: "새 작업", exact: true })).toBeVisible();
+    await expect(page.getByRole("main", { name: "Conversation workbench" })).toBeVisible();
     const result = await page.evaluate(async targetDir => {
       const api = window.harness;
       const definitions = await api.harnessPackages.list();
@@ -38,6 +38,7 @@ test("starter routes expose budget blockers truthfully and the HTML harness rema
     expect(result.routes.filter(route => !route.ok)).toEqual([]);
     expect(result.routes.some(route => route.readiness?.issues.some(issue => issue.code === "HARNESS_BUDGET_UNVERIFIABLE"))).toBe(true);
     await page.reload();
+    await page.getByRole("button", { name: "스레드 패널 열기" }).click();
     await page.getByRole("button", { name: /새 하네스 선택 검수/ }).click();
     const harness = page.locator(".conversation-input select").filter({
       has: page.locator("option", { hasText: "HTML 분석 보고서 하네스" }),

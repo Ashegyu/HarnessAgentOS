@@ -25,6 +25,7 @@ interface InlineAgentStreamProps {
    * state from scratch whenever the id changes.
    */
   invocation: AgentInvocation;
+  copyDisabled?: boolean;
 }
 
 /**
@@ -40,6 +41,7 @@ interface InlineAgentStreamProps {
  */
 export const InlineAgentStream = ({
   invocation,
+  copyDisabled = false,
 }: InlineAgentStreamProps): JSX.Element => {
   const [parsed, setParsed] = useState<ParsedStream>(
     () => initStreamParserState().parsed,
@@ -192,6 +194,7 @@ export const InlineAgentStream = ({
         surface="inline"
         terminal={isTerminal}
         fallbackFinalText={finalText}
+        copyDisabled={copyDisabled}
       />
     </div>
   );

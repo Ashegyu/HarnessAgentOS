@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   IPC_CHANNELS,
   type HarnessResult,
@@ -9,7 +10,7 @@ import { buildTopologyHandlers } from "./topology-ipc.ts";
 
 export const registerTopologyIpc = (advisor: TopologyAdvisor): void => {
   const handlers = buildTopologyHandlers(advisor);
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.topology.recommend,
     async (
       _e,
@@ -17,7 +18,7 @@ export const registerTopologyIpc = (advisor: TopologyAdvisor): void => {
     ): Promise<HarnessResult<TopologyRecommendation[]>> =>
       handlers.recommend(input),
   );
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.topology.recordFeedback,
     async (_e, input: unknown): Promise<HarnessResult<null>> =>
       handlers.recordFeedback(input),

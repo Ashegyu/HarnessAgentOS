@@ -35,7 +35,7 @@ test('v40 preserves legacy records, invalidates unverifiable consent, and is rep
     ]);
     applyMigrations(db);
     assert.deepEqual(db.prepare('SELECT id,status,decision_message,requires_manual_approval,approved_revision FROM approvals ORDER BY id').all(), rows);
-    assert.equal(readSchemaVersion(db), 40);
+    assert.equal(readSchemaVersion(db), SCHEMA_VERSION);
     assert.equal(hasIndex(db, 'idx_approvals_decided_at'), true);
     assert.deepEqual(db.pragma('foreign_key_check'), []);
   } finally { db.close(); }

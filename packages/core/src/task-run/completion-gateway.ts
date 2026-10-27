@@ -45,5 +45,11 @@ export interface TaskRunCompletionGateway {
   getLatestQualityGateResult(
     taskRunId: string,
   ): Promise<QualityGateResult | null>;
+  assertQualityGateCurrent(gate: QualityGateResult): Promise<void>;
+  completeTaskRun(taskRunId: string, gateId: string): Promise<TaskRun>;
+  applyQualityGateStatus(
+    gate: QualityGateResult,
+    status: "quality_failed" | "ready_for_review",
+  ): Promise<TaskRun>;
   listArtifactsByTaskRun(taskRunId: string): Promise<Artifact[]>;
 }

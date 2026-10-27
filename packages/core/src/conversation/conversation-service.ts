@@ -3,6 +3,7 @@ import type {
   Artifact,
   Checkpoint,
   ProposedActionDetails,
+  PrepareActionRetryInput,
   Step,
   TaskRun,
   Thread,
@@ -48,14 +49,24 @@ export interface ConversationServiceDeps {
  * (TaskRun, plan Artifact, Checkpoint, Approvals) without performing
  * any side effects. Approval/reject/redirect flows are also handled.
  *
- * Task creation is wrapped in the state gateway transaction so the
+ * Async preparation finishes before the synchronous state transaction.
  * TaskRun, steps, artifacts, checkpoint, and approvals are committed
- * together or rolled back together.
+ * together or rolled back together without yielding the shared connection.
  */
 export class ConversationService {
   private readonly deps: ConversationServiceDeps;
   constructor(deps: ConversationServiceDeps) {
     this.deps = deps;
+  }
+
+  /** Review only: creates pending consent, never replays a consumed action. */
+  async prepareActionRetry(input: PrepareActionRetryInput): Promise<Approval> {
+    try { return await this.deps.state.prepareApprovalRetry(input); }
+    catch (error) {
+      const code = error instanceof Error ? /^(APPROVAL_[A-Z_]+)/.exec(error.message)?.[1] : undefined;
+      if (code && error instanceof Error) throw new ConversationServiceError(code, error.message);
+      throw error;
+    }
   }
 
   async createTask(
@@ -123,11 +134,11 @@ export class ConversationService {
       );
     }
 
-    return this.deps.state.withTransaction(async () => {
+    return this.deps.state.withTransaction((state) => {
     // Resolve or create the thread.
     let thread: Thread;
     if (input.threadId) {
-      const existing = await this.deps.state.getThread(input.threadId);
+      const existing = state.getThread(input.threadId);
       if (!existing) {
         throw new ConversationServiceError(
           "CONVERSATION_TASK_NOT_FOUND",
@@ -136,7 +147,7 @@ export class ConversationService {
       }
       thread = existing;
     } else {
-      thread = await this.deps.state.createThread({
+      thread = state.createThread({
         title: deriveThreadTitle(userRequest),
         targetDir,
       });
@@ -151,7 +162,7 @@ export class ConversationService {
           "followUpTaskRunId must be a non-empty string when provided",
         );
       }
-      const followUpTaskRun = await this.deps.state.getTaskRun(candidateId);
+      const followUpTaskRun = state.getTaskRun(candidateId);
       if (!followUpTaskRun) {
         throw new ConversationServiceError(
           "CONVERSATION_TASK_NOT_FOUND",
@@ -176,10 +187,10 @@ export class ConversationService {
       ...(input.intent !== undefined ? { intent: input.intent } : {}),
       ...(followUpTaskRunId !== undefined ? { followUpTaskRunId } : {}),
     } as const;
-    const taskRun = await this.deps.state.createTaskRun(createTaskRunInput);
+    const taskRun = state.createTaskRun(createTaskRunInput);
 
     // 2. inspect Step (immediately succeeded with summary).
-    const inspectStep = await this.deps.state.createStep({
+    const inspectStep = state.createStep({
       taskRunId: taskRun.id,
       index: 0,
       kind: "inspect",
@@ -187,7 +198,7 @@ export class ConversationService {
       status: "running",
       inputSummary: `targetDir=${targetDir}`,
     });
-    await this.deps.state.setStepStatus(inspectStep.id, "succeeded", {
+    state.setStepStatus(inspectStep.id, "succeeded", {
       outputSummary: "Inspect placeholder — Phase 3 runner가 실제 분석을 수행합니다.",
     });
 
@@ -195,7 +206,7 @@ export class ConversationService {
     // so we don't create a placeholder approval that the agent would have
     // to invalidate. Caller follows up with `agent.generatePlan`.
     if (input.mode === "agent" || buildTaskContract({ userRequest, ...(input.intent ? { intent: input.intent } : {}) }).authorization.mode === "read_only") {
-      const placeholderStep = await this.deps.state.createStep({
+      const placeholderStep = state.createStep({
         taskRunId: taskRun.id,
         index: 1,
         kind: "plan",
@@ -203,7 +214,7 @@ export class ConversationService {
         status: "pending",
         inputSummary: userRequest.slice(0, 200),
       });
-      const planArtifact = await this.deps.state.createArtifact({
+      const planArtifact = state.createArtifact({
         taskRunId: taskRun.id,
         stepId: placeholderStep.id,
         kind: "plan",
@@ -212,7 +223,7 @@ export class ConversationService {
         summary:
           "Agent mode TaskRun — call `agent.generatePlan(taskRunId)` to produce a plan and approvals.",
       });
-      const checkpoint = await this.deps.state.createCheckpoint({
+      const checkpoint = state.createCheckpoint({
         taskRunId: taskRun.id,
         stepId: placeholderStep.id,
         reason: "before_edit",
@@ -226,7 +237,7 @@ export class ConversationService {
         }),
         summary: "agent mode placeholder checkpoint",
       });
-      await this.deps.state.setTaskRunCurrentStep(taskRun.id, placeholderStep.id);
+      state.setTaskRunCurrentStep(taskRun.id, placeholderStep.id);
       // Status stays `drafting`; `agent.generatePlan` flips it.
       return {
         taskRun,
@@ -237,7 +248,7 @@ export class ConversationService {
     }
 
     // 3. plan Step + plan artifact.
-    const planStep = await this.deps.state.createStep({
+    const planStep = state.createStep({
       taskRunId: taskRun.id,
       index: 1,
       kind: "plan",
@@ -246,7 +257,7 @@ export class ConversationService {
       inputSummary: userRequest.slice(0, 200),
     });
     const drafted = draftPlan({ userRequest, targetDir });
-    const planArtifact = await this.deps.state.createArtifact({
+    const planArtifact = state.createArtifact({
       taskRunId: taskRun.id,
       stepId: planStep.id,
       kind: "plan",
@@ -254,12 +265,12 @@ export class ConversationService {
       uri: planUri(taskRun.id),
       summary: drafted.content,
     });
-    await this.deps.state.setStepStatus(planStep.id, "succeeded", {
+    state.setStepStatus(planStep.id, "succeeded", {
       outputSummary: `plan artifact ${planArtifact.id}`,
     });
 
     // 4. approval Step + before_edit checkpoint + approval rows.
-    const approvalStep = await this.deps.state.createStep({
+    const approvalStep = state.createStep({
       taskRunId: taskRun.id,
       index: 2,
       kind: "approval",
@@ -268,7 +279,7 @@ export class ConversationService {
       inputSummary: drafted.proposedActions.map((a) => a.type).join(","),
     });
 
-    const checkpoint = await this.deps.state.createCheckpoint({
+    const checkpoint = state.createCheckpoint({
       taskRunId: taskRun.id,
       stepId: approvalStep.id,
       reason: "before_edit",
@@ -283,7 +294,7 @@ export class ConversationService {
 
     const approvals: Approval[] = [];
     for (const action of drafted.proposedActions) {
-      const approval = await this.deps.state.createApproval({
+      const approval = state.createApproval({
         taskRunId: taskRun.id,
         checkpointId: checkpoint.id,
         actionType: action.type,
@@ -294,8 +305,8 @@ export class ConversationService {
     }
 
     // 5. Promote TaskRun + currentStep state.
-    await this.deps.state.setTaskRunCurrentStep(taskRun.id, approvalStep.id);
-    const finalTaskRun = await this.deps.state.setTaskRunStatus(
+    state.setTaskRunCurrentStep(taskRun.id, approvalStep.id);
+    const finalTaskRun = state.setTaskRunStatus(
       taskRun.id,
       "waiting_for_approval",
     );

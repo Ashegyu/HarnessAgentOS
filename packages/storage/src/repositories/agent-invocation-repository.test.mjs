@@ -99,6 +99,37 @@ const createInvocation = async (
   return { taskRun, invocation };
 };
 
+for (const stalePatch of [
+  { status: "running", startedAt: "2026-05-18T00:00:00.000Z" },
+  { status: "succeeded", errorCode: null, errorMessage: null },
+  { status: "failed", errorCode: "LATE_ERROR", errorMessage: "late preparation error" },
+  { latencyMs: 123 },
+]) {
+  test(`cancelled invocation survives a stale concurrent ${stalePatch.status ?? "metadata"} update`, async () => {
+    const db = openDb({ filePath: ":memory:" });
+    try {
+      const state = new LocalStateService(db);
+      const { invocation } = await createInvocation(state, process.cwd(), null, null);
+      const cancellation = { status: "cancelled", errorCode: "AGENT_CANCELLED", errorMessage: "Cancelled by user", finishedAt: "2026-05-18T00:00:01.000Z" };
+      // Both async updates read the queued row before either continuation writes.
+      const [cancelled, staleResult] = await Promise.all([
+        state.updateAgentInvocation(invocation.id, cancellation),
+        state.updateAgentInvocation(invocation.id, stalePatch),
+      ]);
+      const persisted = await state.getAgentInvocation(invocation.id);
+      assert.equal(cancelled.status, "cancelled");
+      for (const result of [staleResult, persisted]) {
+        assert.equal(result.status, "cancelled");
+        assert.equal(result.errorCode, "AGENT_CANCELLED");
+        assert.equal(result.errorMessage, "Cancelled by user");
+        assert.equal(result.finishedAt, cancellation.finishedAt);
+      }
+    } finally {
+      closeDb(db);
+    }
+  });
+}
+
 test("AgentInvocationRepository.listRecentWithLatency returns newest latency rows only", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

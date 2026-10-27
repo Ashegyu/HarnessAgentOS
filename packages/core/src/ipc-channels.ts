@@ -15,6 +15,7 @@ export const IPC_CHANNELS = {
     selectFile: "app:selectFile",
   },
   state: {
+    listRecentTaskRuns: "state:listRecentTaskRuns",
     listThreads: "state:listThreads",
     getThread: "state:getThread",
     createThread: "state:createThread",
@@ -23,6 +24,7 @@ export const IPC_CHANNELS = {
     exportThreadMarkdown: "state:exportThreadMarkdown",
   },
   conversation: {
+    prepareActionRetry: "conversation:prepareActionRetry",
     startTask: "conversation:startTask",
     createTask: "conversation:createTask",
     redirectTask: "conversation:redirectTask",

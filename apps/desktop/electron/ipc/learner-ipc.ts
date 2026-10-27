@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   IPC_CHANNELS,
   LEARNER_INVALID_DECISION,
@@ -75,7 +76,7 @@ export const registerLearnerIpc = (
   recorder: TraceRecorder,
   events?: HarnessEventBus,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.getTrace,
     async (
       _e,
@@ -98,7 +99,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.summarizeTaskRunCost,
     async (
       _e,
@@ -123,7 +124,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.summarizeBudgetUsage,
     async (_e, input: unknown): Promise<HarnessResult<BudgetUsageSummary>> => {
       if (input !== undefined && !isObject(input)) {
@@ -168,7 +169,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recallContext,
     async (
       _e,
@@ -224,7 +225,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.summarizeContextOutcomes,
     async (
       _e,
@@ -264,7 +265,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recommend,
     async (
       _e,
@@ -287,7 +288,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.proposeRecommendation,
     async (
       _e,
@@ -316,7 +317,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recordSelection,
     async (_e, input: unknown): Promise<HarnessResult<LearningTrace>> => {
       if (!isObject(input)) {
@@ -350,7 +351,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recordOutcome,
     async (_e, input: unknown): Promise<HarnessResult<LearningTrace>> => {
       if (!isObject(input)) {
@@ -386,7 +387,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recordDecision,
     async (_e, input: unknown): Promise<HarnessResult<null>> => {
       if (!isObject(input)) {
@@ -429,7 +430,7 @@ export const registerLearnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.learner.recordContextDecision,
     async (_e, input: unknown): Promise<HarnessResult<null>> => {
       if (!isObject(input)) {

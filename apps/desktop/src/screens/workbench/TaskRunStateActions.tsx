@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { Approval, TaskRun, TaskRunStatus } from "@harness/core";
 import { CancelTaskDialog } from "./CancelTaskDialog";
+import { RetryActionDialog } from "./RetryActionDialog";
 
 interface TaskRunStateActionsProps {
   taskRun: TaskRun;
@@ -22,18 +23,19 @@ export const TaskRunStateActions = ({
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancel, setShowCancel] = useState(false);
+  const [showRetry, setShowRetry] = useState(false);
 
-  const lastApproved = useMemo(
+  const retryCandidates = useMemo(
     () =>
-      [...approvals]
-        .reverse()
-        .find(
+      approvals.filter(
           (a) =>
-            a.status === "approved" ||
+            a.taskRunId === taskRun.id && !a.retryApprovalId && a.executionState !== "running" &&
+            ["file_write", "file_patch", "file_delete", "shell"].includes(a.actionType) && !!a.proposedAction &&
+            (a.status === "approved" ||
             a.status === "always_approved_for_run" ||
-            a.status === "executed",
+            a.status === "executed"),
         ),
-    [approvals],
+    [approvals, taskRun.id],
   );
 
   if (isTerminal(taskRun.status)) return null;
@@ -45,7 +47,7 @@ export const TaskRunStateActions = ({
   const canResume = taskRun.status === "paused";
   const canRetry =
     (taskRun.status === "blocked" || taskRun.status === "quality_failed") &&
-    !!lastApproved;
+    retryCandidates.length > 0;
   const canCancel = !isTerminal(taskRun.status);
 
   const wrap = async (
@@ -122,21 +124,15 @@ export const TaskRunStateActions = ({
             Resume
           </button>
         ) : null}
-        {canRetry && lastApproved ? (
+        {canRetry ? (
           <button
             type="button"
             className="btn"
-            onClick={() =>
-              void wrap(() =>
-                window.harness.runner.retryApproval({
-                  approvalId: lastApproved.id,
-                }),
-              )
-            }
+            onClick={() => setShowRetry(true)}
             disabled={busy}
-            title="가장 최근에 승인된 action을 다시 실행합니다. shell 명령은 부수효과가 발생할 수 있습니다."
+            title="이전 결과를 검토하고 새 수동 승인을 준비합니다."
           >
-            Retry last action
+            재시도 검토
           </button>
         ) : null}
         {canCancel ? (
@@ -151,6 +147,7 @@ export const TaskRunStateActions = ({
         ) : null}
       </div>
       {actionError ? <div className="error-message">{actionError}</div> : null}
+      {showRetry && canRetry && <RetryActionDialog approvals={retryCandidates} onClose={() => setShowRetry(false)} onPrepared={onChanged} />}
       {showCancel ? (
         <CancelTaskDialog
           onClose={() => setShowCancel(false)}

@@ -1,5 +1,5 @@
 import type { Database as DatabaseType } from "better-sqlite3";
-import { SCHEMA_STATEMENTS, SCHEMA_VERSION } from "./schema.ts";
+import { SCHEMA_STATEMENTS, SCHEMA_VERSION, VALIDATION_SCHEMA_STATEMENTS } from "./schema.ts";
 
 const APPROVAL_ACTION_TYPE_CHECK =
   "'capability_use','model_use','file_patch','file_write','file_delete','shell','dependency_install','git_commit','network','skill_script','orchestration_plan'";
@@ -17,6 +17,11 @@ export const applyMigrations = (db: DatabaseType): void => {
   const txn = db.transaction(() => {
     for (const stmt of SCHEMA_STATEMENTS) {
       db.exec(stmt);
+    }
+
+    // v41 — legacy gates have no trusted execution/revision provenance.
+    if (!hasColumn(db, "quality_gate_results", "validation_state_json")) {
+      db.exec(`ALTER TABLE quality_gate_results ADD COLUMN validation_state_json TEXT`);
     }
 
     // v37 — project-scoped learner history. Existing rows stay unscoped and
@@ -213,6 +218,13 @@ export const applyMigrations = (db: DatabaseType): void => {
     if (harnessPackageRootDirIsUnique(db)) {
       rebuildHarnessPackages(db);
     }
+
+    // New foreign keys must bind to the final approvals table, not a legacy
+    // rename performed by one of the compatibility rebuilds above.
+    if (!hasColumn(db, "approvals", "retry_approval_id")) {
+      db.exec(`ALTER TABLE approvals ADD COLUMN retry_approval_id TEXT REFERENCES approvals(id) ON DELETE SET NULL`);
+    }
+    for (const statement of VALIDATION_SCHEMA_STATEMENTS) db.exec(statement);
 
     db.prepare(
       `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)`,

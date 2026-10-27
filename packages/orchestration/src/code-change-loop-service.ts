@@ -5,9 +5,13 @@ import type {
   CodeChangeLoopRunInput,
   CodeChangeNextAction,
   CodeChangeVerificationResult,
+  QualityGateResult,
+  QualityValidationState,
   TaskRunStatus,
+  ValidationRun,
 } from "@harness/core";
-import { newId, type LocalStateService } from "@harness/storage";
+import { selectCurrentValidationEvidence } from "@harness/core";
+import { captureValidationRevision, newId, type LocalStateService } from "@harness/storage";
 export type {
   CodeChangeAttemptResult,
   CodeChangeAttemptStatus,
@@ -35,6 +39,13 @@ export interface CodeChangeLoopServiceDeps {
   state: LocalStateService;
   runner: CodeChangeRunnerExecutor;
   now?: () => string;
+}
+
+interface ValidationView {
+  runs: ValidationRun[];
+  selected: ValidationRun[];
+  state: QualityValidationState;
+  unverifiedReasons: string[];
 }
 
 export class CodeChangeLoopError extends Error {
@@ -346,29 +357,49 @@ export class CodeChangeLoopService {
     taskRunStatus: TaskRunStatus;
     stepStatus: "succeeded" | "failed";
   }): Promise<CodeChangeAttemptResult> {
+    let attempt = input.result;
+    const validation = attempt.status === "verified" || attempt.status === "verification_failed"
+      ? await this.readValidation(attempt.taskRunId) : undefined;
+    if (attempt.status === "verified") {
+      const allRequestedChecksPassed = attempt.verificationApprovalIds.every(approvalId => {
+        const issued = validation!.runs.filter(run => run.approvalId === approvalId).sort((a, b) => b.sequence - a.sequence)[0];
+        return issued && issued.kinds.length > 0 && validation!.selected.some(run => run.checkerId === issued.checkerId &&
+          run.sequence >= issued.sequence && run.status === "completed" && run.exitCode === 0);
+      });
+      const currentFailure = validation!.selected.some(run => run.status !== "completed" || run.exitCode !== 0);
+      if (!allRequestedChecksPassed || validation!.unverifiedReasons.length > 0 || currentFailure) {
+        attempt = { ...attempt, status: currentFailure ? "verification_failed" : "applied_unverified",
+          nextAction: currentFailure ? "repair_required" : "ready_for_review",
+          ...(currentFailure ? { failureMessage: "A current host validation check failed" } : {}) };
+      }
+    }
+    const gate = await this.recordQualityGate(attempt, validation);
+    if (attempt.status === "verified" && gate?.status !== "passed") {
+      attempt = { ...attempt, status: "applied_unverified", nextAction: "ready_for_review" };
+    }
     const manifest = await this.state.createArtifact({
-      taskRunId: input.result.taskRunId,
+      taskRunId: attempt.taskRunId,
       stepId: input.stepId,
       kind: "quality_report",
-      title: `Code change loop attempt ${input.result.attemptNumber}`,
-      uri: `harness:code-change-loop/${input.result.taskRunId}/${input.result.attemptNumber}/${this.now()}`,
-      summary: formatAttemptManifest(input.result),
+      title: `Code change loop attempt ${attempt.attemptNumber}`,
+      uri: `harness:code-change-loop/${attempt.taskRunId}/${attempt.attemptNumber}/${this.now()}`,
+      summary: formatAttemptManifest(attempt),
     });
     const result = {
-      ...input.result,
-      artifactIds: [...input.result.artifactIds, manifest.id],
+      ...attempt,
+      artifactIds: [...attempt.artifactIds, manifest.id],
     };
-    await this.recordQualityGate(result);
-    await this.state.setStepStatus(input.stepId, input.stepStatus, {
+    await this.state.setStepStatus(input.stepId, result.status === "verification_failed" ? "failed" : input.stepStatus, {
       outputSummary: `${result.status}; next=${result.nextAction}`,
     });
-    await this.state.setTaskRunStatus(result.taskRunId, input.taskRunStatus);
+    await this.state.setTaskRunStatus(result.taskRunId, result.status === "verification_failed" ? "quality_failed" : input.taskRunStatus);
     return result;
   }
 
   private async recordQualityGate(
     result: CodeChangeAttemptResult,
-  ): Promise<void> {
+    validation?: ValidationView,
+  ): Promise<QualityGateResult | undefined> {
     if (
       result.status !== "verified" &&
       result.status !== "verification_failed" &&
@@ -401,10 +432,16 @@ export class CodeChangeLoopService {
             ].join(": "),
           ]
         : result.status === "applied_unverified"
-          ? ["No verification approvals were supplied for this code change attempt"]
+          ? [result.verificationApprovalIds.length === 0
+            ? "No verification approvals were supplied for this code change attempt"
+            : "Supplied verification commands have no current host validation evidence"]
           : [];
 
-    await this.state.createQualityGateResult({
+    const outcomes = (kind: "test" | "build" | "smoke"): boolean | undefined => {
+      const runs = validation?.selected.filter(run => run.kinds.includes(kind)) ?? [];
+      return runs.length > 0 ? runs.every(run => run.status === "completed" && run.exitCode === 0) : undefined;
+    };
+    return this.state.createQualityGateResult({
       id: newId("qualityGate"),
       taskRunId: result.taskRunId,
       status:
@@ -413,17 +450,38 @@ export class CodeChangeLoopService {
           : result.status === "applied_unverified"
             ? "warning"
             : "failed",
-      testsPassed:
-        result.status === "verified"
-          ? true
-          : result.status === "verification_failed"
-            ? false
-            : undefined,
-      changedFilesReviewed: result.changedFiles.length > 0,
-      knownRisks,
+      testsPassed: outcomes("test"),
+      buildPassed: outcomes("build"),
+      smokePassed: outcomes("smoke"),
+      changedFilesReviewed: false,
+      knownRisks: [...knownRisks, ...(validation?.unverifiedReasons ?? [])],
       evidenceArtifactIds: [...new Set(result.artifactIds)],
       createdAt: this.now(),
+      ...(validation ? { validationState: validation.state } : {}),
     });
+  }
+
+  private async readValidation(taskRunId: string): Promise<ValidationView> {
+    const task = await this.state.getTaskRun(taskRunId);
+    if (!task) throw new CodeChangeLoopError("CODE_CHANGE_TASK_NOT_FOUND", `TaskRun ${taskRunId} not found`);
+    const revision = await captureValidationRevision(task.targetDir);
+    const epoch = await this.state.workspaceMutations.get(revision.workspaceKey);
+    const watermark = await this.state.validationRuns.getWatermark(taskRunId);
+    const [runs, steps, artifacts] = await Promise.all([
+      this.state.validationRuns.listByTaskRun(taskRunId), this.state.listStepsByTaskRun(taskRunId),
+      this.state.listArtifactsByTaskRun(taskRunId),
+    ]);
+    const selected = selectCurrentValidationEvidence({ taskRunId, runs, steps, artifacts, current: { ...revision, ...epoch } });
+    const finalRevision = await captureValidationRevision(task.targetDir);
+    const finalEpoch = await this.state.workspaceMutations.get(revision.workspaceKey);
+    const finalWatermark = await this.state.validationRuns.getWatermark(taskRunId);
+    if (revision.workspaceKey !== finalRevision.workspaceKey || revision.fingerprint !== finalRevision.fingerprint ||
+        epoch.generation !== finalEpoch.generation || epoch.activeMutations !== finalEpoch.activeMutations || watermark !== finalWatermark) {
+      selected.runs.length = 0;
+      selected.unverifiedReasons.push("validation inputs or execution results changed during evaluation; evaluate again");
+    }
+    return { runs, selected: selected.runs, state: { workspaceKey: revision.workspaceKey, fingerprint: revision.fingerprint,
+      generation: epoch.generation, watermark }, unverifiedReasons: selected.unverifiedReasons };
   }
 }
 
@@ -442,7 +500,7 @@ const toVerificationResult = (
 ): CodeChangeVerificationResult => ({
   approvalId,
   commandSummary: result.commandSummary,
-  exitCode: result.exitCode ?? 0,
+  exitCode: result.exitCode ?? -1,
   ...(result.stdout !== undefined ? { stdout: result.stdout } : {}),
   ...(result.stderr !== undefined ? { stderr: result.stderr } : {}),
   artifactIds: [...result.artifactIds],

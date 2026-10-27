@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   ARTIFACT_NOT_FOUND,
   IPC_CHANNELS,
@@ -73,7 +74,7 @@ export const registerRunnerIpc = (
     }
   };
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.executeApproved,
     async (_e, input: unknown): Promise<HarnessResult<RunnerResultPayload>> => {
       if (!isObject(input)) {
@@ -101,7 +102,7 @@ export const registerRunnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.executeCodeChangeAttempt,
     async (_e, input: unknown): Promise<HarnessResult<CodeChangeAttemptResult>> => {
       if (!isObject(input)) {
@@ -179,7 +180,7 @@ export const registerRunnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.cancelExecution,
     async (
       _e,
@@ -204,7 +205,7 @@ export const registerRunnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.retryApproval,
     async (_e, input: unknown): Promise<HarnessResult<RunnerResultPayload>> => {
       if (!isObject(input)) {
@@ -228,7 +229,7 @@ export const registerRunnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.listArtifacts,
     async (_e, input: unknown): Promise<HarnessResult<Artifact[]>> => {
       if (!isObject(input)) {
@@ -248,7 +249,7 @@ export const registerRunnerIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.runner.readArtifact,
     async (
       _e,

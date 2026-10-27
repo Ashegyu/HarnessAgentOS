@@ -207,14 +207,21 @@ export class SqlitePipelineBackflowRepository
       if (patch.completedAt === null) delete next.completedAt;
       else next.completedAt = patch.completedAt;
     }
-    this.db
+    const updated = this.db
       .prepare(
         `UPDATE pipeline_backflow_attempts SET
            status = @status,
            reason = @reason,
            updated_at = @updatedAt,
            completed_at = @completedAt
-         WHERE id = @id`,
+         WHERE id = @id
+           AND (@status != 'succeeded' OR (
+             status = 'running' AND EXISTS (
+               SELECT 1 FROM task_runs
+               WHERE id = pipeline_backflow_attempts.task_run_id
+                 AND status NOT IN ('paused', 'cancelled', 'done')
+             )
+           ))`,
       )
       .run({
         id: next.id,
@@ -223,6 +230,11 @@ export class SqlitePipelineBackflowRepository
         updatedAt: next.updatedAt,
         completedAt: next.completedAt ?? null,
       });
+    if (updated.changes === 0) {
+      const actual = await this.getAttempt(id);
+      if (!actual) throw new Error(`PipelineBackflowAttempt ${id} not found`);
+      return actual;
+    }
     return next;
   }
 

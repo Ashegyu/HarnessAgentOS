@@ -2,8 +2,27 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collectEvidence } from "./evidence-reader.ts";
 
+// These fixtures explicitly model host ledger records. Labels are deliberately
+// not parsed: build/test/smoke kinds are supplied by the execution fixture.
+const collectRecorded = (steps, artifacts, kinds = ["test"]) => {
+  const output = [...artifacts];
+  const runs = steps.filter(step => step.kind === "shell" || step.kind === "test").map((step, index) => {
+    let artifact = output.find(row => row.stepId === step.id && row.taskRunId === step.taskRunId && ["test_result", "log"].includes(row.kind));
+    if (!artifact) {
+      artifact = { id: `host-${step.id}`, taskRunId: step.taskRunId, stepId: step.id, kind: "log" };
+      output.push(artifact);
+    }
+    return { id: `run-${step.id}`, sequence: index + 1, taskRunId: step.taskRunId, stepId: step.id,
+      approvalId: "approved", workspaceKey: "workspace", checkerId: `checker-${step.id}`, kinds,
+      status: ["succeeded", "failed"].includes(step.status) ? "completed" : "running", exitCode: step.status === "failed" ? 1 : 0,
+      startFingerprint: "current", finishFingerprint: "current", startGeneration: 0, finishGeneration: 0,
+      artifactId: artifact.id, startedAt: "now", finishedAt: "now" };
+  });
+  return collectEvidence(steps, output, runs, { workspaceKey: "workspace", fingerprint: "current", generation: 0, activeMutations: 0 });
+};
+
 test("a complete host snapshot with zero changes is not a change or a test ordering barrier", () => {
-  const evidence = collectEvidence([
+  const evidence = collectRecorded([
     { id: "check", taskRunId: "task", index: 0, kind: "test", status: "succeeded", title: "test" },
     { id: "plan", taskRunId: "task", index: 1, kind: "plan", status: "succeeded", title: "plan" },
   ], [{ id: "snapshot", taskRunId: "task", stepId: "plan", kind: "diff",
@@ -58,8 +77,8 @@ test("checks before the latest file change cannot validate the new change", () =
   assert.deepEqual(evidence.testEvidence, []);
 });
 
-test("collectEvidence flags failed test_result artifact", () => {
-  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "test", status: "failed" }], [
+test("collectEvidence flags failed host test execution", () => {
+  const evidence = collectRecorded([{ ...stepBase, taskRunId: "tsk_1", kind: "test", status: "failed" }], [
     {
       id: "art_1",
       stepId: stepBase.id,
@@ -77,7 +96,7 @@ test("collectEvidence flags failed test_result artifact", () => {
 });
 
 test("collectEvidence marks passing test_result artifact", () => {
-  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "test" }], [
+  const evidence = collectRecorded([{ ...stepBase, taskRunId: "tsk_1", kind: "test" }], [
     {
       id: "art_2",
       stepId: stepBase.id,
@@ -107,8 +126,8 @@ test("collectEvidence captures diff artifact ids", () => {
   assert.deepEqual(evidence.diffArtifactIds, ["art_d1"]);
 });
 
-test("collectEvidence reads test step status as evidence", () => {
-  const evidence = collectEvidence(
+test("collectEvidence reads recorded test execution status", () => {
+  const evidence = collectRecorded(
     [
       { ...stepBase, kind: "test", title: "run unit tests", status: "failed" },
     ],
@@ -118,8 +137,8 @@ test("collectEvidence reads test step status as evidence", () => {
   assert.equal(evidence.testEvidence[0].passed, false);
 });
 
-test("collectEvidence detects shell build steps via title hint", () => {
-  const evidence = collectEvidence(
+test("collectEvidence accepts an explicitly recorded build kind", () => {
+  const evidence = collectRecorded(
     [
       {
         ...stepBase,
@@ -128,14 +147,14 @@ test("collectEvidence detects shell build steps via title hint", () => {
         status: "succeeded",
       },
     ],
-    [],
+    [], ["build"],
   );
   assert.equal(evidence.buildEvidence.length, 1);
   assert.equal(evidence.buildEvidence[0].passed, true);
 });
 
 test("collectEvidence links build logs to terminal runner status", () => {
-  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run build" }], [
+  const evidence = collectRecorded([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run build" }], [
     {
       id: "art_b1",
       stepId: stepBase.id,
@@ -146,14 +165,14 @@ test("collectEvidence links build logs to terminal runner status", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
       summary: "exit=0, 1500ms",
     },
-  ]);
+  ], ["build"]);
   assert.equal(evidence.buildEvidence.length, 1);
   assert.equal(evidence.buildEvidence[0].passed, true);
   assert.equal(evidence.buildEvidence[0].artifactId, "art_b1");
 });
 
 test("collectEvidence detects failed build log artifacts", () => {
-  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "dotnet build", status: "failed" }], [
+  const evidence = collectRecorded([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "dotnet build", status: "failed" }], [
     {
       id: "art_b2",
       stepId: stepBase.id,
@@ -164,14 +183,14 @@ test("collectEvidence detects failed build log artifacts", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
       summary: "exit=1, 1500ms",
     },
-  ]);
+  ], ["build"]);
   assert.equal(evidence.buildEvidence.length, 1);
   assert.equal(evidence.buildEvidence[0].passed, false);
   assert.equal(evidence.buildEvidence[0].artifactId, "art_b2");
 });
 
-test("collectEvidence detects shell test invocations via command title", () => {
-  const evidence = collectEvidence(
+test("collectEvidence accepts a recorded shell test invocation", () => {
+  const evidence = collectRecorded(
     [
       {
         ...stepBase,
@@ -188,7 +207,7 @@ test("collectEvidence detects shell test invocations via command title", () => {
 });
 
 test("collectEvidence does not count unit tests as smoke evidence", () => {
-  const evidence = collectEvidence(
+  const evidence = collectRecorded(
     [
       {
         ...stepBase,
@@ -203,8 +222,8 @@ test("collectEvidence does not count unit tests as smoke evidence", () => {
   assert.equal(evidence.smokeEvidence.length, 0);
 });
 
-test("collectEvidence detects smoke shell steps", () => {
-  const evidence = collectEvidence(
+test("collectEvidence accepts a recorded smoke invocation", () => {
+  const evidence = collectRecorded(
     [
       {
         ...stepBase,
@@ -213,14 +232,14 @@ test("collectEvidence detects smoke shell steps", () => {
         status: "succeeded",
       },
     ],
-    [],
+    [], ["smoke"],
   );
   assert.equal(evidence.smokeEvidence.length, 1);
   assert.equal(evidence.smokeEvidence[0].passed, true);
 });
 
 test("collectEvidence links smoke logs to terminal runner status", () => {
-  const evidence = collectEvidence([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run smoke" }], [
+  const evidence = collectRecorded([{ ...stepBase, taskRunId: "tsk_1", kind: "shell", title: "npm run smoke" }], [
     {
       id: "art_s1",
       stepId: stepBase.id,
@@ -231,7 +250,7 @@ test("collectEvidence links smoke logs to terminal runner status", () => {
       createdAt: "2024-01-01T00:00:00.000Z",
       summary: "exit=0, 500ms",
     },
-  ]);
+  ], ["smoke"]);
   assert.equal(evidence.smokeEvidence.length, 1);
   assert.equal(evidence.smokeEvidence[0].passed, true);
   assert.equal(evidence.smokeEvidence[0].artifactId, "art_s1");

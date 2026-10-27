@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   IPC_CHANNELS,
   QUALITY_DONE_BLOCKED,
@@ -55,7 +56,7 @@ export const registerQualityIpc = (
   instinctService?: InstinctService,
   pipelineBackflow?: PipelineBackflowService,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.evaluate,
     async (_e, input: unknown): Promise<HarnessResult<QualityGateResult>> => {
       if (!isObject(input)) {
@@ -99,7 +100,7 @@ export const registerQualityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.getLatest,
     async (
       _e,
@@ -123,7 +124,7 @@ export const registerQualityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.approveKnownRisks,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {
@@ -153,7 +154,7 @@ export const registerQualityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.createRepairPlan,
     async (_e, input: unknown): Promise<HarnessResult<RepairPlanDraft>> => {
       if (!isObject(input)) {
@@ -180,7 +181,7 @@ export const registerQualityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.markReadyForReview,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {
@@ -204,7 +205,7 @@ export const registerQualityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.quality.markDone,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {

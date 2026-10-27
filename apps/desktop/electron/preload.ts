@@ -63,6 +63,7 @@ import {
   type TaskRunDetail,
   type Thread,
   type ThreadDetail,
+  type RecentTaskRun,
   type TopologyRecommendation,
 } from "@harness/core";
 
@@ -115,6 +116,8 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<string | null>(IPC_CHANNELS.app.selectFile, input ?? {}),
   },
   state: {
+      listRecentTaskRuns: (input) =>
+        invokeUnwrapped<RecentTaskRun[]>(IPC_CHANNELS.state.listRecentTaskRuns, input),
     listThreads: () =>
       invokeUnwrapped<Thread[]>(IPC_CHANNELS.state.listThreads),
     getThread: (input) =>
@@ -136,6 +139,7 @@ const harnessApi: HarnessDesktopApi = {
       ),
   },
   conversation: {
+    prepareActionRetry: (input) => invokeUnwrapped<Approval>(IPC_CHANNELS.conversation.prepareActionRetry, input),
     startTask: (input) =>
       invokeUnwrapped<ConversationTaskDraft>(IPC_CHANNELS.conversation.startTask, input),
     createTask: (input) =>

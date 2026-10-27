@@ -25,6 +25,10 @@ export class SqliteThreadRepository implements ThreadRepository {
   }
 
   async create(input: CreateThreadInput): Promise<Thread> {
+    return this.createSync(input);
+  }
+
+  createSync(input: CreateThreadInput): Thread {
     const now = nowIso();
     const thread: Thread = {
       id: newId("thread"),
@@ -65,6 +69,10 @@ export class SqliteThreadRepository implements ThreadRepository {
   }
 
   async get(id: string): Promise<Thread | null> {
+    return this.getSync(id);
+  }
+
+  getSync(id: string): Thread | null {
     const row = this.db
       .prepare(
         `SELECT id, title, target_dir, created_at, updated_at, archived_at, agent_session_id, pipeline_id

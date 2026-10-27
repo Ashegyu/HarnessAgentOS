@@ -1,4 +1,5 @@
-import { BrowserWindow, clipboard, dialog, ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+import { BrowserWindow, clipboard, dialog } from "electron";
 import {
   IPC_CHANNELS,
   type HarnessResult,
@@ -23,13 +24,13 @@ export interface AppIpcDeps {
  * preload unwraps to either resolved value or thrown HarnessError.
  */
 export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.copyText,
     (_event, input: unknown): Promise<HarnessResult<void>> =>
       copyAnswerTextWithRetry(input, (text) => clipboard.writeText(text), () => clipboard.readText()),
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.getVersion,
     async (): Promise<HarnessResult<string>> => {
       try {
@@ -46,7 +47,7 @@ export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.getRuntimeInfo,
     async (): Promise<HarnessResult<RuntimeInfo>> => {
       try {
@@ -63,7 +64,7 @@ export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.getDiagnostics,
     async (): Promise<HarnessResult<SystemDiagnostics>> => {
       try {
@@ -83,7 +84,7 @@ export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.selectDirectory,
     async (e): Promise<HarnessResult<string | null>> => {
       try {
@@ -111,7 +112,7 @@ export const registerAppIpc = (deps: AppIpcDeps = {}): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.app.selectFile,
     async (e, input: unknown): Promise<HarnessResult<string | null>> => {
       try {

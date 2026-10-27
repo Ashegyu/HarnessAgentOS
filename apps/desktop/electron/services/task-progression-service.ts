@@ -38,6 +38,7 @@ export interface TaskProgressionDeps {
   approve: (input: ApproveInput) => Promise<unknown>;
   execute: (approval: Approval) => Promise<unknown>;
   resumePlanning?: (taskRunId: string) => Promise<unknown>;
+  resumeBackflow?: (taskRunId: string) => Promise<boolean>;
   evaluateQuality: (taskRunId: string) => Promise<unknown>;
   recordFailure: (taskRunId: string, error: unknown) => Promise<void>;
   changed: (taskRunId: string) => void;
@@ -50,11 +51,11 @@ const isAdvisory = (a: Approval): boolean =>
 const isApproved = (a: Approval): boolean =>
   a.status === "approved" || a.status === "always_approved_for_run";
 const isUnresolved = (a: Approval): boolean =>
-  a.executionState === "running" || a.executionState === "uncertain" ||
-  a.status === "pending" || (!isAdvisory(a) && isApproved(a));
+  !a.retryApprovalId && (a.executionState === "running" || a.executionState === "uncertain" ||
+  a.status === "pending" || (!isAdvisory(a) && isApproved(a)));
 
 const executable = (a: Approval): boolean => {
-  if (a.executionState || isAdvisory(a)) return false;
+  if (a.retryApprovalId || a.executionState || isAdvisory(a)) return false;
   if (a.actionType === "orchestration_plan") return true;
   if (!["file_write", "file_patch", "file_delete", "shell"].includes(a.actionType)) return false;
   return !!a.proposedAction && validateProposedActionDetails(a.proposedAction, a.actionType).ok;
@@ -87,8 +88,15 @@ export class TaskProgressionService {
   private readonly running = new Map<string, Promise<void>>();
   private readonly requested = new Set<string>();
   private readonly held = new Set<string>();
+  private stopping = false;
 
   constructor(deps: TaskProgressionDeps) { this.deps = deps; }
+
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    this.requested.clear();
+    await Promise.allSettled([...this.running.values()]);
+  }
 
   hold(taskRunId: string): () => void {
     this.held.add(taskRunId);
@@ -105,7 +113,7 @@ export class TaskProgressionService {
   }
 
   advance(taskRunId: string): Promise<void> {
-    if (!taskRunId) return Promise.resolve();
+    if (this.stopping || !taskRunId) return Promise.resolve();
     this.requested.add(taskRunId);
     const existing = this.running.get(taskRunId);
     if (existing) return existing;
@@ -115,7 +123,7 @@ export class TaskProgressionService {
         do {
           this.requested.delete(taskRunId);
           await this.progress(taskRunId, attempted);
-        } while (this.requested.has(taskRunId));
+        } while (!this.stopping && this.requested.has(taskRunId));
       } catch (error) {
         await this.fail(taskRunId, error);
       }
@@ -129,9 +137,9 @@ export class TaskProgressionService {
 
   private async progress(taskRunId: string, attempted: Set<string>): Promise<void> {
     for (;;) {
-      if (this.held.has(taskRunId)) return;
+      if (this.stopping || this.held.has(taskRunId)) return;
       const s = await this.deps.load(taskRunId);
-      if (!s || this.held.has(taskRunId) || STOPPED.has(s.taskRun.status)) return;
+      if (this.stopping || !s || this.held.has(taskRunId) || STOPPED.has(s.taskRun.status)) return;
       if (s.steps.some(step => step.status === "running") ||
           s.invocations.some(invocation => invocation.status === "running" || invocation.status === "queued")) return;
 
@@ -148,6 +156,18 @@ export class TaskProgressionService {
       };
       const candidate = first && canHandle(first) ? first : undefined;
       if (!candidate) {
+        if (!s.approvals.some(isUnresolved) && this.deps.resumeBackflow &&
+            ["running", "waiting_for_approval", "ready_for_review"].includes(s.taskRun.status)) {
+          const key = `backflow:${s.taskRun.status}:` +
+            s.steps.map(step => `${step.id}:${step.status}`).join("|") + ":" +
+            s.approvals.map(a => `${a.id}:${a.actionRevision}:${a.status}:${a.executionState ?? ""}`).join("|");
+          if (attempted.has(key)) return;
+          if (await this.deps.resumeBackflow(taskRunId)) {
+            attempted.add(key);
+            this.deps.changed(taskRunId);
+            continue;
+          }
+        }
         if (!s.approvals.some(isUnresolved) && s.taskRun.status === "drafting" &&
             s.invocations.length === 0 && this.deps.resumePlanning &&
             s.artifacts.some(a => a.taskRunId === taskRunId && a.kind === "snapshot" &&

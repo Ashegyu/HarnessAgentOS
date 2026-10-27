@@ -35,3 +35,17 @@ test("TaskRunStateActions renders Stop only while TaskRun is running", () => {
   const paused = renderActions("paused");
   assert.doesNotMatch(paused, />Stop</);
 });
+
+for (const executionState of [undefined, "uncertain", "succeeded"]) {
+  test(`Retry opens result review instead of reusing ${executionState ?? "unclaimed"} approval`, () => {
+    const markup = renderToStaticMarkup(React.createElement(TaskRunStateActions, {
+      taskRun: taskRun("blocked"),
+      approvals: [{ id: "old", taskRunId: "task_blocked", checkpointId: "cp", actionType: "shell",
+        actionSummary: "node --test", status: executionState === "succeeded" ? "executed" : "approved",
+        executionState, proposedAction: { type: "shell", command: "node", args: ["--test"] } }],
+      onChanged: async () => {},
+    }));
+    assert.match(markup, />재시도 검토</);
+    assert.doesNotMatch(markup, />Retry last action</);
+  });
+}

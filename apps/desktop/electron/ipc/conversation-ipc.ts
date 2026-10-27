@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   AUTO_APPROVE_STEPS,
   APPROVAL_ACTION_TYPES,
@@ -17,6 +18,7 @@ import {
   isTaskIntent,
   validateProposedActionDetails,
   type Approval,
+  type PrepareActionRetryInput,
   type A2ARefinementActivityInput,
   type A2ARefinementActivityPage,
   type AutoApproveDecision,
@@ -300,7 +302,7 @@ export const registerConversationIpc = (
   startService?: Pick<ConversationStartService, "start">,
   runner?: Pick<RunnerService, "cancelExecution">,
 ): void => {
-  ipcMain.handle(IPC_CHANNELS.conversation.startTask, async (_e, input: unknown): Promise<HarnessResult<ConversationTaskDraft>> => {
+  handleIpc(IPC_CHANNELS.conversation.startTask, async (_e, input: unknown): Promise<HarnessResult<ConversationTaskDraft>> => {
     let parsed;
     try { parsed = parseStartTaskInput(input); }
     catch (error) { return err(harnessError(STATE_INVALID_INPUT, error instanceof Error ? error.message : "Invalid input")); }
@@ -308,7 +310,7 @@ export const registerConversationIpc = (
     try { return ok(await startService.start(parsed)); }
     catch (error) { return mapServiceError<ConversationTaskDraft>(error); }
   });
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.createTask,
     async (
       _e,
@@ -393,7 +395,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.redirectTask,
     async (
       _e,
@@ -433,7 +435,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.approve,
     async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
       if (!isObject(input)) {
@@ -479,7 +481,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.rejectApproval,
     async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
       if (!isObject(input)) {
@@ -514,7 +516,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.setProposedAction,
     async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
       if (!isObject(input)) {
@@ -564,7 +566,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.getTaskRunDetail,
     async (_e, input: unknown): Promise<HarnessResult<TaskRunDetail>> => {
       if (!isObject(input)) {
@@ -710,7 +712,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.listDecisions,
     async (_e, input: unknown): Promise<HarnessResult<DecisionLogPage>> => {
       const parsed = parseDecisionLogInput(input);
@@ -725,7 +727,21 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(IPC_CHANNELS.conversation.prepareActionRetry, async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
+    if (!isObject(input) || !isNonEmptyString(input.approvalId) || !Number.isSafeInteger(input.expectedRevision) ||
+        !isNonEmptyString(input.reviewMessage) || input.reviewMessage.length > 4000 ||
+        (input.expectedExecutionState !== null && input.expectedExecutionState !== "running" &&
+          input.expectedExecutionState !== "succeeded" && input.expectedExecutionState !== "uncertain")) {
+      return err(harnessError(STATE_INVALID_INPUT, "Invalid approval retry review"));
+    }
+    try {
+      const approval = await conversation.prepareActionRetry(input as unknown as PrepareActionRetryInput);
+      events.taskRunChanged(approval.taskRunId);
+      return ok(approval);
+    } catch (error) { return mapServiceError<Approval>(error); }
+  });
+
+  handleIpc(
     IPC_CHANNELS.conversation.listRefinementEvents,
     async (
       _e,
@@ -743,7 +759,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.listBackflowEvents,
     async (
       _e,
@@ -761,7 +777,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.pauseTask,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {
@@ -786,7 +802,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.resumeTask,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {
@@ -811,7 +827,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.cancelTask,
     async (_e, input: unknown): Promise<HarnessResult<TaskRun>> => {
       if (!isObject(input)) {
@@ -843,7 +859,7 @@ export const registerConversationIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.conversation.deleteTask,
     async (_e, input: unknown): Promise<HarnessResult<void>> => {
       if (!isObject(input)) {

@@ -1,6 +1,7 @@
 import type { RuntimeInfo } from "./runtime.ts";
 import type {
   Approval,
+  PrepareActionRetryInput,
   AgentInvocation,
   AgentPipeline,
   AgentProfile,
@@ -94,6 +95,7 @@ import type {
   TaskRun,
   Thread,
   ThreadDetail,
+  RecentTaskRun,
   TopologyRecommendation,
   Checkpoint,
   EvalRunDetailView,
@@ -183,6 +185,7 @@ export interface HarnessDesktopApi {
     selectFile(input?: { defaultDir?: string }): Promise<string | null>;
   };
   state: {
+    listRecentTaskRuns(input: { limit: number }): Promise<RecentTaskRun[]>;
     listThreads(): Promise<Thread[]>;
     getThread(input: { threadId: string }): Promise<ThreadDetail>;
     createThread(input: {
@@ -203,6 +206,7 @@ export interface HarnessDesktopApi {
     }): Promise<ExportApprovalResult>;
   };
   conversation: {
+    prepareActionRetry(input: PrepareActionRetryInput): Promise<Approval>;
     startTask(input: StartConversationTaskInput): Promise<ConversationTaskDraft>;
     createTask(input: CreateConversationTaskInput): Promise<ConversationTaskDraft>;
     redirectTask(input: RedirectTaskInput): Promise<ConversationTaskDraft>;

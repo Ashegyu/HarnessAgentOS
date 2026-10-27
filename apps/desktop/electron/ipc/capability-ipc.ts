@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   CAPABILITY_REFRESH_FAILED,
   IPC_CHANNELS,
@@ -48,7 +49,7 @@ export const registerCapabilityIpc = (
   registry: CapabilityRegistry,
   events?: HarnessEventBus,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.list,
     async (): Promise<HarnessResult<Capability[]>> => {
       try {
@@ -59,7 +60,7 @@ export const registerCapabilityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.refresh,
     async (): Promise<HarnessResult<Capability[]>> => {
       try {
@@ -70,7 +71,7 @@ export const registerCapabilityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.suggest,
     async (
       _e,
@@ -109,7 +110,7 @@ export const registerCapabilityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.readSkill,
     async (
       _e,
@@ -145,7 +146,7 @@ export const registerCapabilityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.proposeCandidates,
     async (
       _e,
@@ -190,7 +191,7 @@ export const registerCapabilityIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.capability.proposeScriptRun,
     async (_e, input: unknown): Promise<HarnessResult<Approval>> => {
       if (!isObject(input)) {

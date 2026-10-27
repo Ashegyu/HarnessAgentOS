@@ -44,6 +44,35 @@ test("packRepoContext respects maxBytes", () => {
     ),
     maxBytes: 1_200,
   });
-  assert.ok(Buffer.byteLength(packed.section, "utf8") <= 1_240);
+  assert.ok(Buffer.byteLength(packed.section, "utf8") <= 1_200);
   assert.ok(packed.section.includes("[...repo context truncated]"));
+});
+
+for (const text of ["한글 저장소 설명", "🙂🚢한글", 'ASCII\\path "quoted"']) {
+  test(`context UTF-8 budget includes the truncation marker for ${text}`, () => {
+    const packed = packRepoContext({ prompt: "large", maxBytes: 1200,
+      files: Array.from({ length: 8 }, (_, i) => file(`src/large-${i}.ts`, { summary: text.repeat(200) })) });
+    assert.ok(Buffer.byteLength(packed.section, "utf8") <= 1200);
+    assert.match(packed.section, /\[\.\.\.repo context truncated\]$/);
+    assert.equal(Buffer.from(packed.section, "utf8").toString("utf8"), packed.section);
+  });
+}
+
+test("explicit small budgets are hard caps rather than an implicit 1024-byte minimum", () => {
+  for (const maxBytes of [0, 1, 2, 3, 10, 25, 26, 27, 28, 80, 1023, 1201]) {
+    const packed = packRepoContext({ prompt: "", files: [file("한글🙂.ts", { summary: "한글🙂".repeat(500) })], maxBytes });
+    assert.ok(Buffer.byteLength(packed.section, "utf8") <= maxBytes, `budget=${maxBytes}`);
+    assert.equal(Buffer.from(packed.section).toString(), packed.section);
+  }
+});
+
+test("summary boundaries do not split a surrogate pair even when the section fits", () => {
+  const packed = packRepoContext({ prompt: "", files: [file("src/emoji.ts", { summary: "x".repeat(499) + "🙂 tail" })] });
+  assert.equal(Buffer.from(packed.section).toString(), packed.section);
+});
+
+test("invalid byte budgets are rejected and fractional budgets are rounded down", () => {
+  for (const maxBytes of [NaN, Infinity, -1]) assert.throws(() => packRepoContext({ prompt: "", files: [], maxBytes }), RangeError);
+  const packed = packRepoContext({ prompt: "", files: [], maxBytes: 40.9 });
+  assert.ok(Buffer.byteLength(packed.section) <= 40);
 });

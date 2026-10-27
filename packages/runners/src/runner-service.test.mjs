@@ -250,6 +250,69 @@ test("cancelExecution during approval claim waits for cleanup and prevents shell
   assert.equal(runner.getInflightCount(), 0);
 });
 
+test("Runner shutdown owns validation before claim and seals new execution", async () => {
+  const h = fakeRunnerHarness();
+  const get = h.state.getApproval;
+  let release, entered;
+  const blocked = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  h.state.getApproval = async id => { entered(); await blocked; return get(id); };
+  const runner = new RunnerService({ state: h.state, artifactStore: h.artifactStore,
+    shellRunner: { run: async () => assert.fail("no spawn after shutdown") } });
+  const result = runner.executeApproved(h.approval.id).catch(error => error);
+  await started;
+  let stopped = false;
+  const shutdown = runner.shutdown().then(() => { stopped = true; });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(stopped, false);
+  await assert.rejects(runner.executeApproved(h.approval.id), error => error.code === "RUNNER_CANCELLED");
+  release(); await shutdown;
+  assert.equal((await result).code, "RUNNER_CANCELLED");
+  assert.equal(h.approval.executionState, undefined); assert.equal(runner.getInflightCount(), 0);
+});
+
+test("Runner shutdown rejects an execution claim that could not be finalized", async () => {
+  const h = fakeRunnerHarness(); let entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  h.state.finishApprovalExecution = async () => { throw Object.assign(new Error("fixture finish busy"), { code: "SQLITE_BUSY" }); };
+  const runner = new RunnerService({ state: h.state, artifactStore: h.artifactStore, shellRunner: { run: async ({ signal }) => {
+    entered(); await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+    throw Object.assign(new Error("cancelled"), { code: "RUNNER_CANCELLED" });
+  } } });
+  const result = runner.executeApproved(h.approval.id).catch(error => error);
+  await started; h.taskRun.status = "paused";
+  await assert.rejects(runner.shutdown(), /finaliz/i);
+  await result; assert.equal(h.approval.executionState, "running");
+  await assert.rejects(runner.shutdown(), /finaliz/i);
+});
+
+for (const confirmed of [true, false]) {
+  test(`Runner shutdown drains active cleanup and preserves Pause (confirmed=${confirmed})`, async () => {
+    const h = fakeRunnerHarness();
+    let entered, release;
+    const started = new Promise(resolve => { entered = resolve; });
+    const cleanup = new Promise(resolve => { release = resolve; });
+    const runner = new RunnerService({ state: h.state, artifactStore: h.artifactStore,
+      shellRunner: { run: async ({ signal }) => {
+        entered(); await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+        await cleanup;
+        throw Object.assign(new Error("fixture termination"), { code: confirmed ? "RUNNER_CANCELLED" : "RUNNER_TERMINATION_UNCONFIRMED" });
+      } } });
+    const result = runner.executeApproved(h.approval.id).catch(error => error);
+    await started; h.taskRun.status = "paused";
+    let stopped = false;
+    const shutdown = runner.shutdown().then(() => { stopped = true; }, error => { stopped = true; return error; });
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(stopped, false);
+    release(); const error = await shutdown; await result;
+    if (!confirmed) {
+      assert.equal(error.code, "RUNNER_TERMINATION_UNCONFIRMED");
+      await assert.rejects(runner.shutdown(), e => e.code === "RUNNER_TERMINATION_UNCONFIRMED");
+    }
+    else assert.equal(error, undefined);
+    assert.equal(h.taskRun.status, "paused"); assert.equal(h.approval.executionState, "uncertain");
+    assert.equal(runner.getInflightCount(), 0);
+  });
+}
+
 test("cancelExecution reports unconfirmed termination without replacing persisted cancellation", async () => {
   const harness = fakeRunnerHarness();
   let started = false;
@@ -380,7 +443,7 @@ test("executeApproved cannot replay a cancelled shell execution", async () => {
 });
 
 test("test command execution receives the TaskRun abort signal", async () => {
-  const harness = fakeRunnerHarness({ command: "npm test -- --runInBand" });
+  const harness = fakeRunnerHarness({ command: "dotnet test" });
   let seenSignal;
   const runner = new RunnerService({
     state: harness.state,
@@ -1251,7 +1314,11 @@ test("retryApproval refuses when TaskRun is not blocked/quality_failed", async (
 test("shell + recognised test command surfaces as a 'test' step", async () => {
   const t = tmp();
   try {
-    const { db, state, conversation, runner } = await setup(t);
+    const { db, state, artifactStore, conversation } = await setup(t);
+    writeFileSync(join(t.target, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }));
+    const runner = new RunnerService({ state, artifactStore, testRunner: {
+      run: async () => { throw new Error("fixture checker failure"); },
+    } });
     try {
       const draft = await conversation.createTask({
         userRequest: "x",
@@ -1398,6 +1465,7 @@ test("test approvals use longer hard timeout with idle timeout", async () => {
   const t = tmp();
   try {
     const { db, state, artifactStore, conversation } = await setup(t);
+    writeFileSync(join(t.target, "package.json"), JSON.stringify({ scripts: { test: "vitest run" } }));
     let seen;
     const runner = new RunnerService({
       state,

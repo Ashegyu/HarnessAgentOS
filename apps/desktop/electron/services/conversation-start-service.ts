@@ -53,13 +53,16 @@ export interface ConversationStartDeps {
 /** New requests keep running when the renderer changes tasks or reloads. */
 export class ConversationStartService {
   private readonly preparation = new Map<string, Promise<void>>();
+  private stopping = false;
   constructor(private readonly deps: ConversationStartDeps) {}
 
   async start(input: StartConversationTaskInput): Promise<ConversationTaskDraft> {
+    if (this.stopping) throw new Error("APPLICATION_SHUTTING_DOWN");
     const conflict = taskRouteConflict(buildTaskContract(input), !!(input.orchMode || input.orchPipelineId || input.orchHarness));
     if (conflict) throw new Error(conflict);
     const { orchMode, orchInstruction, orchPipelineId, orchHarness, ...taskInput } = input;
     const draft = await this.deps.createTask({ ...taskInput, mode: "agent" });
+    if (this.stopping) return draft;
     const id = draft.taskRun.id;
     const release = this.deps.hold(id);
     this.deps.changed(id);
@@ -72,6 +75,11 @@ export class ConversationStartService {
   }
 
   waitForPreparation(id: string): Promise<void> { return this.preparation.get(id) ?? Promise.resolve(); }
+
+  async shutdown(): Promise<void> {
+    this.stopping = true;
+    await Promise.allSettled([...this.preparation.values()]);
+  }
 
   private async prepare(id: string, input: StartConversationTaskInput): Promise<void> {
     const current = await this.deps.getTaskRun(id);

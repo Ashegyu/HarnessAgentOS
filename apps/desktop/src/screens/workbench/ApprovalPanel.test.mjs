@@ -8,6 +8,15 @@ const { ApprovalPanel } = await import("./ApprovalPanel.tsx");
 
 const now = "2026-05-20T00:00:00.000Z";
 
+test("a reviewed replacement locks the original unclaimed approval controls", () => {
+  const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
+    approvals: [{ id: "a", taskRunId: "t", checkpointId: "c", actionType: "file_write", status: "approved",
+      retryApprovalId: "new", actionSummary: "retired", proposedAction: { type: "file_write", filePatch: { path: "a", after: "b" } } }],
+    taskRunTargetDir: "C:\\repo", pipelineAutoLaunched: false,
+  }));
+  assert.doesNotMatch(html, /<button[^>]*>실행|<button[^>]*>세부 수정/);
+});
+
 test("manual risk confirmation is required before enabling the approval button", () => {
   const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
     approvals: [{ id: "a", taskRunId: "t", checkpointId: "c", actionType: "shell", status: "pending",

@@ -1,3 +1,12 @@
+import type { TaskRun } from "./task-run.ts";
+
+/** Bounded command history metadata; excludes answer/artifact payloads. */
+export interface RecentTaskRun {
+  taskRun: TaskRun;
+  threadId: string;
+  threadTitle: string;
+}
+
 export interface Thread {
   id: string;
   title: string;

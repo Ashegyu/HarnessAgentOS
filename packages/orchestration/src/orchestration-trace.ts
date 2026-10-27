@@ -4,6 +4,7 @@ import type {
   WorkerBackflowRule,
   WorkerStep,
 } from "@harness/core";
+import { redactSecrets } from "@harness/core";
 
 /**
  * Phase 7 trace summary helpers. Pure functions producing the
@@ -142,5 +143,5 @@ export const formatWorkerStepArtifact = (input: {
     "",
     `> 이 출력은 제안일 뿐, file/shell 변경이 필요하면 approval을 별도로 생성해야 합니다.`,
   );
-  return lines.join("\n");
+  return redactSecrets(lines.join("\n"), Number.MAX_SAFE_INTEGER);
 };

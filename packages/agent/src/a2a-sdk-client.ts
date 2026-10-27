@@ -10,19 +10,24 @@ import type {
   A2AClientPort,
   A2AInvocationRequest,
 } from "./a2a-invocation-adapter.ts";
-import { redactSecrets } from "@harness/learner";
 import {
   ClientFactory,
   ClientFactoryOptions,
+  DefaultAgentCardResolver,
+  JsonRpcTransportFactory,
+  RestTransportFactory,
   type Client,
   type RequestOptions,
 } from "@a2a-js/sdk/client";
 import type { MessageSendParams } from "@a2a-js/sdk";
+import { createA2ARequestScope, createA2ABoundedFetch, createA2AResponseMeter, closeA2AIterator, resolveA2ALimits,
+  type A2AResponseLimits } from "./a2a-resource-limits.ts";
 
 type TransportProtocolName = "JSONRPC" | "HTTP+JSON" | "GRPC";
 
 export interface OfficialA2AClientFactoryOptions {
   preferredTransports: TransportProtocolName[];
+  signal?: AbortSignal;
 }
 
 export interface OfficialA2AClientFactory {
@@ -48,60 +53,85 @@ export interface OfficialA2AClientPortOptions {
   ) => OfficialA2AClientFactory;
   createMessageId?: () => string;
   redactText?: (text: string) => string;
+  limits?: Partial<A2AResponseLimits>;
+  fetchImpl?: typeof fetch;
 }
 
 export class OfficialA2AClientPort implements A2AClientPort {
   private readonly endpoint: A2AEndpoint;
   private readonly timeoutMs?: number;
-  private readonly createClientFactory: (
+  private readonly createClientFactory?: (
     options: OfficialA2AClientFactoryOptions,
   ) => OfficialA2AClientFactory;
   private readonly createMessageId: () => string;
   private readonly redactText: (text: string) => string;
+  private readonly limits: A2AResponseLimits;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(options: OfficialA2AClientPortOptions) {
     this.endpoint = options.endpoint;
     this.timeoutMs = options.timeoutMs;
-    this.createClientFactory =
-      options.createClientFactory ?? defaultCreateClientFactory;
+    this.createClientFactory = options.createClientFactory;
     this.createMessageId = options.createMessageId ?? randomUUID;
-    this.redactText = options.redactText ?? ((text) => redactSecrets(text, 200_000));
+    // Transport output feeds executable plan parsing. The main boundary masks
+    // audit copies; limits reject excess data instead of silently rewriting it.
+    this.redactText = options.redactText ?? ((text) => text);
+    this.limits = resolveA2ALimits(options.limits);
+    this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   async *invoke(
     request: A2AInvocationRequest,
     signal?: AbortSignal,
   ): AsyncIterable<A2AClientEvent> {
-    const factory = this.createClientFactory({
-      preferredTransports: [transportPreference(this.endpoint.preferredTransport)],
-    });
-    const target = clientTarget(this.endpoint);
-    const client = await factory.createFromUrl(target.baseUrl, target.path);
-    const signalScope = scopedAbortSignal(signal, this.timeoutMs);
+    const signalScope = createA2ARequestScope(signal, this.timeoutMs);
+    const meter = createA2AResponseMeter(this.limits);
+    let iterator: AsyncIterator<unknown> | undefined;
     try {
+      signalScope.check();
+      const options = { preferredTransports: [transportPreference(this.endpoint.preferredTransport)], signal: signalScope.signal };
+      const boundedFetch = createA2ABoundedFetch(signalScope, this.limits, this.fetchImpl);
+      const factory = this.createClientFactory?.(options) ?? defaultCreateClientFactory(options,
+        boundedFetch(this.limits.maxResponseBytes), boundedFetch(this.limits.maxAgentCardBytes));
+      const target = clientTarget(this.endpoint);
+      const client = await signalScope.run(() => factory.createFromUrl(target.baseUrl, target.path));
       const params = messageSendParams(request, this.createMessageId());
       if (typeof client.sendMessageStream === "function") {
-        const stream = client.sendMessageStream(params, {
+        iterator = client.sendMessageStream(params, {
           signal: signalScope.signal,
-        });
-        for await (const event of stream) {
-          yield* this.mapSdkEvent(event);
+        })[Symbol.asyncIterator]();
+        for (;;) {
+          const next = await signalScope.run(() => iterator!.next());
+          if (next.done) break;
+          meter.event(next.value);
+          for (const event of this.mapSdkEvent(next.value, meter)) {
+            signalScope.check();
+            yield event;
+          }
         }
         return;
       }
 
       if (typeof client.sendMessage === "function") {
-        const event = await client.sendMessage(params, {
+        const event = await signalScope.run(() => client.sendMessage!(params, {
           signal: signalScope.signal,
-        });
-        yield* this.mapSdkEvent(event);
+        }));
+        meter.event(event);
+        for (const mapped of this.mapSdkEvent(event, meter)) {
+          signalScope.check();
+          yield mapped;
+        }
       }
+    } catch (error) {
+      if (signalScope.signal.aborted) throw signalScope.signal.reason;
+      throw error;
     } finally {
-      signalScope.cleanup();
+      signalScope.dispose();
+      closeA2AIterator(iterator);
     }
   }
 
-  private *mapSdkEvent(event: unknown): Iterable<A2AClientEvent> {
+  private *mapSdkEvent(event: unknown, meter: ReturnType<typeof createA2AResponseMeter>): Iterable<A2AClientEvent> {
     if (!isRecord(event)) return;
     const kind = event.kind;
     if (kind === "task") {
@@ -116,7 +146,7 @@ export class OfficialA2AClientPort implements A2AClientPort {
         message,
       });
       if (message) yield { type: "message", text: message };
-      yield* this.mapTaskArtifacts(event);
+      yield* this.mapTaskArtifacts(event, meter);
       return;
     }
 
@@ -136,6 +166,7 @@ export class OfficialA2AClientPort implements A2AClientPort {
     }
 
     if (kind === "artifact-update") {
+      meter.artifact(event.artifact);
       const artifact = artifactFromSdk(event.artifact, this.redactText);
       if (artifact) yield { type: "artifact", artifact };
       return;
@@ -147,9 +178,10 @@ export class OfficialA2AClientPort implements A2AClientPort {
     }
   }
 
-  private *mapTaskArtifacts(event: Record<string, unknown>): Iterable<A2AClientEvent> {
+  private *mapTaskArtifacts(event: Record<string, unknown>, meter: ReturnType<typeof createA2AResponseMeter>): Iterable<A2AClientEvent> {
     if (!Array.isArray(event.artifacts)) return;
     for (const artifactLike of event.artifacts) {
+      meter.artifact(artifactLike);
       const artifact = artifactFromSdk(artifactLike, this.redactText);
       if (artifact) yield { type: "artifact", artifact };
     }
@@ -158,9 +190,13 @@ export class OfficialA2AClientPort implements A2AClientPort {
 
 const defaultCreateClientFactory = (
   options: OfficialA2AClientFactoryOptions,
+  fetchImpl: typeof fetch,
+  cardFetchImpl: typeof fetch,
 ): OfficialA2AClientFactory => {
   const merged = ClientFactoryOptions.createFrom(ClientFactoryOptions.default, {
     preferredTransports: options.preferredTransports,
+    cardResolver: new DefaultAgentCardResolver({ fetchImpl: cardFetchImpl }),
+    transports: [new JsonRpcTransportFactory({ fetchImpl }), new RestTransportFactory({ fetchImpl })],
   });
   const factory = new ClientFactory(merged);
   return {
@@ -222,35 +258,6 @@ const clientTarget = (
   } catch {
     return { baseUrl };
   }
-};
-
-interface AbortSignalScope {
-  signal: AbortSignal;
-  cleanup(): void;
-}
-
-const scopedAbortSignal = (
-  upstream?: AbortSignal,
-  timeoutMs?: number,
-): AbortSignalScope => {
-  const controller = new AbortController();
-  const abortFromUpstream = (): void => controller.abort(upstream?.reason);
-  if (upstream?.aborted) {
-    abortFromUpstream();
-  } else {
-    upstream?.addEventListener("abort", abortFromUpstream, { once: true });
-  }
-  const timer =
-    timeoutMs && timeoutMs > 0
-      ? setTimeout(() => controller.abort(new Error("A2A request timed out")), timeoutMs)
-      : undefined;
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      upstream?.removeEventListener("abort", abortFromUpstream);
-      if (timer) clearTimeout(timer);
-    },
-  };
 };
 
 const normalizeState = (state: unknown): A2ARemoteTaskState =>

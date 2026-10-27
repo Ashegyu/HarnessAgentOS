@@ -38,6 +38,21 @@ const fixture = (approvals = [], overrides = {}) => {
   return { snapshot, calls, deps, service: new TaskProgressionService(deps) };
 };
 
+test("shutdown during snapshot loading drains it without approving or executing stale work", async () => {
+  const f = fixture([approval("late")], { globalAutoApprove: true });
+  let release;
+  const loaded = new Promise(resolve => { release = resolve; });
+  f.deps.load = () => loaded;
+  const running = f.service.advance("task");
+  await Promise.resolve();
+  let stopped = false;
+  const shutdown = f.service.shutdown().then(() => { stopped = true; });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(stopped, false);
+  release(f.snapshot); await shutdown; await running;
+  await f.service.advance("task");
+  assert.deepEqual(f.calls, []);
+});
+
 test("preparation holds automatic decisions until all proposals are ready", async () => {
   const f = fixture([approval("a")], { globalAutoApprove: true });
   const release = f.service.hold("task");
@@ -80,6 +95,19 @@ test("ordinary approved work runs once and finishes without a selected renderer"
   await Promise.all(Array.from({ length: 12 }, () => f.service.advance("task")));
   assert.deepEqual(f.calls.filter(c => ["execute", "quality"].includes(c[0])), [["execute", "a"], ["quality", "task"]]);
   assert.equal(f.snapshot.taskRun.status, "done");
+});
+
+test("reviewed uncertain attempts yield to a fresh manual approval without replay or auto consent", async () => {
+  const old = approval("old", { status: "approved", approvedRevision: 1, executionState: "uncertain", retryApprovalId: "retry" });
+  const next = approval("retry", { requiresManualApproval: true });
+  const f = fixture([old, next], { globalAutoApprove: true, pipelineConsent: true });
+  await f.service.advance("task");
+  assert.deepEqual(f.calls, []);
+  f.snapshot.approvals[1].status = "approved";
+  f.snapshot.approvals[1].approvedRevision = 1;
+  await f.service.advance("task");
+  assert.deepEqual(f.calls.filter(c => ["execute", "quality"].includes(c[0])), [["execute", "retry"], ["quality", "task"]]);
+  assert.equal(f.snapshot.approvals[0].executionState, "uncertain");
 });
 
 test("auto approval uses the current revision then executes in stored order", async () => {
@@ -211,4 +239,41 @@ test("events arriving during execution are coalesced without losing newly create
   };
   await f.service.advance("task");
   assert.deepEqual(f.calls.filter(c => c[0] === "execute"), [["execute", "a"], ["execute", "b"]]);
+});
+
+test("normal Resume continues quality backflow even when its parent approval is already executed", async () => {
+  const f = fixture([approval("orch", { actionType: "orchestration_plan", status: "executed", executionState: "succeeded" })]);
+  f.snapshot.taskRun.status = "running";
+  f.deps.resumeBackflow = async id => {
+    f.calls.push(["backflow", id]);
+    f.snapshot.taskRun.status = "ready_for_review";
+    f.snapshot.steps.push({ id: "backflow-worker", status: "succeeded" });
+    return f.calls.filter(c => c[0] === "backflow").length === 1;
+  };
+  await Promise.all(Array.from({ length: 8 }, () => f.service.advance("task")));
+  assert.equal(f.calls.filter(c => c[0] === "backflow").length, 2);
+  assert.deepEqual(f.calls.filter(c => ["execute", "quality"].includes(c[0])), [["quality", "task"]]);
+  assert.equal(f.snapshot.taskRun.status, "done");
+});
+
+test("quality backflow waits for child actions and resumes before evaluating quality", async () => {
+  const f = fixture([approval("file", { status: "approved", approvedRevision: 1 })]);
+  f.deps.resumeBackflow = async id => {
+    f.calls.push(["backflow", id]);
+    assert.equal(f.snapshot.approvals[0].status, "executed");
+    return false;
+  };
+  await f.service.advance("task");
+  assert.deepEqual(f.calls.filter(c => ["execute", "backflow", "quality"].includes(c[0])),
+    [["execute", "file"], ["backflow", "task"], ["quality", "task"]]);
+});
+
+test("a quality continuation emitting events without persisted progress does not spin or enter QA", async () => {
+  const f = fixture();
+  f.snapshot.taskRun.status = "ready_for_review";
+  let calls = 0;
+  f.deps.resumeBackflow = async () => { calls += 1; f.service.schedule("task"); return true; };
+  await f.service.advance("task");
+  assert.equal(calls, 1);
+  assert.equal(f.calls.some(c => c[0] === "quality"), false);
 });

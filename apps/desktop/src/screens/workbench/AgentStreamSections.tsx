@@ -19,6 +19,7 @@ interface AgentStreamSectionsProps {
   surface: "inline" | "panel";
   terminal: boolean;
   fallbackFinalText?: string | null;
+  copyDisabled?: boolean;
 }
 
 export const AgentStreamSections = ({
@@ -26,6 +27,7 @@ export const AgentStreamSections = ({
   surface,
   terminal,
   fallbackFinalText = null,
+  copyDisabled = false,
 }: AgentStreamSectionsProps): JSX.Element => {
   const baseSections: readonly ParsedStreamSection[] =
     sections.length > 0
@@ -43,6 +45,7 @@ export const AgentStreamSections = ({
           section={section}
           surface={surface}
           terminal={terminal}
+          copyDisabled={copyDisabled}
         />
       ))}
     </>
@@ -54,6 +57,7 @@ interface AgentStreamSectionProps {
   section: AgentStreamDisplaySection;
   surface: "inline" | "panel";
   terminal: boolean;
+  copyDisabled: boolean;
 }
 
 const AgentStreamSection = ({
@@ -61,6 +65,7 @@ const AgentStreamSection = ({
   section,
   surface,
   terminal,
+  copyDisabled,
 }: AgentStreamSectionProps): JSX.Element => {
   const classes = sectionClasses(section, surface);
   const title = sectionTitle(section);
@@ -77,7 +82,7 @@ const AgentStreamSection = ({
             </span>
           )}
           <span className={classes.title}>{title}</span>
-          {section.kind === "final" && <AnswerCopyButton text={section.text} />}
+          {section.kind === "final" && <AnswerCopyButton text={section.text} disabled={copyDisabled} />}
         </header>
         {content}
       </section>
@@ -98,7 +103,7 @@ const AgentStreamSection = ({
           ▸
         </span>
       </summary>
-      {section.kind === "response" && <AnswerCopyButton text={section.text} />}
+      {section.kind === "response" && <AnswerCopyButton text={section.text} disabled={copyDisabled} />}
       {content}
     </details>
   );

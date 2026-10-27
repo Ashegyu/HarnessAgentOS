@@ -22,3 +22,5 @@ export * from "./a2a-refinement-attempt-repository.ts";
 export * from "./repo-index-repository.ts";
 export * from "./repair-attempt-repository.ts";
 export * from "./eval-run-repository.ts";
+export * from "./validation-run-repository.ts";
+export * from "./workspace-mutation-repository.ts";

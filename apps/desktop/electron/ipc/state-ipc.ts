@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import { basename, dirname, isAbsolute } from "node:path";
 import {
   IPC_CHANNELS,
@@ -13,6 +14,7 @@ import {
   type ProposedActionDetails,
   type Thread,
   type ThreadDetail,
+  type RecentTaskRun,
 } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import type { HarnessEventBus } from "../event-bus";
@@ -27,7 +29,15 @@ export const registerStateIpc = (
   service: LocalStateService,
   events?: HarnessEventBus,
 ): void => {
-  ipcMain.handle(
+  handleIpc(IPC_CHANNELS.state.listRecentTaskRuns, async (_event, input: unknown): Promise<HarnessResult<RecentTaskRun[]>> => {
+    const limit = typeof input === "object" && input !== null ? (input as { limit?: unknown }).limit : undefined;
+    if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      return err(harnessError(STATE_INVALID_INPUT, "limit must be an integer from 1 to 100"));
+    }
+    try { return ok(await service.listRecentTaskRuns(limit)); }
+    catch (error) { return wrapDbError(error); }
+  });
+  handleIpc(
     IPC_CHANNELS.state.listThreads,
     async (): Promise<HarnessResult<Thread[]>> => {
       try {
@@ -38,7 +48,7 @@ export const registerStateIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.state.getThread,
     async (_event, input: unknown): Promise<HarnessResult<ThreadDetail>> => {
       if (
@@ -65,7 +75,7 @@ export const registerStateIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.state.deleteThread,
     async (_event, input: unknown): Promise<HarnessResult<void>> => {
       if (
@@ -87,7 +97,7 @@ export const registerStateIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.state.createThread,
     async (_event, input: unknown): Promise<HarnessResult<Thread>> => {
       if (typeof input !== "object" || input === null) {
@@ -135,7 +145,7 @@ export const registerStateIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.state.exportDbSnapshot,
     async (_event, input: unknown): Promise<HarnessResult<ExportApprovalResult>> => {
       const parsed = parseTargetPathInput(input);
@@ -160,7 +170,7 @@ export const registerStateIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.state.exportThreadMarkdown,
     async (_event, input: unknown): Promise<HarnessResult<ExportApprovalResult>> => {
       const parsed = parseThreadMarkdownInput(input);

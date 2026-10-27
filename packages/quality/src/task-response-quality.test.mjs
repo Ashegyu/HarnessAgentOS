@@ -37,6 +37,34 @@ test("a validated plain answer finishes without fabricated build/test results", 
   assert.deepEqual(result.evidenceArtifactIds, ["answer"]);
 });
 
+test("a plain read-only answer does not depend on a workspace snapshot", async () => {
+  const state = fixture("answer");
+  const getTaskRun = state.getTaskRun;
+  state.getTaskRun = async () => ({ ...await getTaskRun(), targetDir: "/unreadable-answer-workspace" });
+  let captures = 0;
+  const result = await new QualityEvaluator({ state, captureRevision: async () => {
+    captures += 1;
+    return { workspaceKey: "answer-workspace", fingerprint: null };
+  } }).evaluate({ taskRunId: "task" });
+  assert.equal(result.status, "passed");
+  assert.equal(result.validationState, undefined);
+  assert.equal(captures, 0);
+});
+
+test("explicitly required checks keep workspace freshness for a plain answer", async () => {
+  const state = fixture("answer");
+  const getTaskRun = state.getTaskRun;
+  state.getTaskRun = async () => ({ ...await getTaskRun(), targetDir: "/answer-workspace" });
+  let captures = 0;
+  const result = await new QualityEvaluator({ state, captureRevision: async () => {
+    captures += 1;
+    return { workspaceKey: "answer-workspace", fingerprint: "current" };
+  } }).evaluate({ taskRunId: "task", requireTests: true });
+  assert.equal(result.status, "warning");
+  assert.equal(result.validationState?.fingerprint, "current");
+  assert.equal(captures, 2);
+});
+
 for (const intent of ["review", "diagnose", "research"]) {
   test(`${intent} stops at content review without requesting irrelevant build QA`, async () => {
     const result = await new QualityEvaluator({ state: fixture(intent) }).evaluate({ taskRunId: "task" });
@@ -93,9 +121,17 @@ test("a diff proves a change exists, not that someone reviewed it", async () => 
       { id: "edit", taskRunId: "task", index: 0, kind: "edit", status: "succeeded" },
       { id: "test", taskRunId: "task", index: 1, kind: "test", status: "succeeded" },
     ],
-    listArtifactsByTaskRun: async () => [{ id: "diff", taskRunId: "task", kind: "diff", stepId: "edit" }],
+    listArtifactsByTaskRun: async () => [{ id: "diff", taskRunId: "task", kind: "diff", stepId: "edit" },
+      { id: "host-result", taskRunId: "task", kind: "test_result", stepId: "test" }],
+    validationRuns: { getWatermark: async () => 2, listByTaskRun: async () => [{
+      id: "check", sequence: 1, taskRunId: "task", stepId: "test", approvalId: "approved", workspaceKey: "workspace", checkerId: "suite", kinds: ["test"],
+      startFingerprint: "current", finishFingerprint: "current", startGeneration: 0, finishGeneration: 0,
+      status: "completed", exitCode: 0, artifactId: "host-result", startedAt: "now", finishedAt: "now",
+    }] },
   });
-  const result = await new QualityEvaluator({ state }).evaluate({ taskRunId: "task" });
+  const getTaskRun = state.getTaskRun;
+  state.getTaskRun = async () => ({ ...await getTaskRun(), targetDir: "/fixture" });
+  const result = await new QualityEvaluator({ state, captureRevision: async () => ({ workspaceKey: "workspace", fingerprint: "current" }) }).evaluate({ taskRunId: "task" });
   assert.equal(result.changedFilesReviewed, false);
   assert.equal(result.testsPassed, true);
 });

@@ -10,6 +10,8 @@ import {
 } from "../../../packages/storage/src/index.ts";
 import { WorkerRunner } from "./worker-runner.ts";
 import { OrchestrationPlanner } from "./orchestration-planner.ts";
+import { ConversationService } from "../../core/src/conversation/conversation-service.ts";
+import { OrchestrationService } from "./orchestration-service.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-wr-"));
@@ -111,6 +113,397 @@ const waitFor = async (predicate, message) => {
   }
   assert.fail(message);
 };
+
+const createPauseFixture = async ({ parallel = false, count = 3 } = {}) => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  const settings = await state.getSettings();
+  await state.updateSettings({
+    ...settings,
+    orchestration: { ...settings.orchestration, maxParallelWorkers: 2 },
+  });
+  const taskRun = await seedTaskRun(state);
+  const profiles = await Promise.all(Array.from({ length: count }, (_, index) =>
+    state.agentProfiles.create(validProfileInput({ name: `PauseWorker${index}`, role: "reviewer" })),
+  ));
+  const pipeline = await state.agentPipelines.create({
+    name: "Pause boundaries",
+    description: "",
+    steps: profiles.map((profile, index) => ({
+      id: `pause-${index}`,
+      agentProfileId: profile.id,
+      title: profile.name,
+      instruction: `Review ${profile.name}.`,
+      expectedArtifactKinds: ["log"],
+      dependsOn: parallel || index === 0 ? [] : [`pause-${index - 1}`],
+      allowedActions: [],
+    })),
+  });
+  const planner = new OrchestrationPlanner({ state });
+  const drafted = await planner.draftPlan({ taskRunId: taskRun.id, mode: "multi_worker", pipelineId: pipeline.id });
+  const approved = await approvePlanApproval(state, drafted.approval);
+  const conversation = new ConversationService({ state, pathExists: async () => true });
+  return { db, state, taskRun, profiles, drafted, approved, conversation };
+};
+
+test("parallel continuation reserves the final item once after delayed liveness reads", async () => {
+  const f = await createPauseFixture({ parallel: true, count: 3 });
+  const reads = deferred();
+  const starts = [];
+  let continuationReads = 0;
+  try {
+    const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+      async invokeForWorker({ profile }) { starts.push(profile.name); return { outputText: "reviewed" }; },
+    } });
+    const isActive = runner.isTaskRunActive.bind(runner);
+    // Delay only the asynchronous liveness boundary; execute the real runner,
+    // persistence, publication and recovery paths without extracting a helper.
+    runner.isTaskRunActive = async id => {
+      if (starts.length === 2 && continuationReads < 2) {
+        continuationReads++;
+        if (continuationReads === 2) reads.resolve();
+        await reads.promise;
+      }
+      return isActive(id);
+    };
+    const result = await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.equal(continuationReads, 2);
+    assert.deepEqual(starts, f.profiles.map(profile => profile.name));
+    assert.equal(result.workerSteps.length, 3);
+    assert.ok(result.workerSteps.every(step => step.status === "succeeded"));
+    const steps = (await f.state.listStepsByTaskRun(f.taskRun.id)).filter(step => step.title.startsWith("Worker["));
+    assert.equal(steps.length, 3);
+    assert.equal(new Set(steps.map(step => step.index)).size, 3);
+  } finally { reads.resolve(); closeDb(f.db); }
+});
+
+for (const failureAt of ["artifact persistence", "result publication"]) {
+  test(`parallel ${failureAt} failure drains started workers and stops queued dispatch before releasing the service`, async () => {
+    const f = await createPauseFixture({ parallel: true, count: 4 });
+    const finishSurvivor = deferred();
+    const failureReached = deferred();
+    const survivorPublished = deferred();
+    const starts = [];
+    const expected = new Error(`injected ${failureAt} failure`);
+    let failed = false;
+    let settled = false;
+    let run;
+    const createArtifact = f.state.createArtifact.bind(f.state);
+    if (failureAt === "artifact persistence") f.state.createArtifact = async input => {
+      if (input.title === `Worker output: ${f.profiles[0].name}`) {
+        failed = true;
+        failureReached.resolve();
+        throw expected;
+      }
+      return createArtifact(input);
+    };
+    const service = new OrchestrationService({ state: f.state, enabled: () => true,
+      agentPlanning: { async invokeForWorker({ profile }) {
+        starts.push(profile.name);
+        if (profile.id === f.profiles[1].id) await finishSurvivor.promise;
+        return { outputText: "reviewed" };
+      } },
+      onTaskRunChanged: () => {
+        if (failureAt === "result publication" && !failed) {
+          failed = true;
+          failureReached.resolve();
+          throw expected;
+        }
+        survivorPublished.resolve();
+      },
+    });
+    try {
+      run = service.runApproved({ approvalId: f.approved.id });
+      run.then(() => { settled = true; }, () => { settled = true; });
+      await failureReached.promise;
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false, "a failed lane must not release ownership while its sibling still writes");
+      assert.equal(service.runApproved({ approvalId: f.approved.id }), run, "duplicate requests must share the draining run");
+      assert.deepEqual(starts, f.profiles.slice(0, 2).map(profile => profile.name));
+      finishSurvivor.resolve();
+      await assert.rejects(run, error => error === expected);
+      await survivorPublished.promise;
+      assert.deepEqual(starts, f.profiles.slice(0, 2).map(profile => profile.name));
+      const steps = await f.state.listStepsByTaskRun(f.taskRun.id);
+      assert.equal(steps.find(step => step.title.includes(f.profiles[1].name)).status, "succeeded");
+      assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "blocked");
+      assert.equal((await f.state.getApproval(f.approved.id)).status, "approved", "failed run remains available for explicit recovery");
+    } finally {
+      finishSurvivor.resolve();
+      if (run) await run.catch(() => {});
+      await survivorPublished.promise;
+      closeDb(f.db);
+    }
+  });
+}
+
+for (const scenario of [
+  { name: "sequential", parallel: false, count: 3, active: 1 },
+  { name: "parallel queued", parallel: true, count: 3, active: 2 },
+  { name: "last worker", parallel: false, count: 1, active: 1 },
+]) {
+  test(`Pause preserves ${scenario.name} progress and Resume starts only unfinished workers`, async () => {
+    const f = await createPauseFixture(scenario);
+    const gate = deferred();
+    const starts = [];
+    let run;
+    try {
+      const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+        async invokeForWorker({ profile }) {
+          starts.push(profile.name);
+          await gate.promise;
+          return { outputText: `${profile.name} finished` };
+        },
+      } });
+      run = runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+      await waitFor(() => starts.length === scenario.active, "initial workers must start");
+      await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+      gate.resolve();
+      const paused = await run;
+      assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+      assert.deepEqual(starts, f.profiles.slice(0, scenario.active).map(profile => profile.name));
+      assert.equal(paused.workerSteps.length, scenario.active);
+      assert.equal(paused.needsContinuation, true, "parent approval must survive until explicit Resume");
+      assert.ok(paused.workerSteps.every(step => step.status === "succeeded"), "in-flight results must be retained");
+
+      await f.conversation.resumeTask({ taskRunId: f.taskRun.id });
+      const resumed = await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+      assert.deepEqual(starts, f.profiles.map(profile => profile.name), "completed workers must not be replayed");
+      assert.equal(resumed.workerSteps.length, scenario.count - scenario.active);
+      assert.equal(resumed.needsContinuation, undefined);
+      assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "ready_for_review");
+    } finally {
+      gate.resolve();
+      await run?.catch(() => {});
+      closeDb(f.db);
+    }
+  });
+}
+
+test("Pause during worker entry prevents invocation and leaves the worker resumable", async () => {
+  const f = await createPauseFixture({ count: 1 });
+  let calls = 0;
+  const setCurrentStep = f.state.setTaskRunCurrentStep.bind(f.state);
+  let injectPause = true;
+  f.state.setTaskRunCurrentStep = async (...args) => {
+    if (injectPause) {
+      injectPause = false;
+      await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+    }
+    return setCurrentStep(...args);
+  };
+  try {
+    const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+      async invokeForWorker() { calls += 1; return { outputText: "done" }; },
+    } });
+    const paused = await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.equal(calls, 0);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal(paused.needsContinuation, true);
+    await f.conversation.resumeTask({ taskRunId: f.taskRun.id });
+    await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.equal(calls, 1);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "ready_for_review");
+  } finally { closeDb(f.db); }
+});
+
+test("Pause racing with final status publication is not overwritten", async () => {
+  const f = await createPauseFixture({ count: 1 });
+  const updateStatus = f.state.taskRuns.updateStatus.bind(f.state.taskRuns);
+  let injectPause = true;
+  f.state.taskRuns.updateStatus = async (id, status, expectedStatus) => {
+    if (injectPause && status === "ready_for_review") {
+      injectPause = false;
+      await updateStatus(id, "paused");
+    }
+    return updateStatus(id, status, expectedStatus);
+  };
+  try {
+    const runner = new WorkerRunner({ state: f.state });
+    const paused = await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal(paused.needsContinuation, true);
+  } finally { closeDb(f.db); }
+});
+
+for (const duringEntry of [false, true]) {
+  test(`orchestration service preserves Pause ${duringEntry ? "during" : "before"} approval entry`, async () => {
+    const f = await createPauseFixture({ count: 1 });
+    let calls = 0;
+    try {
+      const service = new OrchestrationService({ state: f.state, enabled: () => true, agentPlanning: {
+        async invokeForWorker() { calls += 1; return { outputText: "done" }; },
+      } });
+      if (duringEntry) {
+        const setStepStatus = f.state.setStepStatus.bind(f.state);
+        let injectPause = true;
+        f.state.setStepStatus = async (...args) => {
+          if (injectPause) {
+            injectPause = false;
+            await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+          }
+          return setStepStatus(...args);
+        };
+      } else {
+        await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+      }
+      const paused = await service.runApproved({ approvalId: f.approved.id });
+      assert.equal(calls, 0);
+      assert.equal(paused.needsContinuation, true);
+      assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+      assert.equal((await f.state.getApproval(f.approved.id)).status, "approved");
+      await f.conversation.resumeTask({ taskRunId: f.taskRun.id });
+      await service.runApproved({ approvalId: f.approved.id });
+      assert.equal(calls, 1);
+      assert.equal((await f.state.getApproval(f.approved.id)).status, "executed");
+    } finally { closeDb(f.db); }
+  });
+}
+
+for (const status of ["cancelled", "done", "missing"]) {
+  for (const entry of ["service", "worker"]) {
+    test(`${entry} rejects ${status} task entry without consuming its approved plan`, async () => {
+      const f = await createPauseFixture({ count: 1 });
+      let calls = 0;
+      try {
+        if (status === "missing") {
+          f.state.getTaskRun = async () => null;
+        } else {
+          if (status === "done") await f.state.setTaskRunStatus(f.taskRun.id, "ready_for_review");
+          await f.state.setTaskRunStatus(f.taskRun.id, status);
+        }
+        const agentPlanning = { async invokeForWorker() { calls += 1; return { outputText: "never" }; } };
+        const run = entry === "service"
+          ? new OrchestrationService({ state: f.state, enabled: () => true, agentPlanning })
+            .runApproved({ approvalId: f.approved.id })
+          : new WorkerRunner({ state: f.state, agentPlanning })
+            .runApproved({ approval: f.approved, plan: f.drafted.plan });
+        await assert.rejects(run, error => error.code === "ORCHESTRATION_TASK_NOT_RUNNABLE");
+        assert.equal(calls, 0);
+        assert.equal((await f.state.getApproval(f.approved.id)).status, "approved");
+        if (status !== "missing") assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, status);
+      } finally { closeDb(f.db); }
+    });
+  }
+}
+
+test("service rejects cancellation during approval entry without consuming its plan", async () => {
+  const f = await createPauseFixture({ count: 1 });
+  const setStepStatus = f.state.setStepStatus.bind(f.state);
+  let calls = 0;
+  f.state.setStepStatus = async (...args) => {
+    await f.state.setTaskRunStatus(f.taskRun.id, "cancelled");
+    return setStepStatus(...args);
+  };
+  try {
+    const service = new OrchestrationService({ state: f.state, enabled: () => true, agentPlanning: {
+      async invokeForWorker() { calls += 1; return { outputText: "never" }; },
+    } });
+    await assert.rejects(service.runApproved({ approvalId: f.approved.id }),
+      error => error.code === "ORCHESTRATION_TASK_NOT_RUNNABLE");
+    assert.equal(calls, 0);
+    assert.equal((await f.state.getApproval(f.approved.id)).status, "approved");
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "cancelled");
+  } finally { closeDb(f.db); }
+});
+
+test("Cancel after Pause remains terminal while in-flight workers drain", async () => {
+  const f = await createPauseFixture({ parallel: true });
+  const gate = deferred();
+  const starts = [];
+  let run;
+  try {
+    const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+      async invokeForWorker({ profile }) {
+        starts.push(profile.name);
+        await gate.promise;
+        return { outputText: "done" };
+      },
+    } });
+    run = runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    await waitFor(() => starts.length === 2, "initial workers must start");
+    await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+    await f.state.setTaskRunStatus(f.taskRun.id, "cancelled");
+    gate.resolve();
+    const result = await run;
+    assert.equal(starts.length, 2);
+    assert.equal(result.needsContinuation, undefined);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "cancelled");
+  } finally { gate.resolve(); await run?.catch(() => {}); closeDb(f.db); }
+});
+
+test("orchestration failure reporting does not overwrite concurrent Pause", async () => {
+  const f = await createPauseFixture({ count: 1 });
+  const error = new Error("profile read failed while pausing");
+  f.state.agentProfiles.get = async () => {
+    await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+    throw error;
+  };
+  try {
+    const service = new OrchestrationService({ state: f.state, enabled: () => true });
+    await assert.rejects(service.runApproved({ approvalId: f.approved.id }), error);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal((await f.state.getApproval(f.approved.id)).status, "approved");
+  } finally { closeDb(f.db); }
+});
+
+test("Pause retains an in-flight proposal for approval after Resume", async () => {
+  const f = await createPauseFixture({ count: 2 });
+  f.drafted.plan.workerSteps[0].allowedActions = ["file_write"];
+  const gate = deferred();
+  const starts = [];
+  let run;
+  try {
+    const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+      async invokeForWorker({ profile }) {
+        starts.push(profile.name);
+        await gate.promise;
+        return { outputText: "done", proposedActions: profile.id === f.profiles[0].id
+          ? [{ type: "file_write", path: "result.txt", after: "result\n", rationale: "write result" }]
+          : [] };
+      },
+    } });
+    run = runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    await waitFor(() => starts.length === 1, "first worker must start");
+    await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+    gate.resolve();
+    const result = await run;
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal(result.proposedApprovalIds.length, 1);
+    assert.equal((await f.state.getApproval(result.proposedApprovalIds[0])).status, "pending");
+    assert.equal((await f.conversation.resumeTask({ taskRunId: f.taskRun.id })).status, "waiting_for_approval");
+    await f.state.decideApproval(result.proposedApprovalIds[0], "executed", "test fixture applied");
+    await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.deepEqual(starts, f.profiles.map(profile => profile.name));
+  } finally { gate.resolve(); await run?.catch(() => {}); closeDb(f.db); }
+});
+
+test("Pause during backflow drains its worker without starting the retry", async () => {
+  const f = await createPauseFixture();
+  f.drafted.plan.backflowRules = [{
+    id: "pause-backflow", trigger: "step_failed", maxAttempts: 2,
+    targetStepId: f.drafted.plan.workerSteps[0].id,
+    retryStepId: f.drafted.plan.workerSteps[1].id,
+  }];
+  const starts = [];
+  try {
+    const runner = new WorkerRunner({ state: f.state, agentPlanning: {
+      async invokeForWorker({ profile }) {
+        starts.push(profile.name);
+        if (starts.length === 2) throw new Error("retry needed");
+        if (starts.length === 3) await f.conversation.pauseTask({ taskRunId: f.taskRun.id });
+        return { outputText: "done" };
+      },
+    } });
+    const result = await runner.runApproved({ approval: f.approved, plan: f.drafted.plan });
+    assert.deepEqual(starts, [f.profiles[0].name, f.profiles[1].name, f.profiles[0].name]);
+    assert.equal((await f.state.getTaskRun(f.taskRun.id)).status, "paused");
+    assert.equal(result.needsContinuation, true);
+    const attempts = await f.state.pipelineBackflows.listByTaskRun(f.taskRun.id);
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0].status, "running", "Pause preserves the unfinished backflow for Resume");
+  } finally { closeDb(f.db); }
+});
 
 test("runApproved still works for legacy mode-based plans (regression)", async () => {
   const t = tmp();

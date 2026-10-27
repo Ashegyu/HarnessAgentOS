@@ -131,11 +131,20 @@ export interface Approval {
   executionState?: "running" | "succeeded" | "uncertain";
   executionStartedAt?: string;
   executionFinishedAt?: string;
+  /** Explicit result review retired this consent in favor of a fresh manual approval. */
+  retryApprovalId?: string;
   proposedAction?: ProposedActionDetails;
   policyEvaluation?: PolicyEvaluation;
   autoApproveDecision?: AutoApproveDecision | null;
   decisionMessage?: string;
   decidedAt?: string;
+}
+
+export interface PrepareActionRetryInput {
+  approvalId: string;
+  expectedRevision: number;
+  expectedExecutionState: Approval["executionState"] | null;
+  reviewMessage: string;
 }
 
 export interface DecisionLogFilter {

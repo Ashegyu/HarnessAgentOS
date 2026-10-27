@@ -21,6 +21,11 @@ for (const autoApprove of [false, true]) {
         ...(executablePath ? [] : [join(dirname(fileURLToPath(import.meta.url)), "../out/main/main.js")]),
         `--user-data-dir=${userData}`], env, ...(executablePath ? { executablePath } : {}) });
       const page = await app.firstWindow();
+      // An empty workbench with its drawer closed is a valid ready screen.
+      // Open it through the real navigation control before using drawer UI.
+      await expect(page.getByRole("navigation", { name: "앱 탐색" })).toBeVisible();
+      const openThreads = page.getByRole("button", { name: "스레드 패널 열기", exact: true });
+      if (await openThreads.isVisible()) await openThreads.click();
       await expect(page.getByRole("button", { name: "새 작업", exact: true })).toBeVisible();
       const threadId = await page.evaluate(async ({ targetDir, autoApprove }) => {
         const settings = await window.harness.settings.get();

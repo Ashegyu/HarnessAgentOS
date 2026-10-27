@@ -10,6 +10,311 @@ import {
 } from "@harness/core";
 import { AgentPlanningService } from "./agent-planning-service.ts";
 
+const preparationCancellationFixture = (hooks = {}) => {
+  const taskRun = {
+    id: "tr-preparation-cancel", threadId: "th-preparation-cancel",
+    userRequest: "inspect and update the project", targetDir: process.cwd(),
+    status: "drafting", createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+  let invocation;
+  let sequence = 0;
+  let modelCalls = 0;
+  const invocationStatuses = [];
+  const taskStatuses = [];
+  const artifacts = [];
+  const approvals = [];
+  const state = makeGateway({
+    getTaskRun: async () => ({ ...taskRun }),
+    createStep: async input => ({ id: `step-${++sequence}`, ...input }),
+    setStepStatus: async (id, status, patch) => ({ id, status, ...patch }),
+    setTaskRunStatus: async (_id, status) => {
+      taskStatuses.push(status);
+      taskRun.status = status;
+      return { ...taskRun };
+    },
+    setTaskRunCurrentStep: async () => ({ ...taskRun }),
+    createArtifact: async input => {
+      const artifact = { id: `artifact-${++sequence}`, ...input };
+      artifacts.push(artifact);
+      return artifact;
+    },
+    createAgentInvocation: async input => {
+      invocation = { id: "inv-preparation-cancel", status: "queued", ...input };
+      await hooks.afterInvocationCreated?.();
+      return { ...invocation };
+    },
+    getAgentInvocation: async () => invocation ? { ...invocation } : null,
+    listAgentInvocationsByTaskRun: async () => invocation ? [{ ...invocation }] : [],
+    updateAgentInvocation: async (_id, patch) => {
+      if (patch.status) invocationStatuses.push(patch.status);
+      invocation = { ...invocation, ...patch };
+      return { ...invocation };
+    },
+    createCheckpoint: async input => ({ id: "checkpoint-preparation-cancel", ...input }),
+    createApproval: async input => {
+      const approval = { id: `approval-${++sequence}`, ...input };
+      approvals.push(approval);
+      return approval;
+    },
+  });
+  const service = new AgentPlanningService({
+    state,
+    getProviderStatus: () => ({ codex: { available: true, queueDepth: 0 } }),
+    workspaceChangeTracker: null,
+    adapter: {
+      invoke: async (...args) => {
+        modelCalls++;
+        if (hooks.invoke) return hooks.invoke(...args);
+        throw new Error("model must not start after cancellation");
+      },
+    },
+    ...hooks,
+  });
+  return {
+    service, state, taskRun, invocationStatuses, taskStatuses, artifacts, approvals,
+    get invocation() { return invocation; },
+    get modelCalls() { return modelCalls; },
+    run: kind => kind === "worker"
+      ? service.invokeForWorker({ taskRunId: taskRun.id, stepId: "worker-step", profile: workerProfile(), userRequest: taskRun.userRequest })
+      : service.generatePlan({ taskRunId: taskRun.id }),
+  };
+};
+
+for (const kind of ["planner", "worker"]) {
+  test(`${kind} shutdown owns invocation publication before its controller is registered`, { timeout: 2000 }, async () => {
+    let release, entered;
+    const gate = new Promise(resolve => { release = resolve; });
+    const published = new Promise(resolve => { entered = resolve; });
+    const f = preparationCancellationFixture({ afterInvocationCreated: async () => { entered(); await gate; } });
+    const result = f.run(kind).catch(error => error);
+    await published;
+    let stopped = false;
+    const shutdown = f.service.shutdown().then(() => { stopped = true; });
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(stopped, false);
+    release(); await shutdown;
+    assert.equal((await result).code, "AGENT_CANCELLED");
+    assert.equal(f.invocation.status, "cancelled"); assert.equal(f.modelCalls, 0);
+  });
+
+  test(`${kind} shutdown retains storage ownership when cancellation finalization fails`, { timeout: 2000 }, async () => {
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    const f = preparationCancellationFixture({ invoke: async (_request, _event, signal) => {
+      entered(); await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+      throw Object.assign(new Error("cancelled"), { code: "AGENT_CANCELLED" });
+    } });
+    const run = f.run(kind).catch(error => error);
+    await started;
+    if (kind === "planner") {
+      const persist = f.state.setStepStatus;
+      f.state.setStepStatus = async (...args) => {
+        if (args[1] === "failed") throw Object.assign(new Error("fixture storage busy"), { code: "SQLITE_BUSY" });
+        return persist(...args);
+      };
+    } else {
+      const persist = f.state.updateAgentInvocation;
+      let cancellations = 0;
+      f.state.updateAgentInvocation = async (...args) => {
+        if (args[1].status === "cancelled" && ++cancellations > 1) {
+          throw Object.assign(new Error("fixture storage busy"), { code: "SQLITE_BUSY" });
+        }
+        return persist(...args);
+      };
+    }
+    await assert.rejects(f.service.shutdown(), /storage busy/);
+    await run;
+  });
+
+  test(`${kind} shutdown reports unconfirmed process cleanup instead of declaring the scope safe`, { timeout: 2000 }, async () => {
+    let entered;
+    const started = new Promise(resolve => { entered = resolve; });
+    const f = preparationCancellationFixture({ invoke: async (_request, _event, signal) => {
+      entered();
+      await new Promise(resolve => signal.addEventListener("abort", resolve, { once: true }));
+      const error = new Error("fixture cleanup failed");
+      error.processCleanupConfirmed = false;
+      throw error;
+    } });
+    const run = f.run(kind).catch(error => error);
+    await started;
+    await assert.rejects(f.service.shutdown(), /cleanup.*confirmed/i);
+    assert.equal((await run).code, "AGENT_CANCELLED");
+  });
+
+  test(`${kind} shutdown seals entry and waits for preparation cleanup before returning`, { timeout: 2000 }, async () => {
+    let release, entered, cleanup = 0;
+    const preparation = new Promise(resolve => { release = resolve; });
+    const started = new Promise(resolve => { entered = resolve; });
+    const f = preparationCancellationFixture({ prepareMcpInvocation: async () => {
+      entered(); await preparation;
+      return { codexConfigOverrides: [], cleanup: async () => { cleanup++; } };
+    } });
+    const run = f.run(kind);
+    const result = run.then(() => null, error => error);
+    try {
+      await started;
+      let finished = false;
+      const stopping = f.service.shutdown().then(() => { finished = true; });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(finished, false);
+      assert.equal(f.invocation.status, "cancelled");
+      await assert.rejects(f.run(kind), error => error.code === "AGENT_CANCELLED");
+      release();
+      await stopping;
+      assert.equal((await result).code, "AGENT_CANCELLED");
+      assert.equal(f.modelCalls, 0);
+      assert.equal(cleanup, 1);
+      await f.service.shutdown();
+    } finally { release(); await result; }
+  });
+
+  test(`${kind} preserves cancellation when failure persistence loses to cancelInvocation`, { timeout: 2_000 }, async () => {
+    const { openDb, closeDb, LocalStateService } = await import("../../storage/src/index.ts");
+    const db = openDb({ filePath: ":memory:" });
+    const failedWriteEntered = deferred();
+    const allowFailedWrite = deferred();
+    let outcome;
+    try {
+      const state = new LocalStateService(db);
+      const thread = await state.createThread({ title: "failure cancellation race", targetDir: process.cwd() });
+      const taskRun = await state.createTaskRun({ threadId: thread.id, targetDir: process.cwd(), userRequest: "inspect project" });
+      const profile = await state.agentProfiles.create({ ...workerProfile(), category: "core", tags: [] });
+      state.getSettings = makeGateway().getSettings;
+      state.listAgentProfiles = async () => [];
+      const persistInvocation = state.updateAgentInvocation.bind(state);
+      state.updateAgentInvocation = async (id, patch) => {
+        if (patch.status === "failed") {
+          failedWriteEntered.resolve(id);
+          await allowFailedWrite.promise;
+        }
+        return persistInvocation(id, patch);
+      };
+      const service = new AgentPlanningService({
+        state,
+        getProviderStatus: () => ({ codex: { available: true, queueDepth: 0 } }),
+        workspaceChangeTracker: null,
+        adapter: { invoke: async () => { throw new Error("provider failed before cancellation"); } },
+      });
+      outcome = (kind === "worker"
+        ? service.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: taskRun.userRequest })
+        : service.generatePlan({ taskRunId: taskRun.id })).catch(error => error);
+      const invocationId = await failedWriteEntered.promise;
+      assert.equal((await service.cancelInvocation({ invocationId })).status, "cancelled");
+      allowFailedWrite.resolve();
+      const error = await outcome;
+      assert.equal(error.code, "AGENT_CANCELLED");
+      assert.equal((await state.getAgentInvocation(invocationId)).status, "cancelled");
+      assert.notEqual((await state.getTaskRun(taskRun.id)).status, "blocked",
+        "a late provider failure must not block a task after its invocation was cancelled");
+    } finally {
+      allowFailedWrite.resolve();
+      await outcome;
+      closeDb(db);
+    }
+  });
+
+  test(`${kind} observes cancellation before invocation creation resolves`, { timeout: 2_000 }, async () => {
+    const entered = deferred();
+    const creation = deferred();
+    const fixture = preparationCancellationFixture({
+      afterInvocationCreated: async () => { entered.resolve(); await creation.promise; },
+    });
+    const outcome = fixture.run(kind).catch(error => error);
+    await entered.promise;
+    await fixture.service.cancelInvocation({ invocationId: fixture.invocation.id });
+    creation.resolve();
+    const error = await outcome;
+    assert.equal(error.code, "AGENT_CANCELLED");
+    assert.equal(fixture.modelCalls, 0);
+    assert.equal(fixture.invocation.status, "cancelled");
+    assert.equal(fixture.invocationStatuses.includes("running"), false);
+  });
+
+  for (const preparationFails of [false, true]) {
+    test(`${kind} cancellation during MCP preparation prevents invocation even when preparation ${preparationFails ? "fails" : "succeeds"}`, { timeout: 2_000 }, async () => {
+      const entered = deferred();
+      const preparation = deferred();
+      let cleanupCalls = 0;
+      const fixture = preparationCancellationFixture({
+        prepareMcpInvocation: async () => {
+          entered.resolve();
+          await preparation.promise;
+          return { codexConfigOverrides: [], cleanup: async () => { cleanupCalls++; } };
+        },
+      });
+      const outcome = fixture.run(kind).catch(error => error);
+      await entered.promise;
+      fixture.taskRun.status = "cancelled";
+      await fixture.service.cancelTaskInvocations({ taskRunId: fixture.taskRun.id });
+      if (preparationFails) preparation.reject(new Error("MCP preparation failed after cancellation"));
+      else preparation.resolve();
+      const error = await outcome;
+      assert.equal(fixture.modelCalls, 0, "a cancelled preparation must never reach the model");
+      assert.equal(error.code, "AGENT_CANCELLED");
+      assert.equal(fixture.invocation?.status, "cancelled");
+      assert.equal(fixture.invocationStatuses.includes("failed"), false);
+      assert.equal(fixture.taskStatuses.includes("blocked"), false);
+      assert.equal(cleanupCalls, preparationFails ? 0 : 1);
+      assert.equal(fixture.service.getQueueDepths().total, 0);
+    });
+  }
+
+  test(`${kind} cancellation during advisory preparation prevents enqueue and cleans MCP once`, { timeout: 2_000 }, async () => {
+    const entered = deferred();
+    const advisory = deferred();
+    let cleanupCalls = 0;
+    const fixture = preparationCancellationFixture({
+      prepareMcpInvocation: async () => ({ codexConfigOverrides: [], cleanup: async () => { cleanupCalls++; } }),
+      recordLearnerSelection: async () => { entered.resolve(); await advisory.promise; },
+    });
+    const outcome = fixture.run(kind).catch(error => error);
+    await entered.promise;
+    await fixture.service.cancelInvocation({ invocationId: fixture.invocation.id });
+    advisory.resolve();
+    const error = await outcome;
+    assert.equal(fixture.modelCalls, 0);
+    assert.equal(error.code, "AGENT_CANCELLED");
+    assert.equal(fixture.invocation.status, "cancelled");
+    assert.equal(fixture.invocationStatuses.includes("failed"), false);
+    assert.equal(cleanupCalls, 1);
+  });
+
+  test(`${kind} ignores a successful late model result after cancellation`, { timeout: 2_000 }, async () => {
+    const entered = deferred();
+    const response = deferred();
+    const fixture = preparationCancellationFixture({
+      invoke: async () => { entered.resolve(); return response.promise; },
+    });
+    const outcome = fixture.run(kind).catch(error => error);
+    await entered.promise;
+    await fixture.service.cancelInvocation({ invocationId: fixture.invocation.id });
+    response.resolve({ provider: "codex", model: "test", exitCode: 0, stderr: "", normalizedEvents: [], latencyMs: 1,
+      stdout: "```harness_agent_plan\n" + JSON.stringify({ summary: "late success", assumptions: [], steps: [], proposedActions: [], suggestedQualityChecks: [], questions: [] }) + "\n```" });
+    const error = await outcome;
+    assert.equal(error.code, "AGENT_CANCELLED");
+    assert.equal(fixture.invocation.status, "cancelled");
+    assert.equal(fixture.invocationStatuses.includes("succeeded"), false);
+    assert.equal(fixture.approvals.length, 0);
+    assert.equal(fixture.taskStatuses.includes("ready_for_review"), false);
+  });
+}
+
+test("cancelInvocation does not abort work when successful completion wins the persistence race", async () => {
+  let aborts = 0;
+  const invocation = { id: "inv-finished-race", status: "running" };
+  const service = new AgentPlanningService({
+    state: makeGateway({
+      getAgentInvocation: async () => invocation,
+      updateAgentInvocation: async () => ({ ...invocation, status: "succeeded" }),
+    }),
+    getProviderStatus: () => null,
+    queue: { cancel: () => { aborts++; } },
+  });
+  assert.equal((await service.cancelInvocation({ invocationId: invocation.id })).status, "succeeded");
+  assert.equal(aborts, 0);
+});
+
 /**
  * Minimal gateway stub that satisfies AgentPlanningStateGateway
  * without importing anything from @harness/storage.
@@ -187,6 +492,8 @@ test("malformed worker output fails rather than recording success or producing a
 
 test("generatePlan persists post-hoc workspace change evidence for workspace-write", async () => {
   const targetDir = await mkdtemp(join(tmpdir(), "harness-plan-evidence-"));
+  let mutationActive = 0;
+  const mutationEvents = [];
   try {
     await writeFile(join(targetDir, "README.md"), "before\n", "utf8");
     const taskRun = {
@@ -225,6 +532,17 @@ test("generatePlan persists post-hoc workspace change evidence for workspace-wri
     };
     const svc = new AgentPlanningService({
       state: makeGateway({
+        beginWorkspaceMutation: async cwd => {
+          assert.equal(cwd, targetDir);
+          mutationActive += 1;
+          mutationEvents.push("begin");
+          return "direct-workspace-mutation";
+        },
+        endWorkspaceMutation: async token => {
+          assert.equal(token, "direct-workspace-mutation");
+          mutationActive -= 1;
+          mutationEvents.push("end");
+        },
         getTaskRun: async () => taskRun,
         createStep: async (input) => ({
           id: `step-${++stepSeq}`,
@@ -292,6 +610,7 @@ test("generatePlan persists post-hoc workspace change evidence for workspace-wri
         }),
       modelInvoker: {
         invoke: async (request) => {
+          assert.equal(mutationActive, 1, "direct provider writes must own the shared workspace epoch");
           await writeFile(join(request.cwd, "README.md"), "after\n", "utf8");
           await writeFile(join(request.cwd, "generated.txt"), "created\n", "utf8");
           return {
@@ -308,6 +627,8 @@ test("generatePlan persists post-hoc workspace change evidence for workspace-wri
     });
 
     await svc.generatePlan({ taskRunId: taskRun.id, provider: "codex" });
+    assert.equal(mutationActive, 0);
+    assert.deepEqual(mutationEvents, ["begin", "end"]);
 
     const evidence = artifacts.find(
       (artifact) => artifact.title === "Workspace change evidence",
@@ -364,6 +685,59 @@ const workerProfile = (overrides = {}) => ({
   updatedAt: "2026-01-01T00:00:00.000Z",
   ...overrides,
 });
+
+test("local worker tool inputs mask nested secret keys before stream and artifact publication", async () => {
+  const events = [];
+  const input = { credentials: { token: "SYNTHETIC_LOCAL_TOKEN" }, nested: [{ api_key: "SYNTHETIC_LOCAL_KEY" }], tokenUsage: 5 };
+  const fixture = preparationCancellationFixture({
+    emitStreamEvent: event => events.push(event),
+    invoke: async (request, onEvent) => {
+      onEvent({ type: "tool_call", invocationId: request.invocationId, phase: "started", toolName: "Read", input });
+      return { provider: "codex", model: "test", exitCode: 0, stderr: "", normalizedEvents: [], latencyMs: 1,
+        stdout: "```harness_agent_plan\n" + JSON.stringify({ summary: "safe answer", assumptions: [], steps: [], proposedActions: [], suggestedQualityChecks: [], questions: [] }) + "\n```" };
+    },
+  });
+  await fixture.run("worker");
+  assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_LOCAL/);
+  assert.doesNotMatch(JSON.stringify(fixture.artifacts), /SYNTHETIC_LOCAL/);
+  assert.equal(events.find(event => event.type === "tool_call").input.tokenUsage, 5);
+  assert.equal(input.nested[0].api_key, "SYNTHETIC_LOCAL_KEY", "redaction must not mutate the model's event input");
+});
+
+for (const kind of ["planner", "worker"]) {
+  test(`${kind} masks a sensitive JSON key split across raw stream chunks`, async () => {
+    const events = [];
+    const fixture = preparationCancellationFixture({
+      emitStreamEvent: event => events.push(event),
+      invoke: async (request, onEvent) => {
+        onEvent({ type: "raw", invocationId: request.invocationId, source: "stdout", text: '{"to' });
+        onEvent({ type: "tool_call", invocationId: request.invocationId, phase: "started", toolName: "Read", input: { path: "safe.txt" } });
+        onEvent({ type: "raw", invocationId: request.invocationId, source: "stdout", text: 'ken":"SYNTHETIC_SPLIT_STREAM_SECRET"}\n' });
+        return { provider: "codex", model: "test", exitCode: 0, stderr: "", normalizedEvents: [], latencyMs: 1,
+          stdout: "```harness_agent_plan\n" + JSON.stringify({ summary: "safe answer", assumptions: [], steps: [], proposedActions: [], suggestedQualityChecks: [], questions: [] }) + "\n```" };
+      },
+    });
+    await fixture.run(kind);
+    assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_SPLIT_STREAM_SECRET/);
+    assert.doesNotMatch(JSON.stringify(fixture.artifacts), /SYNTHETIC_SPLIT_STREAM_SECRET/);
+    assert.deepEqual(events.filter(e => e.type === "raw" || e.type === "tool_call").map(e => e.type), ["raw", "tool_call", "raw"]);
+    assert.ok(events.filter(e => e.type === "raw").map(e => e.text).join("").includes("[REDACTED]"));
+  });
+
+  test(`${kind} always cleans MCP resources when flushing audit events throws`, async () => {
+    let cleanupCalls = 0;
+    const fixture = preparationCancellationFixture({
+      prepareMcpInvocation: async () => ({ codexConfigOverrides: [], cleanup: async () => { cleanupCalls += 1; } }),
+      emitStreamEvent: event => { if (event.type === "raw") throw new Error("audit consumer failed"); },
+      invoke: async (request, onEvent) => {
+        onEvent({ type: "raw", invocationId: request.invocationId, source: "stdout", text: "pending audit fragment" });
+        throw new Error("provider failed");
+      },
+    });
+    await assert.rejects(fixture.run(kind));
+    assert.equal(cleanupCalls, 1, "audit callbacks cannot bypass invocation-owned cleanup");
+  });
+}
 
 const codexProfile = (overrides = {}) => {
   const base = workerProfile({
@@ -2099,7 +2473,7 @@ test("invokeForWorker prefers modelInvoker over legacy adapter", async () => {
 
   assert.equal(invokerCalled, true);
   assert.equal(legacyAdapterCalled, false);
-  assert.equal(result.proposedActions[0].after, "const [REDACTED]");
+  assert.equal(result.proposedActions[0].after, "const token=private_value");
 });
 
 test("invokeForWorker runs same-provider workers on independent lanes", async () => {

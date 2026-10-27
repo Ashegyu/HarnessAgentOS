@@ -25,6 +25,12 @@ npm install
 npm run dev
 ```
 
+Node.js 22.12 이상이 필요합니다. 데스크톱 런타임은 Electron 42.11.16으로 고정하며
+Windows x64 native SQLite는 better-sqlite3 12.11.1 이상을 사용합니다.
+Node 테스트와 Electron은 native ABI가 다르므로 `rebuild:node` 후 앱/E2E를 실행할 때는
+`npm run rebuild:electron`으로 다시 맞춥니다. Electron 갱신은 manifest/lockfile뿐 아니라
+실제 바이너리와 SQLite 로드, Electron UI 및 Windows 패키징까지 검증해야 합니다.
+
 ## Scripts
 
 - `npm run dev` - Electron 앱 dev 모드 실행
@@ -55,12 +61,14 @@ docs/                        설계 및 구현 단계 명세
 9-state machine: `drafting` → `waiting_for_approval` → `running` → `paused` / `blocked` /
 `quality_failed` / `ready_for_review` → `done` 또는 `cancelled`.
 
-우측 패널은 비종료 TaskRun에 대해 Pause / Resume / Retry last action / Cancel을 노출한다.
+우측 패널은 비종료 TaskRun에 대해 Pause / Resume / 재시도 검토 / Cancel을 노출한다.
 Cancel은 비어있지 않은 사유와 함께 `quality_report` artifact를 남기고, Retry는
-`blocked` / `quality_failed` 상태에서만 가장 최근 승인된 action을 idempotent runner 경로로 재실행한다.
+`blocked` / `quality_failed` 상태에서 이전 실행 결과를 검토한 뒤 새 수동 승인을 생성한다.
+새 승인을 수동 승인하기 전에는 실행하지 않으며, 소비된 원래 승인은 재사용하지 않는다.
 
 TaskRun row가 canonical store에서 바뀌면 main이 `events:taskRunChanged` push를 보내고
 workbench는 polling 없이 fresh 상태를 재조회한다.
+선택이 바뀐 뒤 도착한 상세 응답은 폐기하며, 같은 선택의 연속 push는 후속 최신 조회로 합친다.
 
 ## 절대 위반 금지 (CLAUDE.md 참조)
 

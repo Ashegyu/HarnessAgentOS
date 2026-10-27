@@ -1,4 +1,4 @@
-import { app, BrowserWindow, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, safeStorage, shell } from "electron";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { stat } from "node:fs/promises";
@@ -55,6 +55,8 @@ import {
 } from "@harness/agent";
 import type { AgentProviderStatusMap } from "@harness/core";
 import { registerAllIpc } from "./ipc";
+import { ipcWorkScope } from "./ipc/ipc-lifecycle";
+import { installApplicationShutdown } from "./services/application-shutdown";
 import { verifyReportDelivery } from "./services/report-delivery-verifier";
 import {
   eventBus,
@@ -68,6 +70,7 @@ import {
   startDiagnosticsHeartbeat,
   type DiagnosticsHeartbeatController,
 } from "./services/diagnostics-heartbeat";
+import { startPrimaryInstance } from "./single-instance";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -78,6 +81,10 @@ if (process.env.HARNESS_E2E_USER_DATA) {
 
 let mainDb: HarnessDb | null = null;
 let diagnosticsHeartbeat: DiagnosticsHeartbeatController | null = null;
+let runtimeServices: ReturnType<typeof initServices> | null = null;
+let backgroundWork: ReturnType<typeof registerAllIpc> | null = null;
+let startupWork: Promise<void> | null = null;
+let shutdownRequested = false;
 
 const traceStartup = (step: string): void => {
   if (process.env.HARNESS_STARTUP_TRACE === "1") {
@@ -162,6 +169,7 @@ const initServices = (): {
   skillRootPolicy: SkillRootPolicy;
   mcpProbe: (server: McpServerConfig) => Promise<McpServerHealth>;
   diagnosticsService: SystemDiagnosticsService;
+  shutdownWorkers: () => Promise<void>;
 } => {
   const userData = app.getPath("userData");
   const dbPath = join(userData, "app.db");
@@ -172,6 +180,7 @@ const initServices = (): {
     WHERE execution_state='running'`).run(new Date().toISOString());
 
   const state = new LocalStateService(mainDb);
+  state.workspaceMutations.recoverAbandoned();
   const artifactStore = new FilesystemArtifactStore({
     rootDir: join(userData, "artifacts"),
   });
@@ -639,6 +648,13 @@ const initServices = (): {
     skillRootPolicy,
     mcpProbe,
     diagnosticsService,
+    shutdownWorkers: async () => {
+      const outcomes = await Promise.allSettled([
+        orchestrationWorkerInvoker.shutdown(), agentPlanning.shutdown(), runner.shutdown(), orchestrationService.shutdown(),
+      ]);
+      const failures = outcomes.filter(outcome => outcome.status === "rejected").map(outcome => outcome.reason);
+      if (failures.length) throw new AggregateError(failures, "Worker shutdown could not be confirmed");
+    },
   };
 };
 
@@ -689,9 +705,10 @@ const createMainWindow = (): BrowserWindow => {
   return win;
 };
 
-app.whenReady().then(async () => {
+const startApplication = async (): Promise<void> => {
   traceStartup("initServices:start");
   const services = initServices();
+  runtimeServices = services;
   traceStartup("initServices:done");
   // Seed orchestration flag from persisted settings before IPC goes live.
   try {
@@ -775,8 +792,9 @@ app.whenReady().then(async () => {
   } catch {
     // capability diagnostics and capability.refresh IPC surface the failure.
   }
+  if (shutdownRequested) return;
   traceStartup("ipc:start");
-  registerAllIpc(services);
+  backgroundWork = registerAllIpc(services);
   diagnosticsHeartbeat = startDiagnosticsHeartbeat({
     collect: () => services.diagnosticsService.collect(),
     emit: (diagnostics) => eventBus.diagnosticsHeartbeat(diagnostics),
@@ -789,26 +807,94 @@ app.whenReady().then(async () => {
   traceStartup("window:done");
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    if (!shutdownRequested && BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
-}).catch((error) => {
-  console.error("[harness:start] failed", error);
-  app.quit();
+};
+
+const primaryInstance = startPrimaryInstance({
+  app,
+  getWindow: () => BrowserWindow.getAllWindows()[0] ?? null,
+  start: () => {
+    if (shutdownRequested) return;
+    startupWork = startApplication();
+    return startupWork;
+  },
+  onError: (error) => {
+    console.error("[harness:start] failed", error);
+    app.quit();
+  },
 });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+if (primaryInstance) {
+  installApplicationShutdown({
+    app,
+    drain: async () => {
+      shutdownRequested = true;
+      ipcWorkScope.seal();
+      const heartbeatStopped = diagnosticsHeartbeat?.stop();
+      diagnosticsHeartbeat = null;
+      setDiagnosticsEmitter(null);
+      setTaskRunChangedObserver(null);
+      // Pause first to prevent dispatch. After settlement, standalone work
+      // must retain the existing blocked/review retry path; pipelines resume.
+      const runnerTaskIds = runtimeServices?.runner.getActiveTaskRunIds() ?? [];
+      const standaloneTaskIds = new Set(runnerTaskIds);
+      const interruptedTaskIds = new Set<string>();
+      const pauseActiveTasks = () => {
+        if (!mainDb?.open) return;
+        // Current invocation ownership wins over historical pipeline consent.
+        const planners = mainDb.prepare(
+          `SELECT DISTINCT i.task_run_id AS id FROM agent_invocations i
+           JOIN steps s ON s.id=i.step_id WHERE i.status IN ('queued','running') AND s.kind='plan'`,
+        ).all() as { id: string }[];
+        for (const row of planners) standaloneTaskIds.add(row.id);
+        const rows = mainDb.prepare(
+          `SELECT id FROM task_runs WHERE status IN ('drafting','running') OR
+           (status NOT IN ('paused','done','cancelled') AND
+            (id IN (SELECT value FROM json_each(?)) OR
+             id IN (SELECT task_run_id FROM agent_invocations WHERE status IN ('queued','running'))))`,
+        ).all(JSON.stringify(runnerTaskIds)) as { id: string }[];
+        for (const row of rows) interruptedTaskIds.add(row.id);
+        mainDb.prepare(
+          `UPDATE task_runs SET status='paused', updated_at=?
+           WHERE status IN ('drafting','running') OR
+             (status NOT IN ('paused','done','cancelled') AND
+              (id IN (SELECT value FROM json_each(?)) OR
+               id IN (SELECT task_run_id FROM agent_invocations WHERE status IN ('queued','running'))))`,
+        ).run(new Date().toISOString(), JSON.stringify(runnerTaskIds));
+      };
+      const failures: unknown[] = [];
+      try { pauseActiveTasks(); } catch (error) { failures.push(error); }
+      const outcomes = await Promise.allSettled([
+        backgroundWork?.shutdown(), runtimeServices?.shutdownWorkers(), ipcWorkScope.drain(), startupWork?.catch(() => {}), heartbeatStopped,
+      ]);
+      failures.push(...outcomes.filter(outcome => outcome.status === "rejected").map(outcome => outcome.reason));
+      try {
+        pauseActiveTasks();
+        if (mainDb?.open) mainDb.prepare(
+          `UPDATE task_runs SET status='blocked', updated_at=?
+           WHERE status='paused' AND id IN (SELECT value FROM json_each(?)) AND
+            (id IN (SELECT value FROM json_each(?)) OR NOT EXISTS
+             (SELECT 1 FROM approvals WHERE task_run_id=task_runs.id AND action_type='orchestration_plan'))`,
+        ).run(new Date().toISOString(), JSON.stringify([...interruptedTaskIds]), JSON.stringify([...standaloneTaskIds]));
+      } catch (error) { failures.push(error); }
+      if (failures.length) throw new AggregateError(failures, "Application work did not shut down cleanly");
+    },
+    close: () => {
+      if (mainDb?.open) mainDb.close();
+      mainDb = null;
+    },
+    onError: error => {
+      console.error("[harness:shutdown] cleanup incomplete", error);
+      if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+      dialog.showErrorBox("앱 종료 정리를 완료하지 못했습니다", "진행 중인 작업의 정리가 확인되지 않아 저장소를 열어 두었습니다. 정리가 끝난 뒤 창을 닫아 다시 시도하세요. 강제 종료는 미확정 실행을 남길 수 있습니다.");
+    },
+  });
+  app.on("window-all-closed", () => {
+    if (process.platform !== "darwin") app.quit();
+  });
 
-app.on("will-quit", () => {
-  diagnosticsHeartbeat?.stop();
-  diagnosticsHeartbeat = null;
-  setDiagnosticsEmitter(null);
-  setTaskRunChangedObserver(null);
-  if (mainDb && mainDb.open) mainDb.close();
-  mainDb = null;
-});
-
-app.on("web-contents-created", (_e, contents) => {
-  contents.on("will-attach-webview", (e) => e.preventDefault());
-});
+  app.on("web-contents-created", (_e, contents) => {
+    contents.on("will-attach-webview", (e) => e.preventDefault());
+  });
+}

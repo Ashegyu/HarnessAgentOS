@@ -21,6 +21,9 @@ import type { HarnessSettings } from "./settings.ts";
  * structurally.
  */
 export interface AgentPlanningStateGateway {
+  /** Optional for lightweight tests; production tracks direct workspace edits. */
+  beginWorkspaceMutation?(targetDir: string): Promise<string>;
+  endWorkspaceMutation?(token: string): Promise<void>;
   getTaskRun(id: string): Promise<TaskRun | null>;
   listStepsByTaskRun(taskRunId: string): Promise<Step[]>;
   createStep(input: CreateStepInput): Promise<Step>;

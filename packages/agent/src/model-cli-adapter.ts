@@ -336,6 +336,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         AGENT_TIMEOUT,
         "timeout",
         `CLI exceeded ${timeoutMs}ms total timeout${cleanupWarning}`,
+        !cleanupFailed,
       );
     }
     if (killReason === "stall") {
@@ -343,6 +344,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         AGENT_STALL,
         "stall",
         `CLI produced no output for ${stallTimeoutMs}ms${cleanupWarning}`,
+        !cleanupFailed,
       );
     }
     if (killReason === "aborted") {
@@ -350,6 +352,7 @@ export class DefaultModelCliAdapter implements ModelCliAdapter {
         AGENT_CANCELLED,
         "aborted",
         `Invocation cancelled by user${cleanupWarning}`,
+        !cleanupFailed,
       );
     }
 

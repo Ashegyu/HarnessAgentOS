@@ -3,6 +3,7 @@ import type {
   QualityGateResult,
   TaskRunCompletionService,
 } from "@harness/core";
+import { AsyncWorkScope } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import type { QualityEvaluator } from "@harness/quality";
 
@@ -26,23 +27,33 @@ export interface AutomaticQualityServiceDeps {
 export class AutomaticQualityService {
   private readonly deps: AutomaticQualityServiceDeps;
   private readonly pendingTaskRunIds = new Set<string>();
+  private readonly operations = new AsyncWorkScope();
 
   constructor(deps: AutomaticQualityServiceDeps) {
     this.deps = deps;
   }
 
   schedule(taskRunId: string): void {
-    if (!taskRunId || this.pendingTaskRunIds.has(taskRunId)) return;
+    if (this.operations.closed || !taskRunId || this.pendingTaskRunIds.has(taskRunId)) return;
     this.pendingTaskRunIds.add(taskRunId);
-    void Promise.resolve()
-      .then(() => this.evaluateIfReady(taskRunId))
+    void this.operations.run(() => this.evaluateIfReadyOnce(taskRunId))
       .catch((error: unknown) => this.deps.onError?.(taskRunId, error))
       .finally(() => this.pendingTaskRunIds.delete(taskRunId));
   }
 
   async evaluateIfReady(taskRunId: string): Promise<QualityGateResult | null> {
+    if (this.operations.closed) return null;
+    return this.operations.run(() => this.evaluateIfReadyOnce(taskRunId));
+  }
+
+  async shutdown(): Promise<void> {
+    this.operations.seal();
+    await this.operations.drain();
+  }
+
+  private async evaluateIfReadyOnce(taskRunId: string): Promise<QualityGateResult | null> {
     const taskRun = await this.deps.state.getTaskRun(taskRunId);
-    if (!taskRun || taskRun.status !== "ready_for_review") return null;
+    if (this.operations.closed || !taskRun || taskRun.status !== "ready_for_review") return null;
 
     const input: QualityGateInput = { taskRunId };
     const result = await this.deps.evaluator.evaluate(input);

@@ -3,7 +3,7 @@ import { useI18n } from "../../app/i18n";
 
 type CopyStatus = "idle" | "copying" | "copied" | "error";
 
-export const AnswerCopyButton = ({ text }: { text: string }): JSX.Element | null => {
+export const AnswerCopyButton = ({ text, disabled = false }: { text: string; disabled?: boolean }): JSX.Element | null => {
   const { tk } = useI18n();
   const [status, setStatus] = useState<CopyStatus>("idle");
   const requestRef = useRef(0);
@@ -19,7 +19,7 @@ export const AnswerCopyButton = ({ text }: { text: string }): JSX.Element | null
   const copy = async (event: MouseEvent<HTMLButtonElement>): Promise<void> => {
     // Copying a saved answer must not select another task or toggle a section.
     event.stopPropagation();
-    if (pendingRef.current) return;
+    if (disabled || pendingRef.current) return;
     pendingRef.current = true;
     const requestId = ++requestRef.current;
     setStatus("copying");
@@ -43,7 +43,7 @@ export const AnswerCopyButton = ({ text }: { text: string }): JSX.Element | null
         className="answer-copy__button"
         aria-label={tk("answer.copy")}
         title={tk("answer.copyHint")}
-        disabled={status === "copying"}
+        disabled={disabled || status === "copying"}
         onClick={(event) => { void copy(event); }}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">

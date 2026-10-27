@@ -19,6 +19,10 @@ export class SqliteArtifactRepository implements ArtifactRepository {
   }
 
   async create(input: CreateArtifactInput): Promise<Artifact> {
+    return this.createSync(input);
+  }
+
+  createSync(input: CreateArtifactInput): Artifact {
     const artifact: Artifact = {
       id: input.id ?? newId("artifact"),
       taskRunId: input.taskRunId,

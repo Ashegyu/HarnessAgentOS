@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 40;
+export const SCHEMA_VERSION = 43;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -547,6 +547,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
   // Helpful indices for common lookups. Idempotent.
   `CREATE INDEX IF NOT EXISTS idx_task_runs_thread_id ON task_runs(thread_id)`,
+  // Task-scoped gates retain rowid insertion order; recent commands scan a
+  // bounded updated_at index in reverse (implicit rowid breaks ties).
+  `CREATE INDEX IF NOT EXISTS idx_quality_gate_results_task ON quality_gate_results(task_run_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_task_runs_updated ON task_runs(updated_at)`,
   `CREATE INDEX IF NOT EXISTS idx_steps_task_run_id ON steps(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_checkpoints_task_run_id ON checkpoints(task_run_id)`,
   `CREATE INDEX IF NOT EXISTS idx_approvals_task_run_id ON approvals(task_run_id)`,
@@ -555,4 +559,47 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS idx_agent_invocations_task_run ON agent_invocations(task_run_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_endpoints_enabled ON a2a_endpoints(enabled, created_at)`,
   `CREATE INDEX IF NOT EXISTS idx_a2a_remote_tasks_endpoint ON a2a_remote_tasks(endpoint_id)`,
+];
+
+// Deferred until legacy approval-table rebuilds have completed.
+export const VALIDATION_SCHEMA_STATEMENTS: readonly string[] = [
+  // v41 — host-owned checker execution and shared workspace mutation epochs.
+  `CREATE TABLE IF NOT EXISTS workspace_validation_state (
+    workspace_key TEXT PRIMARY KEY,
+    generation INTEGER NOT NULL DEFAULT 0 CHECK(generation >= 0),
+    active_mutations INTEGER NOT NULL DEFAULT 0 CHECK(active_mutations >= 0)
+  )`,
+  `CREATE TABLE IF NOT EXISTS workspace_mutations (
+    id TEXT PRIMARY KEY,
+    workspace_key TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    FOREIGN KEY(workspace_key) REFERENCES workspace_validation_state(workspace_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_workspace_mutations_workspace ON workspace_mutations(workspace_key)`,
+  `CREATE TABLE IF NOT EXISTS validation_runs (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    task_run_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    approval_id TEXT NOT NULL,
+    workspace_key TEXT NOT NULL,
+    checker_id TEXT NOT NULL,
+    kinds_json TEXT NOT NULL,
+    start_fingerprint TEXT,
+    start_generation INTEGER NOT NULL CHECK(start_generation >= 0),
+    finish_fingerprint TEXT,
+    finish_generation INTEGER,
+    status TEXT NOT NULL CHECK(status IN ('running','completed','failed','cancelled')),
+    exit_code INTEGER,
+    artifact_id TEXT,
+    reason TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY(task_run_id) REFERENCES task_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY(step_id) REFERENCES steps(id) ON DELETE CASCADE,
+    FOREIGN KEY(approval_id) REFERENCES approvals(id) ON DELETE CASCADE,
+    FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_validation_runs_task ON validation_runs(task_run_id, sequence)`,
+
 ];

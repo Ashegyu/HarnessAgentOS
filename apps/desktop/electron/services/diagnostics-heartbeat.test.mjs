@@ -2,6 +2,19 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startDiagnosticsHeartbeat } from "./diagnostics-heartbeat.ts";
 
+test("stop waits for the active diagnostic read and suppresses its late emission", async () => {
+  let release, emitted = 0, finished = false;
+  const pending = new Promise(resolve => { release = resolve; });
+  const heartbeat = startDiagnosticsHeartbeat({ collect: () => pending, emit: () => { emitted++; } });
+  const reading = heartbeat.emitNow();
+  const stopped = heartbeat.stop().then(() => { finished = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(finished, false);
+  release({}); await stopped; await reading;
+  assert.equal(emitted, 0);
+  await heartbeat.emitNow(); await heartbeat.stop();
+});
+
 test("startDiagnosticsHeartbeat emits and cleans up interval", async () => {
   let callback = null;
   let cleared = false;

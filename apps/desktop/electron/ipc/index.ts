@@ -97,7 +97,7 @@ export interface IpcContext {
 /**
  * Single registration entry point.
  */
-export const registerAllIpc = (ctx: IpcContext): void => {
+export const registerAllIpc = (ctx: IpcContext): { shutdown(): Promise<void> } => {
   const codeChangeLoop = new CodeChangeLoopService({
     state: ctx.state,
     runner: {
@@ -147,6 +147,7 @@ export const registerAllIpc = (ctx: IpcContext): void => {
       return result;
     },
     evaluateQuality: taskRunId => automaticQuality.evaluateIfReady(taskRunId),
+    resumeBackflow: taskRunId => pipelineBackflow.resumePending(taskRunId),
     resumePlanning: async taskRunId => {
       const settings = await ctx.state.getSettings();
       return ctx.agentPlanning.generatePlan({ taskRunId,
@@ -271,4 +272,11 @@ export const registerAllIpc = (ctx: IpcContext): void => {
     },
   });
   registerSecretIpc({ vault: ctx.secretVault });
+  return { shutdown: async () => {
+    const outcomes = await Promise.allSettled([
+      progression.shutdown(), startService.shutdown(), automaticQuality.shutdown(), pipelineBackflow.shutdown(),
+    ]);
+    const failure = outcomes.find(outcome => outcome.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  } };
 };

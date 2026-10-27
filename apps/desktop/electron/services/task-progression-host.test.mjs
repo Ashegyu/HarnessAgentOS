@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildTaskContract } from "@harness/core";
+import { openDb, closeDb, LocalStateService } from "@harness/storage";
 import { createTaskProgressionHost } from "./task-progression-host.ts";
 
 for (const valid of [true, false]) {
@@ -42,7 +43,7 @@ test("default profile restrictions apply even without an explicit active profile
     agentProfiles: { list: async () => [{ id: "default", isDefault: true, permissions: { blockedActions: ["file_write"], autoApproveActions: [] } }] },
     aggregateAgentInvocationCostByProfileAndDay: async () => [],
     createStep: async () => ({ id: "failure" }), setStepStatus: async () => {},
-    createArtifact: async () => {}, setTaskRunStatus: async () => {},
+    createArtifact: async () => {}, taskRuns: { updateStatus: async () => {} },
   };
   const service = createTaskProgressionHost({ state, conversation: { approve: async () => { calls.push("approve"); throw new Error("must not approve"); } },
     execute: async () => calls.push("execute"), evaluateQuality: async () => calls.push("QA"), changed: () => {} });
@@ -59,7 +60,10 @@ test("progression errors persist a redacted failure step/log and never resurrect
     createStep: async input => { writes.push(["step", input]); return { id: "failed-step" }; },
     setStepStatus: async (id, next, options) => writes.push(["step-status", next, options.outputSummary]),
     createArtifact: async input => writes.push(["artifact", input]),
-    setTaskRunStatus: async (_id, next) => { status = next; },
+    taskRuns: { updateStatus: async (_id, next, expected) => {
+      assert.equal(status, expected);
+      status = next;
+    } },
   };
   const service = createTaskProgressionHost({ state, conversation: {}, execute: async () => {}, evaluateQuality: async () => {}, changed: () => {} });
   await service.fail("task", new Error("prep failed with sk-test-only and Bearer example-token"));
@@ -73,3 +77,36 @@ test("progression errors persist a redacted failure step/log and never resurrect
   assert.equal(writes.length, 3);
   assert.equal(status, "cancelled");
 });
+
+for (const stoppedStatus of ["paused", "cancelled"]) {
+  test(`progression failure preserves ${stoppedStatus} recorded while its diagnostic is being saved`, async () => {
+    const db = openDb({ filePath: ":memory:" });
+    try {
+      const state = new LocalStateService(db);
+      const thread = await state.createThread({ title: "late progression error" });
+      const task = await state.createTaskRun({ threadId: thread.id,
+        targetDir: process.cwd(), userRequest: "run the pipeline" });
+      await state.setTaskRunStatus(task.id, "running");
+      const createArtifact = state.createArtifact.bind(state);
+      state.createArtifact = async input => {
+        const artifact = await createArtifact(input);
+        await state.setTaskRunStatus(task.id, stoppedStatus);
+        return artifact;
+      };
+      const changed = [];
+      const service = createTaskProgressionHost({ state, conversation: {},
+        execute: async () => {}, evaluateQuality: async () => {},
+        changed: id => changed.push(id) });
+
+      await service.fail(task.id, new Error("worker failed while pausing"));
+
+      assert.equal((await state.getTaskRun(task.id)).status, stoppedStatus);
+      assert.equal((await state.listStepsByTaskRun(task.id)).at(-1).status, "failed");
+      assert.match((await state.listArtifactsByTaskRun(task.id)).at(-1).summary,
+        /worker failed while pausing/);
+      assert.deepEqual(changed, [task.id]);
+    } finally {
+      closeDb(db);
+    }
+  });
+}

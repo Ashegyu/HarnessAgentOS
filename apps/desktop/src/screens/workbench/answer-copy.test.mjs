@@ -28,6 +28,14 @@ test("saved fallback answers can be copied too", () => {
   assert.match(render({ sections: [], fallbackFinalText: "이전 답변" }), /aria-label="답변 복사"/);
 });
 
+for (const kind of ["final", "response"]) {
+  test(`${kind} copy is disabled while the selected answer owner is loading`, () => {
+    const props = { sections: [{ id: "answer", kind, text: "답변", ...(kind === "response" ? { phase: "live" } : {}) }] };
+    assert.match(render({ ...props, copyDisabled: true }), /disabled=""/);
+    assert.doesNotMatch(render(props), /disabled=""/);
+  });
+}
+
 test("intermediate responses expose copy without copying thinking or tool output", () => {
   const html = render({ terminal: false, sections: [
     { id: "thinking", kind: "thinking", text: "내부 진행" },

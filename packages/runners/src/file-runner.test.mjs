@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -84,4 +85,22 @@ test("FileRunner still creates a safe nested file", async () => {
   } finally {
     t.cleanup();
   }
+});
+
+test("FileRunner refuses a hard link without changing its outside original", async t => {
+  const f = tempWorkspace();
+  try {
+    const original = join(f.outside, "original.txt");
+    const alias = join(f.workspace, "alias.txt");
+    writeFileSync(original, "outside original", "utf8");
+    try { linkSync(original, alias); }
+    catch (error) {
+      if (error.code === "EPERM" || error.code === "EACCES") { t.skip("sandbox does not allow creating the hard-link fixture"); return; }
+      throw error;
+    }
+    await assert.rejects(new FileRunner().run({ targetDir: f.workspace, patch: { path: "alias.txt", after: "overwrite" } }),
+      error => error.code === "RUNNER_FILE_REGULAR_SINGLE_LINK_REQUIRED");
+    assert.equal(readFileSync(original, "utf8"), "outside original");
+    assert.equal(readFileSync(alias, "utf8"), "outside original");
+  } finally { f.cleanup(); }
 });

@@ -9,6 +9,7 @@ import type {
   OrchestrationMode,
   ProposedActionDetails,
   TaskRun,
+  RecentTaskRun,
 } from "@harness/core";
 import {
   evaluateBudget,
@@ -44,17 +45,12 @@ import {
 import {
   beginTaskRunDetailRefresh,
   beginThreadDetailRefresh,
+  createDetailRefreshController,
   type DetailState,
   type TaskRunDetailState,
   type ThreadsState,
 } from "./workbench-refresh-state";
 import "./workbench.css";
-
-interface RecentTaskRunCommand {
-  taskRun: TaskRun;
-  threadId: string;
-  threadTitle: string;
-}
 
 const COMMAND_TAB_ITEMS: ReadonlyArray<{
   id: RightPanelTab;
@@ -86,21 +82,59 @@ export const WorkbenchShell = (): JSX.Element => {
   const [threadsState, setThreadsState] = useState<ThreadsState>({
     kind: "loading",
   });
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  const [detailState, setDetailState] = useState<DetailState>({ kind: "idle" });
-  const [selectedTaskRunId, setSelectedTaskRunId] = useState<string | null>(
+  const [selectedThreadId, storeSelectedThreadId] = useState<string | null>(null);
+  const [storedDetailState, setDetailState] = useState<DetailState>({ kind: "idle" });
+  const [selectedTaskRunId, storeSelectedTaskRunId] = useState<string | null>(
     null,
   );
-  const [taskRunDetail, setTaskRunDetail] = useState<TaskRunDetailState>({
+  const [storedTaskRunDetail, setTaskRunDetail] = useState<TaskRunDetailState>({
     kind: "idle",
   });
+  const selectionRef = useRef<{ threadId: string | null; taskRunId: string | null }>({ threadId: null, taskRunId: null });
+  const threadRefresh = useMemo(() => createDetailRefreshController({
+    load: (threadId: string) => window.harness.state.getThread({ threadId }),
+    keyOf: detail => detail.thread.id,
+    begin: id => setDetailState(previous => id === null ? { kind: "idle" } : beginThreadDetailRefresh(previous, id)),
+    ready: detail => setDetailState({ kind: "ready", detail }),
+    error: (threadId, error) => setDetailState({ kind: "error", threadId, message: errorMessage(error) }),
+  }), []);
+  const taskRefresh = useMemo(() => createDetailRefreshController({
+    load: (taskRunId: string) => window.harness.conversation.getTaskRunDetail({ taskRunId }),
+    keyOf: detail => detail.taskRun.id,
+    begin: id => setTaskRunDetail(previous => id === null ? { kind: "idle" } : beginTaskRunDetailRefresh(previous, id)),
+    ready: detail => setTaskRunDetail({ kind: "ready", detail }),
+    error: (taskRunId, error) => setTaskRunDetail({ kind: "error", taskRunId, message: errorMessage(error) }),
+  }), []);
+  const setSelectedTaskRunId = useCallback((id: string | null) => {
+    if (selectionRef.current.taskRunId !== id) selectionRef.current = { ...selectionRef.current, taskRunId: id };
+    taskRefresh.select(id);
+    storeSelectedTaskRunId(id);
+  }, [taskRefresh]);
+  const setSelectedThreadId = useCallback((id: string | null) => {
+    if (selectionRef.current.threadId !== id || selectionRef.current.taskRunId !== null) {
+      selectionRef.current = { threadId: id, taskRunId: null };
+    }
+    threadRefresh.select(id);
+    taskRefresh.select(null);
+    storeSelectedThreadId(id);
+    storeSelectedTaskRunId(null);
+  }, [threadRefresh, taskRefresh]);
+  // Render identity is checked too, so the first frame after selection cannot
+  // expose controls from the previous detail while effects catch up.
+  const detailState: DetailState = selectedThreadId === null ? { kind: "idle" } :
+    storedDetailState.kind === "ready" && storedDetailState.detail.thread.id !== selectedThreadId
+      ? { kind: "loading", threadId: selectedThreadId } : storedDetailState;
+  const taskRunDetail: TaskRunDetailState = selectedTaskRunId === null ? { kind: "idle" } :
+    storedTaskRunDetail.kind === "ready" && (storedTaskRunDetail.detail.taskRun.id !== selectedTaskRunId ||
+      storedTaskRunDetail.detail.taskRun.threadId !== selectedThreadId)
+      ? { kind: "loading", taskRunId: selectedTaskRunId } : storedTaskRunDetail;
   const [providers, setProviders] =
     useState<AgentProviderStatusMap | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [learningOpen, setLearningOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("plan");
-  const [recentTaskRuns, setRecentTaskRuns] = useState<RecentTaskRunCommand[]>(
+  const [recentTaskRuns, setRecentTaskRuns] = useState<RecentTaskRun[]>(
     [],
   );
   const [autoApprove, setAutoApprove] = useState(false);
@@ -378,24 +412,7 @@ export const WorkbenchShell = (): JSX.Element => {
     }
   }, []);
 
-  const refreshThreadDetail = useCallback(
-    async (threadId: string) => {
-      setDetailState((previous) =>
-        beginThreadDetailRefresh(previous, threadId),
-      );
-      try {
-        const detail = await window.harness.state.getThread({ threadId });
-        setDetailState({ kind: "ready", detail });
-      } catch (e) {
-        setDetailState({
-          kind: "error",
-          threadId,
-          message: errorMessage(e),
-        });
-      }
-    },
-    [],
-  );
+  const refreshThreadDetail = useCallback((threadId: string) => threadRefresh.refresh(threadId), [threadRefresh]);
 
   const handlePinnedObservationToggle = useCallback(
     (
@@ -432,23 +449,7 @@ export const WorkbenchShell = (): JSX.Element => {
     [pinnedObservationContextsByTaskRunId],
   );
 
-  const refreshTaskRunDetail = useCallback(async (taskRunId: string) => {
-    setTaskRunDetail((previous) =>
-      beginTaskRunDetailRefresh(previous, taskRunId),
-    );
-    try {
-      const detail = await window.harness.conversation.getTaskRunDetail({
-        taskRunId,
-      });
-      setTaskRunDetail({ kind: "ready", detail });
-    } catch (e) {
-      setTaskRunDetail({
-        kind: "error",
-        taskRunId,
-        message: errorMessage(e),
-      });
-    }
-  }, []);
+  const refreshTaskRunDetail = useCallback((taskRunId: string) => taskRefresh.refresh(taskRunId), [taskRefresh]);
 
   useEffect(() => {
     void refreshThreads();
@@ -459,22 +460,8 @@ export const WorkbenchShell = (): JSX.Element => {
     let cancelled = false;
     void (async () => {
       try {
-        const details = await Promise.all(
-          threadsState.threads.map((thread) =>
-            window.harness.state.getThread({ threadId: thread.id }),
-          ),
-        );
+        const next = await window.harness.state.listRecentTaskRuns({ limit: 10 });
         if (cancelled) return;
-        const next = details
-          .flatMap((detail) =>
-            detail.taskRuns.map((taskRun) => ({
-              taskRun,
-              threadId: detail.thread.id,
-              threadTitle: detail.thread.title,
-            })),
-          )
-          .sort((a, b) => b.taskRun.updatedAt.localeCompare(a.taskRun.updatedAt))
-          .slice(0, 10);
         setRecentTaskRuns(next);
       } catch {
         if (!cancelled) setRecentTaskRuns([]);
@@ -555,21 +542,28 @@ export const WorkbenchShell = (): JSX.Element => {
   ]);
 
   useEffect(() => {
+    threadRefresh.select(selectedThreadId);
     if (selectedThreadId === null) {
       setDetailState({ kind: "idle" });
       setSelectedTaskRunId(null);
       return;
     }
     void refreshThreadDetail(selectedThreadId);
-  }, [selectedThreadId, refreshThreadDetail]);
+  }, [selectedThreadId, refreshThreadDetail, threadRefresh]);
 
   useEffect(() => {
+    taskRefresh.select(selectedTaskRunId);
     if (selectedTaskRunId === null) {
       setTaskRunDetail({ kind: "idle" });
       return;
     }
     void refreshTaskRunDetail(selectedTaskRunId);
-  }, [selectedTaskRunId, refreshTaskRunDetail]);
+  }, [selectedTaskRunId, refreshTaskRunDetail, taskRefresh]);
+
+  useEffect(() => () => {
+    threadRefresh.select(null);
+    taskRefresh.select(null);
+  }, [threadRefresh, taskRefresh]);
 
   // Subscribe to main → renderer push so the workbench refetches when the
   // active TaskRun row changes. The thread sidebar also follows along so
@@ -599,10 +593,10 @@ export const WorkbenchShell = (): JSX.Element => {
       targetDir?: string;
       pipelineId?: string;
     }): Promise<void> => {
+      const selection = selectionRef.current;
       const created = await window.harness.state.createThread(input);
       await refreshThreads();
-      setSelectedThreadId(created.id);
-      setSelectedTaskRunId(null);
+      if (selectionRef.current === selection) setSelectedThreadId(created.id);
     },
     [refreshThreads],
   );
@@ -627,6 +621,7 @@ export const WorkbenchShell = (): JSX.Element => {
         throw new Error("스레드를 먼저 선택하세요");
       }
       const { mode: _mode, ...request } = input;
+      const selection = selectionRef.current;
       const draft = await window.harness.conversation.startTask({
         ...request, threadId: selectedThreadId,
       });
@@ -635,7 +630,7 @@ export const WorkbenchShell = (): JSX.Element => {
           (input.orchPipelineId || input.orchHarness)) {
         markPipelineAutoTaskRun(draft.taskRun.id);
       }
-      setSelectedTaskRunId(draft.taskRun.id);
+      if (selectionRef.current === selection) setSelectedTaskRunId(draft.taskRun.id);
       noteAgentProgress(draft.taskRun.id, "context", "작업 시작 준비",
         "메인에서 추천·승인·실행을 이어갑니다. 다른 작업으로 이동해도 진행됩니다.");
       await refreshThreadDetail(selectedThreadId);
@@ -701,7 +696,7 @@ export const WorkbenchShell = (): JSX.Element => {
   const handleDeleteThread = useCallback(
     async (id: string): Promise<void> => {
       await window.harness.state.deleteThread({ threadId: id });
-      if (selectedThreadId === id) {
+      if (selectionRef.current.threadId === id) {
         setSelectedThreadId(null);
         setSelectedTaskRunId(null);
         setDetailState({ kind: "idle" });
@@ -720,7 +715,7 @@ export const WorkbenchShell = (): JSX.Element => {
         delete next[id];
         return next;
       });
-      if (selectedTaskRunId === id) setSelectedTaskRunId(null);
+      if (selectionRef.current.taskRunId === id) setSelectedTaskRunId(null);
       if (selectedThreadId) await refreshThreadDetail(selectedThreadId);
     },
     [refreshThreadDetail, selectedTaskRunId, selectedThreadId],
@@ -1029,6 +1024,10 @@ export const WorkbenchShell = (): JSX.Element => {
               autoApprove={autoApprove}
               onOpenThreadDrawer={openThreadDrawer}
               activeTaskRunId={selectedTaskRunId}
+              activeTaskRunDetailPending={selectedTaskRunId !== null && !(
+                (taskRunDetail.kind === "ready" && taskRunDetail.detail.taskRun.id === selectedTaskRunId) ||
+                (taskRunDetail.kind === "error" && taskRunDetail.taskRunId === selectedTaskRunId)
+              )}
               activeTaskRun={
                 taskRunDetail.kind === "ready"
                   ? taskRunDetail.detail.taskRun
@@ -1060,6 +1059,7 @@ export const WorkbenchShell = (): JSX.Element => {
             aria-hidden={!contextDrawerOpen}
           >
             <RightPanel
+              key={selectedTaskRunId ?? "idle"}
               state={taskRunDetail}
               onApprove={handleApprove}
               onReject={handleReject}

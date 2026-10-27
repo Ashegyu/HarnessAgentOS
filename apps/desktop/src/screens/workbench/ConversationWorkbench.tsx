@@ -78,6 +78,7 @@ interface ConversationWorkbenchProps {
   onOpenThreadDrawer?: () => void;
   activeTaskRunApprovals: Approval[];
   activeTaskRunId: string | null;
+  activeTaskRunDetailPending: boolean;
   activeTaskRun: TaskRun | null;
   activeTaskRunSteps: Step[];
   /**
@@ -154,6 +155,7 @@ export const ConversationWorkbench = ({
   onOpenThreadDrawer,
   activeTaskRunApprovals,
   activeTaskRunId,
+  activeTaskRunDetailPending,
   activeTaskRun,
   activeTaskRunSteps,
   activeTaskRunInvocations,
@@ -230,6 +232,7 @@ export const ConversationWorkbench = ({
         onDeleteTask={onDeleteTask}
         onSuggest={seedFromChip}
         activeTaskRunId={activeTaskRunId}
+          activeTaskRunDetailPending={activeTaskRunDetailPending}
         activeTaskRunApprovals={activeTaskRunApprovals}
         activeTaskRunInvocations={activeTaskRunInvocations}
         activeTaskRunArtifacts={activeTaskRunArtifacts}
@@ -309,6 +312,7 @@ const ChatTranscript = ({
   onDeleteTask,
   onSuggest,
   activeTaskRunId,
+  activeTaskRunDetailPending,
   activeTaskRunApprovals,
   activeTaskRunInvocations,
   activeTaskRunArtifacts,
@@ -325,6 +329,7 @@ const ChatTranscript = ({
   onDeleteTask: (id: string) => Promise<void>;
   onSuggest: (text: string) => void;
   activeTaskRunId: string | null;
+  activeTaskRunDetailPending: boolean;
   activeTaskRun: TaskRun | null;
   activeTaskRunSteps: Step[];
   activeTaskRunApprovals: Approval[];
@@ -387,12 +392,16 @@ const ChatTranscript = ({
       {ordered.map((tr, index) => {
         const displayTaskRun = taskRunWithActiveOverride(tr, activeTaskRun);
         const isActive = activeTaskRunId === tr.id;
+        // Do not start a copy owned by the temporary saved fallback that
+        // this selection's invocation detail is about to replace.
+        const copyDisabled = isActive && activeTaskRunDetailPending;
         return (
           <ChatTurn
             key={tr.id}
             taskRun={displayTaskRun}
             answer={agentAnswers?.[tr.id]}
             isSelected={selectedTaskRunId === tr.id}
+            copyDisabled={copyDisabled}
             onSelect={() => onSelectTaskRun(tr.id)}
             onDelete={() => void onDeleteTask(tr.id)}
             invocations={isActive ? displayInvocations : []}
@@ -481,6 +490,7 @@ const ChatTurn = ({
   taskRun,
   answer,
   isSelected,
+  copyDisabled,
   onSelect,
   onDelete,
   invocations,
@@ -494,6 +504,7 @@ const ChatTurn = ({
   taskRun: TaskRun;
   answer: string | undefined;
   isSelected: boolean;
+  copyDisabled: boolean;
   onSelect: () => void;
   onDelete: () => void;
   invocations: readonly AgentInvocation[];
@@ -641,7 +652,7 @@ const ChatTurn = ({
                     steps={steps}
                     ordinal={index + 1}
                   />
-                  <InlineAgentStream invocation={invocation} />
+                  <InlineAgentStream invocation={invocation} copyDisabled={copyDisabled} />
                 </section>
               ))}
             </div>
@@ -652,7 +663,7 @@ const ChatTurn = ({
             // didn't go through the agent path) — fall back to the
             // persisted agent output so completed runs keep the same
             // sectioned shape as the live stream.
-            <ChatBubbleAnswer text={answer} />
+            <ChatBubbleAnswer text={answer} copyDisabled={copyDisabled} />
           ) : (
             <span className="chat-bubble__pending">
               {pendingPlaceholder(taskRun.status)}
@@ -697,7 +708,7 @@ const AgentAnswerLabel = ({
   );
 };
 
-const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
+const ChatBubbleAnswer = ({ text, copyDisabled }: { text: string; copyDisabled: boolean }): JSX.Element => {
   const displayText = stripEmbeddedOrchestrationPlanJson(text);
   const parsed = useMemo(() => {
     const state = initStreamParserState();
@@ -722,6 +733,7 @@ const ChatBubbleAnswer = ({ text }: { text: string }): JSX.Element => {
         surface="inline"
         terminal
         fallbackFinalText={finalText}
+        copyDisabled={copyDisabled}
       />
     </div>
   );

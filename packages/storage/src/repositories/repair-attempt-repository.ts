@@ -1,6 +1,7 @@
 import type { RepairAttempt, RepairAttemptStatus } from "@harness/core";
 import type { HarnessDb } from "../db.ts";
 import { newId, nowIso } from "../id.ts";
+import { qualityFailureSignature, type QualityFailureGate, type FailedQualityChecker } from "../quality-failure-signature.ts";
 
 export interface CreateRepairAttemptInput {
   taskRunId: string;
@@ -15,8 +16,15 @@ export interface UpdateRepairAttemptPatch {
   generatedApprovalIds?: string[];
 }
 
+export type RepairAttemptReservation =
+  | { reserved: true; attempt: RepairAttempt }
+  | { reserved: false; reason: "limit" | "repeated_signature" | "stale_gate" | "unverifiable_failure" };
+
+export type ReserveRepairAttemptInput = Omit<CreateRepairAttemptInput, "failureSignature"> & { maxAttempts: number };
+
 export interface RepairAttemptRepository {
   create(input: CreateRepairAttemptInput): Promise<RepairAttempt>;
+  reserve(input: ReserveRepairAttemptInput): Promise<RepairAttemptReservation>;
   update(id: string, patch: UpdateRepairAttemptPatch): Promise<RepairAttempt>;
   listByTaskRun(taskRunId: string): Promise<RepairAttempt[]>;
   get(id: string): Promise<RepairAttempt | null>;
@@ -46,6 +54,13 @@ const parseStringArray = (raw: string): string[] => {
   }
 };
 
+const strictStringArray = (raw: string): string[] | null => {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) && value.every(item => typeof item === "string") ? value : null;
+  } catch { return null; }
+};
+
 const rowToRepairAttempt = (row: RepairAttemptRow): RepairAttempt => {
   const attempt: RepairAttempt = {
     id: row.id,
@@ -70,6 +85,83 @@ export class SqliteRepairAttemptRepository implements RepairAttemptRepository {
   }
 
   async create(input: CreateRepairAttemptInput): Promise<RepairAttempt> {
+    return this.createSync(input);
+  }
+
+  async reserve(input: ReserveRepairAttemptInput): Promise<RepairAttemptReservation> {
+    if (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 0) {
+      throw new RangeError("Repair maxAttempts must be a non-negative integer");
+    }
+    // Own the write lock before reading policy state. Two services/connections
+    // cannot both inspect an old count and then reserve the same failure.
+    return this.db.transaction((): RepairAttemptReservation => {
+      const latestGate = this.db.prepare(
+        `SELECT id, status FROM quality_gate_results WHERE task_run_id = ?
+         ORDER BY rowid DESC LIMIT 1`,
+      ).get(input.taskRunId) as { id: string; status: string } | undefined;
+      if (!latestGate || latestGate.id !== input.qualityGateId || latestGate.status === "passed") {
+        return { reserved: false, reason: "stale_gate" };
+      }
+      const count = this.db.prepare("SELECT COUNT(*) AS count FROM repair_attempts WHERE task_run_id=?")
+        .get(input.taskRunId) as { count: number };
+      if (count.count >= input.maxAttempts) return { reserved: false, reason: "limit" };
+      const prior = this.db.prepare(
+        "SELECT quality_gate_id FROM repair_attempts WHERE task_run_id = ?",
+      ).all(input.taskRunId) as { quality_gate_id: string }[];
+      const current = this.failureIdentity(input.taskRunId, input.qualityGateId);
+      if (!current) return { reserved: false, reason: "unverifiable_failure" };
+      for (const attempt of prior) {
+        // Re-read the canonical source for every format of historical hash.
+        // A signature algorithm upgrade must not grant an extra model call.
+        const previous = this.failureIdentity(input.taskRunId, attempt.quality_gate_id);
+        if (!previous) return { reserved: false, reason: "unverifiable_failure" };
+        const repeated = current.hasCheckers && previous.hasCheckers
+          ? current.signature === previous.signature
+          : current.basis === previous.basis;
+        if (repeated) return { reserved: false, reason: "repeated_signature" };
+      }
+      return { reserved: true, attempt: this.createSync({ ...input, failureSignature: current.signature }) };
+    }).immediate();
+  }
+
+  private failureIdentity(taskRunId: string, gateId: string): {
+    basis: string; signature: string; hasCheckers: boolean;
+  } | null {
+    const row = this.db.prepare(`SELECT status, known_risks_json, evidence_artifact_ids_json,
+      build_passed, tests_passed, smoke_passed FROM quality_gate_results WHERE id=? AND task_run_id=?`)
+      .get(gateId, taskRunId) as {
+        status: QualityFailureGate["status"]; known_risks_json: string; evidence_artifact_ids_json: string;
+        build_passed: number | null; tests_passed: number | null; smoke_passed: number | null;
+      } | undefined;
+    if (!row || !["failed", "warning", "not_run"].includes(row.status)) return null;
+    const knownRisks = strictStringArray(row.known_risks_json);
+    const evidence = strictStringArray(row.evidence_artifact_ids_json);
+    if (!knownRisks || !evidence || [row.build_passed, row.tests_passed, row.smoke_passed]
+      .some(value => value !== null && value !== 0 && value !== 1)) return null;
+    const gate: QualityFailureGate = { status: row.status, knownRisks,
+      ...(row.build_passed !== null ? { buildPassed: row.build_passed === 1 } : {}),
+      ...(row.tests_passed !== null ? { testsPassed: row.tests_passed === 1 } : {}),
+      ...(row.smoke_passed !== null ? { smokePassed: row.smoke_passed === 1 } : {}),
+    };
+    // The gate selects its own immutable execution proofs. Never substitute
+    // today's latest checker result for an older gate's evidence.
+    const proofs = this.db.prepare(`SELECT v.checker_id, v.kinds_json, v.exit_code
+      FROM validation_runs v
+      WHERE v.task_run_id=? AND v.artifact_id IN (SELECT value FROM json_each(?))
+        AND v.status IN ('completed','failed')
+        AND (v.status='failed' OR v.exit_code<>0)`)
+      .all(taskRunId, JSON.stringify(evidence)) as { checker_id: string; kinds_json: string; exit_code: number | null }[];
+    const checkers: FailedQualityChecker[] = [];
+    for (const proof of proofs) {
+      const kinds = strictStringArray(proof.kinds_json);
+      if (!kinds || kinds.some(kind => !["build", "test", "smoke"].includes(kind)) ||
+          !proof.checker_id || (proof.exit_code !== null && !Number.isSafeInteger(proof.exit_code))) return null;
+      if (kinds.length > 0) checkers.push({ checkerId: proof.checker_id, kinds, exitCode: proof.exit_code });
+    }
+    return { basis: qualityFailureSignature(gate), signature: qualityFailureSignature(gate, checkers), hasCheckers: checkers.length > 0 };
+  }
+
+  private createSync(input: CreateRepairAttemptInput): RepairAttempt {
     const now = nowIso();
     const attemptIndex = this.nextAttemptIndex(input.taskRunId);
     const attempt: RepairAttempt = {

@@ -1,0 +1,367 @@
+{
+  "date": "2026-10-27",
+  "gitHead": "a989fbd",
+  "dirtyCheckout": true,
+  "environment": {
+    "platform": "win32",
+    "os": "10.0.26200",
+    "cpu": "Intel(R) Core(TM) Ultra 7 270K Plus",
+    "logicalCpus": 24
+  },
+  "workload": "isolated synthetic WAL, 5 warmups, 100 measured reads; concurrent10=20 measured batches; JSON of final result included; no IPC/renderer timing",
+  "memory": "observed peak growth; not allocation rate or GC pause",
+  "scriptSha256": "f046e0f677b0e932dece83fae329060c8ebbe1ae516af2061ff1c041ba300a74",
+  "before": {
+    "runtime": {
+      "node": "24.19.0",
+      "electron": "42.11.16",
+      "modules": "146"
+    },
+    "fixture": {
+      "threads": 300,
+      "tasks": 3000,
+      "artifacts": 12000,
+      "gates": 100000,
+      "samples": 100,
+      "dbBytes": 34738176
+    },
+    "queries": {
+      "quality": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 216,
+          "detail": "SCAN quality_gate_results"
+        }
+      ]
+    },
+    "measurements": {
+      "latestQuality": {
+        "p50Ms": 1.8810000000000855,
+        "p95Ms": 2.099899999999934,
+        "p99Ms": 2.138500000000022,
+        "maxMs": 2.367399999999975,
+        "throughputPerSec": 526.4435212964834,
+        "responseBytes": 137,
+        "peakHeapGrowthBytes": 162732,
+        "peakRssGrowthBytes": 651264,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 19.093599999999924,
+          "p95Ms": 19.647199999999884,
+          "maxMs": 19.709699999999884
+        }
+      },
+      "qualityHistory": {
+        "p50Ms": 1.9006000000001677,
+        "p95Ms": 2.2998999999999796,
+        "p99Ms": 2.427599999999984,
+        "maxMs": 2.531500000000051,
+        "throughputPerSec": 514.9394225263311,
+        "responseBytes": 1381,
+        "peakHeapGrowthBytes": 711376,
+        "peakRssGrowthBytes": 315392,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 19.135099999999966,
+          "p95Ms": 19.9695999999999,
+          "maxMs": 20.02579999999989
+        }
+      },
+      "recentCommands": {
+        "p50Ms": 66.36419999999998,
+        "p95Ms": 80.67159999999967,
+        "p99Ms": 83.96030000000064,
+        "maxMs": 85.63330000000042,
+        "throughputPerSec": 14.810465803811896,
+        "responseBytes": 7371,
+        "peakHeapGrowthBytes": 100953760,
+        "peakRssGrowthBytes": 139149312,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 654.8850999999995,
+          "p95Ms": 719.2095000000008,
+          "maxMs": 732.3552999999993
+        }
+      }
+    }
+  },
+  "after": {
+    "variant": "current",
+    "runtime": {
+      "node": "24.19.0",
+      "electron": "42.11.16",
+      "modules": "146"
+    },
+    "fixture": {
+      "threads": 300,
+      "tasks": 3000,
+      "artifacts": 12000,
+      "gates": 100000,
+      "samples": 100,
+      "seedMs": 559.9639,
+      "dbBytes": 36085760
+    },
+    "queries": {
+      "quality": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH quality_gate_results USING INDEX idx_quality_gate_results_task (task_run_id=?)"
+        }
+      ]
+    },
+    "measurements": {
+      "latestQuality": {
+        "p50Ms": 0.010999999999967258,
+        "p95Ms": 0.026700000000118962,
+        "p99Ms": 0.035700000000133514,
+        "maxMs": 0.17800000000011096,
+        "throughputPerSec": 66608.93891955697,
+        "responseBytes": 137,
+        "peakHeapGrowthBytes": 145104,
+        "peakRssGrowthBytes": 643072,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.12110000000006949,
+          "p95Ms": 0.27929999999992106,
+          "maxMs": 0.36979999999994106
+        }
+      },
+      "qualityHistory": {
+        "p50Ms": 0.025300000000015643,
+        "p95Ms": 0.05410000000006221,
+        "p99Ms": 0.13249999999993634,
+        "maxMs": 0.23060000000009495,
+        "throughputPerSec": 32215.456976264115,
+        "responseBytes": 1381,
+        "peakHeapGrowthBytes": 716472,
+        "peakRssGrowthBytes": 397312,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.1880999999998494,
+          "p95Ms": 0.2459999999998672,
+          "maxMs": 0.5032999999998538
+        }
+      },
+      "recentCommands": {
+        "p50Ms": 0.04739999999992506,
+        "p95Ms": 0.11599999999998545,
+        "p99Ms": 0.23479999999995016,
+        "maxMs": 0.26300000000014734,
+        "throughputPerSec": 17058.442223056765,
+        "responseBytes": 7371,
+        "peakHeapGrowthBytes": 2689632,
+        "peakRssGrowthBytes": 1032192,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.3552999999999429,
+          "p95Ms": 0.6802999999999884,
+          "maxMs": 0.7654999999999745
+        }
+      }
+    }
+  },
+  "baselineRepeat": {
+    "variant": "baseline",
+    "runtime": {
+      "node": "24.19.0",
+      "electron": "42.11.16",
+      "modules": "146"
+    },
+    "fixture": {
+      "threads": 300,
+      "tasks": 3000,
+      "artifacts": 12000,
+      "gates": 100000,
+      "samples": 100,
+      "seedMs": 537.5572,
+      "dbBytes": 34738176
+    },
+    "queries": {
+      "quality": [
+        {
+          "id": 4,
+          "parent": 0,
+          "notused": 216,
+          "detail": "SCAN quality_gate_results"
+        }
+      ]
+    },
+    "measurements": {
+      "latestQuality": {
+        "p50Ms": 1.9415000000001328,
+        "p95Ms": 2.1281000000000176,
+        "p99Ms": 2.21569999999997,
+        "maxMs": 2.2820999999999003,
+        "throughputPerSec": 511.0901450576031,
+        "responseBytes": 137,
+        "peakHeapGrowthBytes": 164648,
+        "peakRssGrowthBytes": 643072,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 19.35940000000005,
+          "p95Ms": 20.513999999999896,
+          "maxMs": 22.30560000000014
+        }
+      },
+      "qualityHistory": {
+        "p50Ms": 1.9317000000000917,
+        "p95Ms": 2.31899999999996,
+        "p99Ms": 2.4863000000000284,
+        "maxMs": 2.789299999999912,
+        "throughputPerSec": 506.87088832670923,
+        "responseBytes": 1381,
+        "peakHeapGrowthBytes": 711448,
+        "peakRssGrowthBytes": 851968,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 19.894900000000007,
+          "p95Ms": 21.52170000000001,
+          "maxMs": 21.7162000000003
+        }
+      },
+      "recentCommands": {
+        "p50Ms": 67.91829999999982,
+        "p95Ms": 78.75919999999951,
+        "p99Ms": 82.46650000000045,
+        "maxMs": 89.66409999999996,
+        "throughputPerSec": 14.47997053731435,
+        "responseBytes": 7371,
+        "peakHeapGrowthBytes": 118507776,
+        "peakRssGrowthBytes": 150917120,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 692.3875000000007,
+          "p95Ms": 716.5367999999999,
+          "maxMs": 738.4915999999994
+        }
+      }
+    },
+    "indexUpgradeMs": 21.313899999997375,
+    "upgradedDbBytes": 35913728
+  },
+  "afterRepeat": {
+    "variant": "current",
+    "runtime": {
+      "node": "24.19.0",
+      "electron": "42.11.16",
+      "modules": "146"
+    },
+    "fixture": {
+      "threads": 300,
+      "tasks": 3000,
+      "artifacts": 12000,
+      "gates": 100000,
+      "samples": 100,
+      "seedMs": 535.8623,
+      "dbBytes": 36085760
+    },
+    "queries": {
+      "quality": [
+        {
+          "id": 5,
+          "parent": 0,
+          "notused": 61,
+          "detail": "SEARCH quality_gate_results USING INDEX idx_quality_gate_results_task (task_run_id=?)"
+        }
+      ]
+    },
+    "measurements": {
+      "latestQuality": {
+        "p50Ms": 0.009999999999990905,
+        "p95Ms": 0.01959999999996853,
+        "p99Ms": 0.05050000000005639,
+        "maxMs": 0.08989999999994325,
+        "throughputPerSec": 77948.39816045678,
+        "responseBytes": 137,
+        "peakHeapGrowthBytes": 335020,
+        "peakRssGrowthBytes": 618496,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.12249999999994543,
+          "p95Ms": 0.15800000000001546,
+          "maxMs": 0.3038999999999987
+        }
+      },
+      "qualityHistory": {
+        "p50Ms": 0.0159000000001015,
+        "p95Ms": 0.02580000000000382,
+        "p99Ms": 0.03829999999993561,
+        "maxMs": 0.08449999999993452,
+        "throughputPerSec": 55325.03457813255,
+        "responseBytes": 1381,
+        "peakHeapGrowthBytes": 718436,
+        "peakRssGrowthBytes": 348160,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.1390999999999849,
+          "p95Ms": 0.1976000000000795,
+          "maxMs": 0.23709999999994125
+        }
+      },
+      "recentCommands": {
+        "p50Ms": 0.04070000000001528,
+        "p95Ms": 0.09539999999992688,
+        "p99Ms": 0.19129999999995562,
+        "maxMs": 0.44230000000004566,
+        "throughputPerSec": 19645.979450303275,
+        "responseBytes": 7371,
+        "peakHeapGrowthBytes": 2689632,
+        "peakRssGrowthBytes": 708608,
+        "concurrent10": {
+          "batches": 20,
+          "p50Ms": 0.3448999999999387,
+          "p95Ms": 0.399599999999964,
+          "maxMs": 0.4374000000000251
+        }
+      }
+    }
+  },
+  "uiBefore": {
+    "history": {
+      "calls": {
+        "state:getThread": 40
+      },
+      "active": 0,
+      "maxActive": 0,
+      "bytes": 35820
+    },
+    "burst": {
+      "calls": {
+        "conversation:getTaskRunDetail": 100,
+        "quality:getLatest": 100
+      },
+      "active": 0,
+      "maxActive": 100,
+      "bytes": 114300
+    }
+  },
+  "uiAfter": {
+    "history": {
+      "calls": {
+        "state:listRecentTaskRuns": 1
+      },
+      "active": 0,
+      "maxActive": 0,
+      "bytes": 7821
+    },
+    "burst": {
+      "calls": {
+        "conversation:getTaskRunDetail": 2
+      },
+      "active": 0,
+      "maxActive": 1,
+      "bytes": 2238
+    },
+    "distinct": {
+      "calls": {
+        "conversation:getTaskRunDetail": 15
+      },
+      "active": 0,
+      "maxActive": 4,
+      "bytes": 19047
+    }
+  }
+}

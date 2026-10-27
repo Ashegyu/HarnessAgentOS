@@ -1,5 +1,5 @@
 import type { ConversationService } from "@harness/core";
-import { diagnosticErrorMessage } from "@harness/core";
+import { assertTaskRunTransition, diagnosticErrorMessage } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import { parseEmbeddedPlanJson } from "@harness/orchestration";
 import { TaskProgressionService, type ProgressionSnapshot } from "./task-progression-service";
@@ -10,6 +10,7 @@ export interface TaskProgressionHostDeps {
   execute: ConstructorParameters<typeof TaskProgressionService>[0]["execute"];
   evaluateQuality: (taskRunId: string) => Promise<unknown>;
   resumePlanning?: (taskRunId: string) => Promise<unknown>;
+  resumeBackflow?: (taskRunId: string) => Promise<boolean>;
   changed: (taskRunId: string) => void;
   onError?: (taskRunId: string, error: unknown) => void;
 }
@@ -63,6 +64,7 @@ export const createTaskProgressionHost = (deps: TaskProgressionHostDeps): TaskPr
     approve: input => deps.conversation.approve(input),
     execute: deps.execute,
     resumePlanning: deps.resumePlanning,
+    resumeBackflow: deps.resumeBackflow,
     evaluateQuality: deps.evaluateQuality,
     changed: deps.changed,
     onError: deps.onError,
@@ -81,6 +83,14 @@ export const createTaskProgressionHost = (deps: TaskProgressionHostDeps): TaskPr
       await deps.state.setStepStatus(step.id, "failed", { outputSummary: reason });
       await deps.state.createArtifact({ taskRunId, stepId: step.id, kind: "log",
         title: "작업 진행 오류", uri: `harness:progression-error/${taskRunId}/${step.id}`, summary: reason });
-      await deps.state.setTaskRunStatus(taskRunId, "blocked");
+      // Logging yields to user actions. Only block the state observed before
+      // logging; a later Pause/Cancel must keep ownership of the task status.
+      assertTaskRunTransition(current.status, "blocked");
+      try {
+        await deps.state.taskRuns.updateStatus(taskRunId, "blocked", current.status);
+      } catch (error) {
+        if (!(error instanceof Error) ||
+            !("code" in error) || error.code !== "TASK_RUN_STATE_CONFLICT") throw error;
+      }
     },
   });

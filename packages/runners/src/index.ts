@@ -1,5 +1,6 @@
 export * from "./runner-types.ts";
 export * from "./runner-policy.ts";
+export * from "./validation-command.ts";
 export * from "./file-runner.ts";
 export * from "./file-delete-runner.ts";
 export * from "./shell-runner.ts";

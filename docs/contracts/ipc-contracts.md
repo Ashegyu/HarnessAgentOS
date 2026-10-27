@@ -30,6 +30,8 @@
 - 빈 문자열/공백만 있는 문자열, NUL, 문자열 이외 입력, 4,194,304 UTF-16 코드 단위를 초과한 입력은 `IPC_INVALID_PAYLOAD`로 거부한다. 원문을 자르거나 Markdown을 제거하지 않는다.
 - OS 클립보드 쓰기 실패는 `APP_CLIPBOARD_WRITE_FAILED`로 반환한다. 복사 내용은 로그/DB에 추가 저장하지 않으며 renderer에 클립보드 읽기 또는 raw Electron API를 노출하지 않는다.
 - 기존 `registerAppIpc` 등록 경로와 `HarnessDesktopApi`를 공유하므로 새 도메인 등록 함수나 DB 이관은 필요 없다.
+- 선택한 TaskRun의 상세 응답이 아직 대기 중이면 그 답변의 복사 버튼은 비활성화한다. 저장 답변 fallback을 invocation 뷰로 교체하는 중에 이전 버튼 소유의 복사를 시작하지 않는다. 다른 작업의 안정된 저장 답변은 계속 복사할 수 있다. 상세 응답이 실패하여 저장 답변을 유지하는 경우에도 복사가 다시 가능하다.
+- 테스트와 UI 관측은 해당 TaskRun의 답변에 연결한다. 전체 화면의 첫 saved 답변 같은 위치 선택자는 뷰 교체 후 다른 작업을 가리킬 수 있다. 복사 원문·중복 요청 차단·실패 후 재시도·언어 전환의 기존 계약은 유지한다.
 
 ## 공통 타입
 
@@ -165,6 +167,7 @@ export interface Approval {
   actionType: ApprovalActionType;
   actionSummary: string;
   status: ApprovalStatus;
+  retryApprovalId?: string;
   policyEvaluation?: PolicyEvaluation;
   autoApproveDecision?: AutoApproveDecision | null;
   decisionMessage?: string;
@@ -561,6 +564,7 @@ interface SystemDiagnostics {
 
 ```ts
 state.listThreads(): Promise<Thread[]>;
+state.listRecentTaskRuns(input: { limit: number }): Promise<RecentTaskRun[]>;
 state.getThread(input: { threadId: string }): Promise<ThreadDetail>;
 state.createThread(input: {
   title: string;
@@ -622,6 +626,7 @@ conversation.redirectTask(input: { taskRunId: string; instruction: string }): Pr
 conversation.approve(input: { approvalId: string; expectedRevision: number; manualConfirmation?: boolean; message?: string; scope?: ApprovalScope; autoApproveDecision?: AutoApproveDecision | null }): Promise<Approval>;
 conversation.rejectApproval(input: { approvalId: string; message: string }): Promise<Approval>;
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
+conversation.prepareActionRetry(input: { approvalId: string; expectedRevision: number; expectedExecutionState: "running" | "succeeded" | "uncertain" | null; reviewMessage: string }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
 conversation.listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
 conversation.listRefinementEvents(input: A2ARefinementActivityInput): Promise<A2ARefinementActivityPage>;
@@ -634,15 +639,21 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 
 상태 전이 규칙:
 
-- `createTask`: thread resolution/creation 후 TaskRun, steps, artifacts, checkpoint, approvals는 storage transaction 안에서 생성된다. 중간 실패 시 해당 draft row들은 rollback된다.
+- `prepareActionRetry`: `blocked`/`quality_failed`에서 실행 전 실패·uncertain·기존 성공 결과를 사용자가 검토한 뒤 새 `pending` 수동 승인을 만든다. `expectedRevision`과 표시된 실행 상태가 일치해야 하며 검토 내용은 1~4000자다. 진행 중 승인/Step/모델 호출, paused/terminal, 읽기 전용 계약, 미지원 action은 거부한다. 지원 범위는 유효한 `file_write/file_patch/file_delete/shell` 제안이며 DB snapshot export는 포함하지 않는다. 정책·예산 및 파일 baseline/삭제 snapshot 검증은 기존 승인/실행 경로에서 다시 적용한다.
+- 준비는 실행·자동 승인이 아니다. 새 승인/Step/Checkpoint/검토 artifact, 원래 승인에 대한 `retryApprovalId`, TaskRun `waiting_for_approval` 전이는 한 동기 immediate transaction으로 저장한다. 같은 원본의 중복 준비는 기존 새 승인을 반환한다. 원래 revision·실행 결과는 보존하며 대체된 승인의 수정·결정·claim을 차단한다. 후속 Retry 실패는 새 승인을 원본으로 검토하여 체인을 이어간다. 스키마 42의 nullable self-reference이며 기존 행은 변경하지 않는다.
+- 이전 uncertain 결과는 새 승인을 생성한 명시적 검토로만 진행 대기에서 제외된다. 새 승인이 pending/실행 중이면 완료할 수 없다. 검토가 검사 성공을 의미하지 않으며 기존 실패 ledger·품질 증거는 유지한다. 새 승인은 전역/프로필/pipeline 자동 동의에 관계없이 개별 수동 승인이 필요하다.
+- Worker 제안의 원래 승인 ID는 replacement 체인을 따라 현재 leaf 승인을 기다린다. 새 승인 checkpoint를 새 worker 완료 표식으로 취급하지 않으며, leaf가 해결된 뒤 원래 성공 worker를 재실행하지 않고 나머지 worker를 이어간다. 끊어진 연결이나 cycle은 미해결로 남긴다.
+- Renderer의 thread/task 상세는 선택 ID와 선택 수명 generation을 검사한다. A→B→A와 늦은 성공/실패를 구분하고, 같은 선택의 push burst는 진행 중 조회 뒤 후속 최신 pull로 병합한다. 선택 변경 시 이전 상세와 dialog의 액션을 노출하지 않으며, 이전 선택에서 시작한 생성 응답도 현재 선택을 빼앗지 않는다. polling은 추가하지 않는다.
+
+- `createTask`: 비동기 경로 확인을 끝낸 후 thread 생성 및 TaskRun, steps, artifacts, checkpoint, approvals를 동기 storage transaction 안에서 생성한다. 중간 실패 시 해당 draft row들은 rollback된다. 내부 `withTransaction` callback은 동기 scope만 사용하며 Promise/thenable을 반환할 수 없다. scope는 callback 종료 후 사용할 수 없고, 독립 요청의 쓰기가 다른 요청의 rollback에 포함되지 않는다. 외부 `createTask`와 기존 repository의 Promise API는 유지한다.
 - `startTask`: 일반 입력창의 단일 제출 경로. `userRequest`, 선택적인 `threadId/targetDir/followUpTaskRunId/intent`, `orchMode/orchInstruction/orchPipelineId/orchHarness`만 받는다. 파이프라인과 하네스 동시 선택은 거부한다. `mode`와 호출자 제공 authorization은 사용하지 않고 main에서 agent TaskRun과 작업 계약을 생성한다. draft를 반환한 후 main에서 추천 준비 또는 오케스트레이션 초안을 생성한다. 추천 준비가 끝나면 SQLite의 host-owned `harness:planning-ready/{taskRunId}` snapshot으로 기록하고, 추천 승인/거절 후 AI를 한 번 시작한다. renderer 선택/새로고침은 실행 소유권에 영향을 주지 않는다.
 - `approve`: 승인은 실행과 별개인 revisioned DB 결정으로 유지하되, main 진행 조정자가 승인된 실행 가능한 file/shell/orchestration 작업을 이어 실행한다. renderer는 별도 실행 요청을 중복 전송하지 않는다. 실행 중·결과 불명확 approval은 재실행하거나 완료 처리하지 않는다. 수동 shell/delete 동의, 변경된 승인 내용 재확인, 차단 정책과 예산 검사는 유지한다.
 - main 진행 조정자는 모든 checkpoint의 미해결 승인과 활성 step/invocation이 없어야 QA를 시작한다. passed는 자동 완료, warning은 위험 확인 대기, failed는 실패로 남는다. 처리 오류는 실패 step/log와 blocked 상태로 저장한다. 과거 작업은 앱 시작만으로 자동 재생하지 않는다.
-- `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`.
+- `pauseTask`: `running` 또는 `waiting_for_approval`에서만 허용 → `paused`. 그 외는 `CONVERSATION_INVALID_STATE`. 파이프라인은 이미 시작한 worker 결과를 정리하되 다음 worker를 시작하지 않는 경계 일시정지다. 진행 중 결과/오류 기록은 `paused`를 덮지 않는다. 마지막 worker가 끝나더라도 사용자가 재개하기 전까지 parent 승인과 continuation을 보존한다.
 - `resumeTask`: `paused`에서만 허용. pending approval 존재 시 `waiting_for_approval`, currentStep 존재 시 `running`, 둘 다 없으면 `CONVERSATION_NOTHING_TO_RESUME`.
 - `cancelTask`: 비종료 상태에서만 허용. 사유 누락 시 `CONVERSATION_REASON_REQUIRED`. pending approval 자동 거절 + `quality_report` 아티팩트 기록 후 `cancelled`.
 - 취소 상태 저장 후 Agent와 Runner 취소를 모두 시도한다. 한쪽 실패가 다른 쪽 취소를 막지 않으며, 종료 처리 실패에도 변경 이벤트를 보낸다. Runner 취소는 실행 정리가 끝날 때까지 기다린다. Windows shell은 소유 PID의 프로세스 트리 종료와 `close`를 확인하며, 제한 시간 내 확인하지 못하면 `RUNNER_TERMINATION_UNCONFIRMED` 오류로 보고하고 승인 결과를 `uncertain`으로 남긴다. `cancelled` 작업 상태 자체는 OS 프로세스 종료 확인을 뜻하지 않는다.
-- 모든 내부 상태 쓰기는 `LocalStateService.setTaskRunStatus`의 중앙 전이표를 통과한다. 동일 상태 재기록은 멱등이며, 허용되지 않은 전이는 `TASK_RUN_INVALID_TRANSITION`으로 거부되고 SQLite row를 변경하지 않는다.
+- 모든 내부 상태 쓰기는 중앙 전이표를 검증한다. 일반 호출은 `LocalStateService.setTaskRunStatus`를 사용하고, worker/진행 오류처럼 이전 관측 상태를 보존해야 하는 경로는 같은 전이 검사 후 관측 상태를 명시한 repository CAS를 사용한다. 동일 상태 재기록은 멱등이며, 허용되지 않은 전이는 `TASK_RUN_INVALID_TRANSITION`으로 거부되고 SQLite row를 변경하지 않는다.
 - 전이 검증 당시의 상태를 SQLite UPDATE 조건에 포함한다. 다른 요청이 상태를 변경했다면 덮어쓰지 않고 충돌을 반환한다. 이미 동일한 목표 상태에 도달한 요청은 추가 쓰기 없이 성공으로 처리한다.
 - 품질 게이트 결과는 비동기로 도착할 수 있으므로 모든 비종료 상태에서 `quality_failed` 또는 `ready_for_review`로 전이할 수 있다. 재작업은 `ready_for_review -> running`, 승인 기반 refinement는 `ready_for_review|done -> waiting_for_approval`을 사용한다.
 - `done`은 `ready_for_review`에서만 진입하며 `waiting_for_approval` refinement 외의 역행을 허용하지 않는다. `cancelled`는 terminal 상태다.
@@ -840,6 +851,7 @@ runner.retryApproval(input: { approvalId: string }): Promise<RunnerResult>;
 ```
 
 > `retryApproval`은 부모 TaskRun이 `blocked`/`quality_failed`이고 승인이 아직 실행에 소비되지 않았을 때만 허용한다. `running`, `succeeded`, `uncertain`, `executed` 승인은 재사용하지 않는다. 실제 실행 결과를 검토한 뒤 새 작업 승인을 생성해야 한다.
+> UI의 재시도 검토는 `conversation.prepareActionRetry`를 사용한다. 기존 `runner.retryApproval`은 호환 API로 남지만 대체·소비된 승인을 다시 실행하도록 완화하지 않는다.
 > `cancelExecution`은 현재 실행 중인 RunnerService 작업이 있을 때만 `{ cancelled: true }`를 반환하고 해당 TaskRun의 AbortSignal을 중단한다. 존재하지 않거나 실행 중이 아닌 `taskRunId`는 throw하지 않고 `{ cancelled: false }`를 반환한다.
 > `executeCodeChangeAttempt`는 이미 approved 상태인 `file_write` approval들을 순서대로 실행하고, 이미 approved 상태인 verification `shell` approval들을 순서대로 실행한다. 이 호출은 raw command나 raw patch를 받지 않으며 기존 approval/runner 정책을 우회하지 않는다. 성공/실패 결과는 attempt manifest artifact와 QualityGateResult로 남긴다.
 
@@ -860,6 +872,16 @@ real path 기준으로 `targetDir` containment를 재확인한다. Windows junct
 workspace 밖을 가리키거나 dangling link라 canonical target을 확인할 수 없으면
 fail-closed 한다. `file_write.before`가 제안 이후 변경된 경우에도 stale proposal로
 간주해 실제 파일을 덮어쓰지 않는다.
+
+같은 main process의 모든 `FileRunner`는 canonical destination별 쓰기 소유권을 공유한다.
+`file_patch`도 읽은 preimage와 계산한 결과를 같은 `FileRunner`에 전달하므로, 같은 이전
+내용을 승인한 write/patch 경합은 실제 쓰기 직전에 다시 비교한다. 충돌은
+`RUNNER_FILE_CONTENT_CHANGED`, 일반 파일이 아니거나 링크 수가 1이 아니면
+`RUNNER_FILE_REGULAR_SINGLE_LINK_REQUIRED`로 거부한다. 기존 파일은 검증한 handle에
+연결해 읽고 쓰며, 대기 중 취소는 파일 부수효과를 시작하지 않는다. 취소된 중간
+waiter 뒤의 요청도 이전 owner를 추월하지 않는다. 다른 파일은 병렬 실행을 유지한다.
+이 계약은 외부 프로세스와의 OS 전체 잠금이나 악의적인 연속 경로 교체에 대한
+완전한 CAS/이미 시작한 쓰기의 rollback을 보장하지 않는다.
 
 ```ts
 interface RunnerResult {
@@ -959,18 +981,26 @@ quality.markDone(input: { taskRunId: string }): Promise<TaskRun>;
 
 평가 근거와 자동 처리:
 
-- `QualityEvaluator`는 같은 TaskRun의 종료된 shell/test step을 실행 근거로 사용한다. 모델 출력·로그 요약의 `passed`/`exit=0` 문자열만으로 성공을 판정하지 않는다. pending/running/skipped step과 가장 최근 기록된 변경 이전의 검사는 현재 검증 근거에서 제외한다. 연결/순서가 불명확한 diff는 이전 검사를 무효화한다.
+- `QualityEvaluator`는 같은 TaskRun의 실제 승인 실행 원장(`validation_runs`)을 사용한다. 성공 판정에는 실행 Step·claim·결과 artifact·종료 코드·명령/argv/cwd와 script identity가 연결되어야 한다. 시작 실패는 출력 artifact나 종료 코드 없이도 보수적으로 실패로 판정한다. 제목·모델 출력·로그의 `passed`/`exit=0` 또는 `echo` 성공은 검사 증거가 아니다. 도움말·목록·dry-run·지원하지 않는 wrapper는 미검증이다.
+- 동일 checker는 시작 sequence가 가장 큰 실행만 평가한다. 실행 중·취소·artifact 누락인 최신 실행에서 이전 성공으로 돌아가지 않는다. 다른 checker의 현재 실패도 유지한다. timestamp와 Step index는 검사 실행 순서의 기준이 아니다.
+- 검사 시작/종료/현재 입력의 전체 파일 fingerprint와 작업공간 mutation generation이 같아야 한다. Git tracked 및 nonignored untracked 파일을 포함하며 tracked build/dist 파일도 제외하지 않는다. 일반 폴더에는 명시적 dependency/output 제외 정책이 적용된다. 입력 읽기 실패·모호한 링크·상한 초과는 미검증이다. 한도는 파일 20,000개, 파일당 64 MiB, 합계 256 MiB, capture당 30초다. 내부 write/direct workspace-write의 active owner 또는 변경 후 복구도 이전 검사를 무효화한다.
 - diff는 변경이 존재한다는 근거일 뿐 검토 완료 증거가 아니다. 현재 evaluator는 diff가 있을 때 `changedFilesReviewed=false`를 기록한다.
 - 읽기 전용 계약은 최신 성공 invocation의 `parsedPlanArtifactId`와 같은 작업의 성공 step에 연결된, 내용이 있는 plan artifact가 필요하다. 변경 근거가 있으면 failed, 응답 연결이 없으면 not_run이다. 단순 answer는 다른 필수 검사 누락이 없으면 passed, review/diagnose/research 또는 legacy 계약은 내용 확인을 위한 warning이다. 명시적으로 요구한 빌드·테스트 검사를 무시하지 않는다.
-- 수정 계약에 실제 diff가 없으면 warning으로 남겨 자동 완료를 막는다. 응답 확인은 사실성·요구사항 전체의 의미 검증이나 파일 hash 기반 최신성 증명이 아니다.
+- 수정 계약에 실제 diff가 없으면 warning으로 남겨 자동 완료를 막는다. 응답 확인은 사실성·요구사항 전체의 의미 검증이 아니다. 검사·diff·edit가 없고 필수 검사를 요구하지 않은 순수 읽기 전용 응답은 파일 freshness 판정을 요구하지 않는다.
 - `ready_for_review` 상태 변경 시 기존 자동 평가 서비스가 위 결정적 검사를 실행한다. 별도 모델을 호출하지 않으며 passed만 자동으로 markDone, warning은 사용자 확인을 기다린다. 화면은 push 이벤트로 받은 최신 gate를 반영한다.
+- `createRepairPlan`의 최신 gate 확인·시도 상한·동일 failure signature 검사·attempt 예약은 하나의 동기 SQLite immediate transaction에서 수행한다. 같은 DB의 다른 연결/서비스가 동시에 요청해도 예약을 중복 소비하지 않으며, gate가 바뀌면 모델을 호출하기 전에 `QUALITY_DONE_BLOCKED`로 중단한다.
+- 새 `failureSignature`는 `quality-v2:` SHA256이다. gate 상태·build/tests/smoke의 true/false/미검증 구분·정확한 knownRisks 집합과, gate가 선택한 실제 실패 실행 원장의 checkerId·검사 종류 집합·종료 코드를 사용한다. artifact/gate/task/실행 ID·시각·workspace revision/generation/watermark는 동일 실패의 구분자가 아니다. 위험/검사 집합의 순서와 중복은 무시하며 위험 문구의 대소문자·공백·경로·숫자는 임의로 정규화하지 않는다.
+- 예약 repository가 DB 원본에서 서명을 계산한다. 과거 attempt는 저장된 hash 형식에 관계없이 연결된 원본 gate와 당시 artifact에 연결된 실행 원장을 다시 비교한다. 과거 hash와 attempt 수는 보존한다. 두 gate 모두 실제 실패 검사 증거가 있으면 전체 서명을 비교하며, 한쪽이라도 증거가 없으면 상태·검사 결과·위험 집합으로 보수적으로 반복을 차단한다. 원본 gate/연결 증거가 손상되어 판정할 수 없으면 `QUALITY_DONE_BLOCKED`이며 모델·새 attempt를 생성하지 않는다.
+- 이는 gate/검사 수준의 반복 실패 판정이다. 같은 checker·종료 코드·위험이 유지되는 서로 다른 assertion/root cause를 로그에서 추론해 구분하는 계약은 아니다. 다른 checker·종료 코드·gate 실패 조건은 남은 시도 예산 안에서 별도 실패가 될 수 있다. 증거 artifact ID 자체는 감사·진단용으로 계속 보존한다.
 
 `markDone` 정책 (`TaskRunCompletionService.markDone` 기준):
 
 - TaskRun status가 `ready_for_review`일 때만 허용된다. `running`에서 바로 `done`으로 전환하는 경로는 없다.
-- `passed` 게이트 → 항상 허용
+- `passed` 게이트 → 최신 gate와 현재 파일 revision/변경 세대/실행 watermark가 유효할 때 허용. 실행 provenance 없는 기존 검사 성공은 재실행 필요
 - `warning` 게이트 → `kind="quality_report"`이고 URI가 `/<gate.id>`로 끝나는 known-risk 승인 아티팩트가 있을 때만 허용. (canonical artifact kind는 `quality_report` 하나이며, URI suffix로 일반 quality 보고서와 known-risk 승인을 구분한다 — `quality.approveKnownRisks`가 `harness:quality/<taskRunId>/<gate.id>` URI로 작성한다.)
 - `failed`/`not_run` → 거부 (`QUALITY_DONE_BLOCKED`)
+- gate 최신성은 SQLite 저장 순서로 판단한다. 파일·검사 결과가 평가 이후 바뀌면 known-risk 승인도 차단한다. 비동기 완료 hook 이후 다시 확인하고 최종 동기 DB CAS에서 gate/작업 상태와 미해결 승인·실행을 재검사한다. 외부 프로세스의 마지막 파일 확인 이후 변경을 완전히 격리하는 파일시스템 snapshot 계약은 아니다.
+- `validationState`가 있는 warning도 현재 fingerprint가 필요하며, null fingerprint는 known-risk 승인으로 우회할 수 없다.
 - 성공 시 LearningTrace `recordOutcome`이 IPC 계층에서 자동 갱신된다 (renderer는 별도 호출 불필요). outcome에는 최신 QualityGate, `success=true`, TaskRun 총 agent invocation 비용, 완료된 invocation의 대표 latency 집계값이 반영된다.
 
 ```ts
@@ -992,6 +1022,12 @@ interface QualityGateResult {
   knownRisks: string[];
   evidenceArtifactIds: string[];
   createdAt: string;
+  validationState?: {
+    workspaceKey: string;
+    fingerprint: string | null;
+    generation: number;
+    watermark: number;
+  };
 }
 ```
 
@@ -1454,6 +1490,12 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 
 > Plan approval은 별도 메서드 없이 `conversation.approve` 흐름을 그대로 사용한다(approval action_type=`orchestration_plan`). 사용자가 approve 처리한 뒤 `runApproved`로 worker step 실행을 트리거한다.
 
+저장된 plan은 마지막 standalone `<!-- orchestration-plan:json -->` marker 뒤의 끝에
+고정된 JSON fence만 복구한다. 사용자 instruction의 JSON 예제나 JSON 문자열 안의
+marker는 계획 framing이 아니다. artifact의 task/URI와 승인 checkpoint의 artifact ID,
+plan ID 및 mode를 대조하고 기본 worker/dependency/backflow 구조를 검증한다.
+불일치 시 다른 artifact로 fallback하지 않고 `ORCHESTRATION_PLAN_NOT_FOUND`로 멈춘다.
+
 오류:
 
 - `ORCHESTRATION_DISABLED` — feature flag off 상태에서 draftPlan/runApproved 호출
@@ -1462,6 +1504,7 @@ orchestration.runApproved(input: { approvalId: string }): Promise<OrchestrationR
 - `ORCHESTRATION_APPROVAL_TYPE_MISMATCH` — approval.actionType이 `orchestration_plan`이 아님
 - `ORCHESTRATION_INVALID_PLAN` — `mode`가 허용 enum이 아님
 - `ORCHESTRATION_TASK_NOT_FOUND` — taskRunId 미존재
+- `ORCHESTRATION_TASK_NOT_RUNNABLE` — 실행 진입 시 TaskRun이 cancelled/done 또는 미존재. parent 승인을 실행 완료로 소비하지 않는다. paused는 재개를 위해 승인과 continuation을 보존한다.
 - `ORCHESTRATION_DIRECT_ACTION_BLOCKED` — worker가 approval 게이트를 우회하려 시도
 - `HARNESS_PACKAGE_NOT_FOUND` / `HARNESS_BINDING_SET_NOT_FOUND` / `HARNESS_BINDING_SET_MISMATCH` — direct harness source가 저장 snapshot 또는 binding set과 맞지 않음
 
@@ -1478,7 +1521,7 @@ Exec 결과 신뢰성 (2026-09-07):
 - 읽기 전용/검색 금지 요청의 MCP inventory를 확인하지 못하면 `TASK_CONTRACT_PREFLIGHT_FAILED`로 모델 spawn 전에 중단한다.
 - planner와 local worker의 기본 Codex adapter는 TaskContract에 맞춘 `--output-schema` v1을 사용한다. schemaVersion과 taskIntent가 고정되고 누락/추가 필드와 잘못된 타입을 host에서도 검증한다. 읽기 전용 계약은 변경 제안과 실행형 quality check가 없어야 하며, 검색 금지 계약은 shell 제안도 허용하지 않는다. 검증 실패는 `AGENT_INVALID_OUTPUT`이고 성공 result 이벤트나 실행 제안을 만들지 않는다. QA 통과/완료를 뜻하지는 않는다.
 - 호출 전 선택된 CLI의 버전 식별과 `exec --help`의 output-schema 지원을 점검한다. 실패하면 `TASK_CONTRACT_PREFLIGHT_FAILED`로 모델 spawn 전에 중단한다. 호출별 임시 스키마는 병렬 실행 간 공유하지 않으며 생성한 파일/빈 디렉터리만 정리한다. 경로 변경이나 정리 오류는 경고로 남기고 원래 오류를 보존한다.
-- 새 IPC 채널/DB migration은 없다. 검증된 JSON은 기존 harness_agent_plan으로 정규화하여 UI/approval과 호환한다. 서비스 파싱은 로그 미리보기 상한과 독립적이며 검증된 필드마다 비밀값을 가린다. 주입형/가짜 adapter와 저장된 legacy plan 호환은 유지하되, worker도 파싱 실패를 성공으로 저장하지 않는다.
+- 새 IPC 채널/DB migration은 없다. 검증된 JSON은 기존 harness_agent_plan으로 정규화하여 UI/approval과 호환한다. 서비스 파싱은 로그 미리보기 상한과 독립적이며 표시용 메타데이터의 비밀값을 가린다. 승인·실행용 path/preimage/after/patch/command/args와 명령의 원문은 보존한다. 주입형/가짜 adapter와 저장된 legacy plan 호환은 유지하되, worker도 파싱 실패를 성공으로 저장하지 않는다.
 
 최종 출력 스키마 근거: [Codex structured output](https://learn.chatgpt.com/docs/non-interactive-mode), [Structured Outputs 제약](https://developers.openai.com/api/docs/guides/structured-outputs).
 
@@ -1587,7 +1630,14 @@ interface AgentInvocation {
 - `proposedActions.length === 0` → TaskRun을 `ready_for_review`로 (answer-only 경로).
 - `proposedActions.length > 0` → TaskRun을 `waiting_for_approval`로.
 - prompt/raw_output artifact는 저장 직전 `redactSecrets`로 마스킹된다.
+- 공통 마스킹은 core의 순수 함수이며 기존 learner API는 이를 재노출한다. local/A2A의 tool input·prompt/output/worker 감사 로그·표시 메타데이터와 오류 경계에서 JSON의 중첩/배열/escaped key 및 미완성 quoted 값을 가린다. 실제 원격 요청과 승인·실행·정확한 handoff 복구에 필요한 payload는 감사 복사본과 구분하여 원문을 유지한다.
+- invocation별 감사 stream은 분리된 stdout/stderr/assistant 채널의 행/JSON 경계 또는 종료까지 텍스트를 결합해 마스킹하고 이벤트 순서를 유지한다. 보류 텍스트는 최대 64 Ki UTF-16 code units, 보류 이벤트는 256개다. 넘치면 raw를 보내지 않고 생략 표식을 남기며 다음 안전 경계에서 재개한다. 감사 callback 오류가 MCP 자원 정리나 원래 종료 결과를 건너뛰지 않게 한다. 이 정책은 임의의 알 수 없는 비밀 문자열을 모두 탐지한다는 보장은 아니다.
+- invocation 취소 수명은 MCP/추천 준비부터 queue 대기, 모델 호출, 결과 정리까지 포함한다. 준비 중 취소 후에는 queue/adapter 진입을 차단하고 준비 자원을 정리한다. 기존 MCP 준비 hook은 AbortSignal을 받지 않으므로 취소 상태는 먼저 저장하되, 이미 시작한 준비가 끝나거나 실패하면 cleanup한다. SQLite의 `cancelled` invocation은 늦은 running/succeeded/failed 갱신으로 덮지 않으며, 이미 성공/실패한 invocation을 뒤늦은 취소가 변경하지 않는다.
 - retained CLI tail은 stdout 4 MiB, stderr 1 MiB로 제한한다. normalized/persisted stream은 각각 최대 4,096 events 및 4 MiB이며 누락된 byte/event 수를 transcript의 truncation marker에 기록한다.
+- A2A worker는 profile의 timeout을 discovery 시작부터 적용한다(직접 호출 기본값 300초). 이미 취소됐으면 discovery를 시작하지 않는다. Agent Card fetch/body, SDK client 준비, send, iterator 대기는 상위 signal 및 남은 실행 수명에 연결된다. signal을 무시하는 Promise/iterator도 로컬 대기를 끝내며, 늦게 도착한 body/stream은 취소·반환한다. 종료 시 timer와 listener를 해제하고 iterator return이 끝없이 대기해도 원래 취소/실패를 붙잡지 않는다. 이는 원격 서버의 작업 취소 완료나 exactly-once 보장이 아니다.
+- A2A 기본 한도는 Agent Card 256 KiB, 전체 HTTP body 합계 4 MiB, 각 decoded event 1 MiB, raw SDK/adapter event 각각 4,096개, artifact 128개·각 1 MiB·합계 4 MiB, 최종 text 4 MiB다. UTF-8 byte를 세며 text join 구분자도 포함한다. 설치된 JSON-RPC/HTTP+JSON SDK transport의 fetch를 감싸 JSON/SSE parsing 전에 body를 제한한다. Content-Length만 신뢰하지 않고 실제 수신 chunk를 센다. JSON 순회는 depth 32/node 100,000으로 제한하며 cycle·accessor·비 JSON 객체는 미검증 성공으로 반환하지 않는다.
+- 한도는 독립적이며 먼저 초과한 한도에서 `A2A_RESPONSE_LIMIT`로 실패한다. deadline은 `A2A_REQUEST_TIMEOUT`, 상위 취소는 `AbortError`로 구분하며 성공 result·추가 approval을 만들지 않는다. 완성된 remote state 이후라도 response를 수집하다 초과하면 성공으로 확정하지 않는다. normalized diagnostic tail은 최대 256 events/256 KiB이고 누락 수를 반환한다. text/artifact 실행 결과는 tail로 잘라 성공시키지 않는다. SDK transport 기본 text 변환은 원문 보존이며 감사 마스킹은 기존 main 경계가 담당한다. Markdown의 JSON 문자열 안에 중첩된 JSON도 감사 복사본에서 검사한다.
+- repository context의 `maxBytes`는 절단 표시 `\n[...repo context truncated]`를 포함한 UTF-8 hard cap이다(기본 10 KiB). 0~1023도 그대로 적용하며 표시에 필요한 byte조차 부족하면 빈 section을 반환한다. 음수/NaN/Infinity는 거부하고 소수는 내림한다. summary/section 절단은 surrogate pair 및 UTF-8 code point 경계를 보존한다. 파일 ranking/선택 및 prompt 목적은 변경하지 않는다.
 - provider/renderer의 미완성 line은 256 KiB, renderer 집계 text는 512 KiB, tool input은 64 KiB로 제한한다. renderer는 raw/tool/assistant burst를 animation frame 단위로 batch하고 result/hydration은 즉시 flush한다.
 
 오류:
@@ -2070,6 +2120,12 @@ pipeline.delete(input: { pipelineId: string }): Promise<void>;
 - Backflow rule은 정상 `dependsOn` DAG에 포함하지 않는다. UI에서는 각 Agent step 안에서 backflow 연결을 편집하며, `retryStepId`는 해당 연결을 소유한 Agent step이고 `targetStepId`는 되돌아갈 이전 Agent step이다.
 - `targetStepId`는 `retryStepId`보다 앞선 step이어야 하며, 정상 `dependsOn` 경로에서 `retryStepId`의 ancestor여야 한다. `maxAttempts`는 1..5다.
 - Backflow 실행은 `targetStepId`에서 `retryStepId`까지의 정상 dependency path를 새 Step/Artifact row로 재실행한다. 단순히 target 다음 retry만 직접 호출하지 않는다.
+- Worker 로그만으로 완료를 복구하지 않는다. 연결된 최신 실행 Step이 `succeeded`이고 해당 artifact의 `proposals committed` 완료 표식이 있어야 한다. 성공 확정과 승인 Step/Checkpoint/제안 액션 전체는 같은 동기 SQLite transaction에 저장한다. 최신 실패/중단 로그가 있으면 이전 성공으로 대체하지 않으며, 새 완료 표식이 없는 기존 성공 기록은 `WORKER_COMPLETION_UNVERIFIED`로 중단하여 기존 액션을 자동 재발행하지 않는다.
+- 병렬 wave는 비동기 liveness 확인 뒤 남은 index와 실패 여부를 다시 확인한 다음 동기로 예약한다. 저장/발행/liveness 예외가 발생하면 새 배정을 중단하고 이미 시작한 lane과 직렬 결과 발행을 모두 기다린 뒤 최초 예외를 반환한다. 이때 service의 동일 approval in-flight 소유권은 유지된다. 이미 시작한 형제 worker의 성공 완료/proposal 기록은 보존하며, task 전체 취소로 대체하지 않는다. 일반 failed 결과의 backflow 및 Pause/Cancel 정책은 유지한다.
+- Worker handoff 복구는 원래 출력과 정책을 통과한 structured payload만 보존한다. 원출력의 거절된 proposal을 재추출해 승인된 제안처럼 되살리지 않는다.
+- Backflow의 Pause 또는 child 액션 승인 대기는 attempt를 `running`으로 보존하고 같은 attempt에서 재개한다. `harness:orchestration/{planId}/{workerStepId}/backflow/{attemptId}` artifact와 원자적으로 확정된 Step이 해당 attempt의 완료 위치를 나타낸다. 재개 시 이전 정상 실행의 intermediate/downstream 성공을 새 backflow 결과로 재사용하지 않는다.
+- Backflow도 worker 제안 승인·실행이 끝나기 전에 다음 worker를 시작하지 않는다. 품질 실패 backflow는 parent orchestration 승인이 이미 executed여도 기존 main-process progression이 일반 Resume/child 완료 이벤트에서 이어간다. task별 singleflight와 fresh snapshot으로 중복 실행을 막는다.
+- Pause/Cancel과 backflow 완료 저장이 경합하면 SQLite 조건부 UPDATE가 작업 상태를 확인해 성공 확정을 차단한다. 실제 provider/replay 실패는 terminal `failed`로 예산을 소비하며, Pause 후 Resume가 이를 정상 worker 실행으로 우회하지 않는다(`PIPELINE_BACKFLOW_FAILED`). 새 품질 실패에 따른 명시적 backflow 요청에는 기존 `maxAttempts` 정책을 적용한다.
 - `step_failed` rule은 실행 중 실패한 worker step과 `retryStepId`가 일치할 때만 자동 실행된다. `quality_failed` rule은 `QualityGateResult.status === "failed"`에서만 실행되며 `warning`은 기존 known-risk 승인 흐름을 유지한다.
 - 앱 시작 시 role-aware 기본 템플릿을 idempotent하게 seed한다: `Product PRD Discovery`, `Evidence-First Bug Investigation`, `Docs-First Contract Reconciliation`, `Runtime Approval Hardening`, `A2A Federation Safety Review`, `Eval-Driven Release Verification`, `Cross-Harness Agent Baseline`, `Architecture RFC`, `Visual Design Delivery`, `Image Asset Prompt Flow`, `3D New Project Delivery`, `New Project Delivery`, `Frontend Product Delivery`, `Skill and Agent Expansion`, `Supervised Delivery`, `Refactor Safety`, `Parallel Review Hardening`, `Build Recovery`.
 - `3D New Project Delivery`는 `PRD -> architecture -> plan -> texture-generation -> modeling -> file-composition -> class-generation -> implementation -> review -> execution-validation -> explanation -> completion` 순서의 12단계 pipeline이다. 텍스처/모델링/파일/클래스/구현 단계는 approval-gated `file_write` 제안만 만들고, 실행 검증 단계는 approval-gated `shell` 제안만 허용한다. Seed된 backflow rule은 step failure 시 앞선 dependency path를 재실행하고, final quality failure 시 `implementation`부터 `completion`까지 재검토하도록 구성된다.
@@ -2143,9 +2199,26 @@ events.onDiagnosticsChanged(
 
 ## Contract 변경 규칙
 
+`RecentTaskRun`은 `{ taskRun: TaskRun, threadId: string, threadTitle: string }`이다.
+최근 명령 조회의 limit은 정수 1..100이고 팔레트는 10을 요청한다. canonical SQLite의
+TaskRun updatedAt 내림차순, 동률이면 삽입 순서 역순으로 반환한다. 답변 artifact를 읽거나
+thread 상세 IPC를 fan-out하지 않는다. 상태·삭제·제목·contract 변경은 다음 요청에 반영한다.
+schema 43은 품질 gate의 task-scoped 인덱스와 최근 작업의 updatedAt 인덱스를 추가하며 기존
+품질 결과의 rowid 기반 최신 판정과 승인·실행 의미는 변경하지 않는다.
+알림은 push를 기반으로 task별 진행 중 1회와 후속 최신 조회 1회로 합친다. 서로 다른 task의
+알림 pull은 최대 4회 동시 실행하며 결과를 영구 캐시하지 않는다. detail에 포함된 gate의
+삽입 순서를 사용하여 별도 최신 gate IPC를 중복 호출하지 않는다.
+
 - IPC method 추가 시 이 문서를 먼저 갱신한다.
 - 기존 method의 input/output을 breaking change로 바꾸면 migration note를 남긴다.
 - renderer에 임시 channel string 호출을 추가하지 않는다.
 
 
+
+## 앱 정상 종료 수명 (2026-10-27)
+
+- 정상 창 닫기/Electron quit는 `before-quit`에서 신규 IPC/Agent/Runner 진입과 자동 progression을 먼저 차단한다. 이미 시작한 IPC는 결과/cleanup 정산까지 소유한다. 종료 중 새 요청은 `APPLICATION_SHUTTING_DOWN`으로 거절될 수 있다. IPC 채널·preload 권한·SQLite schema는 추가/변경하지 않는다.
+- 현재 drafting/running 작업 및 등록된 실행 owner는 먼저 Pause하여 새 배정을 막는다. 정산 후 중단된 단독 Agent/Runner는 기존 재계획·결과 검토 경로인 blocked로 남기고, pipeline은 paused로 보존하여 명시적 Resume을 기다린다. 기존 사용자 Pause 및 실행 owner가 없는 대기 승인·재검토 필요 상태·done/cancelled는 유지한다. Agent invocation 취소, Runner AbortSignal, A2A router signal은 진행 중 작업의 실제 정리까지 기다린다. 준비/발행 중 작업도 entry부터 추적하여 controller 등록 전 틈으로 새 CLI를 시작하지 않는다.
+- callback/직렬 결과 발행, MCP/schema cleanup, parent orchestration/backflow, startup, 진단 heartbeat의 진행 중 read 및 기존 IPC가 정산된 뒤에 DB를 닫는다. 이 과정은 승인 내용을 바꾸거나 파일 부수효과를 되돌리지 않는다. 임의 shell의 claim은 기존 `uncertain`·실행 결과 검토·새 수동 승인 계약을 유지한다. 종료를 이유로 성공/실패를 임의 확정하거나 기존 승인을 재실행하지 않는다.
+- 기본 정산 제한은 20초다. timeout 또는 프로세스 정리/결과 저장을 확인하지 못하면 DB를 열어 두고 오류를 알리며 새 실행 차단을 유지한다. 자동 강제 종료하지 않는다. timeout 뒤 정산 완료 시 재시도가 가능하지만, 미확정 종료/저장 오류는 자동으로 안전 판정으로 바꾸지 않는다. OS 강제 종료와 원격 서버의 작업 중단을 보장하는 계약은 아니다.
 

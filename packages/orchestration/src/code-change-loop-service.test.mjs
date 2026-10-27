@@ -1,13 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   closeDb,
   LocalStateService,
   openDb,
+  FilesystemArtifactStore,
 } from "../../../packages/storage/src/index.ts";
+import { RunnerService } from "../../runners/src/runner-service.ts";
 import { CodeChangeLoopService } from "./code-change-loop-service.ts";
 
 const tmp = () => {
@@ -19,15 +21,15 @@ const tmp = () => {
   };
 };
 
-const seedTaskRun = async (state) => {
+const seedTaskRun = async (state, targetDir = "/tmp/proj") => {
   const thread = await state.createThread({
     title: "code loop",
-    targetDir: "/tmp/proj",
+    targetDir,
   });
   return state.createTaskRun({
     threadId: thread.id,
     userRequest: "add a feature",
-    targetDir: "/tmp/proj",
+    targetDir,
     status: "running",
   });
 };
@@ -102,7 +104,55 @@ const makeRunner = (handlers = {}) => {
   };
 };
 
-test("runs one attempt with multiple file writes and approved verification", async () => {
+test("exit zero from a supplied echo verification cannot fabricate a passed quality gate", async () => {
+  const t = tmp();
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state);
+    const change = await createFileWriteApproval(state, taskRun.id, "result.txt");
+    const echo = await createShellApproval(state, taskRun.id, "echo test build smoke");
+    const { executor } = makeRunner();
+    const result = await new CodeChangeLoopService({ state, runner: executor }).runAttempt({
+      taskRunId: taskRun.id, changeApprovalIds: [change.id], verificationApprovalIds: [echo.id],
+    });
+    assert.equal(result.status, "applied_unverified");
+    const gate = await state.getLatestQualityGateResult(taskRun.id);
+    assert.equal(gate.status, "warning");
+    assert.equal(gate.testsPassed, undefined);
+    assert.equal(gate.buildPassed, undefined);
+    assert.equal(gate.smokePassed, undefined);
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("real approved Node tests produce verified code-change evidence bound to the current inputs", { timeout: 20_000 }, async () => {
+  const t = tmp();
+  const project = join(t.dir, "project");
+  mkdirSync(project);
+  writeFileSync(join(project, "validation.test.mjs"), 'import { test } from "node:test"; import assert from "node:assert/strict"; test("actual check", () => assert.equal(2 + 2, 4));\n');
+  const db = openDb({ filePath: t.file });
+  const state = new LocalStateService(db);
+  try {
+    const task = await seedTaskRun(state, project);
+    const change = await createFileWriteApproval(state, task.id, "result.txt");
+    const checker = await createApproval(state, task.id, "shell", { type: "shell", command: "node", args: ["--test", "validation.test.mjs"] });
+    const runner = new RunnerService({ state, artifactStore: new FilesystemArtifactStore({ rootDir: join(t.dir, "artifacts") }) });
+    const result = await new CodeChangeLoopService({ state, runner }).runAttempt({ taskRunId: task.id,
+      changeApprovalIds: [change.id], verificationApprovalIds: [checker.id] });
+    assert.equal(result.status, "verified");
+    const gate = await state.getLatestQualityGateResult(task.id);
+    assert.equal(gate.status, "passed");
+    assert.equal(gate.testsPassed, true);
+    assert.equal(gate.buildPassed, undefined);
+    assert.equal(gate.changedFilesReviewed, false);
+    assert.ok(gate.validationState?.fingerprint);
+    await state.assertQualityGateCurrent(gate);
+    writeFileSync(join(project, "result.txt"), "changed after checking");
+    await assert.rejects(state.assertQualityGateCurrent(gate), error => error.code === "QUALITY_DONE_BLOCKED");
+  } finally { closeDb(db); t.cleanup(); }
+});
+
+test("runs approved writes but does not trust stub exit zero without validation provenance", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
@@ -144,7 +194,7 @@ test("runs one attempt with multiple file writes and approved verification", asy
     });
 
     assert.deepEqual(calls, [a.id, b.id, check.id]);
-    assert.equal(result.status, "verified");
+    assert.equal(result.status, "applied_unverified");
     assert.deepEqual(result.changedFiles, ["/tmp/proj/src/a.ts", "/tmp/proj/src/b.ts"]);
     assert.equal(result.verificationResults.length, 1);
     assert.equal(result.verificationResults[0].exitCode, 0);
@@ -152,13 +202,13 @@ test("runs one attempt with multiple file writes and approved verification", asy
     const updatedTaskRun = await state.getTaskRun(taskRun.id);
     assert.equal(updatedTaskRun?.status, "ready_for_review");
     const gate = await state.getLatestQualityGateResult(taskRun.id);
-    assert.equal(gate?.status, "passed");
-    assert.equal(gate?.testsPassed, true);
-    assert.equal(gate?.changedFilesReviewed, true);
+    assert.equal(gate?.status, "warning");
+    assert.equal(gate?.testsPassed, undefined);
+    assert.equal(gate?.changedFilesReviewed, false);
     const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
     const manifest = artifacts.find((a) => a.title === "Code change loop attempt 1");
     assert.ok(manifest, "attempt manifest artifact must be persisted");
-    assert.match(manifest.summary ?? "", /status: verified/);
+    assert.match(manifest.summary ?? "", /status: applied_unverified/);
     assert.match(manifest.summary ?? "", /src\/a\.ts/);
     assert.match(manifest.summary ?? "", /npm run check/);
   } finally {
@@ -167,7 +217,7 @@ test("runs one attempt with multiple file writes and approved verification", asy
   }
 });
 
-test("runs one attempt with file patches and approved verification", async () => {
+test("runs approved patches without inventing validation provenance for a stub", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
@@ -201,7 +251,7 @@ test("runs one attempt with file patches and approved verification", async () =>
     });
 
     assert.deepEqual(calls, [patch.id, check.id]);
-    assert.equal(result.status, "verified");
+    assert.equal(result.status, "applied_unverified");
     assert.deepEqual(result.changedFiles, ["/tmp/proj/src/a.ts"]);
   } finally {
     closeDb(db);
@@ -255,7 +305,7 @@ test("marks the task quality_failed when approved verification fails", async () 
     assert.equal(updatedTaskRun?.status, "quality_failed");
     const gate = await state.getLatestQualityGateResult(taskRun.id);
     assert.equal(gate?.status, "failed");
-    assert.equal(gate?.testsPassed, false);
+    assert.equal(gate?.testsPassed, undefined, "a generic command failure is not automatically a test result");
     assert.match(gate?.knownRisks.join("\n") ?? "", /npm test/);
     assert.ok(gate?.evidenceArtifactIds.includes("test-log"));
     assert.equal((await state.getApproval(fail.id))?.status, "rejected");

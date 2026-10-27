@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   AGENT_INVOCATION_BUSY,
   AGENT_INVOCATION_NOT_FOUND,
@@ -242,7 +243,7 @@ export const registerAgentIpc = (
   ctx: AgentIpcContext,
   events: HarnessEventBus,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.checkProviders,
     async (): Promise<HarnessResult<AgentProviderStatusMap>> => {
       try {
@@ -253,7 +254,7 @@ export const registerAgentIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.generatePlan,
     async (
       _e,
@@ -330,7 +331,7 @@ export const registerAgentIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.cancelInvocation,
     async (_e, input: unknown): Promise<HarnessResult<AgentInvocation>> => {
       if (!isObject(input)) {
@@ -357,7 +358,7 @@ export const registerAgentIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.retryInvocation,
     async (
       _e,
@@ -400,7 +401,7 @@ export const registerAgentIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.useTemplateFallback,
     async (
       _e,
@@ -451,7 +452,7 @@ export const registerAgentIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.agent.requestRefinement,
     async (
       _e,

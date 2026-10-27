@@ -7,6 +7,7 @@ export interface EvidenceBundle {
   buildEvidence: { passed: boolean; artifactId?: string }[];
   smokeEvidence: { passed: boolean; artifactId?: string }[];
   diffArtifactIds: string[];
+  unverifiedReasons?: string[];
 }
 
 export interface QualityRequirement {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { A2AWorkerInvoker } from "@harness/agent";
+import { A2AInvocationError, A2AWorkerInvoker, A2AInvocationAdapter, OfficialA2AClientPort } from "@harness/agent";
 import { OrchestrationPlanner, WorkerRunner } from "@harness/orchestration";
 import { closeDb, LocalStateService, openDb } from "@harness/storage";
 import {
@@ -19,6 +19,29 @@ const tmp = () => {
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 };
+
+test("router shutdown aborts an active remote worker and drains it before refusing new work", async () => {
+  let entered, release, aborted = false, calls = 0, stopped = false;
+  const started = new Promise(resolve => { entered = resolve; });
+  const cleanup = new Promise(resolve => { release = resolve; });
+  const router = createA2AWorkerRouter({
+    state: { a2aRemoteAgents: { getEndpoint: async () => ({ enabled: true, trusted: true }) } },
+    localInvoker: { invokeForWorker: async () => assert.fail("remote must not route locally") },
+    createRemoteInvoker: () => ({ invokeForWorker: async (_input, signal) => {
+      calls++; entered();
+      await new Promise(resolve => signal.addEventListener("abort", () => { aborted = true; resolve(); }, { once: true }));
+      await cleanup; throw new Error("remote aborted");
+    } }),
+  });
+  const run = router.invokeForWorker({ remoteEndpointId: "owned-remote" }).catch(error => error);
+  await started;
+  const shutdown = router.shutdown().then(() => { stopped = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(aborted, true); assert.equal(stopped, false);
+  await assert.rejects(router.invokeForWorker({ remoteEndpointId: "new" }), /SHUTTING_DOWN/);
+  release(); await shutdown; assert.match((await run).message, /remote aborted/);
+  assert.equal(calls, 1); await router.shutdown();
+});
 
 const validProfileInput = (overrides = {}) => ({
   name: "RemoteReviewerProfile",
@@ -59,6 +82,164 @@ const seedTaskRun = async (state, targetDir) => {
     status: "running",
   });
 };
+
+for (const failure of ["discovery deadline", "response limit", "caller cancellation"]) {
+  test(`persistent A2A records ${failure} without a successful output or new approval`, async () => {
+    const db = openDb({ filePath: ":memory:" });
+    try {
+      const state = new LocalStateService(db), events = [];
+      const task = await seedTaskRun(state, process.cwd());
+      const profile = await state.agentProfiles.create(validProfileInput());
+      const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "Limit fixture", baseUrl: "https://fixture.invalid",
+        agentCardUrl: "https://fixture.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+      const controller = new AbortController();
+      if (failure === "caller cancellation") controller.abort();
+      let discoveries = 0;
+      const port = new OfficialA2AClientPort({ endpoint, timeoutMs: 10, createClientFactory: () => ({ createFromUrl: () => {
+        discoveries++;
+        return new Promise(() => {});
+      } }) });
+      const adapter = new A2AInvocationAdapter({ limits: { maxTextBytes: 4 }, client: failure === "response limit" ? {
+        async *invoke() { yield { type: "message", text: "too much text" }; yield { type: "task-state", state: "completed" }; },
+      } : port });
+      const invoker = createPersistentA2AWorkerInvoker({ state, endpoint, adapter, emitStreamEvent: event => events.push(event) });
+      await assert.rejects(invoker.invokeForWorker({ taskRunId: task.id, profile, userRequest: "Inspect safely" }, controller.signal));
+      const [invocation] = await state.listAgentInvocationsByTaskRun(task.id);
+      assert.equal(invocation.status, failure === "caller cancellation" ? "cancelled" : "failed");
+      assert.equal(invocation.errorCode, failure === "caller cancellation" ? "AbortError" : failure === "response limit" ? "A2A_RESPONSE_LIMIT" : "A2A_REQUEST_TIMEOUT");
+      assert.equal(invocation.rawOutputArtifactId, undefined);
+      assert.equal((await state.listApprovalsByTaskRun(task.id)).length, 0);
+      assert.equal(events.some(event => event.type === "result"), false);
+      assert.equal(discoveries, failure === "discovery deadline" ? 1 : 0);
+    } finally { closeDb(db); }
+  });
+}
+
+test("bounded official SDK output preserves proposal payload while persistent audit copies remain masked", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const state = new LocalStateService(db), events = [];
+    const task = await seedTaskRun(state, process.cwd());
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "SDK audit fixture", baseUrl: "https://fixture.invalid",
+      agentCardUrl: "https://fixture.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+    const after = '{"token":"SYNTHETIC_SDK_EXECUTION_VALUE"}';
+    const text = "```harness_agent_plan\n" + JSON.stringify({ summary: "proposed", assumptions: [], steps: [],
+      proposedActions: [{ type: "file_write", path: "result.json", after, rationale: "requested output" }], suggestedQualityChecks: [], questions: [] }) + "\n```";
+    let calls = 0;
+    const port = new OfficialA2AClientPort({ endpoint, fetchImpl: async () => ++calls === 1 ? Response.json({ name: "Fixture", url: "https://fixture.invalid/rpc",
+      version: "1", protocolVersion: "0.3.0", capabilities: { streaming: true }, defaultInputModes: ["text"], defaultOutputModes: ["text"], skills: [] }) :
+      new Response([{ kind: "message", parts: [{ kind: "text", text }] }, { kind: "status-update", taskId: "remote-sdk",
+        status: { state: "completed" }, final: true }].map(result => `data: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result })}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } }) });
+    const invoker = createPersistentA2AWorkerInvoker({ state, endpoint, adapter: new A2AInvocationAdapter({ client: port }), emitStreamEvent: event => events.push(event) });
+    const outcome = await invoker.invokeForWorker({ taskRunId: task.id, profile, userRequest: "Return a proposal" });
+    assert.equal(outcome.proposedActions[0].after, after);
+    assert.doesNotMatch(JSON.stringify(await state.listArtifactsByTaskRun(task.id)), /SYNTHETIC_SDK_EXECUTION_VALUE/);
+    assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_SDK_EXECUTION_VALUE/);
+    assert.equal((await state.listApprovalsByTaskRun(task.id)).length, 0, "the transport never executes or approves a proposal");
+  } finally { closeDb(db); }
+});
+
+test("persistent A2A boundary redacts prompt, output and tool stream while preserving the actual request", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  const events = [];
+  const userRequest = 'Inspect {"api_key":"SYNTHETIC_A2A_PROMPT"}';
+  try {
+    const taskRun = await seedTaskRun(state, process.cwd());
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "Redaction remote", baseUrl: "https://example.invalid/agent",
+      agentCardUrl: "https://example.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+    const invoker = createPersistentA2AWorkerInvoker({ state, endpoint,
+      emitStreamEvent: event => events.push(event), adapter: { async invoke(request, emit) {
+        assert.match(request.message, /SYNTHETIC_A2A_PROMPT/, "redacting audit copies must not change the requested execution");
+        emit({ type: "tool_call", invocationId: request.invocationId, toolName: "Read", phase: "started",
+          input: { nested: [{ token: "SYNTHETIC_A2A_STREAM" }], tokenUsage: 8 } });
+        emit({ type: "raw", invocationId: request.invocationId, source: "stdout", text: '{"api_' });
+        emit({ type: "raw", invocationId: request.invocationId, source: "stdout", text: 'key":"SYNTHETIC_A2A_SPLIT_STREAM"}\n' });
+        return { outputText: '{"token":"SYNTHETIC_A2A_OUTPUT","note":"safe result"}',
+          remoteTask: { invocationId: request.invocationId, endpointId: endpoint.id, state: "completed" },
+          artifacts: [], normalizedEvents: [], requiresInput: false, requiresAuth: false };
+      } } });
+    const outcome = await invoker.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest });
+    const artifacts = await state.listArtifactsByTaskRun(taskRun.id);
+    assert.doesNotMatch(JSON.stringify(artifacts), /SYNTHETIC_A2A_/);
+    assert.doesNotMatch(JSON.stringify(events), /SYNTHETIC_A2A_/);
+    assert.match(outcome.outputText, /SYNTHETIC_A2A_OUTPUT/, "execution output stays intact; only its audit copies are masked");
+    assert.match(outcome.outputText, /safe result/);
+    assert.equal(events[0].input.tokenUsage, 8);
+    assert.match(events.filter(event => event.type === "raw").map(event => event.text).join(""), /\[REDACTED\]/);
+  } finally { closeDb(db); }
+});
+
+test("persistent A2A redaction preserves executable proposals and structured handoff bytes", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  const proposals = [
+    { type: "file_write", path: "settings.txt", before: "token=SYNTHETIC_BEFORE", after: "token=SYNTHETIC_AFTER", rationale: "write exact requested contents" },
+    { type: "file_patch", path: "patch.txt", patch: "--- a/patch.txt\n+++ b/patch.txt\n@@ -1 +1 @@\n-token=SYNTHETIC_BEFORE\n+token=SYNTHETIC_AFTER\n", rationale: "match the approved patch" },
+    { type: "shell", command: "echo", args: ["token=SYNTHETIC_ARGUMENT"], rationale: "use the approved argument" },
+  ];
+  const rawOutput = "```harness_agent_plan\n" + JSON.stringify({ summary: "Prepare exact changes", assumptions: [], steps: [], proposedActions: proposals, suggestedQualityChecks: [], questions: [] }) +
+    "\n```\n```harness_worker_handoff_v1\n" + JSON.stringify({ proposedActions: proposals }) + "\n```";
+  try {
+    const taskRun = await seedTaskRun(state, process.cwd());
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "Exact remote", baseUrl: "https://example.invalid/agent",
+      agentCardUrl: "https://example.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+    const invoker = createPersistentA2AWorkerInvoker({ state, endpoint, adapter: { async invoke(request) {
+      return { outputText: rawOutput, remoteTask: { invocationId: request.invocationId, endpointId: endpoint.id, state: "completed" },
+        artifacts: [], normalizedEvents: [], requiresInput: false, requiresAuth: false };
+    } } });
+    const outcome = await invoker.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: "Prepare the exact approved edits" });
+    assert.deepEqual(outcome.proposedActions, proposals);
+    assert.equal(outcome.outputText, rawOutput);
+    assert.doesNotMatch(JSON.stringify(await state.listArtifactsByTaskRun(taskRun.id)), /SYNTHETIC_BEFORE|SYNTHETIC_AFTER|SYNTHETIC_ARGUMENT/);
+  } finally { closeDb(db); }
+});
+
+test("persistent A2A errors are redacted before SQLite storage and orchestration receives them", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, process.cwd());
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "Error remote", baseUrl: "https://example.invalid/agent",
+      agentCardUrl: "https://example.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+    const invoker = createPersistentA2AWorkerInvoker({ state, endpoint, adapter: { async invoke() {
+      throw new A2AInvocationError("A2A_REMOTE_FAILED", "failed", '{"client_secret":"SYNTHETIC_A2A_ERROR"}');
+    } } });
+    await assert.rejects(invoker.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: "Inspect safely" }), error => {
+      assert.equal(error.code, "A2A_REMOTE_FAILED");
+      assert.equal(error.remoteState, "failed");
+      assert.doesNotMatch(error.message, /SYNTHETIC_A2A_ERROR/);
+      return true;
+    });
+    assert.doesNotMatch(JSON.stringify(await state.listAgentInvocationsByTaskRun(taskRun.id)), /SYNTHETIC_A2A_ERROR/);
+  } finally { closeDb(db); }
+});
+
+test("persistent A2A does not persist or propagate credentials supplied as error name or code", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  const state = new LocalStateService(db);
+  try {
+    const taskRun = await seedTaskRun(state, process.cwd());
+    const profile = await state.agentProfiles.create(validProfileInput());
+    const endpoint = await state.a2aRemoteAgents.upsertEndpoint({ name: "Error identity remote", baseUrl: "https://example.invalid/agent",
+      agentCardUrl: "https://example.invalid/card", preferredTransport: "json-rpc", enabled: true, trusted: true });
+    const invoker = createPersistentA2AWorkerInvoker({ state, endpoint, adapter: { async invoke() {
+      const error = new Error("remote request failed");
+      error.name = "token=SYNTHETIC_ERROR_NAME";
+      error.code = "token=SYNTHETIC_ERROR_CODE";
+      throw error;
+    } } });
+    await assert.rejects(invoker.invokeForWorker({ taskRunId: taskRun.id, profile, userRequest: "Inspect safely" }), error => {
+      assert.doesNotMatch(`${error.name} ${error.code} ${error.message}`, /SYNTHETIC_ERROR/);
+      return true;
+    });
+    assert.doesNotMatch(JSON.stringify(await state.listAgentInvocationsByTaskRun(taskRun.id)), /SYNTHETIC_ERROR/);
+  } finally { closeDb(db); }
+});
 
 const planText = [
   "Remote worker proposed a file write.",

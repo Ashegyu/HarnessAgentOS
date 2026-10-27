@@ -46,11 +46,18 @@ export const parseAgentPlan = (rawOutput: string, redactText?: (text: string) =>
   parsed = parseResult.value;
   const validated = validateAgentPlan(parsed);
   if (!validated.ok) return validated;
-  // Redact validated string values, not serialized JSON: a secret pattern may
-  // otherwise consume a closing quote and turn valid output into broken JSON.
-  // Callers must parse the complete final payload, never their truncated log.
+  // Redact display metadata only. Executable preimages, generated contents,
+  // paths, patches and commands must remain byte-for-byte approval candidates.
+  // Audit artifacts are separately redacted by the caller.
   const plan: AgentPlanOutput = redactText
-    ? JSON.parse(JSON.stringify(validated.plan, (_key, value: unknown) => typeof value === "string" ? redactText(value) : value))
+    ? {
+        ...validated.plan,
+        summary: redactText(validated.plan.summary),
+        assumptions: validated.plan.assumptions.map(redactText),
+        steps: validated.plan.steps.map(step => ({ ...step, title: redactText(step.title), rationale: redactText(step.rationale) })),
+        proposedActions: validated.plan.proposedActions.map(action => ({ ...action, rationale: redactText(action.rationale) })),
+        suggestedQualityChecks: validated.plan.suggestedQualityChecks.map(check => ({ ...check, reason: redactText(check.reason) })),
+      }
     : validated.plan;
   return { ok: true, plan };
 };

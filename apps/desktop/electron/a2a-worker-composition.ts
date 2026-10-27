@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   AgentStreamEvent,
 } from "@harness/core";
+import { AsyncWorkScope, createRedactedAgentStream } from "@harness/core";
 import {
   A2AInvocationAdapter,
   A2AInvocationError,
@@ -13,6 +14,7 @@ import {
   type A2AWorkerOutcome,
 } from "@harness/agent";
 import type { LocalStateService } from "@harness/storage";
+import { redactSecrets } from "@harness/learner";
 
 export interface PersistentA2AWorkerInvokerOptions {
   state: LocalStateService;
@@ -41,8 +43,10 @@ export interface A2AWorkerRouterOptions {
 
 export const createA2AWorkerRouter = (
   options: A2AWorkerRouterOptions,
-): PersistentA2AWorkerInvoker => ({
-  async invokeForWorker(input, signal) {
+): PersistentA2AWorkerInvoker & { shutdown(): Promise<void> } => {
+  const operations = new AsyncWorkScope();
+  const controllers = new Set<AbortController>();
+  const invoke = async (input: A2AWorkerInvokeInput, signal: AbortSignal): Promise<A2AWorkerOutcome> => {
     if (!input.remoteEndpointId) {
       return options.localInvoker.invokeForWorker(input, signal);
     }
@@ -63,6 +67,7 @@ export const createA2AWorkerRouter = (
         state: options.state,
         endpoint,
         adapter: new A2AInvocationAdapter({
+          timeoutMs: input.profile.tuning.timeoutMs,
           client: new OfficialA2AClientPort({
             endpoint,
             timeoutMs: input.profile.tuning.timeoutMs,
@@ -73,8 +78,26 @@ export const createA2AWorkerRouter = (
         createArtifactUriNonce: options.createArtifactUriNonce,
       });
     return remoteInvoker.invokeForWorker(input, signal);
-  },
-});
+  };
+  return {
+    invokeForWorker(input, signal) {
+      return operations.run(async () => {
+        const controller = new AbortController();
+        const abort = () => controller.abort();
+        if (signal?.aborted) abort();
+        else signal?.addEventListener("abort", abort, { once: true });
+        controllers.add(controller);
+        try { return await invoke(input, controller.signal); }
+        finally { controllers.delete(controller); signal?.removeEventListener("abort", abort); }
+      });
+    },
+    async shutdown() {
+      operations.seal();
+      for (const controller of controllers) controller.abort();
+      await operations.drain();
+    },
+  };
+};
 
 export const createPersistentA2AWorkerInvoker = (
   options: PersistentA2AWorkerInvokerOptions,
@@ -90,9 +113,9 @@ export const createPersistentA2AWorkerInvoker = (
         taskRunId: input.taskRunId,
         ...(input.stepId ? { stepId: input.stepId } : {}),
         kind: "log",
-        title: `A2A remote prompt: ${options.endpoint.name}`,
+        title: redactSecrets(`A2A remote prompt: ${options.endpoint.name}`, 1_000),
         uri: `harness:a2a-prompt/${input.taskRunId}/${createArtifactUriNonce()}`,
-        summary: input.userRequest,
+        summary: redactSecrets(input.userRequest, 80_000),
       });
       const invocation = await options.state.createAgentInvocation({
         taskRunId: input.taskRunId,
@@ -107,27 +130,31 @@ export const createPersistentA2AWorkerInvoker = (
         startedAt,
       });
 
+      const streamAudit = createRedactedAgentStream({ emit: event => options.emitStreamEvent?.(event) });
       const invoker = new A2AWorkerInvoker({
         endpointId: options.endpoint.id,
         adapter: options.adapter,
         createInvocationId: () => invocation.id,
         onStreamEvent: (event) =>
-          options.emitStreamEvent?.(withTaskRunScope(event, input.taskRunId)),
+          streamAudit.push(withTaskRunScope(event, input.taskRunId)),
         onRemoteTaskRef: async (ref) => {
           await options.state.a2aRemoteAgents.upsertRemoteTaskRef(ref);
         },
       });
 
       try {
+        // Preserve executable preimages, patches and arguments. Only audit
+        // copies are redacted; the returned proposal remains the model output.
         const outcome = await invoker.invokeForWorker(input, signal);
+        streamAudit.flush();
         const finishedAt = now();
         const rawOutputArtifact = await options.state.createArtifact({
           taskRunId: input.taskRunId,
           ...(input.stepId ? { stepId: input.stepId } : {}),
           kind: "log",
-          title: `A2A remote raw output: ${options.endpoint.name}`,
+          title: redactSecrets(`A2A remote raw output: ${options.endpoint.name}`, 1_000),
           uri: `harness:a2a-output/${input.taskRunId}/${invocation.id}/${createArtifactUriNonce()}`,
-          summary: outcome.outputText,
+          summary: redactSecrets(outcome.outputText, 200_000),
         });
         const usageEstimate = estimateModelUsage({
           provider: invocationProvider(input.profile),
@@ -148,7 +175,7 @@ export const createPersistentA2AWorkerInvoker = (
                 status: "failed",
                 rawOutputArtifactId: rawOutputArtifact.id,
                 errorCode: lifecycleErrorCode(outcome.lifecycle.kind),
-                errorMessage: outcome.lifecycle.message,
+                errorMessage: redactSecrets(outcome.lifecycle.message, 2_000),
                 finishedAt,
                 latencyMs: elapsedMs(startedAt, finishedAt),
                 ...usagePatch,
@@ -167,11 +194,13 @@ export const createPersistentA2AWorkerInvoker = (
         await options.state.updateAgentInvocation(invocation.id, {
           status: cancelled(error) ? "cancelled" : "failed",
           errorCode: errorCode(error),
-          errorMessage: errorMessage(error),
+          errorMessage: redactSecrets(errorMessage(error), 2_000),
           finishedAt,
           latencyMs: elapsedMs(startedAt, finishedAt),
         });
-        throw error;
+        throw redactedError(error);
+      } finally {
+        try { streamAudit.flush(); } catch { /* Telemetry must not replace the terminal outcome. */ }
       }
     },
   };
@@ -187,12 +216,30 @@ const cancelled = (error: unknown): boolean =>
 const errorCode = (error: unknown): string =>
   error instanceof A2AInvocationError
     ? error.code
-    : isRecord(error) && typeof error.name === "string"
+    : isRecord(error) && typeof error.name === "string" && SAFE_ERROR_NAMES.has(error.name)
       ? error.name
       : "A2A_REMOTE_ERROR";
 
 const errorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const redactedError = (error: unknown): unknown => {
+  const message = redactSecrets(errorMessage(error), 2_000);
+  if (error instanceof A2AInvocationError) {
+    return message === error.message ? error : new A2AInvocationError(error.code, error.remoteState, message);
+  }
+  const name = error instanceof Error && SAFE_ERROR_NAMES.has(error.name) ? error.name : "Error";
+  const originalCode = isRecord(error) ? error.code : undefined;
+  const code = typeof originalCode === "string" && SAFE_TRANSPORT_CODES.has(originalCode) ? originalCode : undefined;
+  if (error instanceof Error && message === error.message && name === error.name && code === originalCode) return error;
+  const redacted = new Error(message);
+  redacted.name = name;
+  if (code !== undefined) Object.assign(redacted, { code });
+  return redacted;
+};
+
+const SAFE_ERROR_NAMES = new Set(["Error", "TypeError", "SyntaxError", "RangeError", "ReferenceError", "URIError", "EvalError", "AbortError", "TimeoutError"]);
+const SAFE_TRANSPORT_CODES = new Set(["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ABORT_ERR"]);
 
 const elapsedMs = (startedAt: string, finishedAt: string): number | null => {
   const started = Date.parse(startedAt);

@@ -114,10 +114,10 @@ test("withTransaction rolls back writes when the work throws", async () => {
   const db = openDb({ filePath: t.file });
   try {
     const svc = new LocalStateService(db);
-    await assert.rejects(
+    assert.throws(
       () =>
-        svc.withTransaction(async () => {
-          await svc.createThread({ title: "rolled back" });
+        svc.withTransaction(state => {
+          state.createThread({ title: "rolled back" });
           throw new Error("boom");
         }),
       /boom/,
@@ -127,6 +127,88 @@ test("withTransaction rolls back writes when the work throws", async () => {
     closeDb(db);
     t.cleanup();
   }
+});
+
+test("a transaction callback cannot absorb independent writes across an await", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const svc = new LocalStateService(db);
+    let release;
+    const barrier = new Promise(resolve => { release = resolve; });
+    const first = Promise.resolve().then(() => svc.withTransaction(async () => {
+      await svc.createThread({ title: "rolled back owner" });
+      await barrier;
+      throw new Error("owner failed");
+    })).then(() => null, error => error);
+    // The owner has entered the callback; an unrelated operation must not
+    // join its SQLite transaction merely because it uses the same service.
+    await Promise.resolve();
+    await Promise.resolve();
+    const independent = await svc.createThread({ title: "independent success" });
+    release();
+    assert.ok(await first instanceof Error);
+    assert.equal((await svc.getThread(independent.id))?.title, "independent success");
+    assert.deepEqual((await svc.listThreads()).map(row => row.id), [independent.id]);
+    assert.equal(db.inTransaction, false);
+  } finally { closeDb(db); }
+});
+
+test("withTransaction rejects async work before executing it", () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const svc = new LocalStateService(db);
+    let called = false;
+    assert.throws(() => svc.withTransaction(async state => {
+      called = true;
+      state.createThread({ title: "must not run" });
+    }), /must be synchronous/);
+    assert.equal(called, false);
+    assert.equal(db.inTransaction, false);
+    assert.equal(db.prepare("SELECT count(*) AS count FROM threads").get().count, 0);
+  } finally { closeDb(db); }
+});
+
+test("promise-returning work rolls back and cannot reuse its transaction scope later", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const svc = new LocalStateService(db);
+    let continuation;
+    let leaked;
+    assert.throws(() => svc.withTransaction(state => {
+      leaked = state;
+      state.createThread({ title: "rolled back prefix" });
+      continuation = Promise.resolve().then(() => state.createThread({ title: "late write" }));
+      return continuation;
+    }), /must be synchronous/);
+    await assert.rejects(continuation, /no longer active/);
+    assert.throws(() => leaked.getThread("missing"), /no longer active/);
+    assert.deepEqual(await svc.listThreads(), []);
+    assert.equal(db.inTransaction, false);
+  } finally { closeDb(db); }
+});
+
+test("synchronous nested transactions roll back only their savepoint and close both scopes", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const svc = new LocalStateService(db);
+    let outerScope;
+    let innerScope;
+    const kept = svc.withTransaction(outer => {
+      outerScope = outer;
+      const thread = outer.createThread({ title: "outer retained" });
+      assert.throws(() => svc.withTransaction(inner => {
+        innerScope = inner;
+        inner.createThread({ title: "inner rolled back" });
+        throw new Error("inner failure");
+      }), /inner failure/);
+      assert.equal(outer.getThread(thread.id).id, thread.id);
+      return thread;
+    });
+    assert.deepEqual((await svc.listThreads()).map(row => row.id), [kept.id]);
+    assert.throws(() => innerScope.createThread({ title: "invalid" }), /no longer active/);
+    assert.throws(() => outerScope.createThread({ title: "invalid" }), /no longer active/);
+    assert.equal(db.inTransaction, false);
+  } finally { closeDb(db); }
 });
 
 test("setTaskRunStatus rejects an invalid transition without mutating SQLite state", async () => {

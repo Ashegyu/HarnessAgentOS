@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createTaskRefreshQueue } from "./task-refresh-queue";
 import {
   buildTaskRunNotifications,
   loadDismissedNotificationIds,
@@ -15,26 +16,18 @@ export const NotificationTray = (): JSX.Element => {
   const [items, setItems] = useState<NotificationItem[]>([]);
 
   useEffect(() => {
-    let disposed = false;
-    const unsubscribe = window.harness.events.onTaskRunChanged(({ taskRunId }) => {
-      void (async () => {
-        try {
-          const [detail, gate] = await Promise.all([
-            window.harness.conversation.getTaskRunDetail({ taskRunId }),
-            window.harness.quality.getLatest({ taskRunId }).catch(() => null),
-          ]);
-          if (disposed) return;
-          const incoming = buildTaskRunNotifications(detail, gate);
-          setItems((current) =>
-            mergeNotifications(current, incoming, dismissedIds),
-          );
-        } catch {
-          // Notification derivation is advisory UI; task refresh flows continue.
-        }
-      })();
+    const refresh = createTaskRefreshQueue({
+      load: (taskRunId: string) => window.harness.conversation.getTaskRunDetail({ taskRunId }),
+      ready: (_id, detail) => {
+        // The detail's gates are canonical insertion order, so a second IPC
+        // query adds no evidence and can observe a different snapshot.
+        const incoming = buildTaskRunNotifications(detail, detail.qualityGates.at(-1) ?? null);
+        setItems(current => mergeNotifications(current, incoming, dismissedIds));
+      },
     });
+    const unsubscribe = window.harness.events.onTaskRunChanged(({ taskRunId }) => refresh.request(taskRunId));
     return () => {
-      disposed = true;
+      refresh.dispose();
       unsubscribe();
     };
   }, [dismissedIds]);

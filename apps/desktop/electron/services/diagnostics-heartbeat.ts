@@ -1,8 +1,9 @@
 import type { SystemDiagnostics } from "@harness/core";
+import { AsyncWorkScope } from "@harness/core";
 
 export interface DiagnosticsHeartbeatController {
   emitNow(): Promise<void>;
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 export interface DiagnosticsHeartbeatDeps {
@@ -24,17 +25,19 @@ export const startDiagnosticsHeartbeat = (
   const clearIntervalFn = deps.clearIntervalFn ?? clearInterval;
   let stopped = false;
   let pending = false;
+  const operations = new AsyncWorkScope();
 
   const emitNow = async (): Promise<void> => {
     if (stopped || pending) return;
     pending = true;
-    try {
-      deps.emit(await deps.collect());
-    } catch {
-      // Heartbeat failures must not crash the main process.
-    } finally {
-      pending = false;
-    }
+    await operations.run(async () => {
+      try {
+        const value = await deps.collect();
+        if (!stopped) deps.emit(value);
+      } catch {
+        // Heartbeat failures must not crash the main process.
+      } finally { pending = false; }
+    });
   };
 
   const timer = setIntervalFn(() => {
@@ -44,9 +47,9 @@ export const startDiagnosticsHeartbeat = (
   return {
     emitNow,
     stop() {
-      if (stopped) return;
-      stopped = true;
-      clearIntervalFn(timer);
+      if (!stopped) { stopped = true; clearIntervalFn(timer); }
+      operations.seal();
+      return operations.drain();
     },
   };
 };

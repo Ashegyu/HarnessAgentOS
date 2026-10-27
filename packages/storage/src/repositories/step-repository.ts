@@ -24,6 +24,10 @@ export class SqliteStepRepository implements StepRepository {
   }
 
   async create(input: CreateStepInput): Promise<Step> {
+    return this.createSync(input);
+  }
+
+  createSync(input: CreateStepInput): Step {
     const step: Step = {
       id: newId("step"),
       taskRunId: input.taskRunId,
@@ -64,6 +68,10 @@ export class SqliteStepRepository implements StepRepository {
   }
 
   async get(id: string): Promise<Step | null> {
+    return this.getSync(id);
+  }
+
+  getSync(id: string): Step | null {
     const row = this.db
       .prepare(
         `SELECT id, task_run_id, step_index, kind, title, status, input_summary, output_summary, started_at, finished_at
@@ -79,6 +87,19 @@ export class SqliteStepRepository implements StepRepository {
     patch?: { outputSummary?: string },
   ): Promise<Step> {
     const existing = await this.get(id);
+    return this.updateExistingStatus(id, existing, status, patch);
+  }
+
+  updateStatusSync(id: string, status: StepStatus, patch?: { outputSummary?: string }): Step {
+    return this.updateExistingStatus(id, this.getSync(id), status, patch);
+  }
+
+  private updateExistingStatus(
+    id: string,
+    existing: Step | null,
+    status: StepStatus,
+    patch?: { outputSummary?: string },
+  ): Step {
     if (!existing) throw new Error(`Step ${id} not found`);
     const now = nowIso();
     const next: Step = { ...existing, status };

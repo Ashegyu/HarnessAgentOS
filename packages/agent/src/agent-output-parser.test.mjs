@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseAgentPlan } from "./agent-output-parser.ts";
+import { redactSecrets } from "@harness/learner";
 
 const validPlan = {
   summary: "Add README run section",
@@ -22,6 +23,22 @@ const validPlan = {
 
 const wrap = (json) =>
   `요약: 설명\n\n\`\`\`harness_agent_plan\n${JSON.stringify(json, null, 2)}\n\`\`\`\n`;
+
+test("display redaction preserves executable proposal contents and check commands", () => {
+  const proposedActions = [
+    { type: "file_write", path: "token=SYNTHETIC_PATH.txt", before: '{"token":"SYNTHETIC_BEFORE"}', after: '{"token":"SYNTHETIC_AFTER"}', rationale: "token=SYNTHETIC_RATIONALE" },
+    { type: "file_patch", path: "config.txt", patch: "--- a/config.txt\n+++ b/config.txt\n@@ -1 +1 @@\n-token=SYNTHETIC_BEFORE\n+token=SYNTHETIC_AFTER\n", rationale: "apply patch" },
+    { type: "shell", command: "token=SYNTHETIC_COMMAND", args: ["token=SYNTHETIC_ARGUMENT"], rationale: "run exact command" },
+  ];
+  const result = parseAgentPlan(wrap({ ...validPlan, summary: "token=SYNTHETIC_SUMMARY", proposedActions,
+    suggestedQualityChecks: [{ command: "token=SYNTHETIC_CHECK", reason: "token=SYNTHETIC_REASON" }] }), text => redactSecrets(text, 10000));
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.plan.proposedActions.map(({ rationale, ...action }) => action), proposedActions.map(({ rationale, ...action }) => action));
+  assert.equal(result.plan.suggestedQualityChecks[0].command, "token=SYNTHETIC_CHECK");
+  assert.doesNotMatch(result.plan.summary, /SYNTHETIC_SUMMARY/);
+  assert.doesNotMatch(result.plan.proposedActions[0].rationale, /SYNTHETIC_RATIONALE/);
+  assert.doesNotMatch(result.plan.suggestedQualityChecks[0].reason, /SYNTHETIC_REASON/);
+});
 
 test('parses a single-file delete proposal without execution metadata', () => {
   const proposedActions = [{type:'file_delete',path:'obsolete.txt',rationale:'requested'}];

@@ -31,7 +31,7 @@ export interface ApprovalRepository {
   ): Promise<Approval>;
 }
 
-const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json, auto_approve_decision_json, action_revision, approved_revision, requires_manual_approval, execution_state, execution_started_at, execution_finished_at`;
+const SELECT_COLUMNS = `id, task_run_id, checkpoint_id, action_type, action_summary, status, decision_message, decided_at, proposed_action_json, policy_evaluation_json, auto_approve_decision_json, action_revision, approved_revision, requires_manual_approval, execution_state, execution_started_at, execution_finished_at, retry_approval_id`;
 const SELECT_COLUMNS_PREFIXED = SELECT_COLUMNS.split(", ").map(column => `a.${column}`).join(", ");
 
 export class SqliteApprovalRepository implements ApprovalRepository {
@@ -44,6 +44,15 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   }
 
   async create(input: CreateApprovalInput): Promise<Approval> {
+    const id = this.insert(input);
+    return (await this.get(id))!;
+  }
+
+  createSync(input: CreateApprovalInput): Approval {
+    return this.getSync(this.insert(input))!;
+  }
+
+  private insert(input: CreateApprovalInput): string {
     const approval: Approval = {
       id: newId("approval"),
       taskRunId: input.taskRunId,
@@ -87,7 +96,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
       this.db.prepare(`UPDATE approvals SET approved_revision=action_revision,
         approved_action_json=proposed_action_json WHERE id=?`).run(approval.id);
     }
-    return (await this.get(approval.id))!;
+    return approval.id;
   }
 
   async listByTaskRun(taskRunId: string, order: "display" | "execution" = "display"): Promise<Approval[]> {
@@ -104,6 +113,10 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   }
 
   async get(id: string): Promise<Approval | null> {
+    return this.getSync(id);
+  }
+
+  getSync(id: string): Approval | null {
     const row = this.db
       .prepare(
         `SELECT ${SELECT_COLUMNS}
@@ -189,6 +202,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   ): Promise<Approval> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`Approval ${id} not found`);
+    if (existing.retryApprovalId) throw new Error("APPROVAL_TRANSITION_LOCKED: approval was replaced after review");
     if (options?.expectedRevision !== undefined && options.expectedRevision !== existing.actionRevision) {
       throw new Error("APPROVAL_REVISION_MISMATCH: refresh the approval before deciding");
     }
@@ -219,7 +233,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
              auto_approve_decision_json=@autoApproveDecisionJson,
              approved_revision=CASE WHEN @approving THEN action_revision ELSE approved_revision END,
              approved_action_json=CASE WHEN @approving THEN proposed_action_json ELSE approved_action_json END
-         WHERE id=@id AND action_revision=@revision AND status=@previousStatus
+         WHERE id=@id AND action_revision=@revision AND status=@previousStatus AND retry_approval_id IS NULL
            AND (@approving=0 OR execution_state IS NULL)
            AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`,
       )
@@ -247,7 +261,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   ): Promise<Approval> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`Approval ${id} not found`);
-    if (existing.executionState || existing.status === "executed" || existing.status === "rejected") {
+    if (existing.retryApprovalId || existing.executionState || existing.status === "executed" || existing.status === "rejected") {
       throw new Error("APPROVAL_ACTION_LOCKED: create a new approval after reviewing the previous attempt");
     }
     const updated = this.db
@@ -256,7 +270,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
           requires_manual_approval=CASE WHEN status IN ('approved','always_approved_for_run') THEN 1 ELSE requires_manual_approval END,
           status='pending', approved_revision=NULL, approved_action_json=NULL,
           auto_approve_decision_json=NULL
-          WHERE id=? AND action_revision=? AND execution_state IS NULL AND status NOT IN ('executed','rejected')
+          WHERE id=? AND action_revision=? AND execution_state IS NULL AND retry_approval_id IS NULL AND status NOT IN ('executed','rejected')
           AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`,
       )
       .run(JSON.stringify(details), id, existing.actionRevision ?? 1);
@@ -267,7 +281,7 @@ export class SqliteApprovalRepository implements ApprovalRepository {
   async claimExecution(id: string, revision: number, token: string): Promise<Approval> {
     const claimed = this.db.prepare(`UPDATE approvals SET execution_state='running', execution_token=?, execution_started_at=?
       WHERE id=? AND action_revision=? AND approved_revision=action_revision
-        AND approved_action_json=proposed_action_json AND execution_state IS NULL
+        AND approved_action_json=proposed_action_json AND execution_state IS NULL AND retry_approval_id IS NULL
         AND status IN ('approved','always_approved_for_run')
         AND EXISTS (SELECT 1 FROM task_runs WHERE id=approvals.task_run_id AND status NOT IN ('done','cancelled'))`)
       .run(token, nowIso(), id, revision);

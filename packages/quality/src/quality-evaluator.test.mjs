@@ -1,37 +1,61 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   openDb,
   closeDb,
   LocalStateService,
+  captureValidationRevision,
 } from "../../../packages/storage/src/index.ts";
 import { TaskRunCompletionService } from "../../../packages/core/src/index.ts";
 import { QualityEvaluator } from "./quality-evaluator.ts";
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), "hgos-quality-"));
+  const project = join(dir, "project");
+  mkdirSync(project);
   return {
     dir,
+    project,
     file: join(dir, "test.db"),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   };
 };
 
-const seedTaskRun = async (state) => {
+const seedTaskRun = async (state, targetDir) => {
   const thread = await state.createThread({
     title: "t",
-    targetDir: "/tmp/proj",
+    targetDir,
   });
   const taskRun = await state.createTaskRun({
     threadId: thread.id,
     userRequest: "do something",
-    targetDir: "/tmp/proj",
+    targetDir,
     status: "running",
   });
   return taskRun;
+};
+
+const completeValidation = async (state, step, status, kinds = ["test"]) => {
+  const task = await state.getTaskRun(step.taskRunId);
+  const checkpoint = await state.createCheckpoint({ taskRunId: task.id, stepId: step.id, reason: "before_edit", stateRef: "{}", summary: "approved validation fixture" });
+  let approval = await state.createApproval({ taskRunId: task.id, checkpointId: checkpoint.id, actionType: "shell", actionSummary: "node --test",
+    proposedAction: { type: "shell", command: process.execPath, args: ["--test"] }, status: "pending" });
+  approval = await state.decideApproval(approval.id, "approved", "execute validation fixture");
+  await state.claimApprovalExecution(approval.id, approval.actionRevision, `claim-${step.id}`);
+  const revision = await captureValidationRevision(task.targetDir);
+  assert.ok(revision.fingerprint, "the fixture project must have complete input identity");
+  const epoch = await state.workspaceMutations.get(revision.workspaceKey);
+  const run = await state.validationRuns.begin({ taskRunId: task.id, stepId: step.id, approvalId: approval.id, workspaceKey: revision.workspaceKey,
+    checkerId: `checker-${kinds.join("-")}`, kinds, startFingerprint: revision.fingerprint, startGeneration: epoch.generation });
+  const artifact = await state.createArtifact({ taskRunId: task.id, stepId: step.id, kind: "test_result", title: "host validation fixture", uri: `artifact://${step.id}` });
+  await state.validationRuns.finish(run.id, { status: "completed", exitCode: status === "failed" ? 1 : 0, artifactId: artifact.id,
+    finishFingerprint: revision.fingerprint, finishGeneration: epoch.generation });
+  await state.setStepStatus(step.id, status);
+  await state.finishApprovalExecution(approval.id, `claim-${step.id}`, "succeeded");
+  await state.decideApproval(approval.id, "executed", "validation fixture completed");
 };
 
 test("evaluate persists row and reports not_run when nothing required and no evidence", async () => {
@@ -39,7 +63,7 @@ test("evaluate persists row and reports not_run when nothing required and no evi
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const evaluator = new QualityEvaluator({ state });
     const result = await evaluator.evaluate({ taskRunId: taskRun.id });
     assert.equal(result.status, "not_run");
@@ -57,7 +81,7 @@ test("evaluate marks failed when test step failed and reflects status via comple
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const testStep = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -65,7 +89,7 @@ test("evaluate marks failed when test step failed and reflects status via comple
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "failed");
+    await completeValidation(state, testStep, "failed");
 
     let failedGateObserved = null;
     const evaluator = new QualityEvaluator({ state });
@@ -97,7 +121,7 @@ test("evaluate + completion promotes to ready_for_review when passed", async () 
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const testStep = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -105,7 +129,7 @@ test("evaluate + completion promotes to ready_for_review when passed", async () 
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "succeeded");
+    await completeValidation(state, testStep, "succeeded");
 
     const evaluator = new QualityEvaluator({ state });
     const completion = new TaskRunCompletionService({ state });
@@ -129,7 +153,7 @@ test("evaluate requires dedicated smoke evidence when requireSmoke is true", asy
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const testStep = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -137,7 +161,7 @@ test("evaluate requires dedicated smoke evidence when requireSmoke is true", asy
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "succeeded");
+    await completeValidation(state, testStep, "succeeded");
 
     const evaluator = new QualityEvaluator({ state });
     const result = await evaluator.evaluate({
@@ -159,7 +183,7 @@ test("evaluate marks passing smoke evidence independently from unit tests", asyn
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const smokeStep = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -167,7 +191,7 @@ test("evaluate marks passing smoke evidence independently from unit tests", asyn
       title: "npm run smoke",
       status: "running",
     });
-    await state.setStepStatus(smokeStep.id, "succeeded");
+    await completeValidation(state, smokeStep, "succeeded", ["smoke"]);
 
     const evaluator = new QualityEvaluator({ state });
     const result = await evaluator.evaluate({
@@ -188,7 +212,7 @@ test("evaluate fails when smoke evidence failed", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const smokeStep = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -196,7 +220,7 @@ test("evaluate fails when smoke evidence failed", async () => {
       title: "playwright smoke",
       status: "running",
     });
-    await state.setStepStatus(smokeStep.id, "failed");
+    await completeValidation(state, smokeStep, "failed", ["smoke"]);
 
     const evaluator = new QualityEvaluator({ state });
     const result = await evaluator.evaluate({
@@ -217,7 +241,7 @@ test("markDone is blocked when latest gate is not passed", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     // Insert a warning gate manually
     const evaluator = new QualityEvaluator({ state });
     const completion = new TaskRunCompletionService({ state });
@@ -255,7 +279,7 @@ test("approveKnownRisks requires non-empty message", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const evaluator = new QualityEvaluator({ state });
     const completion = new TaskRunCompletionService({ state });
 
@@ -304,7 +328,7 @@ test("createRepairPlan returns a draft when gate is failed", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const failingTest = await state.createStep({
       taskRunId: taskRun.id,
       index: 0,
@@ -312,7 +336,7 @@ test("createRepairPlan returns a draft when gate is failed", async () => {
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(failingTest.id, "failed");
+    await completeValidation(state, failingTest, "failed");
 
     const evaluator = new QualityEvaluator({ state });
     const completion = new TaskRunCompletionService({ state });
@@ -342,7 +366,7 @@ test("renderer cannot reach done without passing gate (end-to-end via service)",
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const completion = new TaskRunCompletionService({ state });
 
     // Without any gate, markDone should be blocked.
@@ -368,7 +392,7 @@ test("renderer cannot reach done without passing gate (end-to-end via service)",
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "succeeded");
+    await completeValidation(state, testStep, "succeeded");
     const evaluator = new QualityEvaluator({ state });
     const gate = await evaluator.evaluate({
       taskRunId: taskRun.id,
@@ -396,7 +420,7 @@ test("markDone fires onTaskRunDone before flipping status", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const seen = [];
     const completion = new TaskRunCompletionService({
       state,
@@ -412,7 +436,7 @@ test("markDone fires onTaskRunDone before flipping status", async () => {
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "succeeded");
+    await completeValidation(state, testStep, "succeeded");
     const evaluator = new QualityEvaluator({ state });
     const gate = await evaluator.evaluate({
       taskRunId: taskRun.id,
@@ -436,7 +460,7 @@ test("markDone fails atomically when onTaskRunDone throws", async () => {
   const db = openDb({ filePath: t.file });
   const state = new LocalStateService(db);
   try {
-    const taskRun = await seedTaskRun(state);
+    const taskRun = await seedTaskRun(state, t.project);
     const completion = new TaskRunCompletionService({
       state,
       onTaskRunDone: async () => {
@@ -450,7 +474,7 @@ test("markDone fails atomically when onTaskRunDone throws", async () => {
       title: "vitest",
       status: "running",
     });
-    await state.setStepStatus(testStep.id, "succeeded");
+    await completeValidation(state, testStep, "succeeded");
     const evaluator = new QualityEvaluator({ state });
     const gate = await evaluator.evaluate({
       taskRunId: taskRun.id,

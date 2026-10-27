@@ -1,6 +1,11 @@
 import {
   assertTaskRunTransition,
   evaluateApprovalActionPolicy,
+  taskContractFor,
+  taskContractBlocksAction,
+  validateProposedActionDetails,
+  redactSecrets,
+  type PrepareActionRetryInput,
   validateAbsoluteTargetDir,
   type AgentInvocation,
   type Approval,
@@ -10,6 +15,7 @@ import {
   type Capability,
   type Checkpoint,
   type ConversationStateGateway,
+  type ConversationTransactionGateway,
   type CreateAgentInvocationInput,
   type CreateApprovalInput,
   type CreateArtifactInput,
@@ -34,15 +40,18 @@ import {
   type QualityGateResult,
   type Step,
   type StepStatus,
+  type SynchronousTransactionResult,
   type DatabaseDiagnosticsSnapshot,
   type TaskRun,
   type TaskRunStatus,
   type Thread,
   type ThreadDetail,
+  type RecentTaskRun,
   type ProposedActionDetails,
   type UpdateAgentInvocationPatch,
 } from "@harness/core";
 import { statSync } from "node:fs";
+import { types } from "node:util";
 import type { HarnessDb } from "../db.ts";
 import {
   SqliteAgentInvocationRepository,
@@ -71,16 +80,15 @@ import {
   SqliteRepoIndexRepository,
   SqliteRepairAttemptRepository,
   SqliteEvalRunRepository,
+  SqliteValidationRunRepository,
+  SqliteWorkspaceMutationRepository,
   type AgentInvocationRepository,
   type AgentPipelineRepository,
   type PipelineBackflowRepository,
   type AgentProfileRepository,
   type A2ARemoteAgentRepository,
   type A2ARefinementAttemptRepository,
-  type ApprovalRepository,
-  type ArtifactRepository,
   type CapabilityRepository,
-  type CheckpointRepository,
   type EvolutionCandidateRepository,
   type InstinctRepository,
   type LearningTraceRepository,
@@ -94,11 +102,10 @@ import {
   type SkillSourceRepository,
   type HarnessPackageRepository,
   type HarnessBindingSetRepository,
-  type StepRepository,
-  type TaskRunRepository,
-  type ThreadRepository,
 } from "../repositories/index.ts";
 import { serializeThreadMarkdown } from "./thread-markdown-export.ts";
+import { rowToTaskRun } from "../repositories/row-mappers.ts";
+import { captureValidationRevision, resolveValidationWorkspaceKey } from "./workspace-validation-revision.ts";
 
 const AGENT_PLAN_PLACEHOLDER_TITLE = "Awaiting agent plan";
 const AGENT_PLAN_PLACEHOLDER_SUMMARY_PREFIX = "Agent mode TaskRun";
@@ -115,12 +122,12 @@ const AGENT_PLAN_PLACEHOLDER_SUMMARY_PREFIX = "Agent mode TaskRun";
  * Source: docs/implementation/phase-01-local-state-model.md (구현 단위)
  */
 export class LocalStateService implements ConversationStateGateway {
-  readonly threads: ThreadRepository;
-  readonly taskRuns: TaskRunRepository;
-  readonly steps: StepRepository;
-  readonly checkpoints: CheckpointRepository;
-  readonly approvals: ApprovalRepository;
-  readonly artifacts: ArtifactRepository;
+  readonly threads: SqliteThreadRepository;
+  readonly taskRuns: SqliteTaskRunRepository;
+  readonly steps: SqliteStepRepository;
+  readonly checkpoints: SqliteCheckpointRepository;
+  readonly approvals: SqliteApprovalRepository;
+  readonly artifacts: SqliteArtifactRepository;
   readonly qualityGates: QualityGateRepository;
   readonly capabilities: CapabilityRepository;
   readonly learningTraces: LearningTraceRepository;
@@ -141,6 +148,8 @@ export class LocalStateService implements ConversationStateGateway {
   readonly repoIndex: RepoIndexRepository;
   readonly repairAttempts: RepairAttemptRepository;
   readonly evalRuns: EvalRunRepository;
+  readonly validationRuns: SqliteValidationRunRepository;
+  readonly workspaceMutations: SqliteWorkspaceMutationRepository;
 
   private readonly db: HarnessDb;
   constructor(db: HarnessDb) {
@@ -152,6 +161,8 @@ export class LocalStateService implements ConversationStateGateway {
     this.approvals = new SqliteApprovalRepository(db);
     this.artifacts = new SqliteArtifactRepository(db);
     this.qualityGates = new SqliteQualityGateRepository(db);
+    this.validationRuns = new SqliteValidationRunRepository(db);
+    this.workspaceMutations = new SqliteWorkspaceMutationRepository(db);
     this.capabilities = new SqliteCapabilityRepository(db);
     this.learningTraces = new SqliteLearningTraceRepository(db);
     this.observations = new SqliteObservationRepository(db);
@@ -177,20 +188,60 @@ export class LocalStateService implements ConversationStateGateway {
     this.a2aRefinements = new SqliteA2ARefinementAttemptRepository(db);
   }
 
-  async withTransaction<T>(work: () => Promise<T>): Promise<T> {
-    if (this.db.inTransaction) {
-      return work();
+  withTransaction<T>(
+    work: (state: ConversationTransactionGateway) => SynchronousTransactionResult<T>,
+  ): T {
+    // Do not even start an async callback: it could continue after rollback.
+    if (types.isAsyncFunction(work)) {
+      throw new TypeError("Transaction callbacks must be synchronous");
     }
-    this.db.prepare("BEGIN IMMEDIATE").run();
+    let active = true;
+    const scoped = <A extends unknown[], R>(operation: (...args: A) => R) =>
+      (...args: A): R => {
+        if (!active) throw new Error("Transaction scope is no longer active");
+        return operation(...args);
+      };
+    const state: ConversationTransactionGateway = {
+      getThread: scoped((id) => this.threads.getSync(id)),
+      createThread: scoped((input) => this.threads.createSync(normalizeThreadInput(input))),
+      getTaskRun: scoped((id) => this.taskRuns.getSync(id)),
+      createTaskRun: scoped((input) => {
+        const normalized = normalizeTaskRunInput(input);
+        if (!this.threads.getSync(input.threadId)) throw new Error(`Thread ${input.threadId} not found`);
+        return this.taskRuns.createSync(normalized);
+      }),
+      setTaskRunStatus: scoped((id, status) => {
+        const current = this.taskRuns.getSync(id);
+        if (!current) throw new Error(`TaskRun ${id} not found`);
+        assertTaskRunTransition(current.status, status);
+        return current.status === status ? current : this.taskRuns.updateStatusSync(id, status, current.status);
+      }),
+      setTaskRunCurrentStep: scoped((id, stepId) => this.taskRuns.setCurrentStepSync(id, stepId)),
+      createStep: scoped((input) => this.steps.createSync(input)),
+      setStepStatus: scoped((id, status, patch) => this.steps.updateStatusSync(id, status, patch)),
+      createCheckpoint: scoped((input) => this.checkpoints.createSync(input)),
+      createApproval: scoped((input) => this.approvals.createSync({
+        ...input,
+        policyEvaluation: input.policyEvaluation ?? evaluateApprovalActionPolicy(input.actionType),
+      })),
+      createArtifact: scoped((input) => this.artifacts.createSync(input)),
+    };
     try {
-      const result = await work();
-      this.db.prepare("COMMIT").run();
-      return result;
-    } catch (error) {
-      if (this.db.inTransaction) {
-        this.db.prepare("ROLLBACK").run();
-      }
-      throw error;
+      // better-sqlite3 uses a savepoint for synchronous nested transactions.
+      // No callback can yield while the shared connection owns this scope.
+      return this.db.transaction(() => {
+        const result = work(state);
+        if (result !== null && (typeof result === "object" || typeof result === "function") &&
+            "then" in result && typeof result.then === "function") {
+          // Handle a rejected native Promise without allowing later access to
+          // this scope. Foreign thenables are rejected without invoking them.
+          if (types.isPromise(result)) void result.catch(() => {});
+          throw new TypeError("Transaction callbacks must be synchronous");
+        }
+        return result;
+      }).immediate();
+    } finally {
+      active = false;
     }
   }
 
@@ -230,25 +281,22 @@ export class LocalStateService implements ConversationStateGateway {
   // -- Thread / TaskRun --------------------------------------------------
 
   async createThread(input: CreateThreadInput): Promise<Thread> {
-    if (typeof input.title !== "string" || input.title.trim().length === 0) {
-      throw new Error("Thread title must be a non-empty string");
-    }
-    let normalizedTargetDir: string | undefined;
-    if (input.targetDir !== undefined) {
-      const v = validateAbsoluteTargetDir(input.targetDir);
-      if (!v.ok) throw new Error(`Invalid targetDir: ${v.reason}`);
-      normalizedTargetDir = v.normalized;
-    }
-    const payload: CreateThreadInput = { title: input.title.trim() };
-    if (normalizedTargetDir !== undefined) payload.targetDir = normalizedTargetDir;
-    if (typeof input.pipelineId === "string" && input.pipelineId.length > 0) {
-      payload.pipelineId = input.pipelineId;
-    }
-    return this.threads.create(payload);
+    return this.threads.create(normalizeThreadInput(input));
   }
 
   async listThreads(): Promise<Thread[]> {
     return this.threads.list();
+  }
+
+  async listRecentTaskRuns(limit: number): Promise<RecentTaskRun[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error("STATE_INVALID_INPUT: limit must be 1..100");
+    const rows = this.db.prepare(
+      `SELECT r.*, t.title AS thread_title,
+        (SELECT contract_json FROM task_contracts WHERE task_run_id=r.id) AS contract_json
+       FROM task_runs r JOIN threads t ON t.id=r.thread_id
+       ORDER BY r.updated_at DESC,r.rowid DESC LIMIT ?`,
+    ).all(limit) as (Parameters<typeof rowToTaskRun>[0] & { thread_title: string })[];
+    return rows.map(row => ({ taskRun: rowToTaskRun(row), threadId: row.thread_id, threadTitle: row.thread_title }));
   }
 
   async getThread(id: string): Promise<Thread | null> {
@@ -356,23 +404,10 @@ export class LocalStateService implements ConversationStateGateway {
   }
 
   async createTaskRun(input: CreateTaskRunInput): Promise<TaskRun> {
-    const v = validateAbsoluteTargetDir(input.targetDir);
-    if (!v.ok) throw new Error(`Invalid targetDir: ${v.reason}`);
-    if (typeof input.userRequest !== "string" || input.userRequest.trim().length === 0) {
-      throw new Error("userRequest must be a non-empty string");
-    }
+    const normalized = normalizeTaskRunInput(input);
     const thread = await this.threads.get(input.threadId);
     if (!thread) throw new Error(`Thread ${input.threadId} not found`);
-    return this.taskRuns.create({
-      threadId: input.threadId,
-      userRequest: input.userRequest,
-      targetDir: v.normalized,
-      ...(input.intent !== undefined ? { intent: input.intent } : {}),
-      ...(input.followUpTaskRunId !== undefined
-        ? { followUpTaskRunId: input.followUpTaskRunId }
-        : {}),
-      ...(input.status ? { status: input.status } : {}),
-    });
+    return this.taskRuns.create(normalized);
   }
 
   async getTaskRun(id: string): Promise<TaskRun | null> {
@@ -489,6 +524,14 @@ export class LocalStateService implements ConversationStateGateway {
 
   // -- Quality Gate -------------------------------------------------------
 
+  async beginWorkspaceMutation(targetDir: string): Promise<string> {
+    return this.workspaceMutations.begin(await resolveValidationWorkspaceKey(targetDir));
+  }
+
+  async endWorkspaceMutation(token: string): Promise<void> {
+    await this.workspaceMutations.end(token);
+  }
+
   async createQualityGateResult(
     result: QualityGateResult,
   ): Promise<QualityGateResult> {
@@ -505,6 +548,159 @@ export class LocalStateService implements ConversationStateGateway {
     taskRunId: string,
   ): Promise<QualityGateResult | null> {
     return this.qualityGates.getLatestForTaskRun(taskRunId);
+  }
+
+  /** Recheck both filesystem inputs and canonical execution state before use. */
+  async assertQualityGateCurrent(gate: QualityGateResult): Promise<void> {
+    const current = await this.getLatestQualityGateResult(gate.taskRunId);
+    if (!current || current.id !== gate.id || current.status !== gate.status) throw qualityBlocked("Quality gate changed; evaluate the latest result");
+    const validation = current.validationState;
+    if (!validation) {
+      if (current.buildPassed !== undefined || current.testsPassed !== undefined || current.smokePassed !== undefined) {
+        throw qualityBlocked("Legacy quality checks have no execution/revision provenance; run the checks again");
+      }
+      return; // Plain answer gates do not assert code-check execution.
+    }
+    const task = await this.getTaskRun(gate.taskRunId);
+    if (!task || validation.fingerprint === null) throw qualityBlocked("Workspace revision cannot be verified");
+    this.assertValidationStateCurrent(gate.taskRunId, validation);
+    const snapshot = await captureValidationRevision(task.targetDir);
+    if (snapshot.workspaceKey !== validation.workspaceKey || snapshot.fingerprint === null || snapshot.fingerprint !== validation.fingerprint) {
+      throw qualityBlocked("Workspace changed after quality evaluation; run the checks again");
+    }
+    this.assertValidationStateCurrent(gate.taskRunId, validation);
+    const latest = await this.getLatestQualityGateResult(gate.taskRunId);
+    if (!latest || latest.id !== gate.id || latest.status !== gate.status) throw qualityBlocked("Quality gate changed during freshness validation");
+  }
+
+  /** Applying a gate cannot overwrite a newer result or a user lifecycle action. */
+  async applyQualityGateStatus(gate: QualityGateResult, status: "quality_failed" | "ready_for_review"): Promise<TaskRun> {
+    return this.db.transaction(() => {
+      const task = this.taskRuns.getSync(gate.taskRunId);
+      if (!task) throw qualityBlocked("Task no longer exists");
+      if (["paused", "done", "cancelled"].includes(task.status)) return task;
+      const latest = this.db.prepare(`SELECT id,status,validation_state_json,build_passed,tests_passed,smoke_passed
+        FROM quality_gate_results WHERE task_run_id=? ORDER BY rowid DESC LIMIT 1`)
+        .get(gate.taskRunId) as { id: string; status: string; validation_state_json: string | null;
+          build_passed: number | null; tests_passed: number | null; smoke_passed: number | null } | undefined;
+      if (!latest || latest.id !== gate.id || latest.status !== gate.status ||
+          (status === "quality_failed" ? latest.status !== "failed" : !["passed", "warning"].includes(latest.status))) return task;
+      if (status === "ready_for_review") {
+        if (latest.validation_state_json !== null) {
+          const validation = JSON.parse(latest.validation_state_json) as NonNullable<QualityGateResult["validationState"]>;
+          if (validation.fingerprint === null) return task;
+          try { this.assertValidationStateCurrent(gate.taskRunId, validation); }
+          catch (error) {
+            if (error && typeof error === "object" && "code" in error && error.code === "QUALITY_DONE_BLOCKED") return task;
+            throw error;
+          }
+        } else if (latest.build_passed !== null || latest.tests_passed !== null || latest.smoke_passed !== null) return task;
+      }
+      assertTaskRunTransition(task.status, status);
+      return this.taskRuns.updateStatusSync(task.id, status, task.status);
+    }).immediate();
+  }
+
+  /** SQLite finalization never yields between ownership checks and done CAS. */
+  async completeTaskRun(taskRunId: string, gateId: string): Promise<TaskRun> {
+    return this.db.transaction(() => {
+      const task = this.taskRuns.getSync(taskRunId);
+      const gate = this.db.prepare(`SELECT * FROM quality_gate_results WHERE task_run_id=?
+        ORDER BY rowid DESC LIMIT 1`).get(taskRunId) as {
+          id: string; status: string; validation_state_json: string | null;
+          build_passed: number | null; tests_passed: number | null; smoke_passed: number | null;
+        } | undefined;
+      if (!task || task.status !== "ready_for_review" || !gate || gate.id !== gateId || !["passed", "warning"].includes(gate.status)) {
+        throw qualityBlocked("Task or quality gate changed before completion");
+      }
+      if (gate.status === "warning") {
+        const suffix = `/${gateId}`;
+        const consent = this.db.prepare(`SELECT 1 FROM artifacts WHERE task_run_id=? AND kind='quality_report'
+          AND substr(uri,-?)=? LIMIT 1`).get(taskRunId, suffix.length, suffix);
+        if (!consent) throw qualityBlocked("Warning-status gate requires current explicit known-risk approval");
+      }
+      if (gate.validation_state_json !== null) {
+        const validation = JSON.parse(gate.validation_state_json) as NonNullable<QualityGateResult["validationState"]>;
+        if (validation.fingerprint === null) throw qualityBlocked("Workspace revision cannot be verified");
+        this.assertValidationStateCurrent(taskRunId, validation);
+      } else if (gate.build_passed !== null || gate.tests_passed !== null || gate.smoke_passed !== null) {
+        throw qualityBlocked("Legacy quality checks have no execution/revision provenance");
+      }
+      const unsettledApproval = this.db.prepare(`SELECT 1 FROM approvals WHERE task_run_id=? AND retry_approval_id IS NULL AND
+        (execution_state IN ('running','uncertain') OR status='pending' OR
+          (status IN ('approved','always_approved_for_run') AND action_type NOT IN ('capability_use','model_use'))) LIMIT 1`).get(taskRunId);
+      const runningStep = this.db.prepare("SELECT 1 FROM steps WHERE task_run_id=? AND status='running' LIMIT 1").get(taskRunId);
+      if (unsettledApproval || runningStep) throw qualityBlocked("Approval or execution has not settled");
+      return this.taskRuns.updateStatusSync(taskRunId, "done", "ready_for_review");
+    }).immediate();
+  }
+
+  private assertValidationStateCurrent(taskRunId: string, validation: NonNullable<QualityGateResult["validationState"]>): void {
+    const workspace = this.workspaceMutations.getSync(validation.workspaceKey);
+    const watermark = this.validationRuns.getWatermarkSync(taskRunId);
+    if (workspace.activeMutations !== 0 || workspace.generation !== validation.generation || watermark !== validation.watermark) {
+      throw qualityBlocked("Workspace or checker results changed after quality evaluation");
+    }
+  }
+
+  /** Atomic result review and replacement consent; no runner or model call. */
+  async prepareApprovalRetry(input: PrepareActionRetryInput): Promise<Approval> {
+    if (!input || typeof input.reviewMessage !== "string" || !input.reviewMessage.trim() || input.reviewMessage.length > 4000) {
+      throw new Error("APPROVAL_REVIEW_REQUIRED: 이전 실행 결과 검토 내용을 1~4000자로 기록하세요.");
+    }
+    return this.db.transaction(() => {
+      const source = this.approvals.getSync(input.approvalId);
+      if (!source) throw new Error("APPROVAL_NOT_FOUND");
+      if (!Number.isSafeInteger(input.expectedRevision) || source.actionRevision !== input.expectedRevision) {
+        throw new Error("APPROVAL_REVISION_MISMATCH");
+      }
+      if ((source.executionState ?? null) !== input.expectedExecutionState) {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: 이전 실행 상태가 변경되었습니다. 최신 결과를 검토하세요.");
+      }
+      const task = this.taskRuns.getSync(source.taskRunId);
+      if (!task || task.status === "done" || task.status === "cancelled" || task.status === "paused") {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: 현재 작업 상태에서는 재시도를 준비할 수 없습니다.");
+      }
+      if (source.retryApprovalId) {
+        const prepared = this.approvals.getSync(source.retryApprovalId);
+        if (!prepared || prepared.taskRunId !== task.id) throw new Error("APPROVAL_REVIEW_REQUIRED: replacement is unavailable");
+        return prepared;
+      }
+      if (task.status !== "blocked" && task.status !== "quality_failed") {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: blocked/quality_failed 상태에서만 재시도를 준비하세요.");
+      }
+      if (source.executionState === "running" ||
+          this.db.prepare("SELECT 1 FROM approvals WHERE task_run_id=? AND execution_state='running' LIMIT 1").get(task.id) ||
+          this.db.prepare("SELECT 1 FROM steps WHERE task_run_id=? AND status='running' LIMIT 1").get(task.id) ||
+          this.db.prepare("SELECT 1 FROM agent_invocations WHERE task_run_id=? AND status IN ('running','queued') LIMIT 1").get(task.id)) {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: 실행 중인 작업이 끝난 뒤 결과를 검토하세요.");
+      }
+      if (!["approved", "always_approved_for_run", "executed"].includes(source.status) ||
+          !["file_write", "file_patch", "file_delete", "shell"].includes(source.actionType) ||
+          !source.proposedAction || source.proposedAction.dbSnapshotExport ||
+          !validateProposedActionDetails(source.proposedAction, source.actionType).ok ||
+          source.policyEvaluation?.decision === "blocked" || taskContractBlocksAction(taskContractFor(task), source.actionType)) {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: 이 작업은 재시도 대상이 아닙니다. 세부 지정 또는 새 계획을 검토하세요.");
+      }
+      const index = (this.db.prepare("SELECT MAX(step_index) AS n FROM steps WHERE task_run_id=?").get(task.id) as { n: number | null }).n ?? -1;
+      const step = this.steps.createSync({ taskRunId: task.id, index: index + 1, kind: "approval", title: "검토 후 재승인 대기", status: "pending" });
+      const reviewMessage = redactSecrets(input.reviewMessage.trim());
+      const checkpoint = this.checkpoints.createSync({ taskRunId: task.id, stepId: step.id, reason: "before_edit",
+        stateRef: JSON.stringify({ retryOfApprovalId: source.id, sourceRevision: source.actionRevision,
+          sourceExecutionState: source.executionState ?? null, sourceExecutionFinishedAt: source.executionFinishedAt ?? null, reviewMessage }),
+        summary: `Reviewed retry of ${source.id}` });
+      const next = this.approvals.createSync({ taskRunId: task.id, checkpointId: checkpoint.id, actionType: source.actionType,
+        actionSummary: `재시도 검토: ${source.actionSummary}`, proposedAction: source.proposedAction, status: "pending",
+        policyEvaluation: evaluateApprovalActionPolicy(source.actionType) });
+      this.db.prepare("UPDATE approvals SET requires_manual_approval=1 WHERE id=?").run(next.id);
+      this.db.prepare("UPDATE approvals SET retry_approval_id=? WHERE id=?").run(next.id, source.id);
+      this.artifacts.createSync({ taskRunId: task.id, stepId: step.id, kind: "quality_report", title: "이전 실행 결과 검토",
+        uri: `harness:approval-retry/${source.id}/${next.id}`, summary: reviewMessage });
+      this.taskRuns.setCurrentStepSync(task.id, step.id);
+      assertTaskRunTransition(task.status, "waiting_for_approval");
+      this.taskRuns.updateStatusSync(task.id, "waiting_for_approval", task.status);
+      return this.approvals.getSync(next.id)!;
+    }).immediate();
   }
 
   // -- Capability ----------------------------------------------------------
@@ -741,6 +937,38 @@ export class LocalStateService implements ConversationStateGateway {
   }
 }
 
+const normalizeThreadInput = (input: CreateThreadInput): CreateThreadInput => {
+  if (typeof input.title !== "string" || input.title.trim().length === 0) {
+    throw new Error("Thread title must be a non-empty string");
+  }
+  const payload: CreateThreadInput = { title: input.title.trim() };
+  if (input.targetDir !== undefined) {
+    const validation = validateAbsoluteTargetDir(input.targetDir);
+    if (!validation.ok) throw new Error(`Invalid targetDir: ${validation.reason}`);
+    payload.targetDir = validation.normalized;
+  }
+  if (typeof input.pipelineId === "string" && input.pipelineId.length > 0) {
+    payload.pipelineId = input.pipelineId;
+  }
+  return payload;
+};
+
+const normalizeTaskRunInput = (input: CreateTaskRunInput): CreateTaskRunInput => {
+  const validation = validateAbsoluteTargetDir(input.targetDir);
+  if (!validation.ok) throw new Error(`Invalid targetDir: ${validation.reason}`);
+  if (typeof input.userRequest !== "string" || input.userRequest.trim().length === 0) {
+    throw new Error("userRequest must be a non-empty string");
+  }
+  return {
+    threadId: input.threadId,
+    userRequest: input.userRequest,
+    targetDir: validation.normalized,
+    ...(input.intent !== undefined ? { intent: input.intent } : {}),
+    ...(input.followUpTaskRunId !== undefined ? { followUpTaskRunId: input.followUpTaskRunId } : {}),
+    ...(input.status ? { status: input.status } : {}),
+  };
+};
+
 const statBytes = (path: string): number => {
   if (!path || path === ":memory:") return 0;
   try {
@@ -752,6 +980,9 @@ const statBytes = (path: string): number => {
 
 const finiteNumber = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
+
+const qualityBlocked = (message: string): Error & { code: string } =>
+  Object.assign(new Error(message), { code: "QUALITY_DONE_BLOCKED" });
 
 const isAgentPlanPlaceholder = (
   title: string | null,

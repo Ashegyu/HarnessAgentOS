@@ -11,6 +11,7 @@ import type {
   CreateTaskRunInput,
   CreateThreadInput,
   ProposedActionDetails,
+  PrepareActionRetryInput,
   Step,
   StepStatus,
   TaskRun,
@@ -18,13 +19,33 @@ import type {
   Thread,
 } from "../types";
 
+/** Only synchronous storage operations may run inside an atomic draft write. */
+export interface ConversationTransactionGateway {
+  getThread(id: string): Thread | null;
+  createThread(input: CreateThreadInput): Thread;
+  getTaskRun(id: string): TaskRun | null;
+  createTaskRun(input: CreateTaskRunInput): TaskRun;
+  setTaskRunStatus(id: string, status: TaskRunStatus): TaskRun;
+  setTaskRunCurrentStep(id: string, stepId: string | null): TaskRun;
+  createStep(input: CreateStepInput): Step;
+  setStepStatus(id: string, status: StepStatus, patch?: { outputSummary?: string }): Step;
+  createCheckpoint(input: CreateCheckpointInput): Checkpoint;
+  createApproval(input: CreateApprovalInput): Approval;
+  createArtifact(input: CreateArtifactInput): Artifact;
+}
+
+export type SynchronousTransactionResult<T> = T & (T extends PromiseLike<unknown> ? never : unknown);
+
 /**
  * Subset of LocalStateService used by ConversationService. Allows the
  * core conversation package to stay free of @harness/storage imports
  * and lets tests inject lightweight in-memory fakes.
  */
 export interface ConversationStateGateway {
-  withTransaction<T>(work: () => Promise<T>): Promise<T>;
+  prepareApprovalRetry(input: PrepareActionRetryInput): Promise<Approval>;
+  withTransaction<T>(
+    work: (state: ConversationTransactionGateway) => SynchronousTransactionResult<T>,
+  ): T;
 
   // Thread
   getThread(id: string): Promise<Thread | null>;

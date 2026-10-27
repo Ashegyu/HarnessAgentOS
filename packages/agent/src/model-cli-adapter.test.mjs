@@ -378,7 +378,7 @@ test("adapter surfaces unconfirmed Windows tree cleanup and falls back to the ow
     terminateProcessTree: async () => { throw new Error("cleanup failed"); },
   });
   const rejection = assert.rejects(adapter.invoke(makeAdapterRequest(), () => {}, controller.signal),
-    (error) => error.code === "AGENT_CANCELLED" && /cleanup was not confirmed/.test(error.message));
+    (error) => error.code === "AGENT_CANCELLED" && error.processCleanupConfirmed === false && /cleanup was not confirmed/.test(error.message));
   controller.abort();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(child.killCalls, ["SIGKILL"]);

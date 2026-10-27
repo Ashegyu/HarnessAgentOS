@@ -9,6 +9,7 @@ import type {
   TaskRun,
 } from "@harness/core";
 import {
+  AsyncWorkScope,
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
   DEFAULT_RUNNER_TEST_TIMEOUT_MS,
@@ -19,11 +20,11 @@ import {
   formatSimpleDiff,
   validateProposedActionDetails,
 } from "@harness/core";
-import { newId, nowIso } from "@harness/storage";
+import { captureValidationRevision, newId, nowIso, resolveValidationWorkspaceKey, type ValidationRevision } from "@harness/storage";
 import type { LocalStateService } from "@harness/storage";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { relative as relativePath, resolve as resolveNodePath } from "node:path";
-import { FileRunner } from "./file-runner.ts";
+import { FileRunner, FileRunnerError } from "./file-runner.ts";
 import { FileDeleteRunner } from "./file-delete-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { GitRunner } from "./git-runner.ts";
@@ -40,6 +41,14 @@ import {
   maskSecrets,
 } from "./runner-policy.ts";
 import type { RunnerResult } from "./runner-types.ts";
+import { resolveValidationCommand, type ValidationCommandIdentity } from "./validation-command.ts";
+
+interface ShellValidationContext {
+  command: ValidationCommandIdentity;
+  revision: ValidationRevision;
+  generation: number;
+  reason?: string;
+}
 
 export class RunnerError extends Error {
   readonly code: string;
@@ -82,6 +91,8 @@ export class RunnerService {
   private readonly git: GitRunner;
   private readonly test: TestRunner;
   private readonly deps: RunnerServiceDeps;
+  private readonly operations = new AsyncWorkScope(() => new RunnerError(RUNNER_CANCELLED, "Application is shutting down"));
+  private shutdownFailure: unknown;
   private readonly inflight = new Map<string, {
     taskRunId: string;
     controller: AbortController;
@@ -126,13 +137,34 @@ export class RunnerService {
         `Retry is only allowed when TaskRun is blocked or quality_failed (current: ${taskRun.status})`,
       );
     }
-    if (approval.executionState || approval.status === "executed") {
+    if (approval.retryApprovalId || approval.executionState || approval.status === "executed") {
       throw new RunnerError("APPROVAL_REVIEW_REQUIRED", "이전 실행은 재사용할 수 없습니다. 실제 결과를 검토한 후 새 작업 승인을 생성하세요.");
     }
     return this.executeApproved(approvalId);
   }
 
-  async executeApproved(approvalId: string): Promise<RunnerResult> {
+  executeApproved(approvalId: string): Promise<RunnerResult> {
+    return this.operations.run(() => this.executeApprovedOnce(approvalId));
+  }
+
+  async shutdown(): Promise<void> {
+    this.operations.seal();
+    const approvalIds = [...this.inflight.keys()];
+    for (const execution of this.inflight.values()) execution.controller.abort();
+    const finished = [...this.inflight.values()].map(execution => execution.finished);
+    await this.operations.drain();
+    const outcomes = await Promise.all(finished);
+    const unconfirmed = outcomes.find(error => errorCodeOf(error) === "RUNNER_TERMINATION_UNCONFIRMED");
+    if (unconfirmed) this.shutdownFailure = unconfirmed;
+    for (const id of approvalIds) {
+      if ((await this.deps.state.getApproval(id))?.executionState === "running") {
+        this.shutdownFailure ??= new Error("Runner execution claim could not be finalized; storage remains open");
+      }
+    }
+    if (this.shutdownFailure) throw this.shutdownFailure;
+  }
+
+  private async executeApprovedOnce(approvalId: string): Promise<RunnerResult> {
     const approval = await this.deps.state.getApproval(approvalId);
     if (!approval || (approval.status !== "approved" && approval.status !== "always_approved_for_run")) {
       throw new RunnerError("RUNNER_APPROVAL_REQUIRED", "Action is not approved");
@@ -142,6 +174,7 @@ export class RunnerService {
       throw new RunnerError("TASK_CONTRACT_ACTION_BLOCKED", "읽기 전용 작업 계약에서 실행을 허용하지 않습니다.");
     }
     if (!approval.proposedAction) throw new RunnerError("RUNNER_EXECUTION_FAILED", "approval.proposedAction is missing");
+    if (this.operations.closed) throw new RunnerError(RUNNER_CANCELLED, "Application is shutting down");
     const token = newId("step");
     if (this.inflight.has(approvalId)) throw new RunnerError("APPROVAL_CLAIM_LOCKED", "Action is already running");
     const controller = new AbortController();
@@ -185,11 +218,16 @@ export class RunnerService {
     return this.inflight.size;
   }
 
+  getActiveTaskRunIds(): string[] {
+    return [...new Set([...this.inflight.values()].map(execution => execution.taskRunId))];
+  }
+
   private async executeApprovedInternal(
     approvalId: string,
     options: { allowExecuted: boolean },
     signal: AbortSignal,
   ): Promise<RunnerResult> {
+    if (signal.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before start");
     const approval = await this.deps.state.getApproval(approvalId);
     if (!approval) {
       throw new RunnerError("APPROVAL_NOT_FOUND", `Approval ${approvalId} not found`);
@@ -268,11 +306,10 @@ export class RunnerService {
     // Find or create a runner Step. shell + a recognised test command
     // surfaces as a "test" step in the timeline so the UI can mark
     // pass/fail at the right granularity (mvp-user-flows Flow 11).
-    const shellCommand = formatProposedCommand(details);
-    const isTestShell =
-      approval.actionType === "shell" &&
-      shellCommand !== undefined &&
-      isTestCommand(shellCommand);
+    const shellValidation = approval.actionType === "shell"
+      ? await this.prepareShellValidation(details, taskRun.targetDir, signal)
+      : undefined;
+    const isTestShell = shellValidation?.command.kinds.includes("test") === true;
     const stepKind = isTestShell
       ? "test"
       : mapActionToStepKind(approval.actionType);
@@ -298,11 +335,17 @@ export class RunnerService {
       startedAt,
       finishedAt: startedAt,
     };
+    let mutationToken: string | undefined;
     try {
       if (signal.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before side effect");
       await this.deps.state.setTaskRunCurrentStep(taskRun.id, step.id);
       await this.deps.state.setTaskRunStatus(taskRun.id, "running");
       if (signal.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before side effect");
+      if (this.deps.state.workspaceMutations &&
+          (approval.actionType !== "shell" || shellValidation?.command.kinds.length === 0)) {
+        const workspaceKey = shellValidation?.revision.workspaceKey ?? await resolveValidationWorkspaceKey(taskRun.targetDir);
+        mutationToken = await this.deps.state.workspaceMutations.begin(workspaceKey);
+      }
       switch (approval.actionType) {
         case "file_delete": {
           if (!this.deps.trashItem || !details.fileDelete) throw new RunnerError("RUNNER_TRASH_UNAVAILABLE", "휴지통 서비스를 사용할 수 없습니다. 영구 삭제는 하지 않습니다.");
@@ -316,10 +359,10 @@ export class RunnerService {
           break;
         }
         case "file_patch":
-          await this.runFilePatch({ approval, taskRun, step, details, result });
+          await this.runFilePatch({ approval, taskRun, step, details, result, signal });
           break;
         case "file_write":
-          await this.runFileWrite({ approval, taskRun, step, details, result });
+          await this.runFileWrite({ approval, taskRun, step, details, result, signal });
           break;
         case "shell":
           await this.runShell({
@@ -329,6 +372,7 @@ export class RunnerService {
             details,
             result,
             signal,
+            validation: shellValidation!,
           });
           break;
         default:
@@ -355,7 +399,7 @@ export class RunnerService {
     } catch (e) {
       const message = maskSecrets(e instanceof Error ? e.message : String(e));
       const cancelled = isRunnerCancelled(e);
-      const errorCode = e instanceof RunnerError
+      const errorCode = e instanceof RunnerError || e instanceof FileRunnerError
         ? e.code
         : errorCodeOf(e) === "RUNNER_TERMINATION_UNCONFIRMED"
           ? "RUNNER_TERMINATION_UNCONFIRMED"
@@ -382,7 +426,7 @@ export class RunnerService {
         outputSummary: message.slice(0, 200),
       });
       const currentTask = await this.deps.state.getTaskRun(taskRun.id);
-      if (currentTask?.status !== "cancelled") {
+      if (currentTask && !["cancelled", "paused"].includes(currentTask.status)) {
         await this.deps.state.setTaskRunStatus(taskRun.id, cancelled ? "cancelled" : "blocked");
       }
       if (!cancelled && errorArtifactId !== undefined) {
@@ -400,6 +444,8 @@ export class RunnerService {
       if (cancelled) throw new RunnerError(RUNNER_CANCELLED, message);
       if (e instanceof RunnerError && e.message === message) throw e;
       throw new RunnerError(errorCode, message);
+    } finally {
+      if (mutationToken !== undefined) await this.deps.state.workspaceMutations.end(mutationToken);
     }
 
     return result;
@@ -451,12 +497,35 @@ export class RunnerService {
 
   // -- Runner dispatchers ------------------------------------------------
 
+  private async prepareShellValidation(details: ProposedActionDetails, cwd: string, signal?: AbortSignal): Promise<ShellValidationContext> {
+    const workspaceKey = await resolveValidationWorkspaceKey(cwd);
+    const before = await this.workspaceEpoch(workspaceKey);
+    const revision = this.deps.state.validationRuns && this.deps.state.workspaceMutations
+      ? await captureValidationRevision(cwd, { signal })
+      : { workspaceKey, fingerprint: null, reason: "Execution ledger is unavailable" };
+    // Resolve scripts inside the captured interval. A script changed before
+    // actual execution cannot retain the old checker identity.
+    const command = await resolveValidationCommand({ command: details.command ?? "", args: details.args, cwd });
+    const after = await this.workspaceEpoch(workspaceKey);
+    const changed = before.generation !== after.generation || before.activeMutations !== 0 || after.activeMutations !== 0;
+    return { command, revision: changed ? { ...revision, fingerprint: null } : revision,
+      generation: before.generation,
+      ...(changed ? { reason: "Workspace mutation changed during checker preparation" }
+        : revision.reason ? { reason: revision.reason } : command.reason ? { reason: command.reason } : {}),
+    };
+  }
+
+  private workspaceEpoch(workspaceKey: string): Promise<{ generation: number; activeMutations: number }> {
+    return this.deps.state.workspaceMutations?.get(workspaceKey) ?? Promise.resolve({ generation: 0, activeMutations: 0 });
+  }
+
   private async runFileWrite(args: {
     approval: Approval;
     taskRun: TaskRun;
     step: Step;
     details: ProposedActionDetails;
     result: RunnerResult;
+    signal: AbortSignal;
   }): Promise<void> {
     const { taskRun, step, details, result } = args;
     if (details.dbSnapshotExport) {
@@ -482,6 +551,7 @@ export class RunnerService {
     const r = await this.file.run({
       targetDir: taskRun.targetDir,
       patch: executionPatch,
+      signal: args.signal,
     });
     result.changedFiles = [r.path];
 
@@ -506,6 +576,7 @@ export class RunnerService {
     step: Step;
     details: ProposedActionDetails;
     result: RunnerResult;
+    signal: AbortSignal;
   }): Promise<void> {
     const { taskRun, step, details, result } = args;
     const patch = details.unifiedPatch;
@@ -556,15 +627,14 @@ export class RunnerService {
       throw e;
     }
 
-    // patch 계산 뒤에도 실제 경계를 재확인해 승인 후 junction 교체를 차단한다.
-    if (!(await isRealPathWithin(taskRun.targetDir, targetPath))) {
-      throw new RunnerError(
-        "RUNNER_TARGET_OUTSIDE_WORKSPACE",
-        `File path resolves outside targetDir: ${patch.path}`,
-      );
-    }
-    await writeFile(targetPath, applied.afterContent, "utf8");
-    result.changedFiles = [targetPath];
+    // FileRunner owns write/patch serialization and rechecks this exact
+    // preimage while holding canonical file ownership.
+    const written = await this.file.run({
+      targetDir: taskRun.targetDir,
+      patch: { path: executionPatch.path, before, after: applied.afterContent },
+      signal: args.signal,
+    });
+    result.changedFiles = [written.path];
 
     const diffArtifact = await this.persistArtifact({
       taskRunId: taskRun.id,
@@ -624,8 +694,9 @@ export class RunnerService {
     details: ProposedActionDetails;
     result: RunnerResult;
     signal?: AbortSignal;
+    validation: ShellValidationContext;
   }): Promise<void> {
-    const { taskRun, step, details, result, signal } = args;
+    const { approval, taskRun, step, details, result, signal, validation } = args;
     if (!details.command || details.command.trim().length === 0) {
       throw new RunnerError(
         "RUNNER_EXECUTION_FAILED",
@@ -640,20 +711,30 @@ export class RunnerService {
         `Shell command refused: ${safety.reason}`,
       );
     }
-    // Test invocations route through TestRunner so we can emit a
-    // dedicated test_result artifact alongside the raw shell log
-    // (Phase 3 mvp-user-flows.md Flow 8).
-    const isTest = isTestCommand(commandDisplay);
-    const runOutcome = isTest
-      ? await this.test.run({
+    const isTest = validation.command.kinds.includes("test");
+    // Keep the existing test timeout for custom wrappers without granting checker evidence.
+    const useTestRunner = isTest || isTestCommand(commandDisplay);
+    if (signal?.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before checker start");
+    const run = this.deps.state.validationRuns ? await this.deps.state.validationRuns.begin({
+      taskRunId: taskRun.id, stepId: step.id, approvalId: approval.id,
+      workspaceKey: validation.revision.workspaceKey, checkerId: validation.command.checkerId,
+      kinds: validation.command.kinds, startFingerprint: validation.revision.fingerprint,
+      startGeneration: validation.generation, ...(validation.reason ? { reason: validation.reason } : {}),
+    }) : undefined;
+    let runOutcome: Awaited<ReturnType<ShellRunner["run"]>> | undefined;
+    let proofArtifactId: string | undefined;
+    let failed = false;
+    let failure: unknown;
+    try {
+      if (signal?.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before checker process");
+      runOutcome = useTestRunner ? await this.test.run({
           command: details.command,
           ...(details.args !== undefined ? { args: details.args } : {}),
           cwd: taskRun.targetDir,
           timeoutMs: DEFAULT_RUNNER_TEST_TIMEOUT_MS,
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
           signal,
-        })
-      : await this.shell.run({
+        }) : await this.shell.run({
           command: details.command,
           ...(details.args !== undefined ? { args: details.args } : {}),
           cwd: taskRun.targetDir,
@@ -661,48 +742,60 @@ export class RunnerService {
           idleTimeoutMs: DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
           signal,
         });
-    result.exitCode = runOutcome.exitCode;
-    result.stdout = maskSecrets(runOutcome.stdout);
-    result.stderr = maskSecrets(runOutcome.stderr);
+      result.exitCode = runOutcome.exitCode;
+      result.stdout = maskSecrets(runOutcome.stdout);
+      result.stderr = maskSecrets(runOutcome.stderr);
 
-    const logArtifact = await this.persistArtifact({
-      taskRunId: taskRun.id,
-      stepId: step.id,
-      kind: "log",
-      title: `${isTest ? "test" : "shell"}: ${commandDisplay.slice(0, 64)}`,
-      content: formatShellLog(
-        result.stdout,
-        result.stderr,
-        runOutcome.exitCode,
-      ),
-      summary: `exit=${runOutcome.exitCode}, ${runOutcome.durationMs}ms`,
-    });
-    result.artifactIds.push(logArtifact.id);
-
-    if (isTest) {
-      const passed = runOutcome.exitCode === 0;
-      const testArtifact = await this.persistArtifact({
-        taskRunId: taskRun.id,
-        stepId: step.id,
-        kind: "test_result",
-        title: `test_result: ${commandDisplay.slice(0, 64)}`,
-        content: formatTestResult({
-          command: commandDisplay,
-          exitCode: runOutcome.exitCode,
-          durationMs: runOutcome.durationMs,
-          stdout: result.stdout,
-          stderr: result.stderr,
-        }),
-        summary: `exit=${runOutcome.exitCode} ${passed ? "passed" : "failed"}`,
+      const logArtifact = await this.persistArtifact({
+        taskRunId: taskRun.id, stepId: step.id, kind: "log",
+        title: `${isTest ? "test" : "shell"}: ${commandDisplay.slice(0, 64)}`,
+        content: formatShellLog(result.stdout, result.stderr, runOutcome.exitCode),
+        summary: `exit=${runOutcome.exitCode}, ${runOutcome.durationMs}ms`,
       });
-      result.artifactIds.push(testArtifact.id);
-    }
+      result.artifactIds.push(logArtifact.id);
+      proofArtifactId = logArtifact.id;
 
-    if (runOutcome.exitCode !== 0) {
-      throw new RunnerError(
-        "RUNNER_EXECUTION_FAILED",
-        `Shell command exited with ${runOutcome.exitCode}`,
-      );
+      if (isTest) {
+        const passed = runOutcome.exitCode === 0;
+        const testArtifact = await this.persistArtifact({
+          taskRunId: taskRun.id, stepId: step.id, kind: "test_result",
+          title: `test_result: ${commandDisplay.slice(0, 64)}`,
+          content: formatTestResult({ command: commandDisplay, exitCode: runOutcome.exitCode,
+            durationMs: runOutcome.durationMs, stdout: result.stdout, stderr: result.stderr }),
+          summary: `exit=${runOutcome.exitCode} ${passed ? "passed" : "failed"}`,
+        });
+        result.artifactIds.push(testArtifact.id);
+        proofArtifactId = testArtifact.id;
+      }
+
+      if (signal?.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled after checker process");
+      if (runOutcome.exitCode !== 0) throw new RunnerError("RUNNER_EXECUTION_FAILED", `Shell command exited with ${runOutcome.exitCode}`);
+    } catch (error) {
+      failed = true;
+      failure = error;
+      throw error;
+    } finally {
+      if (run) {
+        const finished = await captureValidationRevision(taskRun.targetDir, { signal });
+        const command = signal?.aborted ? validation.command : await resolveValidationCommand({ command: details.command, args: details.args, cwd: taskRun.targetDir });
+        const epoch = await this.workspaceEpoch(validation.revision.workspaceKey);
+        const identityChanged = command.checkerId !== validation.command.checkerId;
+        const inputChanged = finished.workspaceKey !== validation.revision.workspaceKey ||
+          finished.fingerprint !== validation.revision.fingerprint;
+        const mutationChanged = epoch.generation !== validation.generation || epoch.activeMutations !== 0;
+        const reason = identityChanged ? "Checker identity changed during execution"
+          : mutationChanged ? "Workspace generation or active mutation changed during execution"
+          : inputChanged ? "Workspace input revision changed during execution"
+          : finished.reason ?? validation.reason;
+        await this.deps.state.validationRuns.finish(run.id, {
+          status: failed ? isRunnerCancelled(failure) || signal?.aborted ? "cancelled" : "failed" : "completed",
+          ...(runOutcome ? { exitCode: runOutcome.exitCode } : {}),
+          ...(proofArtifactId ? { artifactId: proofArtifactId } : {}),
+          finishFingerprint: identityChanged || epoch.activeMutations !== 0 ? null : finished.fingerprint,
+          finishGeneration: epoch.generation,
+          ...(reason ? { reason } : {}),
+        });
+      }
     }
   }
 
@@ -810,10 +903,10 @@ const summarizeStepOutput = (r: RunnerResult): string => {
   return bits.join(", ");
 };
 
-const isUnresolvedApproval = (approval: Pick<Approval, "status">): boolean =>
-  approval.status === "pending" ||
+const isUnresolvedApproval = (approval: Pick<Approval, "status" | "retryApprovalId">): boolean =>
+  !approval.retryApprovalId && (approval.status === "pending" ||
   approval.status === "approved" ||
-  approval.status === "always_approved_for_run";
+  approval.status === "always_approved_for_run");
 
 const errorCodeOf = (e: unknown): string | undefined =>
   typeof e === "object" &&

@@ -9,7 +9,7 @@ export const collectRisks = (
   evidence: EvidenceBundle,
   req: QualityRequirement,
 ): string[] => {
-  const risks: string[] = [];
+  const risks: string[] = [...(evidence.unverifiedReasons ?? [])];
 
   if (req.requireTests && evidence.testEvidence.length === 0) {
     risks.push("required tests were not run");

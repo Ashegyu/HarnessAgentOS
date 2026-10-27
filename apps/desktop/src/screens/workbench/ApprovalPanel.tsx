@@ -219,7 +219,7 @@ export const ApprovalPanel = ({
     );
     const policy = a.policyEvaluation;
     const manualOnly = a.actionType === "shell" || a.actionType === "file_delete" || a.requiresManualApproval;
-    const locked = Boolean(a.executionState);
+    const locked = Boolean(a.executionState || a.retryApprovalId);
     const risk =
       policy?.riskLevel === "blocked"
         ? "high"
@@ -259,6 +259,7 @@ export const ApprovalPanel = ({
           </span>
         </header>
         <p className="approval-card__summary">{a.actionSummary}</p>
+        {a.retryApprovalId && <p role="status">검토 후 새 승인으로 대체됨: {a.retryApprovalId}. 이 승인은 다시 실행할 수 없습니다.</p>}
         {a.executionState && <p role="status">{a.executionState === "running"
           ? "Running — editing and duplicate execution are locked."
           : a.executionState === "uncertain"

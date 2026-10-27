@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   DEFAULT_HARNESS_SETTINGS,
   DEFAULT_AGENT_REASONING_EFFORT,
@@ -153,7 +154,7 @@ export const registerSettingsIpc = (
   state: LocalStateService,
   onUpdate?: (s: HarnessSettings) => void,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.settings.get,
     async (): Promise<HarnessResult<HarnessSettings>> => {
       try {
@@ -165,7 +166,7 @@ export const registerSettingsIpc = (
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.settings.update,
     async (_e, input: unknown): Promise<HarnessResult<HarnessSettings>> => {
       const v = validateSettingsInput(input);

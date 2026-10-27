@@ -74,16 +74,19 @@ export class TaskRunCompletionService {
       // Once a task is finalized further gate evaluations are read-only.
       return taskRun;
     }
+    const latestGate = await this.deps.state.getLatestQualityGateResult(taskRun.id);
+    if (latestGate?.id !== result.id || latestGate.status !== result.status) return taskRun;
     if (result.status === "failed") {
-      const updated = await this.deps.state.setTaskRunStatus(
-        taskRun.id,
+      const updated = await this.deps.state.applyQualityGateStatus(
+        result,
         "quality_failed",
       );
       await this.observeFailedQualityGate(result);
       return updated;
     }
     if (result.status === "passed" || result.status === "warning") {
-      return this.deps.state.setTaskRunStatus(taskRun.id, "ready_for_review");
+      await this.deps.state.assertQualityGateCurrent(result);
+      return this.deps.state.applyQualityGateStatus(result, "ready_for_review");
     }
     // not_run leaves the TaskRun in its current state.
     return taskRun;
@@ -137,6 +140,7 @@ export class TaskRunCompletionService {
       );
     }
     await this.ensureExecutionSettled(taskRun.id);
+    await this.deps.state.assertQualityGateCurrent(gate);
     // Stamp the LearningTrace BEFORE flipping to done so a `done` row
     // never exists without a corresponding trace entry. Failures bubble
     // up — the renderer surfaces them like any other completion error.
@@ -152,7 +156,8 @@ export class TaskRunCompletionService {
     if (latest.status !== "ready_for_review") {
       throw new TaskRunCompletionError("QUALITY_DONE_BLOCKED", "완료 처리 중 작업 상태가 변경되었습니다.");
     }
-    return this.deps.state.setTaskRunStatus(taskRun.id, "done");
+    await this.deps.state.assertQualityGateCurrent(gate);
+    return this.deps.state.completeTaskRun(taskRun.id, gate.id);
   }
 
   private async ensureExecutionSettled(taskRunId: string): Promise<void> {
@@ -160,9 +165,9 @@ export class TaskRunCompletionService {
       this.deps.state.listApprovalsByTaskRun(taskRunId),
       this.deps.state.listStepsByTaskRun(taskRunId),
     ]);
-    if (approvals.some(a => a.executionState === "running" || a.executionState === "uncertain" || a.status === "pending" ||
+    if (approvals.some(a => !a.retryApprovalId && (a.executionState === "running" || a.executionState === "uncertain" || a.status === "pending" ||
       ((a.status === "approved" || a.status === "always_approved_for_run") &&
-        a.actionType !== "capability_use" && a.actionType !== "model_use")) ||
+        a.actionType !== "capability_use" && a.actionType !== "model_use"))) ||
       steps.some(step => step.status === "running")) {
       throw new TaskRunCompletionError("QUALITY_DONE_BLOCKED", "아직 승인 또는 실행이 끝나지 않은 작업이 있습니다.");
     }
@@ -213,7 +218,8 @@ export class TaskRunCompletionService {
         "Quality gate has no evidence (not_run)",
       );
     }
-    return this.deps.state.setTaskRunStatus(taskRun.id, "ready_for_review");
+    await this.deps.state.assertQualityGateCurrent(gate);
+    return this.deps.state.applyQualityGateStatus(gate, "ready_for_review");
   }
 
   /**
@@ -251,6 +257,7 @@ export class TaskRunCompletionService {
         "Cannot approve known risks while quality gate is not_run",
       );
     }
+    await this.deps.state.assertQualityGateCurrent(gate);
     // Append a quality_report artifact recording the approval rationale.
     const stepIndex = await this.nextStepIndex(taskRun.id);
     const reviewStep = await this.deps.state.createStep({
@@ -272,7 +279,8 @@ export class TaskRunCompletionService {
     await this.deps.state.setStepStatus(reviewStep.id, "succeeded", {
       outputSummary: "user-approved known risks",
     });
-    return this.deps.state.setTaskRunStatus(taskRun.id, "ready_for_review");
+    await this.deps.state.assertQualityGateCurrent(gate);
+    return this.deps.state.applyQualityGateStatus(gate, "ready_for_review");
   }
 
   /**

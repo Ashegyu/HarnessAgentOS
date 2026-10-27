@@ -38,29 +38,45 @@ test("answers copy through real IPC, support selection, and retain copy feedback
       }
       return ids;
     }, targetDir);
+    // Planning resolves before automatic quality/completion settles. Seed a
+    // saved answer only after both canonical runs are terminal; a second DB
+    // writer during markDone is not a copy UI regression.
+    await expect.poll(() => page.evaluate(async ids => Promise.all(ids.map(async taskRunId =>
+      (await window.harness.conversation.getTaskRunDetail({ taskRunId })).taskRun.status)), tasks))
+      .toEqual(["done", "done"]);
     // Fixture data only: replace fake-model answers in this isolated DB, then
     // exercise the real saved-answer readers, renderer, preload, and clipboard.
     await app.evaluate(({ app }, { tasks, answer }) => {
       const path = process.getBuiltinModule("node:path");
       const load = process.getBuiltinModule("node:module").createRequire(path.join(app.getAppPath(), "package.json"));
       const db = new (load("better-sqlite3"))(path.join(app.getPath("userData"), "app.db"));
-      try {
+      try { db.transaction(() => {
         for (const id of tasks) {
           const invocation = db.prepare("SELECT raw_output_artifact_id, parsed_plan_artifact_id FROM agent_invocations WHERE task_run_id=?").get(id);
           for (const artifactId of [invocation.raw_output_artifact_id, invocation.parsed_plan_artifact_id]) {
             db.prepare("UPDATE artifacts SET summary=? WHERE id=?").run(answer, artifactId);
           }
         }
-      } finally { db.close(); }
+      }).immediate();
+      } catch (error) { throw new Error(`Private copy fixture: ${error.code}: ${error.message}`); }
+      finally { db.close(); }
+      const {ipcMain,clipboard}=load("electron"),original=ipcMain._invokeHandlers.get("app:copyText");
+      globalThis.__copyOutcomes=[];ipcMain.removeHandler("app:copyText");
+      ipcMain.handle("app:copyText",async(...args)=>{const start=Date.now(),result=await original(...args);
+        globalThis.__copyOutcomes.push({ok:result.ok,errorCode:result.error?.code,ms:Date.now()-start,matchesRequestedText:clipboard.readText()===args[1]?.text});return result;});
     }, { tasks, answer });
     await page.reload();
     await page.getByRole("button", { name: /답변 복사 검수/ }).click();
-    await page.locator(".thread-task-flow__node").last().click();
+    await page.locator('.thread-task-flow__node[title="설명해줘 2"]').click();
     await expect(page.locator(".thread-task-flow__node--selected")).toBeVisible();
-    const saved = page.locator(".inline-agent-stream--saved").first();
+    const saved = page.locator(".chat-turn").filter({
+      has: page.locator(".chat-bubble--user", { hasText: "설명해줘 1" }),
+    }).locator(".inline-agent-stream--saved");
     await expect(saved.getByRole("button", { name: "답변 복사", exact: true })).toBeVisible();
     const selectedBefore = await page.locator(".thread-task-flow__node--selected").getAttribute("title");
     await saved.getByRole("button", { name: "답변 복사", exact: true }).click();
+    await expect.poll(()=>app.evaluate(()=>globalThis.__copyOutcomes.length)).toBeGreaterThan(0);
+    console.log("COPY_NATIVE",JSON.stringify(await app.evaluate(()=>globalThis.__copyOutcomes)));
     await expect(saved.getByRole("button", { name: "답변 복사", exact: true })).toContainText("복사됨");
     expect(await app.evaluate(({ clipboard }) => clipboard.readText())).toBe(answer);
     expect(await page.locator(".thread-task-flow__node--selected").getAttribute("title")).toBe(selectedBefore);

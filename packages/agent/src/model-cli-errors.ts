@@ -12,11 +12,13 @@ import type { AgentErrorKind } from "./model-cli-types.ts";
 export class AgentCliError extends Error {
   readonly code: string;
   readonly kind: AgentErrorKind;
-  constructor(code: string, kind: AgentErrorKind, message: string) {
+  readonly processCleanupConfirmed?: boolean;
+  constructor(code: string, kind: AgentErrorKind, message: string, processCleanupConfirmed?: boolean) {
     super(message);
     this.name = "AgentCliError";
     this.code = code;
     this.kind = kind;
+    if (processCleanupConfirmed !== undefined) this.processCleanupConfirmed = processCleanupConfirmed;
   }
 }
 

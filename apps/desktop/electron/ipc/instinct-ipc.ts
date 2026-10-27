@@ -1,4 +1,5 @@
-import { ipcMain } from "electron";
+import { handleIpc } from "./ipc-lifecycle";
+
 import {
   IPC_CHANNELS,
   STATE_INVALID_INPUT,
@@ -32,7 +33,7 @@ const wrapErr = <T>(e: unknown): HarnessResult<T> => {
 };
 
 export const registerInstinctIpc = (service: InstinctService): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.list,
     async (_e, input: unknown): Promise<HarnessResult<Instinct[]>> => {
       const cast = isObject(input) ? input : {};
@@ -64,7 +65,7 @@ export const registerInstinctIpc = (service: InstinctService): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.listCandidates,
     async (
       _e,
@@ -88,7 +89,7 @@ export const registerInstinctIpc = (service: InstinctService): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.getCandidateEvidence,
     async (
       _e,
@@ -125,7 +126,7 @@ export const registerInstinctIpc = (service: InstinctService): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.approveCandidate,
     async (_e, input: unknown): Promise<HarnessResult<Instinct>> => {
       if (!isObject(input)) {
@@ -149,7 +150,7 @@ export const registerInstinctIpc = (service: InstinctService): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.rejectCandidate,
     async (
       _e,
@@ -182,7 +183,7 @@ export const registerInstinctIpc = (service: InstinctService): void => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHANNELS.instinct.disable,
     async (_e, input: unknown): Promise<HarnessResult<Instinct>> => {
       if (!isObject(input)) {

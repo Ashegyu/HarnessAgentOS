@@ -129,3 +129,14 @@ test("isTestCommand rejects non-test commands", () => {
   assert.equal(isTestCommand("ls -la"), false);
   assert.equal(isTestCommand(""), false);
 });
+
+test("isTestCommand does not mistake quoted words or masked shell failures for tests", () => {
+  for (const command of [
+    'echo "npm test build smoke"',
+    'node -e "console.log(\"vitest\")"',
+    "npm test || true",
+    "pytest --collect-only",
+    "dotnet test --list-tests",
+    "npx vitest --help",
+  ]) assert.equal(isTestCommand(command), false, command);
+});

@@ -151,6 +151,7 @@ interface ApprovalRow {
   execution_state?: Approval["executionState"] | null;
   execution_started_at?: string | null;
   execution_finished_at?: string | null;
+  retry_approval_id?: string | null;
 }
 
 export const rowToApproval = (r: ApprovalRow): Approval => {
@@ -167,6 +168,7 @@ export const rowToApproval = (r: ApprovalRow): Approval => {
     executionState: r.execution_state ?? undefined,
     executionStartedAt: r.execution_started_at ?? undefined,
     executionFinishedAt: r.execution_finished_at ?? undefined,
+    retryApprovalId: r.retry_approval_id ?? undefined,
   };
   if (r.decision_message !== null) a.decisionMessage = r.decision_message;
   if (r.decided_at !== null) a.decidedAt = r.decided_at;

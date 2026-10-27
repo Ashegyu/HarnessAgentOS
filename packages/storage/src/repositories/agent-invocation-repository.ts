@@ -252,7 +252,7 @@ export class SqliteAgentInvocationRepository
       else next.usageApproximate = patch.usageApproximate;
     }
     next.updatedAt = nowIso();
-    this.db
+    const updated = this.db
       .prepare(
         `UPDATE agent_invocations SET
             status = @status,
@@ -270,7 +270,9 @@ export class SqliteAgentInvocationRepository
             total_tokens = @totalTokens,
             usage_approximate = @usageApproximate,
             updated_at = @updatedAt
-         WHERE id = @id`,
+         WHERE id = @id
+           AND status <> 'cancelled'
+           AND (@status <> 'cancelled' OR status NOT IN ('succeeded', 'failed'))`,
       )
       .run({
         id: next.id,
@@ -295,7 +297,9 @@ export class SqliteAgentInvocationRepository
               : 0,
         updatedAt: next.updatedAt,
       });
-    return next;
+    // A cancellation may have committed while the async read above yielded.
+    // Return the persisted winner instead of reporting an update that lost.
+    return updated.changes === 0 ? (await this.get(id)) ?? next : next;
   }
 
   async listByTaskRun(taskRunId: string): Promise<AgentInvocation[]> {

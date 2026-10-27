@@ -239,13 +239,14 @@ test("app namespace exposes runtime, file pickers, and write-only clipboard", ()
   assert.equal(isAllowedChannel("app:readText"), false);
 });
 
-test("state namespace exposes Phase 1 verbs only", () => {
+test("state namespace exposes state verbs and bounded recent task history", () => {
   assert.deepEqual(Object.keys(IPC_CHANNELS.state).sort(), [
     "createThread",
     "deleteThread",
     "exportDbSnapshot",
     "exportThreadMarkdown",
     "getThread",
+    "listRecentTaskRuns",
     "listThreads",
   ]);
 });
@@ -261,6 +262,7 @@ test("conversation namespace exposes Phase 2/3 + state-action verbs", () => {
     "listDecisions",
     "listRefinementEvents",
     "pauseTask",
+    "prepareActionRetry",
     "redirectTask",
     "rejectApproval",
     "resumeTask",

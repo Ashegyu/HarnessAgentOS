@@ -27,6 +27,10 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   }
 
   async create(input: CreateTaskRunInput): Promise<TaskRun> {
+    return this.createSync(input);
+  }
+
+  createSync(input: CreateTaskRunInput): TaskRun {
     const now = nowIso();
     const taskRun: TaskRun = {
       id: newId("taskRun"),
@@ -82,6 +86,10 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
   }
 
   async get(id: string): Promise<TaskRun | null> {
+    return this.getSync(id);
+  }
+
+  getSync(id: string): TaskRun | null {
     const row = this.db
       .prepare(
         `SELECT id, thread_id, user_request, target_dir, follow_up_task_run_id, status, current_step_id, created_at, updated_at,
@@ -94,6 +102,19 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
 
   async updateStatus(id: string, status: TaskRunStatus, expectedStatus?: TaskRunStatus): Promise<TaskRun> {
     const existing = await this.get(id);
+    return this.updateExistingStatus(id, existing, status, expectedStatus);
+  }
+
+  updateStatusSync(id: string, status: TaskRunStatus, expectedStatus?: TaskRunStatus): TaskRun {
+    return this.updateExistingStatus(id, this.getSync(id), status, expectedStatus);
+  }
+
+  private updateExistingStatus(
+    id: string,
+    existing: TaskRun | null,
+    status: TaskRunStatus,
+    expectedStatus?: TaskRunStatus,
+  ): TaskRun {
     if (!existing) throw new Error(`TaskRun ${id} not found`);
     const next: TaskRun = {
       ...existing,
@@ -110,7 +131,7 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
     if (updated.changes !== 1) {
       // Independent runners may publish the same state concurrently. Treat
       // that as idempotent without writing over a newer, different state.
-      const current = await this.get(id);
+      const current = this.getSync(id);
       if (current?.status === status) return current;
       throw Object.assign(new Error("작업 상태가 변경되었습니다. 최신 상태를 확인한 후 다시 시도하세요."), {
         code: "TASK_RUN_STATE_CONFLICT",
@@ -121,6 +142,14 @@ export class SqliteTaskRunRepository implements TaskRunRepository {
 
   async setCurrentStep(id: string, stepId: string | null): Promise<TaskRun> {
     const existing = await this.get(id);
+    return this.setExistingCurrentStep(id, existing, stepId);
+  }
+
+  setCurrentStepSync(id: string, stepId: string | null): TaskRun {
+    return this.setExistingCurrentStep(id, this.getSync(id), stepId);
+  }
+
+  private setExistingCurrentStep(id: string, existing: TaskRun | null, stepId: string | null): TaskRun {
     if (!existing) throw new Error(`TaskRun ${id} not found`);
     const next: TaskRun = { ...existing, updatedAt: nowIso() };
     if (stepId === null) delete next.currentStepId;

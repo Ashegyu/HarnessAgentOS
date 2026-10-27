@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   QUALITY_DONE_BLOCKED,
   TaskRunCompletionError,
@@ -8,7 +7,7 @@ import {
   type QualityGateResult,
   type RepairPlanDraft,
 } from "@harness/core";
-import type { LocalStateService } from "@harness/storage";
+import { qualityFailureSignature, type LocalStateService } from "@harness/storage";
 
 export interface RepairLoopAgentPlanning {
   generatePlan(input: {
@@ -46,32 +45,25 @@ export class RepairLoopService {
 
   async createRepairPlan(input: CreateRepairLoopInput): Promise<RepairPlanDraft> {
     const gate = await this.requireRepairableGate(input.taskRunId);
-    const signature = failureSignature(gate);
-    const attempts = await this.deps.state.repairAttempts.listByTaskRun(
-      input.taskRunId,
-    );
-    if (attempts.length >= this.maxAttempts) {
-      throw new TaskRunCompletionError(
-        QUALITY_DONE_BLOCKED,
-        `Repair loop stopped after ${this.maxAttempts} attempts`,
-      );
-    }
-    const repeated = attempts.some(
-      (attempt) => attempt.failureSignature === signature,
-    );
-    if (repeated) {
-      throw new TaskRunCompletionError(
-        QUALITY_DONE_BLOCKED,
-        "Repair loop stopped because the same quality failure signature repeated",
-      );
-    }
-
-    const attempt = await this.deps.state.repairAttempts.create({
+    const reservation = await this.deps.state.repairAttempts.reserve({
       taskRunId: input.taskRunId,
       qualityGateId: gate.id,
-      failureSignature: signature,
       status: "planned",
+      maxAttempts: this.maxAttempts,
     });
+    if (!reservation.reserved) {
+      const messages = {
+        limit: `Repair loop stopped after ${this.maxAttempts} attempts`,
+        repeated_signature: "Repair loop stopped because the same quality failure signature repeated",
+        stale_gate: "Quality gate changed before the repair attempt was reserved; evaluate the latest result",
+        unverifiable_failure: "Repair loop stopped because persisted quality failure evidence cannot be verified",
+      };
+      throw new TaskRunCompletionError(
+        QUALITY_DONE_BLOCKED,
+        messages[reservation.reason],
+      );
+    }
+    const attempt = reservation.attempt;
 
     if (!this.deps.agentPlanning) {
       await this.deps.state.repairAttempts.update(attempt.id, {
@@ -176,17 +168,7 @@ export class RepairLoopService {
   }
 }
 
-export const failureSignature = (gate: QualityGateResult): string => {
-  const payload = JSON.stringify({
-    status: gate.status,
-    knownRisks: [...gate.knownRisks].sort(),
-    evidenceArtifactIds: [...gate.evidenceArtifactIds].sort(),
-    buildPassed: gate.buildPassed ?? null,
-    testsPassed: gate.testsPassed ?? null,
-    smokePassed: gate.smokePassed ?? null,
-  });
-  return createHash("sha256").update(payload).digest("hex");
-};
+export const failureSignature = qualityFailureSignature;
 
 const buildRepairInstruction = (
   gate: QualityGateResult,

@@ -41,6 +41,38 @@ const seed = async (state, gatePatch = {}) => {
 
 const makeCompletion = (state) => new TaskRunCompletionService({ state });
 
+test("failure signatures ignore recording identity and use an unordered set of exact risks", () => {
+  const gate = { id: "old", taskRunId: "task", status: "failed", testsPassed: false,
+    knownRisks: ["tests failed", "build missing"], evidenceArtifactIds: ["old-log"], createdAt: "2020-01-01" };
+  assert.equal(failureSignature(gate), failureSignature({ ...gate, id: "new", evidenceArtifactIds: ["new-log", "new-diff"],
+    createdAt: "2030-01-01", knownRisks: ["build missing", "tests failed", "tests failed"],
+    validationState: { workspaceKey: "other", fingerprint: "new", generation: 42, watermark: 100 } }));
+  assert.notEqual(failureSignature(gate), failureSignature({ ...gate, knownRisks: ["different failure"] }));
+  assert.notEqual(failureSignature(gate), failureSignature({ ...gate, testsPassed: true }));
+});
+
+for (const legacy of [false, true]) {
+  test(`the same failure with new artifact IDs stops before another model call (${legacy ? "legacy history" : "new history"})`, async () => {
+    const db = openDb({ filePath: ":memory:" });
+    try {
+      const state = new LocalStateService(db);
+      const { taskRun, gate } = await seed(state);
+      let calls = 0;
+      const planning = makeAgentPlanningStub(state);
+      const service = new RepairLoopService({ state, completion: makeCompletion(state), maxAttempts: 4,
+        agentPlanning: { generatePlan: async input => { calls++; return planning.generatePlan(input); } } });
+      if (legacy) await state.repairAttempts.create({ taskRunId: taskRun.id, qualityGateId: gate.id, failureSignature: "historical-v1-hash", status: "stopped" });
+      else await service.createRepairPlan({ taskRunId: taskRun.id });
+      const beforeCalls = calls;
+      await state.createQualityGateResult({ ...gate, id: "reexecuted-gate", evidenceArtifactIds: ["different-artifact-id"], createdAt: "2026-06-01" });
+      await state.setTaskRunStatus(taskRun.id, "quality_failed");
+      await assert.rejects(service.createRepairPlan({ taskRunId: taskRun.id }), error => error.code === "QUALITY_DONE_BLOCKED" && /same quality failure signature/.test(error.message));
+      assert.equal(calls, beforeCalls);
+      assert.equal((await state.repairAttempts.listByTaskRun(taskRun.id)).length, 1);
+    } finally { closeDb(db); }
+  });
+}
+
 const makeAgentPlanningStub = (state) => ({
   generatePlan: async ({ taskRunId, instruction }) => {
     assert.ok(instruction.includes("QUALITY REPAIR LOOP"));
@@ -194,4 +226,118 @@ test("RepairLoopService falls back to template repair when provider is unavailab
     closeDb(db);
     t.cleanup();
   }
+});
+
+for (const { name, maxAttempts, priorAttempts } of [
+  { name: "duplicate signature", maxAttempts: 4, priorAttempts: 0 },
+  { name: "last remaining attempt", maxAttempts: 2, priorAttempts: 1 },
+]) {
+  test(`RepairLoopService atomically reserves ${name} across two SQLite connections`, async () => {
+    const t = tmp();
+    const db = openDb({ filePath: t.file });
+    let secondDb;
+    try {
+      const state = new LocalStateService(db);
+      const { taskRun, gate } = await seed(state);
+      for (let i = 0; i < priorAttempts; i++) {
+        const previous = await state.createQualityGateResult({ ...gate, id: `prior-gate-${i}`, knownRisks: [`previous failure ${i}`] });
+        await state.repairAttempts.create({ taskRunId: taskRun.id, qualityGateId: previous.id,
+          failureSignature: `previous-${i}`, status: "stopped" });
+      }
+      // Previous attempts need distinct source failures, not arbitrary hashes
+      // for the same gate. Reinsert the current failure as the latest gate.
+      if (priorAttempts) {
+        gate.id = "current-gate";
+        await state.createQualityGateResult(gate);
+      }
+      secondDb = openDb({ filePath: t.file });
+      const secondState = new LocalStateService(secondDb);
+      let modelCalls = 0;
+      const services = [state, secondState].map(current => {
+        const planning = makeAgentPlanningStub(current);
+        return new RepairLoopService({ state: current, completion: makeCompletion(current), maxAttempts,
+          agentPlanning: { generatePlan: async input => { modelCalls++; return planning.generatePlan(input); } } });
+      });
+      const results = await Promise.allSettled([0, 1, 0].map(index =>
+        services[index].createRepairPlan({ taskRunId: taskRun.id })));
+      assert.equal(results.filter(result => result.status === "fulfilled").length, 1,
+        "only the owner of the reserved signature may create a model plan");
+      assert.equal(results.filter(result => result.status === "rejected" && result.reason.code === "QUALITY_DONE_BLOCKED").length, 2);
+      assert.equal(modelCalls, 1);
+      const attempts = await state.repairAttempts.listByTaskRun(taskRun.id);
+      assert.equal(attempts.length, priorAttempts + 1);
+      assert.equal(attempts.filter(attempt => attempt.failureSignature === failureSignature(gate)).length, 1);
+      assert.deepEqual(attempts.map(attempt => attempt.attemptIndex), Array.from({ length: priorAttempts + 1 }, (_, i) => i));
+    } finally {
+      if (secondDb) closeDb(secondDb);
+      closeDb(db);
+      t.cleanup();
+    }
+  });
+}
+
+test("RepairLoopService rejects a stale gate before reserving or starting a model", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const state = new LocalStateService(db);
+    const { taskRun, gate } = await seed(state);
+    const getLatest = state.getLatestQualityGateResult.bind(state);
+    let changed = false;
+    state.getLatestQualityGateResult = async id => {
+      const snapshot = await getLatest(id);
+      if (!changed) {
+        changed = true;
+        await state.createQualityGateResult({ ...gate, id: "new-passed-gate", status: "passed",
+          testsPassed: true, knownRisks: [], createdAt: "2026-05-16T00:00:01.000Z" });
+      }
+      return snapshot;
+    };
+    let modelCalls = 0;
+    const planning = makeAgentPlanningStub(state);
+    const service = new RepairLoopService({ state, completion: makeCompletion(state),
+      agentPlanning: { generatePlan: async input => { modelCalls++; return planning.generatePlan(input); } } });
+    await assert.rejects(service.createRepairPlan({ taskRunId: taskRun.id }), error =>
+      error.code === "QUALITY_DONE_BLOCKED" && /quality gate changed/i.test(error.message));
+    assert.equal(modelCalls, 0);
+    assert.deepEqual(await state.repairAttempts.listByTaskRun(taskRun.id), []);
+    assert.deepEqual(await state.listArtifactsByTaskRun(taskRun.id), []);
+  } finally { closeDb(db); }
+});
+
+test("RepairLoopService rolls back a failed reservation and can reserve after storage recovers", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const state = new LocalStateService(db);
+    const { taskRun } = await seed(state);
+    db.exec("CREATE TRIGGER reject_repair AFTER INSERT ON repair_attempts BEGIN SELECT RAISE(ABORT, 'reservation interrupted'); END");
+    let modelCalls = 0;
+    const planning = makeAgentPlanningStub(state);
+    const service = new RepairLoopService({ state, completion: makeCompletion(state), maxAttempts: 1,
+      agentPlanning: { generatePlan: async input => { modelCalls++; return planning.generatePlan(input); } } });
+    await assert.rejects(service.createRepairPlan({ taskRunId: taskRun.id }), /reservation interrupted/);
+    assert.equal(modelCalls, 0);
+    assert.equal(db.inTransaction, false);
+    assert.deepEqual(await state.repairAttempts.listByTaskRun(taskRun.id), []);
+    db.exec("DROP TRIGGER reject_repair");
+    const draft = await service.createRepairPlan({ taskRunId: taskRun.id });
+    assert.equal(draft.source, "agent");
+    assert.equal(modelCalls, 1);
+    assert.equal((await state.repairAttempts.listByTaskRun(taskRun.id))[0].attemptIndex, 0);
+  } finally { closeDb(db); }
+});
+
+test("RepairLoopService reservations for one task do not suppress another task with the same failure", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const state = new LocalStateService(db);
+    const first = await seed(state);
+    const second = await seed(state, { id: "qg-2" });
+    const service = new RepairLoopService({ state, completion: makeCompletion(state), maxAttempts: 1,
+      agentPlanning: makeAgentPlanningStub(state) });
+    const drafts = await Promise.all([first, second].map(({ taskRun }) => service.createRepairPlan({ taskRunId: taskRun.id })));
+    assert.equal(drafts.length, 2);
+    assert.ok(drafts.every(draft => draft.source === "agent"));
+    assert.equal((await state.repairAttempts.listByTaskRun(first.taskRun.id)).length, 1);
+    assert.equal((await state.repairAttempts.listByTaskRun(second.taskRun.id)).length, 1);
+  } finally { closeDb(db); }
 });

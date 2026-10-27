@@ -1,3 +1,5 @@
+import type { QualityValidationState } from "./validation-run.ts";
+
 export type QualityGateStatus = "passed" | "failed" | "warning" | "not_run";
 
 export const QUALITY_GATE_STATUSES: readonly QualityGateStatus[] = [
@@ -18,6 +20,7 @@ export interface QualityGateResult {
   knownRisks: string[];
   evidenceArtifactIds: string[];
   createdAt: string;
+  validationState?: QualityValidationState;
 }
 
 export interface QualityGateInput {

@@ -18,7 +18,9 @@ const DEFAULT_MAX_BYTES = 10 * 1024;
 
 export const packRepoContext = (input: PackRepoContextInput): PackedRepoContext => {
   const maxFiles = Math.max(1, Math.min(input.maxFiles ?? DEFAULT_MAX_FILES, 30));
-  const maxBytes = Math.max(1_024, input.maxBytes ?? DEFAULT_MAX_BYTES);
+  const byteBudget = input.maxBytes ?? DEFAULT_MAX_BYTES;
+  if (!Number.isFinite(byteBudget) || byteBudget < 0) throw new RangeError("maxBytes must be a finite nonnegative byte budget");
+  const maxBytes = Math.floor(byteBudget);
   const tokens = tokenize(input.prompt);
   const scored = input.files
     .map((file) => ({
@@ -48,7 +50,7 @@ export const packRepoContext = (input: PackRepoContextInput): PackedRepoContext 
       `### ${file.relativePath}`,
       `- kind: ${file.fileKind}`,
       `- size: ${file.sizeBytes} bytes`,
-      `- summary: ${file.summary.slice(0, 500)}`,
+      `- summary: ${safeSummaryPrefix(file.summary)}`,
     );
     if (file.symbols.length > 0) {
       lines.push(`- symbols: ${file.symbols.slice(0, 12).join(", ")}`);
@@ -59,13 +61,28 @@ export const packRepoContext = (input: PackRepoContextInput): PackedRepoContext 
   }
   let section = lines.join("\n");
   if (Buffer.byteLength(section, "utf8") > maxBytes) {
-    section = `${section.slice(0, maxBytes - 32)}\n[...repo context truncated]`;
+    const marker = "\n[...repo context truncated]";
+    const available = maxBytes - Buffer.byteLength(marker, "utf8");
+    if (available < 0) section = "";
+    else {
+      const bytes = Buffer.from(section, "utf8");
+      let end = available;
+      while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
+      section = bytes.subarray(0, end).toString("utf8") + marker;
+    }
   }
   return {
     section,
     selectedFiles: selected.map((file) => file.relativePath),
     indexedFileCount: input.files.length,
   };
+};
+
+const safeSummaryPrefix = (text: string): string => {
+  let end = Math.min(500, text.length);
+  const last = text.charCodeAt(end - 1), next = text.charCodeAt(end);
+  if (last >= 0xd800 && last <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) end--;
+  return text.slice(0, end);
 };
 
 const tokenize = (value: string): Set<string> =>

@@ -9,12 +9,14 @@ import { collectEvidence } from "./evidence-reader.ts";
 import { taskContractFor } from "@harness/core";
 import { collectRisks } from "./risk-policy.ts";
 import type { LocalStateService } from "@harness/storage";
-import { newId, nowIso } from "@harness/storage";
+import { captureValidationRevision, newId, nowIso, type ValidationRevision } from "@harness/storage";
 
 export interface QualityEvaluatorDeps {
   state: LocalStateService;
   /** Optional host verifier for report-only file delivery; never model prose. */
   verifyReportDelivery?: (task: TaskRun, diffArtifacts: Artifact[]) => Promise<boolean>;
+  /** Tests may supply a deterministic manifest; production hashes actual inputs. */
+  captureRevision?: (targetDir: string) => Promise<ValidationRevision>;
 }
 
 /**
@@ -40,18 +42,49 @@ export class QualityEvaluator {
     if (!taskRun) {
       throw new Error(`TaskRun ${input.taskRunId} not found`);
     }
-    const [steps, artifacts] = await Promise.all([
+    const contract = taskContractFor(taskRun);
+    const watermark = await this.deps.state.validationRuns?.getWatermark(input.taskRunId) ?? 0;
+    const [steps, artifacts, runs] = await Promise.all([
       this.deps.state.listStepsByTaskRun(input.taskRunId),
       this.deps.state.listArtifactsByTaskRun(input.taskRunId),
+      this.deps.state.validationRuns?.listByTaskRun(input.taskRunId) ?? Promise.resolve([]),
     ]);
 
     const currentSteps = steps.filter(step => step.taskRunId === taskRun.id);
     const currentArtifacts = artifacts.filter(artifact => artifact.taskRunId === taskRun.id);
-    const evidence = collectEvidence(currentSteps, currentArtifacts);
+    const currentRuns = runs.filter(run => run.taskRunId === taskRun.id);
+    // A delivered read-only response claims no code validation. Preserve that
+    // contract without imposing filesystem availability on ordinary answers.
+    const needsWorkspaceValidation = contract.authorization.mode !== "read_only" ||
+      input.requireBuild === true || input.requireTests === true || input.requireSmoke === true ||
+      currentRuns.length > 0 || currentArtifacts.some(artifact => artifact.kind === "diff") ||
+      currentSteps.some(step => step.kind === "edit");
+    const captureWorkspace = needsWorkspaceValidation && typeof taskRun.targetDir === "string";
+    const revision = captureWorkspace
+      ? await (this.deps.captureRevision ?? captureValidationRevision)(taskRun.targetDir)
+      : { workspaceKey: "", fingerprint: null };
+    const epoch = captureWorkspace
+      ? await this.deps.state.workspaceMutations?.get(revision.workspaceKey) ?? { generation: 0, activeMutations: 0 }
+      : { generation: 0, activeMutations: 0 };
+    const evidence = collectEvidence(currentSteps, currentArtifacts, currentRuns, { ...revision, ...epoch });
     const changedArtifacts = currentArtifacts.filter(a => evidence.diffArtifactIds.includes(a.id));
-    const reportDelivered = taskContractFor(taskRun).intent === "change" && changedArtifacts.length > 0 &&
+    const reportDelivered = contract.intent === "change" && changedArtifacts.length > 0 &&
       changedArtifacts.every(a => currentSteps.some(step => step.id === a.stepId && step.kind === "edit" && step.status === "succeeded")) &&
       await this.deps.verifyReportDelivery?.(taskRun, changedArtifacts) === true;
+    const finalRevision = captureWorkspace
+      ? await (this.deps.captureRevision ?? captureValidationRevision)(taskRun.targetDir)
+      : revision;
+    const finalEpoch = captureWorkspace ? await this.deps.state.workspaceMutations?.get(revision.workspaceKey) ?? epoch : epoch;
+    const finalWatermark = await this.deps.state.validationRuns?.getWatermark(input.taskRunId) ?? watermark;
+    const changedDuringEvaluation = finalRevision.workspaceKey !== revision.workspaceKey ||
+      finalRevision.fingerprint !== revision.fingerprint || finalEpoch.generation !== epoch.generation ||
+      finalEpoch.activeMutations !== epoch.activeMutations || finalWatermark !== watermark;
+    if (changedDuringEvaluation) {
+      evidence.buildEvidence.length = 0;
+      evidence.testEvidence.length = 0;
+      evidence.smokeEvidence.length = 0;
+      (evidence.unverifiedReasons ??= []).push("validation inputs or execution results changed during evaluation; evaluate again");
+    }
     const risks = collectRisks(evidence, {
       requireBuild: input.requireBuild,
       requireTests: input.requireTests,
@@ -61,7 +94,6 @@ export class QualityEvaluator {
 
     let status = computeStatus(evidence, risks, input);
     const responseArtifactIds: string[] = [];
-    const contract = taskContractFor(taskRun);
     if (contract.authorization.mode === "read_only") {
       const invocations = await this.deps.state.listAgentInvocationsByTaskRun(taskRun.id);
       const latest = [...invocations].filter(row => row.taskRunId === taskRun.id)
@@ -100,6 +132,10 @@ export class QualityEvaluator {
       knownRisks: risks,
       evidenceArtifactIds: [...new Set([...collectEvidenceArtifactIds(evidence), ...responseArtifactIds])],
       createdAt: nowIso(),
+      ...(captureWorkspace ? { validationState: {
+        workspaceKey: revision.workspaceKey, fingerprint: revision.fingerprint,
+        generation: epoch.generation, watermark,
+      } } : {}),
     };
     if (evidence.buildEvidence.length > 0) {
       result.buildPassed = evidence.buildEvidence.every((e) => e.passed);
@@ -114,8 +150,7 @@ export class QualityEvaluator {
       result.changedFilesReviewed = false;
     }
 
-    await this.deps.state.createQualityGateResult(result);
-    return result;
+    return this.deps.state.createQualityGateResult(result);
   }
 }
 

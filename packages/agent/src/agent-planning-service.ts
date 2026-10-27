@@ -1,4 +1,5 @@
 import {
+  AsyncWorkScope,
   AGENT_BUDGET_UNVERIFIABLE,
   AGENT_CANCELLED,
   AGENT_INVALID_OUTPUT,
@@ -10,6 +11,7 @@ import {
   AGENT_TASK_RUN_NOT_FOUND,
   DEFAULT_AGENT_STALL_TIMEOUT_MS,
   DEFAULT_AGENT_TIMEOUT_MS,
+  createRedactedAgentStream,
   evaluateBudget,
   formatDiagnosticLog,
   isHarnessError,
@@ -38,7 +40,7 @@ import {
   type ProposedActionDetails,
   type TaskRun,
 } from "@harness/core";
-import { redactSecrets } from "@harness/learner";
+import { redactSecrets, redactSecretValues } from "@harness/learner";
 import {
   buildSplitAgentPrompt,
   type AgentHandoffPromptMessage,
@@ -85,6 +87,12 @@ export class AgentPlanningError extends Error {
     this.code = code;
   }
 }
+
+const throwIfInvocationCancelled = (...signals: AbortSignal[]): void => {
+  if (signals.some(signal => signal.aborted)) {
+    throw new AgentPlanningError(AGENT_CANCELLED, "Cancelled by user");
+  }
+};
 
 export interface AgentPlanningServiceDeps {
   state: AgentPlanningStateGateway;
@@ -231,6 +239,11 @@ export class AgentPlanningService {
   private readonly deps: AgentPlanningServiceDeps;
   private readonly invoker: ModelInvoker;
   private readonly queue: AgentInvocationQueue;
+  /** Covers preparation and result handling as well as the queue-owned process. */
+  private readonly activeInvocations = new Map<string, AbortController>();
+  private readonly operations = new AsyncWorkScope(() => new AgentPlanningError(AGENT_CANCELLED, "Application is shutting down"));
+  private processCleanupUnconfirmed = false;
+  private shutdownStorageFailure: unknown;
   private readonly budgetBlockWrites = new Map<string, Promise<void>>();
   private readonly defaults: { timeoutMs: number; stallTimeoutMs: number };
   private readonly workspaceChangeTracker: WorkspaceChangeTracker | null;
@@ -262,7 +275,25 @@ export class AgentPlanningService {
     return { codex, total: codex };
   }
 
-  async generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResult> {
+  generatePlan(input: GeneratePlanInput): Promise<GeneratePlanResult> {
+    return this.trackOperation(() => this.generatePlanOnce(input));
+  }
+
+  async shutdown(): Promise<void> {
+    this.operations.seal();
+    const cancellations = [...this.activeInvocations].map(async ([invocationId, controller]) => {
+      try { await this.cancelInvocation({ invocationId }); }
+      finally { controller.abort(); this.queue.cancel(invocationId); }
+    });
+    const outcomes = await Promise.allSettled(cancellations);
+    await this.operations.drain();
+    if (this.shutdownStorageFailure) throw this.shutdownStorageFailure;
+    if (this.processCleanupUnconfirmed) throw new Error("Agent process tree cleanup could not be confirmed");
+    const failure = outcomes.find(outcome => outcome.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  }
+
+  private async generatePlanOnce(input: GeneratePlanInput): Promise<GeneratePlanResult> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
       throw new AgentPlanningError(
@@ -438,21 +469,17 @@ export class AgentPlanningService {
       ...(resolved.profile ? { profileId: resolved.profile.id } : {}),
     });
 
-    const startedAt = new Date().toISOString();
-    await this.deps.state.updateAgentInvocation(invocation.id, {
-      status: "running",
-      startedAt,
-    });
+    const lifetime = new AbortController();
     const emit = this.deps.emitStreamEvent ?? (() => {});
     const persistedStreamEvents = new BoundedAgentStreamEventBuffer({
       maxEvents: DEFAULT_MAX_PERSISTED_STREAM_EVENTS,
       maxBytes: DEFAULT_MAX_PERSISTED_STREAM_BYTES,
     });
-    const emitCaptured = (event: AgentStreamEvent): void => {
-      const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
-      persistedStreamEvents.push(redacted);
-      emit(redacted);
-    };
+    const streamAudit = createRedactedAgentStream({
+      redactEvent: redactStreamEvent,
+      emit: event => { persistedStreamEvents.push(event); emit(event); },
+    });
+    const emitCaptured = (event: AgentStreamEvent): void => streamAudit.push(withTaskRunScope(event, taskRun.id));
     const emitProgress = (
       stage: AgentProgressStage,
       message: string,
@@ -503,22 +530,35 @@ export class AgentPlanningService {
     // Phase 4b — Codex receives verified `-c mcp_servers.*` overrides.
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
-    if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
-      const prep = await this.deps.prepareMcpInvocation({
-        profileId: resolved.profile?.id ?? null,
-        provider,
-      });
-      codexConfigOverrides = prep.codexConfigOverrides;
-      mcpCleanup = prep.cleanup;
-    }
-    emitProgress(
-      "mcp",
-      codexConfigOverrides.length > 0
-        ? "MCP 설정 준비 완료"
-        : "활성 MCP 설정 없음",
-    );
-
+    let assistantOutput = "";
+    let rawProviderOutput = "";
+    let latencyMs = 0;
+    let costEstimate: number | undefined;
+    let cliTruncation: ModelCliResult["truncation"];
+    let tokenUsage: ModelCliResult["tokenUsage"];
+    this.activeInvocations.set(invocation.id, lifetime);
     try {
+      try {
+      await this.assertInvocationActive(invocation.id, taskRun.id, lifetime);
+      const runningInvocation = await this.deps.state.updateAgentInvocation(invocation.id, {
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
+      if (runningInvocation.status === "cancelled") lifetime.abort();
+      throwIfInvocationCancelled(lifetime.signal);
+      if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
+        const prep = await this.deps.prepareMcpInvocation({
+          profileId: resolved.profile?.id ?? null,
+          provider,
+        });
+        codexConfigOverrides = prep.codexConfigOverrides;
+        mcpCleanup = prep.cleanup;
+      }
+      throwIfInvocationCancelled(lifetime.signal);
+      emitProgress(
+        "mcp",
+        codexConfigOverrides.length > 0 ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+      );
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -567,29 +607,29 @@ export class AgentPlanningService {
             }
           : {}),
       });
-      let assistantOutput = "";
-      let rawProviderOutput = "";
-      let latencyMs = 0;
-      let costEstimate: number | undefined;
-      let cliTruncation: ModelCliResult["truncation"];
-      let tokenUsage: ModelCliResult["tokenUsage"];
-      try {
+        throwIfInvocationCancelled(lifetime.signal);
         const cliProgressDetail = `${provider}:${model} · cwd ${taskRun.targetDir}`;
         emitProgress("queued", "CLI 실행 대기열 등록", cliProgressDetail);
         const result = await this.queue.enqueue({
           provider,
           invocationId: invocation.id,
           work: (signal) => {
+            throwIfInvocationCancelled(lifetime.signal, signal);
             emitProgress("cli", "CLI 프로세스 시작", cliProgressDetail);
             return this.invokeWithWorkspaceChangeEvidence({
               request,
               taskRunId: taskRun.id,
               stepId: planStep.id,
               title: "Workspace change evidence",
-              invoke: () => this.invoker.invoke(request, emitCaptured, signal),
+              invoke: () => {
+                throwIfInvocationCancelled(lifetime.signal, signal);
+                return this.invoker.invoke(request, emitCaptured, signal);
+              },
             });
           },
         });
+        streamAudit.flush();
+        throwIfInvocationCancelled(lifetime.signal);
         assistantOutput = result.stdout;
         rawProviderOutput = result.rawStdout ?? result.stdout;
         latencyMs = result.latencyMs;
@@ -597,13 +637,13 @@ export class AgentPlanningService {
         cliTruncation = result.truncation;
         tokenUsage = result.tokenUsage;
       } catch (e) {
-      const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
+      const isCancelled = lifetime.signal.aborted || (isHarnessError(e) && e.code === AGENT_CANCELLED);
       const code = isCancelled
         ? AGENT_CANCELLED
         : e instanceof AgentCliError
           ? e.code
           : AGENT_PROVIDER_UNAVAILABLE;
-      const message = isHarnessError(e)
+      const message = lifetime.signal.aborted ? "Cancelled by user" : isHarnessError(e)
         ? e.message
         : e instanceof Error
           ? e.message
@@ -622,6 +662,7 @@ export class AgentPlanningService {
         model,
         ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
       });
+      if (!isCancelled) throwIfInvocationCancelled(lifetime.signal);
       if (isCancelled) {
         emitCaptured({
           type: "cancelled",
@@ -649,7 +690,7 @@ export class AgentPlanningService {
         errorCode: code,
         message,
       });
-      await this.deps.state.updateAgentInvocation(invocation.id, {
+      const failedInvocation = await this.deps.state.updateAgentInvocation(invocation.id, {
         status: "failed",
         errorCode: code,
         errorMessage: redactSecrets(message, 2_000),
@@ -658,6 +699,8 @@ export class AgentPlanningService {
           ? { rawOutputArtifactId: diagnosticArtifact.id }
           : {}),
       });
+      if (failedInvocation.status === "cancelled") lifetime.abort();
+      throwIfInvocationCancelled(lifetime.signal);
       await this.deps.state.setStepStatus(planStep.id, "failed", {
         outputSummary: `${code}: ${message.slice(0, 200)}`,
       });
@@ -717,6 +760,7 @@ export class AgentPlanningService {
       uri: `harness:agent-output/${taskRun.id}/${Date.now()}`,
       summary: persistedStreamTranscript,
     });
+    throwIfInvocationCancelled(lifetime.signal);
     await this.deps.state.updateAgentInvocation(invocation.id, {
       rawOutputArtifactId: rawOutputArtifact.id,
       latencyMs,
@@ -728,6 +772,7 @@ export class AgentPlanningService {
     });
 
     // 6. parse
+    throwIfInvocationCancelled(lifetime.signal);
     emitProgress("parse", "응답 파싱 중", `${redactedOutput.length}자 출력`);
     const parsed = parseAgentPlan(assistantOutput, text => redactSecrets(text, Number.MAX_SAFE_INTEGER));
     if (!parsed.ok) {
@@ -791,8 +836,9 @@ export class AgentPlanningService {
       kind: "plan",
       title: "Agent plan",
       uri: `harness:agent-plan/${taskRun.id}/${Date.now()}`,
-      summary: renderPlanMarkdown(plan, acceptedActions.length, policyReport),
+      summary: redactSecrets(renderPlanMarkdown(plan, acceptedActions.length, policyReport), 200_000),
     });
+    throwIfInvocationCancelled(lifetime.signal);
     await this.deps.state.setStepStatus(planStep.id, "succeeded", {
       outputSummary: `accepted ${acceptedActions.length}/${plan.proposedActions.length} actions`,
     });
@@ -818,6 +864,7 @@ export class AgentPlanningService {
     }
 
     // 9. checkpoint + approvals
+    throwIfInvocationCancelled(lifetime.signal);
     emitProgress(
       "approval",
       acceptedActions.length > 0
@@ -850,6 +897,7 @@ export class AgentPlanningService {
 
     const approvals: Approval[] = [];
     for (const { action, details } of acceptedActions) {
+      throwIfInvocationCancelled(lifetime.signal);
       const approval = await this.deps.state.createApproval({
         taskRunId: taskRun.id,
         checkpointId: checkpoint.id,
@@ -865,6 +913,7 @@ export class AgentPlanningService {
     }
 
     // 10. status transition
+    throwIfInvocationCancelled(lifetime.signal);
     const finishedAt = new Date().toISOString();
     if (acceptedActions.length === 0) {
       // phase-08 §8 answer-only response — skip waiting_for_approval.
@@ -881,19 +930,29 @@ export class AgentPlanningService {
         parsedPlanArtifactId: planArtifact.id,
       },
     );
+    throwIfInvocationCancelled(lifetime.signal);
     emitProgress("complete", "에이전트 응답 처리 완료");
     return {
       invocation: finalInvocation,
       planArtifact,
       approvals,
     };
+    } catch (error) {
+      if (!lifetime.signal.aborted) throw error;
+      await this.deps.state.setStepStatus(planStep.id, "failed", {
+        outputSummary: "cancelled: Cancelled by user",
+      });
+      throw new AgentPlanningError(AGENT_CANCELLED, "Cancelled by user");
     } finally {
+      try { streamAudit.flush(); } catch { /* Audit delivery must not skip resource cleanup. */ }
       // Best-effort cleanup of the per-invocation MCP config file.
       // Errors here never override the main outcome (success or failure).
       try {
         await mcpCleanup();
       } catch {
         // ignore
+      } finally {
+        this.activeInvocations.delete(invocation.id);
       }
     }
   }
@@ -915,13 +974,19 @@ export class AgentPlanningService {
       );
     }
     if (inv.status === "succeeded" || inv.status === "failed" || inv.status === "cancelled") return inv;
-    this.queue.cancel(input.invocationId);
-    return this.deps.state.updateAgentInvocation(input.invocationId, {
+    const cancelled = await this.deps.state.updateAgentInvocation(input.invocationId, {
       status: "cancelled",
       finishedAt: new Date().toISOString(),
       errorCode: AGENT_CANCELLED,
       errorMessage: "Cancelled by user",
     });
+    // Persist first so a completion that already won cannot be aborted by a
+    // stale cancellation read. Repository returns the actual terminal winner.
+    if (cancelled.status === "cancelled") {
+      this.activeInvocations.get(input.invocationId)?.abort();
+      this.queue.cancel(input.invocationId);
+    }
+    return cancelled;
   }
 
   async cancelTaskInvocations(input: {
@@ -956,7 +1021,7 @@ export class AgentPlanningService {
         `AgentInvocation ${input.invocationId} not found`,
       );
     }
-    if (this.queue.isBusy(input.invocationId)) {
+    if (this.activeInvocations.has(input.invocationId) || this.queue.isBusy(input.invocationId)) {
       throw new AgentPlanningError(
         AGENT_INVOCATION_BUSY,
         "Previous invocation is still queued or running; cancel it first",
@@ -999,13 +1064,30 @@ export class AgentPlanningService {
    * be emitted but the UI wouldn't know which TaskRun they belong
    * to, so the user sees a silent run.
    */
-  async invokeForWorker(input: {
+  invokeForWorker(input: {
     taskRunId: string;
     stepId?: string;
     profile: AgentProfile;
     userRequest: string;
     handoffMessages?: readonly AgentHandoffPromptMessage[];
   }): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }> {
+    return this.trackOperation(() => this.invokeForWorkerOnce(input));
+  }
+
+  private trackOperation<T>(work: () => Promise<T>): Promise<T> {
+    return this.operations.run(async () => {
+      try { return await work(); }
+      catch (error) {
+        if (this.operations.closed && error && typeof error === "object" && "code" in error &&
+            typeof error.code === "string" && /^(SQLITE_|STATE_DB_ERROR)/.test(error.code)) {
+          this.shutdownStorageFailure = error;
+        }
+        throw error;
+      }
+    });
+  }
+
+  private async invokeForWorkerOnce(input: Parameters<AgentPlanningService["invokeForWorker"]>[0]): Promise<{ outputText: string; proposedActions?: AgentProposedAction[] }> {
     const taskRun = await this.deps.state.getTaskRun(input.taskRunId);
     if (!taskRun) {
       throw new AgentPlanningError(
@@ -1035,14 +1117,6 @@ export class AgentPlanningService {
     // Per-invocation Codex MCP overrides (Phase 4b).
     let codexConfigOverrides: readonly string[] = [];
     let mcpCleanup: () => Promise<void> = async () => {};
-    if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
-      const prep = await this.deps.prepareMcpInvocation({
-        profileId: input.profile.id,
-        provider,
-      });
-      codexConfigOverrides = prep.codexConfigOverrides;
-      mcpCleanup = prep.cleanup;
-    }
 
     const capabilityContexts = await this.loadApprovedCapabilityContexts(
       taskRun.id,
@@ -1094,33 +1168,18 @@ export class AgentPlanningService {
       profileId: input.profile.id,
       ...(input.stepId ? { stepId: input.stepId } : {}),
     });
-    const startedAt = new Date().toISOString();
-    await this.deps.state.updateAgentInvocation(invocation.id, {
-      status: "running",
-      startedAt,
-    });
-    await this.recordLearnerSelection({
-      taskRunId: taskRun.id,
-      selectedModel: model,
-      ...(capabilityContexts.length > 0
-        ? {
-            selectedCapabilities: capabilityContexts.map(
-              (context) => context.capability.id,
-            ),
-          }
-        : {}),
-    });
+    const lifetime = new AbortController();
 
     const emit = this.deps.emitStreamEvent ?? (() => {});
     const persistedStreamEvents = new BoundedAgentStreamEventBuffer({
       maxEvents: DEFAULT_MAX_PERSISTED_STREAM_EVENTS,
       maxBytes: DEFAULT_MAX_PERSISTED_STREAM_BYTES,
     });
-    const emitCaptured = (event: AgentStreamEvent): void => {
-      const redacted = redactStreamEvent(withTaskRunScope(event, taskRun.id));
-      persistedStreamEvents.push(redacted);
-      emit(redacted);
-    };
+    const streamAudit = createRedactedAgentStream({
+      redactEvent: redactStreamEvent,
+      emit: event => { persistedStreamEvents.push(event); emit(event); },
+    });
+    const emitCaptured = (event: AgentStreamEvent): void => streamAudit.push(withTaskRunScope(event, taskRun.id));
     const emitProgress = (
       stage: AgentProgressStage,
       message: string,
@@ -1151,13 +1210,36 @@ export class AgentPlanningService {
       "Codex 비대화형 세션 준비",
       provider,
     );
-    emitProgress(
-      "mcp",
-      codexConfigOverrides.length > 0
-        ? "MCP 설정 준비 완료"
-        : "활성 MCP 설정 없음",
-    );
+    this.activeInvocations.set(invocation.id, lifetime);
     try {
+      await this.assertInvocationActive(invocation.id, taskRun.id, lifetime);
+      const runningInvocation = await this.deps.state.updateAgentInvocation(invocation.id, {
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
+      if (runningInvocation.status === "cancelled") lifetime.abort();
+      throwIfInvocationCancelled(lifetime.signal);
+      if (this.deps.prepareMcpInvocation && !codexRuntime.readOnlyTask && !codexRuntime.disableWebSearch) {
+        const prep = await this.deps.prepareMcpInvocation({
+          profileId: input.profile.id,
+          provider,
+        });
+        codexConfigOverrides = prep.codexConfigOverrides;
+        mcpCleanup = prep.cleanup;
+      }
+      throwIfInvocationCancelled(lifetime.signal);
+      emitProgress(
+        "mcp",
+        codexConfigOverrides.length > 0 ? "MCP 설정 준비 완료" : "활성 MCP 설정 없음",
+      );
+      await this.recordLearnerSelection({
+        taskRunId: taskRun.id,
+        selectedModel: model,
+        ...(capabilityContexts.length > 0
+          ? { selectedCapabilities: capabilityContexts.map(context => context.capability.id) }
+          : {}),
+      });
+      throwIfInvocationCancelled(lifetime.signal);
       const request: ModelCliRequest = {
         invocationId: invocation.id,
         taskRunId: taskRun.id,
@@ -1195,16 +1277,22 @@ export class AgentPlanningService {
         invocationId: invocation.id,
         laneKey: `worker:${invocation.id}`,
         work: (signal) => {
+          throwIfInvocationCancelled(lifetime.signal, signal);
           emitProgress("cli", "Worker CLI 프로세스 시작", cliProgressDetail);
           return this.invokeWithWorkspaceChangeEvidence({
             request,
             taskRunId: taskRun.id,
             ...(input.stepId ? { stepId: input.stepId } : {}),
             title: `Worker workspace change evidence — ${input.profile.name}`,
-            invoke: () => this.invoker.invoke(request, emitCaptured, signal),
+            invoke: () => {
+              throwIfInvocationCancelled(lifetime.signal, signal);
+              return this.invoker.invoke(request, emitCaptured, signal);
+            },
           });
         },
       });
+      streamAudit.flush();
+      throwIfInvocationCancelled(lifetime.signal);
       emitProgress("parse", "Worker 응답 정리 중", `${result.stdout.length}자 출력`);
       const redactedOutput = redactSecrets(result.stdout, 200_000);
       const redactedRawOutput = redactSecrets(
@@ -1247,6 +1335,7 @@ export class AgentPlanningService {
         uri: `harness:worker-output/${taskRun.id}/${Date.now()}`,
         summary: persistedStreamTranscript,
       });
+      throwIfInvocationCancelled(lifetime.signal);
       if (!parsedPlan.ok) {
         await this.deps.state.updateAgentInvocation(invocation.id, {
           rawOutputArtifactId: rawOutputArtifact.id, latencyMs: result.latencyMs,
@@ -1269,6 +1358,7 @@ export class AgentPlanningService {
         ...(costEstimate !== undefined ? { costEstimate } : {}),
         finishedAt,
       });
+      throwIfInvocationCancelled(lifetime.signal);
       emitProgress(
         "complete",
         proposedActions.length > 0
@@ -1281,13 +1371,13 @@ export class AgentPlanningService {
         ...(proposedActions.length > 0 ? { proposedActions } : {}),
       };
     } catch (e) {
-      const isCancelled = isHarnessError(e) && e.code === AGENT_CANCELLED;
-      const code = isCancelled
+      let isCancelled = lifetime.signal.aborted || (isHarnessError(e) && e.code === AGENT_CANCELLED);
+      let code = isCancelled
         ? AGENT_CANCELLED
         : e instanceof AgentCliError
           ? e.code
           : AGENT_PROVIDER_UNAVAILABLE;
-      const message = isHarnessError(e)
+      let message = lifetime.signal.aborted ? "Cancelled by user" : isHarnessError(e)
         ? e.message
         : e instanceof Error
           ? e.message
@@ -1306,6 +1396,11 @@ export class AgentPlanningService {
         model,
         ...(e instanceof Error && e.stack ? { detail: e.stack } : {}),
       });
+      if (lifetime.signal.aborted) {
+        isCancelled = true;
+        code = AGENT_CANCELLED;
+        message = "Cancelled by user";
+      }
       // Emit the failure as a stream event too — without this the
       // InlineAgentStream sits at "응답 작성 중…" forever for a
       // failed worker call.
@@ -1324,7 +1419,7 @@ export class AgentPlanningService {
           message,
         });
       }
-      await this.deps.state.updateAgentInvocation(invocation.id, {
+      const terminalInvocation = await this.deps.state.updateAgentInvocation(invocation.id, {
         status: isCancelled ? "cancelled" : "failed",
         errorCode: code,
         errorMessage: redactSecrets(message, 2_000),
@@ -1333,10 +1428,41 @@ export class AgentPlanningService {
           ? { rawOutputArtifactId: diagnosticArtifact.id }
           : {}),
       });
+      if (terminalInvocation.status === "cancelled") lifetime.abort();
+      throwIfInvocationCancelled(lifetime.signal);
+      if (isCancelled) throw new AgentPlanningError(AGENT_CANCELLED, message);
       throw e;
     } finally {
-      await mcpCleanup();
+      try { streamAudit.flush(); } catch { /* Preserve the invocation outcome and resource cleanup. */ }
+      try {
+        await mcpCleanup();
+      } catch {
+        // Cleanup must not replace the invocation's terminal outcome.
+      } finally {
+        this.activeInvocations.delete(invocation.id);
+      }
     }
+  }
+
+  private async assertInvocationActive(
+    invocationId: string,
+    taskRunId: string,
+    lifetime: AbortController,
+  ): Promise<void> {
+    if (this.operations.closed) {
+      try { await this.cancelInvocation({ invocationId }); }
+      finally { lifetime.abort(); }
+    }
+    const [invocation, taskRun] = await Promise.all([
+      this.deps.state.getAgentInvocation(invocationId),
+      this.deps.state.getTaskRun(taskRunId),
+    ]);
+    // The row can become visible to cancellation before create() resolves and
+    // the controller is registered. Persisted state closes that publication gap.
+    if (invocation?.status === "cancelled" || taskRun?.status === "cancelled") {
+      lifetime.abort();
+    }
+    throwIfInvocationCancelled(lifetime.signal);
   }
 
   private async writeDiagnosticLog(input: {
@@ -1394,26 +1520,42 @@ export class AgentPlanningService {
     invoke: () => Promise<ModelCliResult>;
   }): Promise<ModelCliResult> {
     const tracker = this.workspaceChangeTracker;
-    if (input.request.sandbox.mode !== "workspace-write" || !tracker) {
-      return input.invoke();
+    const invoke = async (): Promise<ModelCliResult> => {
+      try { return await input.invoke(); }
+      catch (error) {
+        if (error && typeof error === "object" && "processCleanupConfirmed" in error && error.processCleanupConfirmed === false) {
+          this.processCleanupUnconfirmed = true;
+        }
+        throw error;
+      }
+    };
+    if (input.request.sandbox.mode !== "workspace-write") {
+      return invoke();
     }
-
-    // 직접 편집은 provider 출력만으로 실제 변경 범위를 증명할 수 없으므로
-    // CLI 실행 직전/직후의 동일 파일 시스템 snapshot을 artifact로 남긴다.
-    const before = await tracker.capture(input.request.cwd);
+    const mutationToken = this.deps.state.beginWorkspaceMutation && this.deps.state.endWorkspaceMutation
+      ? await this.deps.state.beginWorkspaceMutation(input.request.cwd)
+      : undefined;
     try {
-      return await input.invoke();
+      if (!tracker) return await invoke();
+      // 직접 편집은 provider 출력만으로 실제 변경 범위를 증명할 수 없으므로
+      // CLI 실행 직전/직후의 동일 파일 시스템 snapshot을 artifact로 남긴다.
+      const before = await tracker.capture(input.request.cwd);
+      try {
+        return await invoke();
+      } finally {
+        const after = await tracker.capture(input.request.cwd);
+        const evidence = tracker.buildEvidence(before, after);
+        await this.deps.state.createArtifact({
+          taskRunId: input.taskRunId,
+          ...(input.stepId ? { stepId: input.stepId } : {}),
+          kind: "diff",
+          title: input.title,
+          uri: `harness:workspace-change/${input.taskRunId}/${Date.now()}`,
+          summary: redactSecrets(evidence.summary, 200_000),
+        });
+      }
     } finally {
-      const after = await tracker.capture(input.request.cwd);
-      const evidence = tracker.buildEvidence(before, after);
-      await this.deps.state.createArtifact({
-        taskRunId: input.taskRunId,
-        ...(input.stepId ? { stepId: input.stepId } : {}),
-        kind: "diff",
-        title: input.title,
-        uri: `harness:workspace-change/${input.taskRunId}/${Date.now()}`,
-        summary: redactSecrets(evidence.summary, 200_000),
-      });
+      if (mutationToken !== undefined) await this.deps.state.endWorkspaceMutation!(mutationToken);
     }
   }
 
@@ -1824,7 +1966,7 @@ const withTaskRunScope = (
 const redactUnknownStreamValue = (value: unknown, limit: number): unknown => {
   if (typeof value === "string") return redactSecrets(value, limit);
   try {
-    const redacted = redactSecrets(JSON.stringify(value), limit);
+    const redacted = redactSecrets(JSON.stringify(redactSecretValues(value)), limit);
     return JSON.parse(redacted) as unknown;
   } catch {
     return redactSecrets(String(value), limit);

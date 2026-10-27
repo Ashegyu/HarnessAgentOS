@@ -90,9 +90,8 @@ test("createTask rolls back draft rows when approval creation fails", async () =
   const t = tmp();
   const { db, state, conversation } = makeService(t);
   try {
-    state.createApproval = async () => {
-      throw new Error("injected approval failure");
-    };
+    db.exec(`CREATE TEMP TRIGGER fail_draft_approval BEFORE INSERT ON approvals
+      BEGIN SELECT RAISE(ABORT, 'injected approval failure'); END`);
 
     await assert.rejects(
       () =>
@@ -107,6 +106,34 @@ test("createTask rolls back draft rows when approval creation fails", async () =
     closeDb(db);
     t.cleanup();
   }
+});
+
+test("concurrent draft failure cannot roll back an independently successful draft", async () => {
+  const t = tmp();
+  const { db, state, conversation } = makeService(t);
+  try {
+    db.exec(`CREATE TEMP TRIGGER fail_one_draft BEFORE INSERT ON approvals
+      WHEN (SELECT user_request FROM task_runs WHERE id = NEW.task_run_id) = 'fail this change'
+      BEGIN SELECT RAISE(ABORT, 'injected draft failure'); END`);
+
+    const [failed, succeeded] = await Promise.allSettled([
+      conversation.createTask({ userRequest: "fail this change", targetDir: "/tmp/project" }),
+      conversation.createTask({ userRequest: "keep this change", targetDir: "/tmp/project" }),
+    ]);
+
+    assert.equal(failed.status, "rejected");
+    assert.match(String(failed.reason), /injected draft failure/);
+    assert.equal(succeeded.status, "fulfilled");
+    const draft = succeeded.value;
+    assert.equal((await state.getTaskRun(draft.taskRun.id))?.userRequest, "keep this change");
+    assert.equal((await state.listThreads()).length, 1);
+    assert.equal((await state.listStepsByTaskRun(draft.taskRun.id)).length, 3);
+    assert.equal((await state.listArtifactsByTaskRun(draft.taskRun.id)).length, 1);
+    assert.equal((await state.listCheckpointsByTaskRun(draft.taskRun.id)).length, 1);
+    assert.deepEqual((await state.listApprovalsByTaskRun(draft.taskRun.id)).map(row => row.id),
+      draft.approvals.map(row => row.id));
+    assert.equal(db.inTransaction, false);
+  } finally { closeDb(db); t.cleanup(); }
 });
 
 test("createTask rejects empty userRequest", async () => {

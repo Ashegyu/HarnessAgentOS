@@ -19,6 +19,10 @@ export class SqliteCheckpointRepository implements CheckpointRepository {
   }
 
   async create(input: CreateCheckpointInput): Promise<Checkpoint> {
+    return this.createSync(input);
+  }
+
+  createSync(input: CreateCheckpointInput): Checkpoint {
     const checkpoint: Checkpoint = {
       id: newId("checkpoint"),
       taskRunId: input.taskRunId,
