@@ -2,7 +2,44 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildTaskContract } from "@harness/core";
 import { openDb, closeDb, LocalStateService } from "@harness/storage";
-import { createTaskProgressionHost } from "./task-progression-host.ts";
+import { createTaskProgressionHost, recoverTaskValidationFailure } from "./task-progression-host.ts";
+
+test("confirmed validation recovery preserves pipeline routing and uses only real failed gates", async () => {
+  for (const [status, pipeline, expected] of [["passed", false, []], ["warning", false, []], ["failed", true, ["backflow"]], ["failed", false, ["repair"]]]) {
+    const calls = [];
+    const recovered = await recoverTaskValidationFailure({
+      state: { getTaskRun: async () => ({ status: "quality_failed" }),
+        getApproval: async () => ({ status: "executed", executionState: "failed", checkpointId: "old" }),
+        approvals: { listByTaskRun: async () => [] }, listCheckpointsByTaskRun: async () => [] },
+      evaluator: { evaluate: async () => ({ status, taskRunId: "task" }) },
+      completion: { applyQualityGateResult: async () => {} },
+      backflow: { runForQualityFailure: async () => { calls.push("backflow"); return true; } },
+      repairLoop: { createRepairPlan: async () => { calls.push("repair"); return { source: "agent", approvals: [{ id: "fix" }] }; } },
+    }, "task", pipeline, "failed");
+    assert.deepEqual(calls, expected);
+    assert.equal(recovered, status === "failed");
+  }
+});
+
+test("repair retires only unexecuted follow-ups from the failed plan before requesting a new plan", async () => {
+  const calls = [];
+  const failed = { id: "failed", checkpointId: "old", status: "executed", executionState: "failed" };
+  const rows = [failed, { id: "old-test", checkpointId: "old", status: "pending", actionType: "shell", actionRevision: 1 },
+    { id: "other", checkpointId: "other", status: "pending", actionType: "file_write" },
+    { id: "completed", checkpointId: "old", status: "executed", executionState: "succeeded", actionType: "file_write" }];
+  await recoverTaskValidationFailure({
+    state: { getApproval: async () => failed, getTaskRun: async () => ({ status: "quality_failed" }),
+      approvals: { listByTaskRun: async () => rows },
+      decideApproval: async id => calls.push(["reject", id]),
+      listCheckpointsByTaskRun: async () => [{ id: "old", stepId: "old-step" }],
+      setStepStatus: async (id, status) => calls.push([status, id]) },
+    evaluator: { evaluate: async () => ({ status: "failed" }) },
+    completion: { applyQualityGateResult: async () => {} },
+    backflow: { runForQualityFailure: async () => false },
+    repairLoop: { createRepairPlan: async () => { calls.push(["repair"]); return { source: "agent", approvals: [{}] }; } },
+  }, "task", false, "failed");
+  assert.deepEqual(calls, [["reject", "old-test"], ["failed", "old-step"], ["repair"]]);
+});
 
 for (const valid of [true, false]) {
   test(`pipeline consent reads the persisted markdown+JSON plan, not raw JSON (valid=${valid})`, async () => {

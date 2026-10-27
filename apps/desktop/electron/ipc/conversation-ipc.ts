@@ -731,7 +731,7 @@ export const registerConversationIpc = (
     if (!isObject(input) || !isNonEmptyString(input.approvalId) || !Number.isSafeInteger(input.expectedRevision) ||
         !isNonEmptyString(input.reviewMessage) || input.reviewMessage.length > 4000 ||
         (input.expectedExecutionState !== null && input.expectedExecutionState !== "running" &&
-          input.expectedExecutionState !== "succeeded" && input.expectedExecutionState !== "uncertain")) {
+          input.expectedExecutionState !== "succeeded" && input.expectedExecutionState !== "failed" && input.expectedExecutionState !== "uncertain")) {
       return err(harnessError(STATE_INVALID_INPUT, "Invalid approval retry review"));
     }
     try {

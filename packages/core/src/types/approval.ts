@@ -128,7 +128,7 @@ export interface Approval {
   actionRevision?: number;
   approvedRevision?: number;
   requiresManualApproval?: boolean;
-  executionState?: "running" | "succeeded" | "uncertain";
+  executionState?: "running" | "succeeded" | "failed" | "uncertain";
   executionStartedAt?: string;
   executionFinishedAt?: string;
   /** Explicit result review retired this consent in favor of a fresh manual approval. */
@@ -146,6 +146,13 @@ export interface PrepareActionRetryInput {
   expectedExecutionState: Approval["executionState"] | null;
   reviewMessage: string;
 }
+
+/** Confirmed checker failures are terminal; legacy unknown outcomes still need review. */
+export const canReviewApprovalExecution = (
+  status: TaskRunStatus,
+  executionState: Approval["executionState"],
+): boolean => status === "blocked" || status === "quality_failed" ||
+  (status === "ready_for_review" && executionState === "uncertain");
 
 export interface DecisionLogFilter {
   decidedAtSteps?: AutoApproveStep[];

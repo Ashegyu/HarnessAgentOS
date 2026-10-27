@@ -14,7 +14,7 @@ import { rowToApproval } from "./row-mappers.ts";
 
 export interface ApprovalRepository {
   claimExecution(id: string, revision: number, token: string): Promise<Approval>;
-  finishExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void>;
+  finishExecution(id: string, token: string, outcome: "succeeded" | "failed" | "uncertain"): Promise<void>;
   create(input: CreateApprovalInput): Promise<Approval>;
   listByTaskRun(taskRunId: string, order?: "display" | "execution"): Promise<Approval[]>;
   get(id: string): Promise<Approval | null>;
@@ -289,9 +289,12 @@ export class SqliteApprovalRepository implements ApprovalRepository {
     return (await this.get(id))!;
   }
 
-  async finishExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void> {
-    this.db.prepare(`UPDATE approvals SET execution_state=?, execution_finished_at=?
-      WHERE id=? AND execution_token=? AND execution_state='running'`).run(outcome, nowIso(), id, token);
+  async finishExecution(id: string, token: string, outcome: "succeeded" | "failed" | "uncertain"): Promise<void> {
+    this.db.prepare(`UPDATE approvals SET execution_state=@outcome, execution_finished_at=@finished,
+        status=CASE WHEN @outcome='failed' THEN 'executed' ELSE status END,
+        decision_message=CASE WHEN @outcome='failed' THEN '검사 실행 종료 — 실패 결과가 기록되었습니다. 이 승인은 재실행할 수 없습니다.' ELSE decision_message END
+      WHERE id=@id AND execution_token=@token AND execution_state='running'`)
+      .run({ outcome, finished: nowIso(), id, token });
   }
 }
 

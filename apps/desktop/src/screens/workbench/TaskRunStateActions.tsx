@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import type { Approval, TaskRun, TaskRunStatus } from "@harness/core";
+import { canReviewApprovalExecution } from "@harness/core";
 import { CancelTaskDialog } from "./CancelTaskDialog";
 import { RetryActionDialog } from "./RetryActionDialog";
 
@@ -30,12 +31,13 @@ export const TaskRunStateActions = ({
       approvals.filter(
           (a) =>
             a.taskRunId === taskRun.id && !a.retryApprovalId && a.executionState !== "running" &&
+            canReviewApprovalExecution(taskRun.status, a.executionState) &&
             ["file_write", "file_patch", "file_delete", "shell"].includes(a.actionType) && !!a.proposedAction &&
             (a.status === "approved" ||
             a.status === "always_approved_for_run" ||
             a.status === "executed"),
         ),
-    [approvals, taskRun.id],
+    [approvals, taskRun.id, taskRun.status],
   );
 
   if (isTerminal(taskRun.status)) return null;
@@ -45,9 +47,7 @@ export const TaskRunStateActions = ({
     taskRun.status === "waiting_for_approval";
   const canStop = taskRun.status === "running";
   const canResume = taskRun.status === "paused";
-  const canRetry =
-    (taskRun.status === "blocked" || taskRun.status === "quality_failed") &&
-    retryCandidates.length > 0;
+  const canRetry = retryCandidates.length > 0;
   const canCancel = !isTerminal(taskRun.status);
 
   const wrap = async (

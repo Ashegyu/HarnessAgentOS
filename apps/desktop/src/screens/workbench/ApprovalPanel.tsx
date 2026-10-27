@@ -262,6 +262,8 @@ export const ApprovalPanel = ({
         {a.retryApprovalId && <p role="status">검토 후 새 승인으로 대체됨: {a.retryApprovalId}. 이 승인은 다시 실행할 수 없습니다.</p>}
         {a.executionState && <p role="status">{a.executionState === "running"
           ? "Running — editing and duplicate execution are locked."
+          : a.executionState === "failed"
+          ? "실행 종료 — 검사 실패 기록됨 (재실행 금지)"
           : a.executionState === "uncertain"
             ? "Review required — no automatic retry. Inspect the result before creating a new approval."
             : "Completed — this approval cannot be reused."}</p>}

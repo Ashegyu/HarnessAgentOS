@@ -14,6 +14,12 @@ const AGENT_PROFILE_ROLE_CHECK =
  * leaves the DB in the same state.
  */
 export const applyMigrations = (db: DatabaseType): void => {
+  const executionCheck = approvalExecutionCheck(db);
+  const upgradeExecution = executionCheck !== undefined && !executionCheck.includes("'failed'");
+  const foreignKeys = db.pragma("foreign_keys", { simple: true });
+  if (upgradeExecution && db.inTransaction) throw new Error("Approval execution migration requires an idle connection");
+  // Rebuild without renaming the parent: retain child FK targets, audit rows and rowids.
+  if (upgradeExecution) db.pragma("foreign_keys = OFF");
   const txn = db.transaction(() => {
     for (const stmt of SCHEMA_STATEMENTS) {
       db.exec(stmt);
@@ -183,7 +189,7 @@ export const applyMigrations = (db: DatabaseType): void => {
         ALTER TABLE approvals ADD COLUMN approved_revision INTEGER;
         ALTER TABLE approvals ADD COLUMN approved_action_json TEXT;
         ALTER TABLE approvals ADD COLUMN requires_manual_approval INTEGER NOT NULL DEFAULT 0;
-        ALTER TABLE approvals ADD COLUMN execution_state TEXT CHECK(execution_state IN ('running','succeeded','uncertain'));
+        ALTER TABLE approvals ADD COLUMN execution_state TEXT CHECK(execution_state IN ('running','succeeded','failed','uncertain'));
         ALTER TABLE approvals ADD COLUMN execution_token TEXT;
         ALTER TABLE approvals ADD COLUMN execution_started_at TEXT;
         ALTER TABLE approvals ADD COLUMN execution_finished_at TEXT;
@@ -226,11 +232,35 @@ export const applyMigrations = (db: DatabaseType): void => {
     }
     for (const statement of VALIDATION_SCHEMA_STATEMENTS) db.exec(statement);
 
+    if (upgradeExecution) {
+      rebuildApprovalExecutionConstraint(db);
+      if (db.prepare("PRAGMA foreign_key_check").all().length > 0) throw new Error("Approval migration failed foreign-key verification");
+    }
+
     db.prepare(
       `INSERT OR REPLACE INTO schema_meta(key, value) VALUES ('schema_version', ?)`,
     ).run(String(SCHEMA_VERSION));
   });
-  txn();
+  try { txn(); }
+  finally { if (upgradeExecution) db.pragma(`foreign_keys = ${foreignKeys ? "ON" : "OFF"}`); }
+};
+
+const approvalExecutionCheck = (db: DatabaseType): string | undefined => {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'").get() as { sql: string } | undefined;
+  return row?.sql.match(/CHECK\s*\(\s*execution_state\s+IN\s*\([^)]*\)\s*\)/i)?.[0];
+};
+
+const rebuildApprovalExecutionConstraint = (db: DatabaseType): void => {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='approvals'").get() as { sql: string };
+  const objects = db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name='approvals' AND type IN ('index','trigger') AND sql IS NOT NULL").all() as { sql: string }[];
+  const columns = (db.prepare("PRAGMA table_info(approvals)").all() as { name: string }[])
+    .map(c => `"${c.name.replaceAll('"', '""')}"`).join(",");
+  const sql = row.sql.replace(/^CREATE TABLE(?: IF NOT EXISTS)?\s+"?approvals"?/i, "CREATE TABLE approvals_execution_v44")
+    .replace(/CHECK\s*\(\s*execution_state\s+IN\s*\([^)]*\)\s*\)/i, "CHECK(execution_state IN ('running','succeeded','failed','uncertain'))");
+  db.exec(sql);
+  db.exec(`INSERT INTO approvals_execution_v44(rowid,${columns}) SELECT rowid,${columns} FROM approvals;
+    DROP TABLE approvals; ALTER TABLE approvals_execution_v44 RENAME TO approvals;`);
+  for (const object of objects) db.exec(object.sql);
 };
 
 const hasColumn = (

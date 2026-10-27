@@ -62,7 +62,7 @@ import { eventBus, setTaskRunChangedObserver } from "../event-bus";
 import { PipelineBackflowService } from "../pipeline-backflow-service";
 import type { SystemDiagnosticsService } from "../services/system-diagnostics-service";
 import { AutomaticQualityService } from "../services/automatic-quality-service";
-import { createTaskProgressionHost } from "../services/task-progression-host";
+import { createTaskProgressionHost, recoverTaskValidationFailure } from "../services/task-progression-host";
 import { ConversationStartService } from "../services/conversation-start-service";
 
 export interface IpcContext {
@@ -147,6 +147,10 @@ export const registerAllIpc = (ctx: IpcContext): { shutdown(): Promise<void> } =
       return result;
     },
     evaluateQuality: taskRunId => automaticQuality.evaluateIfReady(taskRunId),
+    recoverValidationFailure: (taskRunId, pipelineConsent, failedApprovalId) => recoverTaskValidationFailure({
+      state: ctx.state, evaluator: ctx.qualityEvaluator, completion: ctx.qualityCompletion,
+      repairLoop: ctx.repairLoop, backflow: pipelineBackflow,
+    }, taskRunId, pipelineConsent, failedApprovalId),
     resumeBackflow: taskRunId => pipelineBackflow.resumePending(taskRunId),
     resumePlanning: async taskRunId => {
       const settings = await ctx.state.getSettings();

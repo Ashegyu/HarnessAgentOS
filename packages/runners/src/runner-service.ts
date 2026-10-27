@@ -59,6 +59,12 @@ export class RunnerError extends Error {
   }
 }
 
+/** Only a persisted nonzero checker result with unchanged inputs can settle as failed. */
+class ValidationProcessFailure extends RunnerError {
+  confirmed = false;
+  constructor(exitCode: number) { super("RUNNER_EXECUTION_FAILED", `Shell command exited with ${exitCode}`); }
+}
+
 export interface RunnerServiceDeps {
   state: LocalStateService;
   artifactStore: ArtifactStore;
@@ -191,7 +197,11 @@ export class RunnerService {
       return result;
     } catch (error) {
       failure = error;
-      if (claimed) await this.deps.state.finishApprovalExecution(approvalId, token, "uncertain");
+      if (claimed) {
+        const outcome = error instanceof ValidationProcessFailure && error.confirmed ? "failed" : "uncertain";
+        await this.deps.state.finishApprovalExecution(approvalId, token, outcome);
+        if (outcome === "failed") await this.closeApprovalStepIfResolved({ taskRunId: approval.taskRunId, checkpointId: approval.checkpointId });
+      }
       throw error;
     } finally {
       this.inflight.delete(approvalId);
@@ -474,7 +484,7 @@ export class RunnerService {
     const checkpoint = checkpoints.find((c) => c.id === input.checkpointId);
     if (!checkpoint) return approvals;
 
-    await this.deps.state.setStepStatus(checkpoint.stepId, "succeeded", {
+    await this.deps.state.setStepStatus(checkpoint.stepId, checkpointApprovals.some(a => a.executionState === "failed") ? "failed" : "succeeded", {
       outputSummary: summarizeResolvedApprovals(checkpointApprovals),
     });
     return checkpointApprovals;
@@ -769,7 +779,7 @@ export class RunnerService {
       }
 
       if (signal?.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled after checker process");
-      if (runOutcome.exitCode !== 0) throw new RunnerError("RUNNER_EXECUTION_FAILED", `Shell command exited with ${runOutcome.exitCode}`);
+      if (runOutcome.exitCode !== 0) throw new ValidationProcessFailure(runOutcome.exitCode);
     } catch (error) {
       failed = true;
       failure = error;
@@ -795,6 +805,11 @@ export class RunnerService {
           finishGeneration: epoch.generation,
           ...(reason ? { reason } : {}),
         });
+        if (failure instanceof ValidationProcessFailure && !signal?.aborted && proofArtifactId &&
+            validation.command.kinds.length > 0 && validation.revision.fingerprint !== null &&
+            !identityChanged && !inputChanged && !mutationChanged && !reason) {
+          failure.confirmed = true;
+        }
       }
     }
   }

@@ -1,6 +1,7 @@
 import {
   assertTaskRunTransition,
   evaluateApprovalActionPolicy,
+  canReviewApprovalExecution,
   taskContractFor,
   taskContractBlocksAction,
   validateProposedActionDetails,
@@ -477,7 +478,7 @@ export class LocalStateService implements ConversationStateGateway {
     return this.approvals.claimExecution(id, revision, token);
   }
 
-  async finishApprovalExecution(id: string, token: string, outcome: "succeeded" | "uncertain"): Promise<void> {
+  async finishApprovalExecution(id: string, token: string, outcome: "succeeded" | "failed" | "uncertain"): Promise<void> {
     return this.approvals.finishExecution(id, token, outcome);
   }
 
@@ -666,8 +667,8 @@ export class LocalStateService implements ConversationStateGateway {
         if (!prepared || prepared.taskRunId !== task.id) throw new Error("APPROVAL_REVIEW_REQUIRED: replacement is unavailable");
         return prepared;
       }
-      if (task.status !== "blocked" && task.status !== "quality_failed") {
-        throw new Error("APPROVAL_REVIEW_REQUIRED: blocked/quality_failed 상태에서만 재시도를 준비하세요.");
+      if (!canReviewApprovalExecution(task.status, source.executionState)) {
+        throw new Error("APPROVAL_REVIEW_REQUIRED: 실패 상태 또는 검토 대기 중인 불확실 실행만 재시도를 준비할 수 있습니다.");
       }
       if (source.executionState === "running" ||
           this.db.prepare("SELECT 1 FROM approvals WHERE task_run_id=? AND execution_state='running' LIMIT 1").get(task.id) ||

@@ -39,6 +39,7 @@ export interface TaskProgressionDeps {
   execute: (approval: Approval) => Promise<unknown>;
   resumePlanning?: (taskRunId: string) => Promise<unknown>;
   resumeBackflow?: (taskRunId: string) => Promise<boolean>;
+  recoverValidationFailure?: (taskRunId: string, pipelineConsent: boolean, failedApprovalId: string) => Promise<boolean>;
   evaluateQuality: (taskRunId: string) => Promise<unknown>;
   recordFailure: (taskRunId: string, error: unknown) => Promise<void>;
   changed: (taskRunId: string) => void;
@@ -204,7 +205,24 @@ export class TaskProgressionService {
             evaluateBudget({ approval: candidate, profile: s.activeProfile, ...s.budget }).kind === "blocked") {
           throw new Error("현재 정책 또는 예산 제한으로 승인된 작업을 실행할 수 없습니다.");
         }
-        await this.deps.execute(candidate);
+        try {
+          await this.deps.execute(candidate);
+        } catch (error) {
+          const latest = await this.deps.load(taskRunId);
+          const failed = latest?.approvals.find(a => a.id === candidate.id);
+          if (!this.stopping && !this.held.has(taskRunId) && latest &&
+              (latest.globalAutoApprove || latest.pipelineConsent) &&
+              ["blocked", "quality_failed"].includes(latest.taskRun.status) &&
+              candidate.actionType === "shell" && failed?.status === "executed" &&
+              failed.executionState === "failed" &&
+              !latest.steps.some(s => s.status === "running") &&
+              !latest.invocations.some(i => i.status === "running" || i.status === "queued") &&
+              await this.deps.recoverValidationFailure?.(taskRunId, latest.pipelineConsent, candidate.id)) {
+            this.deps.changed(taskRunId);
+            continue;
+          }
+          throw error;
+        }
       }
       this.deps.changed(taskRunId);
       // Reload after every decision/action: cancellation, new revisions and worker

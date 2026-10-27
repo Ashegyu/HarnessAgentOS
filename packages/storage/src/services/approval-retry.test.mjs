@@ -4,6 +4,7 @@ import { openDb, closeDb } from "../db.ts";
 import { LocalStateService } from "./local-state-service.ts";
 import { ConversationService } from "../../../core/src/conversation/conversation-service.ts";
 import { TaskRunCompletionService } from "../../../core/src/task-run/task-run-completion-service.ts";
+import { canReviewApprovalExecution } from "../../../core/src/types/approval.ts";
 import { applyMigrations } from "../migrations.ts";
 import { SCHEMA_VERSION } from "../schema.ts";
 import { RunnerService } from "../../../runners/src/runner-service.ts";
@@ -36,7 +37,7 @@ async function fixture(t, executionState) {
   } };
 }
 
-for (const executionState of [undefined, "uncertain", "succeeded"]) {
+for (const executionState of [undefined, "uncertain", "succeeded", "failed"]) {
   test(`review creates a fresh manual pending approval for ${executionState ?? "pre-execution failure"}`, async t => {
     const f = await fixture(t, executionState);
     const next = await f.conversation.prepareActionRetry(f.input);
@@ -56,6 +57,13 @@ for (const executionState of [undefined, "uncertain", "succeeded"]) {
     await assert.rejects(f.state.claimApprovalExecution(next.id, 1, "new-owner"), /CLAIM_LOCKED/);
   });
 }
+
+test("retry review uses the same status policy in UI and storage", () => {
+  for (const status of ["blocked", "quality_failed"]) assert.equal(canReviewApprovalExecution(status, "failed"), true);
+  assert.equal(canReviewApprovalExecution("ready_for_review", "uncertain"), true);
+  for (const outcome of [undefined, "running", "failed", "succeeded"]) assert.equal(canReviewApprovalExecution("ready_for_review", outcome), false);
+  for (const status of ["paused", "done", "cancelled", "running"]) assert.equal(canReviewApprovalExecution(status, "uncertain"), false);
+});
 
 test("duplicate review is idempotent and stale or unreviewed requests do not create work", async t => {
   const f = await fixture(t, "uncertain");

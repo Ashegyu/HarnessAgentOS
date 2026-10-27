@@ -626,7 +626,7 @@ conversation.redirectTask(input: { taskRunId: string; instruction: string }): Pr
 conversation.approve(input: { approvalId: string; expectedRevision: number; manualConfirmation?: boolean; message?: string; scope?: ApprovalScope; autoApproveDecision?: AutoApproveDecision | null }): Promise<Approval>;
 conversation.rejectApproval(input: { approvalId: string; message: string }): Promise<Approval>;
 conversation.setProposedAction(input: { approvalId: string; details: ProposedActionDetails }): Promise<Approval>;
-conversation.prepareActionRetry(input: { approvalId: string; expectedRevision: number; expectedExecutionState: "running" | "succeeded" | "uncertain" | null; reviewMessage: string }): Promise<Approval>;
+conversation.prepareActionRetry(input: { approvalId: string; expectedRevision: number; expectedExecutionState: "running" | "succeeded" | "failed" | "uncertain" | null; reviewMessage: string }): Promise<Approval>;
 conversation.getTaskRunDetail(input: { taskRunId: string }): Promise<TaskRunDetail>;
 conversation.listDecisions(input: DecisionLogInput): Promise<DecisionLogPage>;
 conversation.listRefinementEvents(input: A2ARefinementActivityInput): Promise<A2ARefinementActivityPage>;
@@ -639,9 +639,11 @@ conversation.deleteTask(input: { taskRunId: string }): Promise<void>;
 
 상태 전이 규칙:
 
-- `prepareActionRetry`: `blocked`/`quality_failed`에서 실행 전 실패·uncertain·기존 성공 결과를 사용자가 검토한 뒤 새 `pending` 수동 승인을 만든다. `expectedRevision`과 표시된 실행 상태가 일치해야 하며 검토 내용은 1~4000자다. 진행 중 승인/Step/모델 호출, paused/terminal, 읽기 전용 계약, 미지원 action은 거부한다. 지원 범위는 유효한 `file_write/file_patch/file_delete/shell` 제안이며 DB snapshot export는 포함하지 않는다. 정책·예산 및 파일 baseline/삭제 snapshot 검증은 기존 승인/실행 경로에서 다시 적용한다.
+- `prepareActionRetry`: `blocked`/`quality_failed`에서 실행 전 실패·uncertain·기존 성공/실패 결과를 사용자가 검토한 뒤 새 `pending` 수동 승인을 만든다. `ready_for_review`에서도 남아 있는 `uncertain` 실행은 검토할 수 있다. `expectedRevision`과 표시된 실행 상태가 일치해야 하며 검토 내용은 1~4000자다. 진행 중 승인/Step/모델 호출, paused/terminal, 읽기 전용 계약, 미지원 action은 거부한다. 지원 범위는 유효한 `file_write/file_patch/file_delete/shell` 제안이며 DB snapshot export는 포함하지 않는다. 정책·예산 및 파일 baseline/삭제 snapshot 검증은 기존 승인/실행 경로에서 다시 적용한다.
 - 준비는 실행·자동 승인이 아니다. 새 승인/Step/Checkpoint/검토 artifact, 원래 승인에 대한 `retryApprovalId`, TaskRun `waiting_for_approval` 전이는 한 동기 immediate transaction으로 저장한다. 같은 원본의 중복 준비는 기존 새 승인을 반환한다. 원래 revision·실행 결과는 보존하며 대체된 승인의 수정·결정·claim을 차단한다. 후속 Retry 실패는 새 승인을 원본으로 검토하여 체인을 이어간다. 스키마 42의 nullable self-reference이며 기존 행은 변경하지 않는다.
 - 이전 uncertain 결과는 새 승인을 생성한 명시적 검토로만 진행 대기에서 제외된다. 새 승인이 pending/실행 중이면 완료할 수 없다. 검토가 검사 성공을 의미하지 않으며 기존 실패 ledger·품질 증거는 유지한다. 새 승인은 전역/프로필/pipeline 자동 동의에 관계없이 개별 수동 승인이 필요하다.
+- `failed`는 종료 코드·검사 로그·ValidationRun이 기록되고 checker identity와 입력 revision/generation이 실행 중 유지된 검사의 확정 실패다. 승인은 `executed/failed`로 소비되며 실패 Step/검사 이력은 보존하고 재사용하지 않는다. 최신 품질 게이트가 실패하면 완료할 수 없다. 일반 명령, 변경 중 검사, 취소 및 종료 미확인은 계속 `uncertain`이다. SQLite v44는 기존 승인·감사 이벤트·검사 참조·실행 순서를 보존하며 이 상태를 추가한다.
+- 명시적 자동 승인 또는 선택된 pipeline 동의가 있는 작업은 확정 검사 실패에서 기존 제한된 보정 경로로 연결된다. 일반 작업은 RepairLoop 횟수/동일 signature 제한, pipeline은 선택된 backflow 규칙을 따른다. 새 파일 작업도 기존 정책·예산 심사를 거치며 호스트 shell과 수동 검토 승인은 자동 승인되지 않는다.
 - Worker 제안의 원래 승인 ID는 replacement 체인을 따라 현재 leaf 승인을 기다린다. 새 승인 checkpoint를 새 worker 완료 표식으로 취급하지 않으며, leaf가 해결된 뒤 원래 성공 worker를 재실행하지 않고 나머지 worker를 이어간다. 끊어진 연결이나 cycle은 미해결로 남긴다.
 - Renderer의 thread/task 상세는 선택 ID와 선택 수명 generation을 검사한다. A→B→A와 늦은 성공/실패를 구분하고, 같은 선택의 push burst는 진행 중 조회 뒤 후속 최신 pull로 병합한다. 선택 변경 시 이전 상세와 dialog의 액션을 노출하지 않으며, 이전 선택에서 시작한 생성 응답도 현재 선택을 빼앗지 않는다. polling은 추가하지 않는다.
 

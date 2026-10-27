@@ -1,4 +1,6 @@
-import type { ConversationService } from "@harness/core";
+import type { ConversationService, TaskRunCompletionService } from "@harness/core";
+import type { QualityEvaluator, RepairLoopService } from "@harness/quality";
+import type { PipelineBackflowService } from "../pipeline-backflow-service";
 import { assertTaskRunTransition, diagnosticErrorMessage } from "@harness/core";
 import type { LocalStateService } from "@harness/storage";
 import { parseEmbeddedPlanJson } from "@harness/orchestration";
@@ -11,9 +13,46 @@ export interface TaskProgressionHostDeps {
   evaluateQuality: (taskRunId: string) => Promise<unknown>;
   resumePlanning?: (taskRunId: string) => Promise<unknown>;
   resumeBackflow?: (taskRunId: string) => Promise<boolean>;
+  recoverValidationFailure?: (taskRunId: string, pipelineConsent: boolean, failedApprovalId: string) => Promise<boolean>;
   changed: (taskRunId: string) => void;
   onError?: (taskRunId: string, error: unknown) => void;
 }
+
+/** Share the production recovery path with local acceptance runs; no approval bypass. */
+export const recoverTaskValidationFailure = async (
+  deps: {
+    state: Pick<LocalStateService, "getApproval" | "getTaskRun" | "approvals" | "decideApproval" | "listCheckpointsByTaskRun" | "setStepStatus">;
+    evaluator: Pick<QualityEvaluator, "evaluate">;
+    completion: Pick<TaskRunCompletionService, "applyQualityGateResult">;
+    repairLoop: Pick<RepairLoopService, "createRepairPlan">;
+    backflow: Pick<PipelineBackflowService, "runForQualityFailure">;
+  },
+  taskRunId: string,
+  pipelineConsent: boolean,
+  failedApprovalId: string,
+): Promise<boolean> => {
+  const gate = await deps.evaluator.evaluate({ taskRunId });
+  await deps.completion.applyQualityGateResult(gate);
+  if (gate.status !== "failed") return false;
+  if (pipelineConsent) return deps.backflow.runForQualityFailure(gate);
+  const failed = await deps.state.getApproval(failedApprovalId);
+  const task = await deps.state.getTaskRun(taskRunId);
+  if (!failed || failed.executionState !== "failed" || failed.status !== "executed" ||
+      failed.retryApprovalId || !task || task.status !== "quality_failed") return false;
+  const approvals = await deps.state.approvals.listByTaskRun(taskRunId, "execution");
+  for (const pending of approvals) {
+    if (pending.checkpointId !== failed.checkpointId || pending.executionState || pending.retryApprovalId ||
+        !["pending", "approved", "always_approved_for_run"].includes(pending.status)) continue;
+    if ((await deps.state.getTaskRun(taskRunId))?.status !== "quality_failed") return false;
+    await deps.state.decideApproval(pending.id, "rejected", `Skipped after confirmed checker failure ${failed.id}; a new repair plan must be reviewed.`,
+      { expectedRevision: pending.actionRevision ?? 1 });
+  }
+  const checkpoint = (await deps.state.listCheckpointsByTaskRun(taskRunId)).find(c => c.id === failed.checkpointId);
+  if (checkpoint) await deps.state.setStepStatus(checkpoint.stepId, "failed", { outputSummary: "검사 실패 — 남은 계획을 중단하고 보정 계획으로 진행합니다." });
+  if ((await deps.state.getTaskRun(taskRunId))?.status !== "quality_failed") return false;
+  const repair = await deps.repairLoop.createRepairPlan({ taskRunId });
+  return repair.source === "agent" && repair.approvals.length > 0;
+};
 
 /** Only host-owned plan artifacts establish persisted pipeline-selection consent. */
 const hasPipelineConsent = (s: ProgressionSnapshot["artifacts"]): boolean => s.some(artifact => {
@@ -65,6 +104,7 @@ export const createTaskProgressionHost = (deps: TaskProgressionHostDeps): TaskPr
     execute: deps.execute,
     resumePlanning: deps.resumePlanning,
     resumeBackflow: deps.resumeBackflow,
+    recoverValidationFailure: deps.recoverValidationFailure,
     evaluateQuality: deps.evaluateQuality,
     changed: deps.changed,
     onError: deps.onError,

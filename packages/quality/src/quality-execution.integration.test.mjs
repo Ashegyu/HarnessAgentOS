@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { TaskRunCompletionService } from "@harness/core";
+import { ConversationService, TaskRunCompletionService } from "@harness/core";
 import { openDb, closeDb, LocalStateService, FilesystemArtifactStore } from "@harness/storage";
 import { RunnerService, ShellRunner } from "@harness/runners";
 import { QualityEvaluator } from "./quality-evaluator.ts";
@@ -80,11 +80,18 @@ test("legacy execution-state migration preserves approval row order, consent, ev
   const f = await fixture(t);
   await assert.rejects(f.execute({ type: "shell", command: "node", args: ["--test", "source.test.cjs"] }), /exited/);
   const source = (await f.state.listApprovalsByTaskRun(f.task.id))[0];
+  const replacement = await new ConversationService({ state: f.state }).prepareActionRetry({
+    approvalId: source.id, expectedRevision: source.actionRevision,
+    expectedExecutionState: source.executionState, reviewMessage: "migration fixture reviewed the failed command",
+  });
+  const outcomes = f.db.prepare("SELECT id,execution_state FROM approvals").all();
   // Build the v43 column constraint, retaining real child execution evidence.
   f.db.exec("DROP TRIGGER approval_events_insert; DROP TRIGGER approval_events_update;");
   f.db.exec("ALTER TABLE approvals DROP COLUMN execution_state;");
   f.db.exec("ALTER TABLE approvals ADD COLUMN execution_state TEXT CHECK(execution_state IN ('running','succeeded','uncertain'));");
-  f.db.prepare("UPDATE approvals SET execution_state='uncertain',status='approved' WHERE id=?").run(source.id);
+  for (const row of outcomes) f.db.prepare("UPDATE approvals SET execution_state=? WHERE id=?")
+    .run(row.execution_state === "failed" ? "uncertain" : row.execution_state, row.id);
+  f.db.prepare("UPDATE approvals SET status='approved' WHERE id=?").run(source.id);
   f.db.prepare("UPDATE schema_meta SET value='43' WHERE key='schema_version'").run();
   const before = f.db.prepare("SELECT rowid,* FROM approvals ORDER BY rowid").all();
   const events = f.db.prepare("SELECT * FROM approval_events ORDER BY id").all();
@@ -93,6 +100,7 @@ test("legacy execution-state migration preserves approval row order, consent, ev
   assert.deepEqual(f.db.prepare("SELECT rowid,* FROM approvals ORDER BY rowid").all(), before);
   assert.deepEqual(f.db.prepare("SELECT * FROM approval_events ORDER BY id").all(), events);
   assert.deepEqual(await f.state.validationRuns.listByTaskRun(f.task.id), runs);
+  assert.equal((await f.state.getApproval(source.id)).retryApprovalId, replacement.id);
   assert.deepEqual(f.db.prepare("PRAGMA foreign_key_check").all(), []);
   assert.equal(f.db.pragma("foreign_keys", { simple: true }), 1);
   await assert.rejects(f.execute({ type: "shell", command: "node", args: ["--test", "source.test.cjs"] }), /exited/);
