@@ -19,5 +19,8 @@ export interface FailureLesson {
     failedCandidateExitCode?: number;
     recoveredReferenceExitCode: 0;
     recoveredCandidateExitCode: 0;
+    referenceFingerprint: string;
+    failedInputFingerprint: string;
+    recoveredInputFingerprint: string;
   };
 }

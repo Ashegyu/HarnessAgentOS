@@ -25,4 +25,7 @@ export interface RegressionControlEvidence {
   contractId: string;
   referenceExitCode: number;
   candidateExitCode?: number;
+  referenceFingerprint: string;
+  candidateFingerprint: string;
+  verificationFingerprint: string;
 }

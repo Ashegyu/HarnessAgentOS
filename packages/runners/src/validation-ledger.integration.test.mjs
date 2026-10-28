@@ -157,6 +157,7 @@ test("failed and cancelled checker attempts retain terminal host provenance", as
     assert.ok(run);
     assert.equal(run.status, cancelled ? "cancelled" : "failed");
     if (!cancelled) { assert.equal(run.exitCode, 1); assert.ok(run.artifactId); }
-    assert.equal((await f.state.getApproval(approval.id)).executionState, "uncertain");
+    assert.equal((await f.state.getApproval(approval.id)).executionState, cancelled ? "uncertain" : "failed",
+      "a proven nonzero checker exit is a confirmed failure; cancellation without process proof remains uncertain");
   }
 });

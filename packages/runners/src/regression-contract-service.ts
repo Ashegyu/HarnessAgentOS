@@ -102,7 +102,8 @@ export class RegressionContractService {
           cwd: dir, timeoutMs: 120_000, idleTimeoutMs: 60_000, env: { DOTNET_CLI_TELEMETRY_OPTOUT: "1", DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1" }, signal });
         outputs.push(`${phase}: exit=${outcome.exitCode}\n${outcome.stdout}\n${outcome.stderr}`);
         regressionControl = phase==="reference"
-          ? {schemaVersion:1,contractId:c.id,referenceExitCode:outcome.exitCode}
+          ? {schemaVersion:1,contractId:c.id,referenceExitCode:outcome.exitCode,
+            referenceFingerprint:hash([c.referenceSources,c.sharedSources]),candidateFingerprint:hash(inputs.candidate),verificationFingerprint:hash(inputs.verification)}
           : {...regressionControl!,candidateExitCode:outcome.exitCode};
         signal?.throwIfAborted();
         if (outcome.exitCode !== 0) return { ...outcome, regressionControl, command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };

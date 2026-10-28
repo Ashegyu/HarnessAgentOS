@@ -46,6 +46,7 @@ export class FailureLearningService {
       const hypothesis=redactSecrets(repairs.map(a=>a.actionSummary).join("; "),1200);
       const control=failedArtifact.kind==="test_result"&&passedArtifact.kind==="test_result"
         ? await this.controlForRecovery({taskRunId,failure,pass,approvals,repairs,output,passedOutput}) : undefined;
+      if(control==="no_content_change")continue;
       const lesson:FailureLesson={version:1,failureRunId:failure.id,recoveryRunId:pass.id,checkerId:pass.checkerId,
         symptom,repairHypothesis:hypothesis,causeStatus:"hypothesis",patchExcerpt:patch,
         applicabilityTerms:lessonTerms(`${task.userRequest} ${symptom} ${hypothesis}`),
@@ -59,23 +60,24 @@ export class FailureLearningService {
     return result;
   }
 
-  private async controlForRecovery(input:{taskRunId:string;failure:ValidationRun;pass:ValidationRun;approvals:Approval[];repairs:Approval[];output:string;passedOutput:string}):Promise<FailureLesson["control"]>{
+  private async controlForRecovery(input:{taskRunId:string;failure:ValidationRun;pass:ValidationRun;approvals:Approval[];repairs:Approval[];output:string;passedOutput:string}):Promise<FailureLesson["control"]|"no_content_change">{
     const failed=readRegressionControlArtifact(input.output),passed=readRegressionControlArtifact(input.passedOutput);
     if(!failed||!passed||failed.contractId!==passed.contractId||passed.referenceExitCode!==0||passed.candidateExitCode!==0||
-      input.failure.checkerId!==regressionCheckerId(failed.contractId)||input.pass.checkerId!==input.failure.checkerId)return;
+      input.failure.checkerId!==regressionCheckerId(failed.contractId)||input.pass.checkerId!==input.failure.checkerId||failed.referenceFingerprint!==passed.referenceFingerprint)return;
     for(const run of [input.failure,input.pass]){
       const approval=input.approvals.find(a=>a.id===run.approvalId);
       if(approval?.proposedAction?.regressionCheck?.contractId!==failed.contractId)return;
     }
     const contract=(await this.deps.state.regressionContracts.list(input.taskRunId)).find(c=>c.id===failed.contractId);
     if(!contract?.protectedVerification)return;
+    if(failed.verificationFingerprint===passed.verificationFingerprint&&failed.candidateFingerprint===passed.candidateFingerprint)return "no_content_change";
     const normalize=(path:string)=>process.platform==="win32"?path.replaceAll("\\","/").toLowerCase():path;
     const changed=input.repairs.flatMap(a=>a.proposedAction?.filePatch?[a.proposedAction.filePatch.path]:a.proposedAction?.unifiedPatch?[a.proposedAction.unifiedPatch.path]:[]).map(normalize);
-    const base={contractId:failed.contractId,failedReferenceExitCode:failed.referenceExitCode,recoveredReferenceExitCode:0 as const,recoveredCandidateExitCode:0 as const};
-    if(failed.referenceExitCode!==0&&failed.referenceExitCode===input.failure.exitCode&&failed.candidateExitCode===undefined&&contract.verificationPaths.some(p=>changed.includes(normalize(p))))
-      return {...base,kind:"verification_repair"};
-    if(failed.referenceExitCode===0&&failed.candidateExitCode!==0&&failed.candidateExitCode===input.failure.exitCode&&contract.sourcePaths.some(p=>changed.includes(normalize(p))))
-      return {...base,kind:"implementation_repair",failedCandidateExitCode:failed.candidateExitCode};
+    const base={contractId:failed.contractId,failedReferenceExitCode:failed.referenceExitCode,recoveredReferenceExitCode:0 as const,recoveredCandidateExitCode:0 as const,referenceFingerprint:failed.referenceFingerprint};
+    if(failed.referenceExitCode!==0&&failed.referenceExitCode===input.failure.exitCode&&failed.candidateExitCode===undefined&&failed.verificationFingerprint!==passed.verificationFingerprint&&contract.verificationPaths.some(p=>changed.includes(normalize(p))))
+      return {...base,kind:"verification_repair",failedInputFingerprint:failed.verificationFingerprint,recoveredInputFingerprint:passed.verificationFingerprint};
+    if(failed.referenceExitCode===0&&failed.candidateExitCode!==0&&failed.candidateExitCode===input.failure.exitCode&&failed.candidateFingerprint!==passed.candidateFingerprint&&failed.verificationFingerprint===passed.verificationFingerprint&&contract.sourcePaths.some(p=>changed.includes(normalize(p))))
+      return {...base,kind:"implementation_repair",failedCandidateExitCode:failed.candidateExitCode,failedInputFingerprint:failed.candidateFingerprint,recoveredInputFingerprint:passed.candidateFingerprint};
     return;
   }
 }

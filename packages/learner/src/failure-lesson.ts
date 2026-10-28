@@ -12,10 +12,13 @@ export const readFailureLesson = (value: unknown): FailureLesson | null => {
     !Array.isArray(l.applicabilityTerms)||l.applicabilityTerms.length>60||!l.applicabilityTerms.every(s=>typeof s==="string"&&s.length<=100)||
     !Array.isArray(l.evidenceArtifactIds)||l.evidenceArtifactIds.length>20||!l.evidenceArtifactIds.every(s=>typeof s==="string"&&s.length<=200)) return null;
   if(l.sourceContract!==undefined&&(typeof l.sourceContract!=="string"||l.sourceContract.length>2000))return null;
-  if(l.control){
+  if(l.control!==undefined){
     const c=l.control;
+    if(!c||typeof c!=="object")return null;
     if(typeof c.contractId!=="string"||!/^[a-zA-Z0-9_-]{1,128}$/.test(c.contractId)||l.checkerId!==regressionCheckerId(c.contractId)||
-      !Number.isSafeInteger(c.failedReferenceExitCode)||c.recoveredReferenceExitCode!==0||c.recoveredCandidateExitCode!==0)return null;
+      !Number.isSafeInteger(c.failedReferenceExitCode)||c.recoveredReferenceExitCode!==0||c.recoveredCandidateExitCode!==0||
+      ![c.referenceFingerprint,c.failedInputFingerprint,c.recoveredInputFingerprint].every(s=>typeof s==="string"&&/^[a-f0-9]{64}$/.test(s))||
+      c.failedInputFingerprint===c.recoveredInputFingerprint)return null;
     if(c.kind==="verification_repair"){
       if(c.failedReferenceExitCode===0||c.failedCandidateExitCode!==undefined)return null;
     }else if(c.kind==="implementation_repair"){

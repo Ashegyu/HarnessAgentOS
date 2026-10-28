@@ -11,6 +11,7 @@ export const readRegressionControlArtifact = (body:string):RegressionControlEvid
     const e=JSON.parse(match[1]) as RegressionControlEvidence;
     if(!e||e.schemaVersion!==1||typeof e.contractId!=="string"||!/^[a-zA-Z0-9_-]{1,128}$/.test(e.contractId)||
       !Number.isSafeInteger(e.referenceExitCode)||
+      ![e.referenceFingerprint,e.candidateFingerprint,e.verificationFingerprint].every(s=>typeof s==="string"&&/^[a-f0-9]{64}$/.test(s))||
       (e.candidateExitCode!==undefined&&(!Number.isSafeInteger(e.candidateExitCode)||e.referenceExitCode!==0)))return null;
     return e;
   }catch{return null;}
