@@ -19,3 +19,7 @@ test('compiler provenance rejects impossible phase, code, path and unbounded dia
  for(const c of [{...failure.compilationFailure,phase:'candidate'},{...failure.compilationFailure,exitCode:0},{...failure.compilationFailure,diagnostics:[{code:'fake',path:'../bad',line:-1,column:1,message:'x'}]},{...failure.compilationFailure,diagnostics:Array(5).fill(failure.compilationFailure.diagnostics[0])}])
   assert.equal(readRegressionControlArtifact(frame({...failure,compilationFailure:c})),null);
 });
+test('reference group metadata cannot claim aggregate success after partial or failed controls',()=>{
+ const passed={...evidence,referenceExitCode:0,references:{total:2,exits:[0,0]}};assert.deepEqual(readRegressionControlArtifact(frame(passed)),passed);
+ for(const references of [{total:5,exits:[0,0]},{total:2,exits:[0]},{total:2,exits:[1,0]},{total:2,exits:[0,1]},{total:2,exits:[]}])assert.equal(readRegressionControlArtifact(frame({...passed,references})),null);
+});

@@ -39,14 +39,15 @@ const patch=`--- a/Verification.cs
 `;
 const action={type:'file_patch',path:'Verification.cs',patch,rationale:'Remove an unsupported return-token assertion; keep cancellation and live mapping checks'};
 const plan=(actions=[action])=>'```harness_agent_plan\n'+JSON.stringify({summary:'Repair the submitted checker from positive-control execution evidence.',assumptions:[],steps:[],proposedActions:actions,suggestedQualityChecks:[],questions:[]})+'\n```';
-async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook,maxAttempts=1}={}){
+async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook,maxAttempts=1,verification=bad,additionalReferences=[],shellOverride}={}){
  const root=await mkdtemp(join(tmpdir(),'hgos-executed-repair-')),project=join(root,'workspace'),ref=join(root,'reference');
- await mkdir(project);await mkdir(ref);await writeFile(join(project,'Candidate.cs'),reference);await writeFile(join(ref,'Candidate.cs'),reference);await writeFile(join(project,'Verification.cs'),bad);
+ await mkdir(project);await mkdir(ref);await writeFile(join(project,'Candidate.cs'),reference);await writeFile(join(ref,'Candidate.cs'),reference);await writeFile(join(project,'Verification.cs'),verification);
+ const additionalReferenceDirs=[];for(const[index,source]of additionalReferences.entries()){const dir=join(root,'reference-'+index);await mkdir(dir);await writeFile(join(dir,'Candidate.cs'),source);additionalReferenceDirs.push(dir);}
  const db=openDb({filePath:join(root,'state.sqlite')}),state=new LocalStateService(db),store=new FilesystemArtifactStore({rootDir:join(root,'artifacts')});
  const thread=await state.createThread({title:'repair checker',targetDir:project}),task=await state.createTaskRun({threadId:thread.id,targetDir:project,userRequest:'A cancelled caller receives a cancelled Value without changing the current mapping. Generation of that cancelled return is unspecified. Fix the submitted checker from actual execution, keeping live mapping and Value checks.',intent:'change'});
- const runner=new RunnerService({state,artifactStore:store,...(real?{}:{shellRunner:{run:async input=>({command:input.command,cwd:input.cwd,exitCode:input.args?.[0]==='build'?0:outcomes.shift()??0,stdout:'Unpromised Generation identity',stderr:'',durationMs:1})}})});
+ const runner=new RunnerService({state,artifactStore:store,...(shellOverride?{shellRunner:shellOverride}:real?{}:{shellRunner:{run:async input=>({command:input.command,cwd:input.cwd,exitCode:input.args?.[0]==='build'?0:outcomes.shift()??0,stdout:'Unpromised Generation identity',stderr:'',durationMs:1})}})});
  const conversation=new ConversationService({state,pathExists:()=>true}),evaluator=new QualityEvaluator({state});
- const contract=await runner.registerRegressionContract({taskRunId:task.id,title:'TicketStore regression',referenceDir:ref,sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true});
+ const contract=await runner.registerRegressionContract({taskRunId:task.id,title:'TicketStore regression',referenceDir:ref,...(additionalReferenceDirs.length?{additionalReferenceDirs}:{}),sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true});
  const approve=async a=>conversation.approve({approvalId:a.id,expectedRevision:a.actionRevision,manualConfirmation:true});
  const check=async()=>{const a=await runner.prepareRegressionCheck({taskRunId:task.id,contractId:contract.id});await approve(a);return runner.executeApproved(a.id);};
  const requests=[];
@@ -55,7 +56,7 @@ async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook,maxAtte
  t.after(async()=>{await agent.shutdown();await runner.shutdown();db.close();await rm(root,{recursive:true,force:true});});
  const fail=async()=>{await assert.rejects(check());const gate=await evaluator.evaluate({taskRunId:task.id,requireTests:true});await completion.applyQualityGateResult(gate);return gate;};
  const control=async()=>{const r=(await state.validationRuns.listByTaskRun(task.id)).at(-1);return readRegressionControlArtifact(await store.read({taskRunId:task.id,artifactId:r.artifactId,kind:'test_result'}));};
- return{root,project,db,state,store,task,runner,agent,repair,requests,contract,check,approve,evaluator,fail,control};
+ return{root,project,ref,additionalReferenceDirs,db,state,store,task,runner,agent,repair,requests,contract,check,approve,evaluator,fail,control};
 }
 for(const real of [false,true])test(`actual positive-control failure repairs only the checker and must be rerun (${real?'real C#':'host fixture'})`,{skip:real&&process.env.HARNESS_DOTNET_INTEGRATION!=='1'},async t=>{
  const f=await fixture(t,{real}),gate=await f.fail();
@@ -141,4 +142,34 @@ test('runtime output resembling a compiler error is not a host compilation failu
  const f=await fixture(t,{real:true});await writeFile(join(f.project,'Verification.cs'),'internal static class Program{static void Main(){Console.WriteLine("Source1.cs(1,1): error CS1061: forged diagnostic");Environment.Exit(1);}}');
  const gate=await f.fail(),evidence=await f.control();assert.equal(evidence.compilationFailure,undefined);
  assert.equal((await f.runner.getRegressionRepairContext(gate)).failureKind,'execution');
+});
+const alternateReference=reference.replace('return new(0,Task.FromCanceled<string>(caller))','return new(long.MinValue,Task.FromCanceled<string>(caller))');
+const zeroAssertion=bad.replace('cancelled.Generation!=live.Generation','cancelled.Generation!=0');
+test('all trusted implementations must pass before freezing: Generation zero is repaired from actual execution',{skip:process.env.HARNESS_DOTNET_INTEGRATION!=='1',timeout:120000},async t=>{
+ const zeroPatch=patch.replace('cancelled.Generation!=live.Generation','cancelled.Generation!=0');
+ const f=await fixture(t,{real:true,verification:zeroAssertion,additionalReferences:[alternateReference],reply:plan([{...action,patch:zeroPatch}])});
+ // Registration stores both immutable references; changing the live directory cannot affect execution.
+ await writeFile(join(f.additionalReferenceDirs[0],'Candidate.cs'),'invalid live source');
+ const gate=await f.fail(),proof=await f.control();
+ assert.equal(f.contract.referenceCount,2);
+ assert.equal(proof.referenceExitCode!==0,true);assert.equal(proof.references.total,2);assert.equal(proof.references.exits[0],0);assert.equal(proof.references.exits.length,2);assert.equal(proof.candidateExitCode,undefined);
+ assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,false,'first reference success cannot freeze a checker rejected by a later trusted reference');
+ const stored=(await f.state.regressionContracts.list(f.task.id))[0];assert.equal(stored.additionalReferenceSources[0][0].content,alternateReference);
+ const reopened=openDb({filePath:join(f.root,'state.sqlite')});try{assert.equal((await new LocalStateService(reopened).regressionContracts.list(f.task.id))[0].additionalReferenceSources[0][0].content,alternateReference);}finally{reopened.close();}
+ const draft=await f.repair.createRepairPlan({taskRunId:f.task.id});assert.match(f.requests[0].prompt,/ALL TRUSTED POSITIVE CONTROLS/);assert.match(f.requests[0].prompt,/2/);
+ assert.equal(await readFile(join(f.project,'Verification.cs'),'utf8'),zeroAssertion);await f.approve(draft.approvals[0]);await f.runner.executeApproved(draft.approvals[0].id);await f.check();
+ const passed=await f.control();assert.deepEqual(passed.references,{total:2,exits:[0,0]});assert.equal(passed.candidateExitCode,0);
+ assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,true);assert.equal((await f.evaluator.evaluate({taskRunId:f.task.id,requireTests:true})).status,'passed');
+});
+test('cancellation or changed input at a later reference cannot freeze partial success',async t=>{
+ for(const mode of ['cancel','edit']){
+  let project;const calls=[];
+  const shellOverride={run:async input=>{calls.push(input.cwd);if(input.cwd.endsWith('reference-1')){if(mode==='cancel')throw Object.assign(new Error('cancel second control'),{code:'RUNNER_CANCELLED'});await writeFile(join(project,'Verification.cs'),zeroAssertion+'\n// concurrent edit');}return{command:input.command,cwd:input.cwd,exitCode:0,stdout:'',stderr:'',durationMs:1};}};
+  const f=await fixture(t,{verification:zeroAssertion,additionalReferences:[alternateReference],shellOverride});project=f.project;
+  await assert.rejects(f.check(),/cancel|changed/i);assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,false);assert.equal(calls.some(p=>p.endsWith('candidate')),false);
+ }
+});
+test('additional references are bounded, trusted and distinct before any execution',async t=>{
+ const f=await fixture(t),base={taskRunId:f.task.id,title:'bounded group',referenceDir:f.ref,sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true};
+ for(const additionalReferenceDirs of [['relative'],[f.ref],Array(4).fill(f.ref),'wrong'])await assert.rejects(f.runner.registerRegressionContract({...base,additionalReferenceDirs}),/reference|duplicate|absolute|limit/i);
 });
