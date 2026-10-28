@@ -9,6 +9,7 @@ import { QualityEvaluator } from "@harness/quality";
 import { RunnerService } from "./runner-service.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { inspectDeleteFile } from "./file-delete-runner.ts";
+import { FailureLearningService, InstinctService, ObservationRecallService } from "@harness/learner";
 
 const source = `using System.Text.Json;
 public static class Api {
@@ -189,6 +190,52 @@ test("shared contracts and accepted tests reject patches, exports and aliases wh
 });
 
 const real = { skip: process.env.HARNESS_DOTNET_INTEGRATION !== "1", timeout: 120_000 };
+
+test("positive-control verifier repairs are learned and recalled for new test-writing domains",async()=>{
+  const outcomes=[1,0,0];
+  const f=await fixture(source,"// wrong verification",{run:async input=>({exitCode:outcomes.shift(),stdout:"invalid assertion on a valid implementation",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
+  try{
+    const c=await f.register();await assert.rejects(f.check(c));await f.edit("Verification.cs",validTest);await f.check(c);
+    await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
+    const [observation]=await new FailureLearningService({state:f.state,artifactStore:f.artifactStore}).recordRecovery({taskRunId:f.task.id});
+    assert.equal(observation.payload.failureLesson.control?.kind,"verification_repair");
+    const service=new InstinctService({state:f.state});await service.refreshCandidates({projectKey:observation.projectKey});
+    const candidate=(await service.listCandidates({projectKey:observation.projectKey})).find(x=>x.observationIds.includes(observation.id));
+    const query={...f.task,id:"new-domain",userRequest:"Provide deterministic regression tests for an asynchronous resource manager"};
+    assert.deepEqual(await service.forTask({taskRun:query}),[]);
+    await service.approveCandidate({candidateId:candidate.id});
+    const selected=await service.forTask({taskRun:query});assert.equal(selected.length,1);
+    assert.equal(selected[0].failureLesson.control.kind,"verification_repair");
+    assert.deepEqual(await service.forTask({taskRun:{...query,userRequest:"Render a dark button"}}),[]);
+    assert.deepEqual(await service.forTask({taskRun:{...query,userRequest:"Do not write tests; explain the resource manager"}}),[]);
+    const recall=await new ObservationRecallService({state:f.state}).recall({projectKey:observation.projectKey,query:"write tests for an async adapter",excludeTaskRunId:query.id});
+    assert.ok(recall.some(r=>r.failureLesson?.control?.kind==="verification_repair"));
+  }finally{await f.cleanup();}
+});
+
+test("deferred cleanup is a valid positive control; learn the checker repair without assuming immediate effects",real,async()=>{
+  const implementation=`public sealed class CloseSession {
+    readonly CancellationTokenSource lifetime=new();
+    readonly TaskCompletionSource cleanup=new(TaskCreationOptions.RunContinuationsAsynchronously), work=new(TaskCreationOptions.RunContinuationsAsynchronously);
+    Task? stop; public bool IsClosed{get;private set;} public CancellationToken Token=>lifetime.Token;
+    public Task StopAsync(){IsClosed=true;return stop??=Drain();}
+    async Task Drain(){await cleanup.Task;lifetime.Cancel();await work.Task;}
+    public void AllowCleanup()=>cleanup.TrySetResult();public void CompleteWork()=>work.TrySetResult();
+  }`;
+  const bad=`internal static class Program{static async Task Main(){var s=new CloseSession();var stop=s.StopAsync();try{if(!s.IsClosed)throw new Exception("admission must close immediately");if(!s.Token.IsCancellationRequested)throw new Exception("unsupported immediate effect assumption");}finally{s.AllowCleanup();s.CompleteWork();await stop.WaitAsync(TimeSpan.FromSeconds(3));}}}`;
+  const good=`internal static class Program{static async Task Main(){var s=new CloseSession();var signal=new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);using var registration=s.Token.Register(()=>signal.TrySetResult());var stop=s.StopAsync();try{if(!s.IsClosed)throw new Exception("admission must close immediately");s.AllowCleanup();await signal.Task.WaitAsync(TimeSpan.FromSeconds(3));if(stop.IsCompleted)throw new Exception("must drain work");}finally{s.AllowCleanup();s.CompleteWork();await stop.WaitAsync(TimeSpan.FromSeconds(3));}}}`;
+  const f=await fixture(implementation,bad);
+  try{
+    await writeFile(join(f.reference,"Api.cs"),implementation);
+    const c=await f.register();await assert.rejects(f.check(c));
+    assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,false);
+    await f.edit("Verification.cs",good);await f.check(c);
+    await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
+    const [o]=await new FailureLearningService({state:f.state,artifactStore:f.artifactStore}).recordRecovery({taskRunId:f.task.id});
+    assert.equal(o.payload.failureLesson.control?.kind,"verification_repair");
+    assert.match(o.payload.failureLesson.symptom,/unsupported immediate effect assumption/);
+  }finally{await f.cleanup();}
+});
 test("real C# controls preserve accepted tests across repair and block weakened writes and deletes", real, async () => {
   const f = await fixture(source.replace("Value()=>7", "Value()=>0"));
   try {
