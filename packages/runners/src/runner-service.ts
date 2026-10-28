@@ -32,6 +32,7 @@ import { FileRunner, FileRunnerError } from "./file-runner.ts";
 import { FileDeleteRunner } from "./file-delete-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
 import { RegressionContractService } from "./regression-contract-service.ts";
+import { regressionRepairContext } from "./regression-repair-context.ts";
 import { GitRunner } from "./git-runner.ts";
 import { TestRunner } from "./test-runner.ts";
 import {
@@ -166,6 +167,10 @@ export class RunnerService {
   listRegressionContracts(input: { taskRunId: string }) { return this.regressions.list(input.taskRunId); }
   prepareRegressionCheck(input: { taskRunId: string; contractId: string }) {
     return this.operations.run(() => this.regressions.prepare(input.taskRunId,input.contractId));
+  }
+
+  getRegressionRepairContext(gate:import('@harness/core').QualityGateResult) {
+    return this.operations.run(()=>regressionRepairContext(this.deps.state,this.deps.artifactStore,this.regressions,gate));
   }
 
   async shutdown(): Promise<void> {

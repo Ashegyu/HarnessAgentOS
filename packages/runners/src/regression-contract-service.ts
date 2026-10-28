@@ -44,6 +44,16 @@ export class RegressionContractService {
     return (await this.state.regressionContracts.list(taskRunId)).map(summary);
   }
 
+  /** Current checker text for a failed positive control; never expose the reference implementation. */
+  async repairVerification(taskRunId:string, evidence:RegressionControlEvidence):Promise<RegressionSource[]> {
+    const task=await this.editableTask(taskRunId),c=await this.get(taskRunId,evidence.contractId);
+    if(c.protectedVerification)throw new Error("Accepted verification cannot be repaired; investigate the reference/environment failure");
+    const inputs=await this.inputs(c,task.targetDir);
+    if(hash([c.referenceSources,c.sharedSources])!==evidence.referenceFingerprint||hash(inputs.candidate)!==evidence.candidateFingerprint||hash(inputs.verification)!==evidence.verificationFingerprint)
+      throw new Error("Regression inputs changed since the failed positive control");
+    return inputs.verification;
+  }
+
   async prepare(taskRunId: string, contractId: string) {
     const task = await this.editableTask(taskRunId);
     const c = await this.get(taskRunId,contractId);

@@ -211,6 +211,8 @@ export interface GeneratePlanInput {
   provider?: AgentProvider;
   model?: string;
   instruction?: string;
+  /** Host-only scope/freshness guard, run before any proposed approvals are created. Never supplied by IPC. */
+  validatePlan?: (plan:AgentPlanOutput)=>Promise<void>;
   /** Override service-level default; injected from HarnessSettings at the IPC layer. */
   timeoutMs?: number;
   /** Override service-level default; injected from HarnessSettings at the IPC layer. */
@@ -807,6 +809,16 @@ export class AgentPlanningService {
     // details traverse. Invalid actions are dropped with a logged report
     // (phase-08 §11 — filter, not all-or-nothing).
     const plan = parsed.plan;
+    if(input.validatePlan){
+      try{await input.validatePlan(plan);throwIfInvocationCancelled(lifetime.signal);}
+      catch(error){
+        const message=redactSecrets(error instanceof Error?error.message:String(error),2000);
+        await this.deps.state.updateAgentInvocation(invocation.id,{status:'failed',errorCode:AGENT_PROPOSED_ACTION_INVALID,errorMessage:message,finishedAt:new Date().toISOString()});
+        await this.deps.state.setStepStatus(planStep.id,'failed',{outputSummary:message});
+        if(!lifetime.signal.aborted)await this.deps.state.setTaskRunStatus(taskRun.id,'blocked');
+        throw new AgentPlanningError(AGENT_PROPOSED_ACTION_INVALID,message);
+      }
+    }
     const policyReport: string[] = [];
     const acceptedActions: Array<{
       action: AgentProposedAction;

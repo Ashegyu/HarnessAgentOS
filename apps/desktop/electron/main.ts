@@ -580,6 +580,7 @@ const initServices = (): {
     state,
     completion: qualityCompletion,
     agentPlanning,
+    getRegressionRepairContext:gate=>runner.getRegressionRepairContext(gate),
   });
 
   // Phase D — pipeline workers use local CLI by default, or route through

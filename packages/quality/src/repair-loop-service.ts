@@ -6,6 +6,7 @@ import {
   type Checkpoint,
   type QualityGateResult,
   type RepairPlanDraft,
+  type AgentPlanOutput,
 } from "@harness/core";
 import { qualityFailureSignature, type LocalStateService } from "@harness/storage";
 
@@ -13,6 +14,7 @@ export interface RepairLoopAgentPlanning {
   generatePlan(input: {
     taskRunId: string;
     instruction?: string;
+    validatePlan?: (plan:AgentPlanOutput)=>Promise<void>;
   }): Promise<{
     invocation: { id: string };
     planArtifact: RepairPlanDraft["planArtifact"];
@@ -25,6 +27,7 @@ export interface RepairLoopServiceDeps {
   completion: TaskRunCompletionService;
   agentPlanning?: RepairLoopAgentPlanning;
   maxAttempts?: number;
+  getRegressionRepairContext?: (gate:QualityGateResult)=>Promise<{instruction:string;validatePlan:(plan:AgentPlanOutput)=>Promise<void>}|null>;
 }
 
 export interface CreateRepairLoopInput {
@@ -77,9 +80,11 @@ export class RepairLoopService {
     }
 
     try {
+      const regression=await this.deps.getRegressionRepairContext?.(gate);
       const result = await this.deps.agentPlanning.generatePlan({
         taskRunId: input.taskRunId,
-        instruction: buildRepairInstruction(gate, input.instruction),
+        instruction: [buildRepairInstruction(gate, input.instruction),regression?.instruction].filter(Boolean).join('\n\n'),
+        ...(regression?{validatePlan:regression.validatePlan}:{}),
       });
       const checkpoint = await this.findRepairCheckpoint({
         taskRunId: input.taskRunId,
