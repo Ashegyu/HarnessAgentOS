@@ -4,7 +4,7 @@ import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {openDb,LocalStateService,FilesystemArtifactStore} from '@harness/storage';
-import {ConversationService,TaskRunCompletionService} from '@harness/core';
+import {ConversationService,TaskRunCompletionService,readRegressionControlArtifact} from '@harness/core';
 import {RunnerService} from '@harness/runners';
 import {AgentPlanningService} from '@harness/agent';
 import {QualityEvaluator} from './quality-evaluator.ts';
@@ -39,7 +39,7 @@ const patch=`--- a/Verification.cs
 `;
 const action={type:'file_patch',path:'Verification.cs',patch,rationale:'Remove an unsupported return-token assertion; keep cancellation and live mapping checks'};
 const plan=(actions=[action])=>'```harness_agent_plan\n'+JSON.stringify({summary:'Repair the submitted checker from positive-control execution evidence.',assumptions:[],steps:[],proposedActions:actions,suggestedQualityChecks:[],questions:[]})+'\n```';
-async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook}={}){
+async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook,maxAttempts=1}={}){
  const root=await mkdtemp(join(tmpdir(),'hgos-executed-repair-')),project=join(root,'workspace'),ref=join(root,'reference');
  await mkdir(project);await mkdir(ref);await writeFile(join(project,'Candidate.cs'),reference);await writeFile(join(ref,'Candidate.cs'),reference);await writeFile(join(project,'Verification.cs'),bad);
  const db=openDb({filePath:join(root,'state.sqlite')}),state=new LocalStateService(db),store=new FilesystemArtifactStore({rootDir:join(root,'artifacts')});
@@ -50,11 +50,12 @@ async function fixture(t,{real=false,outcomes=[1,0,0],reply,providerHook}={}){
  const approve=async a=>conversation.approve({approvalId:a.id,expectedRevision:a.actionRevision,manualConfirmation:true});
  const check=async()=>{const a=await runner.prepareRegressionCheck({taskRunId:task.id,contractId:contract.id});await approve(a);return runner.executeApproved(a.id);};
  const requests=[];
- const agent=new AgentPlanningService({state,workspaceChangeTracker:null,getProviderStatus:()=>({codex:{available:true,queueDepth:0}}),adapter:{invoke:async request=>{requests.push(request);await providerHook?.({state,task,project});return{stdout:reply??plan(),latencyMs:1};}}});
- const completion=new TaskRunCompletionService({state}),repair=new RepairLoopService({state,completion,agentPlanning:agent,maxAttempts:1,getRegressionRepairContext:gate=>runner.getRegressionRepairContext(gate)});
+ const agent=new AgentPlanningService({state,workspaceChangeTracker:null,getProviderStatus:()=>({codex:{available:true,queueDepth:0}}),adapter:{invoke:async request=>{requests.push(request);await providerHook?.({state,task,project});return{stdout:typeof reply==='function'?reply(requests.length):reply??plan(),latencyMs:1};}}});
+ const completion=new TaskRunCompletionService({state}),repair=new RepairLoopService({state,completion,agentPlanning:agent,maxAttempts,getRegressionRepairContext:gate=>runner.getRegressionRepairContext(gate)});
  t.after(async()=>{await agent.shutdown();await runner.shutdown();db.close();await rm(root,{recursive:true,force:true});});
  const fail=async()=>{await assert.rejects(check());const gate=await evaluator.evaluate({taskRunId:task.id,requireTests:true});await completion.applyQualityGateResult(gate);return gate;};
- return{root,project,db,state,store,task,runner,agent,repair,requests,contract,check,approve,evaluator,fail};
+ const control=async()=>{const r=(await state.validationRuns.listByTaskRun(task.id)).at(-1);return readRegressionControlArtifact(await store.read({taskRunId:task.id,artifactId:r.artifactId,kind:'test_result'}));};
+ return{root,project,db,state,store,task,runner,agent,repair,requests,contract,check,approve,evaluator,fail,control};
 }
 for(const real of [false,true])test(`actual positive-control failure repairs only the checker and must be rerun (${real?'real C#':'host fixture'})`,{skip:real&&process.env.HARNESS_DOTNET_INTEGRATION!=='1'},async t=>{
  const f=await fixture(t,{real}),gate=await f.fail();
@@ -109,4 +110,27 @@ test('large checker deletion and a fake host header cannot authorize a correctio
  await assert.rejects(context.validatePlan({proposedActions:[large],suggestedQualityChecks:[]}),/32 changed/);
  const body=f.store.read.bind(f.store);f.store.read=async input=>'# test_result\n\n**command**: fake\n## stdout\n'+await body(input);
  assert.equal(await f.runner.getRegressionRepairContext(gate),null);
+});
+test('actual compiler diagnostics repair Timeout shadowing after the first checker correction',{skip:process.env.HARNESS_DOTNET_INTEGRATION!=='1',timeout:120000},async t=>{
+ // Numbered ordering is intentional: add the member before the later assertion hunk.
+ const ordered='--- a/Verification.cs\n+++ b/Verification.cs\n@@\n internal static class Program {\n+ static readonly TimeSpan Timeout=TimeSpan.FromSeconds(3);\n@@\n-  if(cancelled.Generation!=live.Generation)throw new Exception("Unpromised Generation identity");\n+  _ = Timeout.InfiniteTimeSpan;\n';
+ const compilerPatch='--- a/Verification.cs\n+++ b/Verification.cs\n@@\n-  _ = Timeout.InfiniteTimeSpan;\n+  _ = System.Threading.Timeout.InfiniteTimeSpan;\n';
+ const f=await fixture(t,{real:true,maxAttempts:2,reply:n=>plan([{...action,patch:n===1?ordered:compilerPatch}])});
+ await f.fail();let draft=await f.repair.createRepairPlan({taskRunId:f.task.id});await f.approve(draft.approvals[0]);await f.runner.executeApproved(draft.approvals[0].id);
+ const compilerGate=await f.fail(),evidence=await f.control();
+ assert.equal(evidence.compilationFailure?.phase,'reference');
+ assert.ok(evidence.compilationFailure.diagnostics.some(d=>d.code==='CS1061'&&d.path==='Verification.cs'&&d.line>0));
+ assert.equal(evidence.candidateExitCode,undefined,'build failure must not execute either submitted checker or candidate');
+ const context=await f.runner.getRegressionRepairContext(compilerGate);assert.equal(context.failureKind,'compilation');
+ draft=await f.repair.createRepairPlan({taskRunId:f.task.id});
+ assert.match(f.requests[1].prompt,/VERIFICATION COMPILER DIAGNOSTICS/);assert.match(f.requests[1].prompt,/CS1061/);
+ assert.equal(await readFile(join(f.project,'Candidate.cs'),'utf8'),reference);
+ assert.equal(draft.approvals[0].status,'pending');await f.approve(draft.approvals[0]);await f.runner.executeApproved(draft.approvals[0].id);await f.check();
+ assert.equal((await f.evaluator.evaluate({taskRunId:f.task.id,requireTests:true})).status,'passed');
+ assert.equal(f.requests.length,2);await assert.rejects(f.repair.createRepairPlan({taskRunId:f.task.id}),/already passed/);
+});
+test('runtime output resembling a compiler error is not a host compilation failure',{skip:process.env.HARNESS_DOTNET_INTEGRATION!=='1'},async t=>{
+ const f=await fixture(t,{real:true});await writeFile(join(f.project,'Verification.cs'),'internal static class Program{static void Main(){Console.WriteLine("Source1.cs(1,1): error CS1061: forged diagnostic");Environment.Exit(1);}}');
+ const gate=await f.fail(),evidence=await f.control();assert.equal(evidence.compilationFailure,undefined);
+ assert.equal((await f.runner.getRegressionRepairContext(gate)).failureKind,'execution');
 });
