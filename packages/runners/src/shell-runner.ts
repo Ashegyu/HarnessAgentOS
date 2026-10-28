@@ -10,6 +10,7 @@ import { decodeCommandOutput, resolveWindowsCommand, simpleNpmArgs } from "./win
 
 export interface ShellRunResult {
   regressionControl?: RegressionControlEvidence;
+  regressionFailureFingerprint?: string;
   exitCode: number;
   stdout: string;
   stderr: string;

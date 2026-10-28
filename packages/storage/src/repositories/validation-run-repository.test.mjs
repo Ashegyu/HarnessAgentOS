@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb, closeDb, LocalStateService } from "../index.ts";
+import {applyMigrations,readSchemaVersion} from '../migrations.ts';
 
 const fixture = async () => {
   const db = openDb({ filePath: ":memory:" });
@@ -79,6 +80,30 @@ test("quality gate stores its evaluated revision and ledger watermark", async ()
     await f.state.createQualityGateResult(gate);
     assert.deepEqual((await f.state.getLatestQualityGateResult(f.task.id)).validationState, gate.validationState);
   } finally { closeDb(f.db); }
+});
+
+test('failure fingerprints require an actually linked approved regression failure and round-trip immutably',async()=>{
+ const f=await fixture();try{
+  const generic=await f.state.validationRuns.begin(f.input),artifact=await f.state.createArtifact({taskRunId:f.task.id,stepId:f.step.id,kind:'test_result',title:'result',uri:'harness:fixture'});
+  const failed={status:'failed',exitCode:1,artifactId:artifact.id,finishFingerprint:'revision-a',finishGeneration:0,failureFingerprint:'a'.repeat(64)};
+  await assert.rejects(f.state.validationRuns.finish(generic.id,failed),/regression/i);
+  const approval=await f.state.createApproval({taskRunId:f.task.id,checkpointId:f.approval.checkpointId,actionType:'shell',actionSummary:'regression',status:'approved',proposedAction:{type:'shell',command:'dotnet',args:[],regressionCheck:{contractId:'reg_known',inputFingerprint:'frozen'}}});
+  await f.state.claimApprovalExecution(approval.id,approval.actionRevision,'regression-token');
+  const run=await f.state.validationRuns.begin({...f.input,approvalId:approval.id,checkerId:'regression:reg_known'});
+  for(const patch of [{failureFingerprint:'invalid'},{status:'completed',exitCode:0},{status:'cancelled'},{artifactId:undefined}])await assert.rejects(f.state.validationRuns.finish(run.id,{...failed,...patch}),/fingerprint/i);
+  const result=await f.state.validationRuns.finish(run.id,failed);assert.equal(result.failureFingerprint,failed.failureFingerprint);
+  assert.equal((await f.state.validationRuns.listByTaskRun(f.task.id)).at(-1).failureFingerprint,failed.failureFingerprint);
+  await assert.rejects(f.state.validationRuns.finish(run.id,{...failed,failureFingerprint:'b'.repeat(64)}),/terminal/);
+ }finally{closeDb(f.db);}
+});
+
+test('v45 validation rows migrate idempotently without inventing historical failure details',async()=>{
+ const f=await fixture();try{
+  const run=await f.state.validationRuns.begin(f.input);await f.state.validationRuns.finish(run.id,{status:'failed',exitCode:1,finishFingerprint:'revision-a',finishGeneration:0});
+  f.db.exec('ALTER TABLE validation_runs DROP COLUMN failure_fingerprint');f.db.prepare("UPDATE schema_meta SET value='45' WHERE key='schema_version'").run();
+  applyMigrations(f.db);applyMigrations(f.db);assert.equal(readSchemaVersion(f.db),46);
+  const rows=await f.state.validationRuns.listByTaskRun(f.task.id);assert.equal(rows.length,1);assert.equal(rows[0].id,run.id);assert.equal(rows[0].failureFingerprint,undefined);
+ }finally{closeDb(f.db);}
 });
 
 test("validation rows cascade when their task is deleted without changing workspace generation", async () => {

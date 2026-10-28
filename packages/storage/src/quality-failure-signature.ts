@@ -8,6 +8,7 @@ export interface FailedQualityChecker {
   checkerId: string;
   kinds: readonly string[];
   exitCode: number | null;
+  failureFingerprint?: string;
 }
 
 // Exact diagnostic text is intentional. Do not erase paths/numbers or infer
@@ -20,6 +21,7 @@ export const qualityFailureSignature = (
     checkerId: checker.checkerId,
     kinds: [...new Set(checker.kinds)].sort(),
     exitCode: checker.exitCode,
+    ...(checker.failureFingerprint?{failureFingerprint:checker.failureFingerprint}:{}),
   })))].sort();
   const payload = JSON.stringify({
     status: gate.status,

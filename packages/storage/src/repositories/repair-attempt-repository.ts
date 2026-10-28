@@ -116,7 +116,9 @@ export class SqliteRepairAttemptRepository implements RepairAttemptRepository {
         const previous = this.failureIdentity(input.taskRunId, attempt.quality_gate_id);
         if (!previous) return { reserved: false, reason: "unverifiable_failure" };
         const repeated = current.hasCheckers && previous.hasCheckers
-          ? current.signature === previous.signature
+          ? current.hasFailureDetails&&previous.hasFailureDetails
+            ? current.signature===previous.signature
+            : current.baseSignature===previous.baseSignature
           : current.basis === previous.basis;
         if (repeated) return { reserved: false, reason: "repeated_signature" };
       }
@@ -125,7 +127,7 @@ export class SqliteRepairAttemptRepository implements RepairAttemptRepository {
   }
 
   private failureIdentity(taskRunId: string, gateId: string): {
-    basis: string; signature: string; hasCheckers: boolean;
+    basis: string; signature: string; baseSignature:string;hasCheckers: boolean;hasFailureDetails:boolean;
   } | null {
     const row = this.db.prepare(`SELECT status, known_risks_json, evidence_artifact_ids_json,
       build_passed, tests_passed, smoke_passed FROM quality_gate_results WHERE id=? AND task_run_id=?`)
@@ -145,20 +147,23 @@ export class SqliteRepairAttemptRepository implements RepairAttemptRepository {
     };
     // The gate selects its own immutable execution proofs. Never substitute
     // today's latest checker result for an older gate's evidence.
-    const proofs = this.db.prepare(`SELECT v.checker_id, v.kinds_json, v.exit_code
+    const proofs = this.db.prepare(`SELECT v.checker_id, v.kinds_json, v.exit_code,v.failure_fingerprint
       FROM validation_runs v
       WHERE v.task_run_id=? AND v.artifact_id IN (SELECT value FROM json_each(?))
         AND v.status IN ('completed','failed')
         AND (v.status='failed' OR v.exit_code<>0)`)
-      .all(taskRunId, JSON.stringify(evidence)) as { checker_id: string; kinds_json: string; exit_code: number | null }[];
+      .all(taskRunId, JSON.stringify(evidence)) as { checker_id: string; kinds_json: string; exit_code: number | null;failure_fingerprint:string|null }[];
     const checkers: FailedQualityChecker[] = [];
     for (const proof of proofs) {
       const kinds = strictStringArray(proof.kinds_json);
       if (!kinds || kinds.some(kind => !["build", "test", "smoke"].includes(kind)) ||
           !proof.checker_id || (proof.exit_code !== null && !Number.isSafeInteger(proof.exit_code))) return null;
-      if (kinds.length > 0) checkers.push({ checkerId: proof.checker_id, kinds, exitCode: proof.exit_code });
+      if(proof.failure_fingerprint!==null&&(!proof.checker_id.startsWith('regression:')||!/^[a-f0-9]{64}$/.test(proof.failure_fingerprint)))return null;
+      if (kinds.length > 0) checkers.push({ checkerId: proof.checker_id, kinds, exitCode: proof.exit_code,...(proof.failure_fingerprint?{failureFingerprint:proof.failure_fingerprint}:{}) });
     }
-    return { basis: qualityFailureSignature(gate), signature: qualityFailureSignature(gate, checkers), hasCheckers: checkers.length > 0 };
+    return { basis: qualityFailureSignature(gate), signature: qualityFailureSignature(gate, checkers),
+      baseSignature:qualityFailureSignature(gate,checkers.map(({failureFingerprint,...c})=>c)),
+      hasFailureDetails:checkers.length>0&&checkers.every(c=>!!c.failureFingerprint),hasCheckers: checkers.length > 0 };
   }
 
   private createSync(input: CreateRepairAttemptInput): RepairAttempt {

@@ -837,6 +837,7 @@ export class RunnerService {
           status: failed ? isRunnerCancelled(failure) || signal?.aborted ? "cancelled" : "failed" : "completed",
           ...(runOutcome ? { exitCode: runOutcome.exitCode } : {}),
           ...(proofArtifactId ? { artifactId: proofArtifactId } : {}),
+          ...(failed&&!signal?.aborted&&!isRunnerCancelled(failure)&&!identityChanged&&!inputChanged&&!mutationChanged&&!reason&&runOutcome?.regressionFailureFingerprint?{failureFingerprint:runOutcome.regressionFailureFingerprint}:{}),
           finishFingerprint: identityChanged || epoch.activeMutations !== 0 || (details.regressionCheck && !runOutcome) ? null : finished.fingerprint,
           finishGeneration: epoch.generation,
           ...(reason ? { reason } : {}),

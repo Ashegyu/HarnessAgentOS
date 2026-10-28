@@ -231,6 +231,10 @@ export const applyMigrations = (db: DatabaseType): void => {
       db.exec(`ALTER TABLE approvals ADD COLUMN retry_approval_id TEXT REFERENCES approvals(id) ON DELETE SET NULL`);
     }
     for (const statement of VALIDATION_SCHEMA_STATEMENTS) db.exec(statement);
+    // v46 — immutable host-observed regression failure identity; legacy rows stay unknown.
+    if (!hasColumn(db, "validation_runs", "failure_fingerprint")) {
+      db.exec(`ALTER TABLE validation_runs ADD COLUMN failure_fingerprint TEXT`);
+    }
 
     if (upgradeExecution) {
       rebuildApprovalExecutionConstraint(db);

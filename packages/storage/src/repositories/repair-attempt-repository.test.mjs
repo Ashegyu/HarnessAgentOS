@@ -149,6 +149,20 @@ const failedProof = async (state, taskRunId, checkerId, exitCode, kinds = ["test
   return artifact.id;
 };
 
+for(const [name,oldFingerprint,newFingerprint,allowed] of [['new observed diagnostic','a','b',true],['same observed failure','a','a',false],['legacy unknown detail',null,'b',false],['new unknown detail','a',null,false]])test(`regression repeat protection: ${name}`,async()=>{
+ const db=openDb({filePath:':memory:'});try{
+  const state=new LocalStateService(db),{taskRun}=await seedTaskRunAndGate(state);
+  const gate={taskRunId:taskRun.id,status:'failed',testsPassed:false,knownRisks:['tests failed'],createdAt:'2000'};
+  for(const [i,fp]of [oldFingerprint,newFingerprint].entries()){
+   const artifact=await failedProof(state,taskRun.id,'regression:reg_fixed',1);
+   if(fp)db.prepare('UPDATE validation_runs SET failure_fingerprint=? WHERE artifact_id=?').run(fp.repeat(64),artifact);
+   await state.createQualityGateResult({...gate,id:'observed-'+i,evidenceArtifactIds:[artifact]});
+   const result=await state.repairAttempts.reserve({taskRunId:taskRun.id,qualityGateId:'observed-'+i,maxAttempts:2});
+   assert.equal(result.reserved,i===0||allowed);if(!result.reserved)assert.equal(result.reason,'repeated_signature');
+  }
+ }finally{closeDb(db);}
+});
+
 for (const { name, firstProof = true, secondProof = true, checkerId = "node-test", exitCode = 1, kinds = ["test"], repeated = false } of [
   { name: "new artifact with the same checker", repeated: true },
   { name: "different checker", checkerId: "other-test" },

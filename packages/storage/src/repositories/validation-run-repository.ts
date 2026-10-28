@@ -16,6 +16,7 @@ interface Row {
   start_fingerprint: string | null; start_generation: number;
   finish_fingerprint: string | null; finish_generation: number | null;
   status: ValidationRunStatus; exit_code: number | null; artifact_id: string | null;
+  failure_fingerprint: string | null;
   reason: string | null; started_at: string; finished_at: string | null;
 }
 
@@ -27,6 +28,7 @@ const fromRow = (row: Row): ValidationRun => ({
   ...(row.finished_at !== null ? { finishedAt: row.finished_at, finishFingerprint: row.finish_fingerprint } : {}),
   ...(row.finish_generation !== null ? { finishGeneration: row.finish_generation } : {}),
   ...(row.exit_code !== null ? { exitCode: row.exit_code } : {}),
+  ...(row.failure_fingerprint != null ? {failureFingerprint:row.failure_fingerprint} : {}),
   ...(row.artifact_id !== null ? { artifactId: row.artifact_id } : {}),
   ...(row.reason !== null ? { reason: row.reason } : {}),
 });
@@ -74,6 +76,12 @@ export class SqliteValidationRunRepository implements ValidationRunRepository {
       const current = this.getSync(id);
       if (!current) throw new Error(`Validation run ${id} not found`);
       if (current.status !== "running") throw new Error("Validation run is already terminal");
+      if(input.failureFingerprint!==undefined){
+        if(!/^[a-f0-9]{64}$/.test(input.failureFingerprint)||input.status!=='failed'||!input.exitCode||!input.artifactId)throw new TypeError('Invalid regression failure fingerprint');
+        const linked=this.db.prepare(`SELECT 1 FROM approvals WHERE id=? AND task_run_id=? AND
+          ? = 'regression:' || json_extract(approved_action_json,'$.regressionCheck.contractId')`).get(current.approvalId,current.taskRunId,current.checkerId);
+        if(!linked)throw new Error('Regression failure identity requires a linked approved regression check');
+      }
       if (input.artifactId !== undefined) {
         const linked = this.db.prepare(`SELECT 1 FROM artifacts
           WHERE id=? AND task_run_id=? AND step_id=? AND kind IN ('log','test_result')`)
@@ -84,10 +92,11 @@ export class SqliteValidationRunRepository implements ValidationRunRepository {
       }
       const update = this.db.prepare(`UPDATE validation_runs SET status=@status,
         exit_code=@exitCode, artifact_id=@artifactId, finish_fingerprint=@finishFingerprint,
-        finish_generation=@finishGeneration, reason=@reason, finished_at=@finishedAt
+        finish_generation=@finishGeneration, failure_fingerprint=@failureFingerprint, reason=@reason, finished_at=@finishedAt
         WHERE id=@id AND status='running'`)
         .run({ id, status: input.status, exitCode: input.exitCode ?? null, artifactId: input.artifactId ?? null,
           finishFingerprint: input.finishFingerprint, finishGeneration: input.finishGeneration,
+          failureFingerprint:input.failureFingerprint??null,
           reason: input.reason ?? current.reason ?? null, finishedAt: nowIso() });
       if (update.changes !== 1) throw new Error("Validation run is already terminal");
       return this.getSync(id)!;

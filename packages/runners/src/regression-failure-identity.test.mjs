@@ -14,5 +14,7 @@ test('only bounded actual stderr exception headlines or host compiler diagnostic
  assert.equal(fingerprint(a),fingerprint({...a,stderr:'another build path',compilationFailure:{...a.compilationFailure,diagnostics:[{...diagnostic,line:99,column:2}]}}));
  assert.notEqual(fingerprint(a),fingerprint({...a,compilationFailure:{...a.compilationFailure,diagnostics:[{...diagnostic,code:'CS0103'}]}}));
  assert.notEqual(fingerprint(base),fingerprint(a));
+ const two={...a,compilationFailure:{...a.compilationFailure,diagnostics:[diagnostic,{code:'CS0103',message:'unknown name'}]}};
+ assert.equal(fingerprint(two),fingerprint({...two,compilationFailure:{...two.compilationFailure,diagnostics:[...two.compilationFailure.diagnostics].reverse()}}),'compiler diagnostic ordering is not a new failure');
  assert.equal(fingerprint({...base,stderr:'Unhandled exception. '+ 'x'.repeat(1000)+'a'}),fingerprint({...base,stderr:'Unhandled exception. '+ 'x'.repeat(1000)+'b'}),'unbounded tails cannot manufacture a fresh failure');
 });

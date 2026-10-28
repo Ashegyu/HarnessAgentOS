@@ -17,6 +17,8 @@ export interface ValidationRun {
   finishGeneration?: number;
   status: ValidationRunStatus;
   exitCode?: number;
+  /** Host-observed regression failure; recording IDs and checker source revisions are excluded. */
+  failureFingerprint?: string;
   artifactId?: string;
   reason?: string;
   startedAt: string;
@@ -40,6 +42,7 @@ export interface FinishValidationRunInput {
   finishFingerprint: string | null;
   finishGeneration: number;
   exitCode?: number;
+  failureFingerprint?: string;
   artifactId?: string;
   reason?: string;
 }

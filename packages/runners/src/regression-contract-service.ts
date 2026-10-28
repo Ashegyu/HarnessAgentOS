@@ -8,6 +8,7 @@ import type { RegressionContract, RegressionSource } from "@harness/storage";
 import { isRealPathWithin, isWithin } from "./runner-policy.ts";
 import {ShellRunnerError,type ShellRunner,type ShellRunResult} from "./shell-runner.ts";
 import {regressionCompilerDiagnostics} from './regression-compiler-diagnostics.ts';
+import {regressionFailureFingerprint} from './regression-failure-identity.ts';
 
 const hash = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const key = (path: string): string => process.platform === "win32" ? path.replaceAll("\\","/").toLowerCase() : path;
@@ -143,7 +144,9 @@ export class RegressionContractService {
           : {...regressionControl!,candidateExitCode:outcome.exitCode};
         if(build.exitCode!==0)regressionControl.compilationFailure={phase,exitCode:build.exitCode,diagnostics:regressionCompilerDiagnostics(build.stdout+'\n'+build.stderr,sources)};
         signal?.throwIfAborted();
-        if (outcome.exitCode !== 0) return { ...outcome, regressionControl, command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };
+        if (outcome.exitCode !== 0) return { ...outcome, regressionControl,
+          ...(phase==='reference'?{regressionFailureFingerprint:regressionFailureFingerprint({referenceFingerprint:referenceFingerprint(c),referenceIndex:index,stderr:outcome.stderr,compilationFailure:regressionControl.compilationFailure})}:{}),
+          command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };
         if (phase === "reference"&&index===sets.length-1) {
           // Do not freeze a test that changed while its positive control was running.
           if (hash(await this.inputs(c,root)) !== check.inputFingerprint) throw new Error("Regression inputs changed during reference execution");
