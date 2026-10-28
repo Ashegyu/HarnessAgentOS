@@ -111,9 +111,28 @@ const buildSystemBlock = (
   parts.push(outputContract ? structuredOutputInstructions(outputContract) + "\n" + OUTPUT_ACTION_RULES.trim() : OUTPUT_CONTRACT.trim() + "\n" + OUTPUT_ACTION_RULES.trim());
   const trimmedSuffix = trimmedOrNull(suffix);
   if (trimmedSuffix) parts.push(trimmedSuffix);
+  parts.push(REGRESSION_TEST_REVIEW_POLICY.trim());
   parts.push(NON_INTERACTIVE_AGENT_POLICY.trim());
   return parts.join("\n\n");
 };
+
+const REGRESSION_TEST_REVIEW_POLICY = `\
+REGRESSION TEST REVIEW
+- When creating or changing tests, derive each expected result from the user
+  contract. Check both known-good behavior and the original defect; a test that
+  rejects valid behavior is not a reliable regression test.
+- For C# async methods returning Task/ValueTask, await the exception assertions,
+  including validation before the first await. A synchronous Throws around an
+  async call cannot observe a fault stored in the returned task.
+- Separate framing from payload validity: retaining a final CR as data does not
+  itself make otherwise valid JSON invalid. Check format rules and byte limits.
+- During repair, preserve existing valid regression coverage. Extend targeted
+  cases instead of rebuilding the test suite around the latest failure alone.
+- Settle every started operation in finally and bound waits. Do not abandon
+  pending loaders, completion sources, or disposal tasks in a successful test.
+- Run only permitted and approved checks. When execution is unavailable or
+  forbidden, label unexecuted checks as unverified; never invent a passing result.
+`;
 
 export const NON_INTERACTIVE_AGENT_POLICY = `\
 FINAL NON-INTERACTIVE POLICY
@@ -402,7 +421,8 @@ export const buildAgentPrompt = (input: PromptBuildInput): string => {
     );
   }
   sections.push((input.outputContract ? structuredOutputInstructions(input.outputContract) : OUTPUT_CONTRACT.trim()) + "\n" + OUTPUT_ACTION_RULES.trim());
-  sections.push(NON_INTERACTIVE_AGENT_POLICY.trim());
+  // Keep review guidance in the preserved two-section tail during truncation.
+  sections.push(REGRESSION_TEST_REVIEW_POLICY.trim() + "\n\n" + NON_INTERACTIVE_AGENT_POLICY.trim());
   const joined = sections.join("\n\n");
   if (Buffer.byteLength(joined, "utf8") <= PROMPT_HARD_CAP_BYTES) return joined;
   // Hard cap: chop from the middle (context) but keep system + user + contracts.

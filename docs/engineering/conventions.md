@@ -151,3 +151,10 @@ C:\Users\FORYOUCOM\Desktop\Code\ClaudeAgentSystem
 - 직접 import 대신 HarnessAgentOS package 구조에 맞게 재작성한다.
 - ClaudeAgentSystem의 파일, DB, state, messages, runtime artifact를 수정하거나 runtime dependency로 사용하지 않는다.
 
+## 회귀 검사 생성·보정 지침
+
+- Planner와 worker는 공통 `REGRESSION TEST REVIEW` 지침으로 검사 기대값을 사용자 계약과 대조한다. 보정 시 기존의 유효한 검사 범위를 보존하고 정상 입력과 원래 결함을 함께 확인한다.
+- C# async 메서드의 예외는 첫 await 이전의 인자 검증도 Task/ValueTask에 저장될 수 있으므로 비동기 예외 단정을 await한다. 프레이밍 구분자 처리와 JSON 데이터 유효성도 구분한다.
+- 검사에서 시작한 loader·completion source·종료 작업은 finally에서 정리하고 대기를 제한한다. 실행 금지·승인 조건은 그대로 적용하며 미실행 검사는 미검증으로 표시한다.
+- 이 지침은 생성 품질을 위한 프롬프트이며 컴파일러나 의미 검사기가 아니다. 프롬프트 전달 테스트의 통과를 실제 생성 검사의 정확도·모델 점수 향상으로 보고하지 않는다. 생성 코드는 별도의 승인된 컴파일·실행 근거로 확인한다.
+

@@ -16,11 +16,11 @@ const baseTaskRun = {
 for (const mode of ["split", "legacy"]) {
   test(`${mode} regression guidance preserves asynchronous and framing assertion semantics`, () => {
     const input = { taskRun: { ...baseTaskRun, userRequest: "C# 회귀 검사를 작성해줘. 실행하지 마." } };
-    const prompt = mode === "split" ? buildSplitAgentPrompt(input).systemPrompt : buildAgentPrompt(input);
+    const prompt = (mode === "split" ? buildSplitAgentPrompt(input).systemPrompt : buildAgentPrompt(input)).replace(/\s+/g, " ");
     assert.match(prompt, /validation before the first await/i);
     assert.match(prompt, /await.*exception assertions/i);
     assert.match(prompt, /framing.*payload validity/i);
-    assert.match(prompt, /final CR.*not.*invalid JSON/i);
+    assert.match(prompt, /final CR.*does not.*make otherwise valid JSON invalid/i);
     assert.match(prompt, /known-good.*original defect/i);
     assert.match(prompt, /unexecuted.*unverified/i);
   });

@@ -703,7 +703,7 @@ for (const kind of ["planner", "worker"]) {
       assert.equal(fixture.modelCalls, 1);
       assert.match(request.systemPrompt, /REGRESSION TEST REVIEW/);
       assert.match(request.systemPrompt, /validation before the first await/i);
-      assert.match(request.systemPrompt, /final CR.*not.*invalid JSON/i);
+      assert.match(request.systemPrompt.replace(/\s+/g, " "), /final CR.*does not.*make otherwise valid JSON invalid/i);
       assert.match(request.systemPrompt, /unexecuted.*unverified/i);
       assert.equal(fixture.approvals.length, 0);
       assert.ok(fixture.artifacts.some(a => a.summary?.includes(summary)), "the host must not silently rewrite generated test answers");

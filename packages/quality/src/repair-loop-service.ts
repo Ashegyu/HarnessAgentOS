@@ -178,6 +178,8 @@ const buildRepairInstruction = (
     "QUALITY REPAIR LOOP",
     "- Generate a targeted repair plan for the failed quality gate.",
     "- Keep all repair work inside the same TaskRun history.",
+    "- Reconcile each failed assertion with the user contract before changing implementation; the test itself can be wrong.",
+    "- Preserve existing valid regression coverage. Review both known-good behavior and the original defect before proposing a test change.",
     "- No side effect is allowed directly; only propose approval-gated actions.",
     "- Do not propose dependency_install, network, git_commit, or secret access.",
     "- Prefer file_write fixes and explicit follow-up quality checks.",
