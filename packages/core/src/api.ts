@@ -1,4 +1,5 @@
 import type { RuntimeInfo } from "./runtime.ts";
+import type { RegisterRegressionContractInput, RegressionContractSummary } from "./types/regression-contract.ts";
 import type {
   Approval,
   PrepareActionRetryInput,
@@ -247,6 +248,9 @@ export interface HarnessDesktopApi {
     createPreview(input: { approvalId: string }): Promise<ShadowPreview>;
   };
   quality: {
+    registerRegression(input: RegisterRegressionContractInput): Promise<RegressionContractSummary>;
+    listRegressions(input: { taskRunId: string }): Promise<RegressionContractSummary[]>;
+    prepareRegression(input: { taskRunId: string; contractId: string }): Promise<Approval>;
     evaluate(input: QualityGateInput): Promise<QualityGateResult>;
     getLatest(input: {
       taskRunId: string;

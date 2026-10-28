@@ -9,7 +9,7 @@
  * Every CREATE statement uses IF NOT EXISTS so applying the schema
  * repeatedly is a no-op (idempotency requirement from phase-01.md).
  */
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 export const SCHEMA_STATEMENTS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -563,6 +563,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
 
 // Deferred until legacy approval-table rebuilds have completed.
 export const VALIDATION_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS regression_contracts (
+    id TEXT PRIMARY KEY, task_run_id TEXT NOT NULL REFERENCES task_runs(id) ON DELETE CASCADE,
+    workspace_key TEXT NOT NULL, definition_json TEXT NOT NULL,
+    protected_verification_json TEXT, created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_regression_contracts_task ON regression_contracts(task_run_id)`,
   // v41 — host-owned checker execution and shared workspace mutation epochs.
   `CREATE TABLE IF NOT EXISTS workspace_validation_state (
     workspace_key TEXT PRIMARY KEY,

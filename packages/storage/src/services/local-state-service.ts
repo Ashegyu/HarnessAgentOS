@@ -1,3 +1,4 @@
+import { SqliteRegressionContractRepository } from "../repositories/regression-contract-repository.ts";
 import {
   assertTaskRunTransition,
   evaluateApprovalActionPolicy,
@@ -150,6 +151,7 @@ export class LocalStateService implements ConversationStateGateway {
   readonly repairAttempts: RepairAttemptRepository;
   readonly evalRuns: EvalRunRepository;
   readonly validationRuns: SqliteValidationRunRepository;
+  readonly regressionContracts: SqliteRegressionContractRepository;
   readonly workspaceMutations: SqliteWorkspaceMutationRepository;
 
   private readonly db: HarnessDb;
@@ -163,6 +165,7 @@ export class LocalStateService implements ConversationStateGateway {
     this.artifacts = new SqliteArtifactRepository(db);
     this.qualityGates = new SqliteQualityGateRepository(db);
     this.validationRuns = new SqliteValidationRunRepository(db);
+    this.regressionContracts = new SqliteRegressionContractRepository(db);
     this.workspaceMutations = new SqliteWorkspaceMutationRepository(db);
     this.capabilities = new SqliteCapabilityRepository(db);
     this.learningTraces = new SqliteLearningTraceRepository(db);

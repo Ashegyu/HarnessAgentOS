@@ -49,3 +49,4 @@ export * from "./eval.ts";
 export * from "./diagnostics.ts";
 export * from "./export.ts";
 export * from "./validation-run.ts";
+export * from "./regression-contract.ts";

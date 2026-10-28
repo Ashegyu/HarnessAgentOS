@@ -52,6 +52,9 @@ export const IPC_CHANNELS = {
     createPreview: "shadow:createPreview",
   },
   quality: {
+    registerRegression: "quality:registerRegression",
+    listRegressions: "quality:listRegressions",
+    prepareRegression: "quality:prepareRegression",
     evaluate: "quality:evaluate",
     getLatest: "quality:getLatest",
     approveKnownRisks: "quality:approveKnownRisks",

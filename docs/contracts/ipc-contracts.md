@@ -2217,6 +2217,15 @@ schema 43은 품질 gate의 task-scoped 인덱스와 최근 작업의 updatedAt 
 
 
 
+## 실행 기반 C# 회귀 계약 (2026-10-28)
+
+- `quality.registerRegression({taskRunId,title,referenceDir,sourcePaths,sharedPaths,verificationPaths,manualConfirmation:true})`는 사용자가 신뢰한 정상 기준 C# 소스와 공용 계약을 SQLite에 보관한다. 등록은 프로세스를 실행하지 않는다. 등록과 workspace generation 증가가 한 트랜잭션이므로 이전 품질 통과 결과로 완료할 수 없다.
+- `quality.listRegressions({taskRunId})`는 등록된 필수 검사와 보호 상태를 반환한다. `quality.prepareRegression({taskRunId,contractId})`는 정확한 입력 fingerprint에 묶인 pending shell 승인을 생성한다. 기존 개별 수동 승인·실행 경로를 사용하며 자동 승인하지 않는다. 입력이 바뀌면 새 승인을 요청해야 한다.
+- 승인 실행은 임시 .NET 8 콘솔 프로젝트에서 동일한 검사·공용 계약으로 정상 기준 구현, 현재 구현 순서로 컴파일·실행한다. 외부 패키지를 복원하지 않으며 기존 프로젝트의 build hooks를 가져오지 않는다. 호스트 권한 실행이므로 사용자 제공 코드도 실행 승인 범위에 포함된다.
+- 정상 기준 실행이 성공한 검사만 SQLite에 한 번 보호한다. 현재 구현이 실패하더라도 유효한 검사는 유지한다. 보호된 검사·공용 계약의 file_write/file_patch/file_delete/DB export 변경을 거부하며, 정확한 원본 복구는 허용한다. 추가 검사는 별도 파일·계약으로 등록한다. 외부 shell/편집기의 변경까지 OS 수준으로 금지하지는 않으며, 그런 변경은 준비 시 보호 검사와 품질 게이트의 최신 revision 확인에서 차단한다.
+- 등록된 각 검사마다 현재 revision·generation에 연결된 최신 실제 통과 결과가 필요하다. 다른 검사 통과로 대신할 수 없다. 실행 취소·시간 초과·결과 미확인은 통과 근거가 아니다. 정상 기준 실패와 현재 구현 실패는 결과 로그에 구분한다.
+- 현재 범위는 명시적으로 등록한 TaskRun의 C# 파일, 외부 패키지 없는 단일 Main 콘솔 검사다. 정상 기준의 정확성은 사용자가 결정한다. 등록되지 않은 검사나 모든 언어의 검사 의미를 자동 증명하는 기능은 아니다. SQLite schema v45를 사용한다.
+
 ## 앱 정상 종료 수명 (2026-10-27)
 
 - 정상 창 닫기/Electron quit는 `before-quit`에서 신규 IPC/Agent/Runner 진입과 자동 progression을 먼저 차단한다. 이미 시작한 IPC는 결과/cleanup 정산까지 소유한다. 종료 중 새 요청은 `APPLICATION_SHUTTING_DOWN`으로 거절될 수 있다. IPC 채널·preload 권한·SQLite schema는 추가/변경하지 않는다.

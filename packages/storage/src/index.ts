@@ -1,4 +1,5 @@
 export * from "./db.ts";
+export * from "./repositories/regression-contract-repository.ts";
 export * from "./schema.ts";
 export * from "./migrations.ts";
 export * from "./id.ts";

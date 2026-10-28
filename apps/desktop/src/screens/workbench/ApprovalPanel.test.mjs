@@ -8,6 +8,16 @@ const { ApprovalPanel } = await import("./ApprovalPanel.tsx");
 
 const now = "2026-05-20T00:00:00.000Z";
 
+test("host regression approvals preserve pinned inputs and require individual confirmation", () => {
+  const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
+    approvals: [{ id:"a",taskRunId:"t",checkpointId:"c",actionType:"shell",status:"pending",actionSummary:"normal reference and candidate",
+      proposedAction:{type:"shell",command:"dotnet",args:[],regressionCheck:{contractId:"reg",inputFingerprint:"a".repeat(64)}} }],
+    taskRunTargetDir:"C:/repo",pipelineAutoLaunched:false,
+  }));
+  assert.match(html,/<button[^>]*disabled=""[^>]*>세부 수정<\/button>/);
+  assert.match(html,/<button[^>]*disabled=""[^>]*>승인 후 실행<\/button>/);
+});
+
 test("a reviewed replacement locks the original unclaimed approval controls", () => {
   const html = renderToStaticMarkup(React.createElement(ApprovalPanel, {
     approvals: [{ id: "a", taskRunId: "t", checkpointId: "c", actionType: "file_write", status: "approved",

@@ -219,6 +219,7 @@ export const registerAllIpc = (ctx: IpcContext): { shutdown(): Promise<void> } =
     eventBus,
     ctx.instinctService,
     pipelineBackflow,
+    ctx.runner,
   );
   registerCapabilityIpc(
     ctx.capabilityService,

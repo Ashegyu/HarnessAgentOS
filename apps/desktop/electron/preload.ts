@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { RegressionContractSummary } from "@harness/core";
 import {
   IPC_CHANNELS,
   isAllowedChannel,
@@ -228,6 +229,9 @@ const harnessApi: HarnessDesktopApi = {
       invokeUnwrapped<ShadowPreview>(IPC_CHANNELS.shadow.createPreview, input),
   },
   quality: {
+    registerRegression: input => invokeUnwrapped<RegressionContractSummary>(IPC_CHANNELS.quality.registerRegression,input),
+    listRegressions: input => invokeUnwrapped<RegressionContractSummary[]>(IPC_CHANNELS.quality.listRegressions,input),
+    prepareRegression: input => invokeUnwrapped<Approval>(IPC_CHANNELS.quality.prepareRegression,input),
     evaluate: (input) =>
       invokeUnwrapped<QualityGateResult>(
         IPC_CHANNELS.quality.evaluate,

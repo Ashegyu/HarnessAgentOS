@@ -8,6 +8,7 @@ import type {
   TaskRun,
 } from "@harness/core";
 import { RiskApprovalDialog } from "./RiskApprovalDialog";
+import { RegressionContractsPanel } from "./RegressionContractsPanel";
 import { defaultQualityRequirements } from "./quality-requirements";
 import { FeatureHelpButton } from "./FeatureHelpButton";
 import {
@@ -237,6 +238,7 @@ export const QualityPanel = ({
 
   return (
     <div className="quality-panel">
+      {!readOnly && <RegressionContractsPanel key={taskRun.id} taskRunId={taskRun.id} revision={approvals} onChanged={onTaskRunChanged} />}
       <header className="panel-header panel-header--inset">
         <span className="panel-header__title">
           {readOnly ? "응답 검증" : "Quality"}

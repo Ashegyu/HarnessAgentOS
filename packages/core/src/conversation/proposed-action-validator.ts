@@ -310,6 +310,15 @@ const validateShell = (raw: Record<string, unknown>): ProposedActionValidation =
     command,
     ...(args !== undefined ? { args } : {}),
   };
+  if (raw.regressionCheck !== undefined) {
+    const check = raw.regressionCheck as Record<string, unknown> | null;
+    if (command !== "dotnet" || args?.length !== 0 || !check ||
+        typeof check.contractId !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(check.contractId) ||
+        typeof check.inputFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(check.inputFingerprint)) {
+      return { ok: false, reason: "Invalid host regression check" };
+    }
+    normalized.regressionCheck = { contractId: check.contractId, inputFingerprint: check.inputFingerprint };
+  }
   return { ok: true, details: normalized };
 };
 

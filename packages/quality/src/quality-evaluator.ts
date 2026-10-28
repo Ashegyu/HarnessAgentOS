@@ -6,7 +6,7 @@ import type {
   Artifact,
 } from "@harness/core";
 import { collectEvidence } from "./evidence-reader.ts";
-import { taskContractFor } from "@harness/core";
+import { taskContractFor, regressionCheckerId, selectCurrentValidationEvidence } from "@harness/core";
 import { collectRisks } from "./risk-policy.ts";
 import type { LocalStateService } from "@harness/storage";
 import { captureValidationRevision, newId, nowIso, type ValidationRevision } from "@harness/storage";
@@ -123,6 +123,22 @@ export class QualityEvaluator {
     } else if (contract.intent === "change" && evidence.diffArtifactIds.length === 0) {
       risks.push("수정 요청에 대응하는 실제 변경 근거가 없습니다.");
       if (status !== "failed") status = "warning";
+    }
+
+    const regressions = await this.deps.state.regressionContracts?.list(taskRun.id) ?? [];
+    if (regressions.length > 0) {
+      const verified = selectCurrentValidationEvidence({ taskRunId: taskRun.id, runs: currentRuns, steps: currentSteps,
+        artifacts: currentArtifacts, current: { ...revision, ...epoch } }).runs;
+      for (const regression of regressions) {
+        const run = !changedDuringEvaluation && verified.find(r => r.checkerId === regressionCheckerId(regression.id));
+        if (!run || !regression.protectedVerification) {
+          risks.push(`회귀 검사 최신 실행 필요: ${regression.title}`);
+          if (status !== "failed") status = "not_run";
+        } else if (run.status !== "completed" || run.exitCode !== 0) {
+          risks.push(`회귀 검사 실패: ${regression.title}`);
+          status = "failed";
+        }
+      }
     }
 
     const result: QualityGateResult = {

@@ -10,6 +10,8 @@ import type {
 } from "@harness/core";
 import {
   AsyncWorkScope,
+  regressionCheckerId,
+  type RegisterRegressionContractInput,
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
   DEFAULT_RUNNER_TEST_TIMEOUT_MS,
@@ -27,6 +29,7 @@ import { relative as relativePath, resolve as resolveNodePath } from "node:path"
 import { FileRunner, FileRunnerError } from "./file-runner.ts";
 import { FileDeleteRunner } from "./file-delete-runner.ts";
 import { ShellRunner } from "./shell-runner.ts";
+import { RegressionContractService } from "./regression-contract-service.ts";
 import { GitRunner } from "./git-runner.ts";
 import { TestRunner } from "./test-runner.ts";
 import {
@@ -94,6 +97,7 @@ export interface RunnerServiceDeps {
 export class RunnerService {
   private readonly file: FileRunner;
   private readonly shell: ShellRunner;
+  private readonly regressions: RegressionContractService;
   private readonly git: GitRunner;
   private readonly test: TestRunner;
   private readonly deps: RunnerServiceDeps;
@@ -109,6 +113,7 @@ export class RunnerService {
     this.deps = deps;
     this.file = deps.fileRunner ?? new FileRunner();
     this.shell = deps.shellRunner ?? new ShellRunner();
+    this.regressions = new RegressionContractService(deps.state,this.shell);
     this.git = deps.gitRunner ?? new GitRunner(this.shell);
     this.test = deps.testRunner ?? new TestRunner(this.shell);
   }
@@ -151,6 +156,14 @@ export class RunnerService {
 
   executeApproved(approvalId: string): Promise<RunnerResult> {
     return this.operations.run(() => this.executeApprovedOnce(approvalId));
+  }
+
+  registerRegressionContract(input: RegisterRegressionContractInput) {
+    return this.operations.run(() => this.regressions.register(input));
+  }
+  listRegressionContracts(input: { taskRunId: string }) { return this.regressions.list(input.taskRunId); }
+  prepareRegressionCheck(input: { taskRunId: string; contractId: string }) {
+    return this.operations.run(() => this.regressions.prepare(input.taskRunId,input.contractId));
   }
 
   async shutdown(): Promise<void> {
@@ -358,6 +371,7 @@ export class RunnerService {
       }
       switch (approval.actionType) {
         case "file_delete": {
+          if (details.fileDelete) await this.regressions.assertWritable(taskRun.id,taskRun.targetDir,details.fileDelete.path);
           if (!this.deps.trashItem || !details.fileDelete) throw new RunnerError("RUNNER_TRASH_UNAVAILABLE", "휴지통 서비스를 사용할 수 없습니다. 영구 삭제는 하지 않습니다.");
           const deleted = await new FileDeleteRunner(this.deps.trashItem).run(taskRun.targetDir, details.fileDelete);
           result.changedFiles = [deleted.path];
@@ -515,7 +529,9 @@ export class RunnerService {
       : { workspaceKey, fingerprint: null, reason: "Execution ledger is unavailable" };
     // Resolve scripts inside the captured interval. A script changed before
     // actual execution cannot retain the old checker identity.
-    const command = await resolveValidationCommand({ command: details.command ?? "", args: details.args, cwd });
+    const command: ValidationCommandIdentity = details.regressionCheck
+      ? { checkerId: regressionCheckerId(details.regressionCheck.contractId), kinds: ["test"] }
+      : await resolveValidationCommand({ command: details.command ?? "", args: details.args, cwd });
     const after = await this.workspaceEpoch(workspaceKey);
     const changed = before.generation !== after.generation || before.activeMutations !== 0 || after.activeMutations !== 0;
     return { command, revision: changed ? { ...revision, fingerprint: null } : revision,
@@ -558,6 +574,7 @@ export class RunnerService {
         `File path escapes targetDir: ${details.filePatch.path}`,
       );
     }
+    await this.regressions.assertWritable(taskRun.id,taskRun.targetDir,executionPatch.path,executionPatch.after);
     const r = await this.file.run({
       targetDir: taskRun.targetDir,
       patch: executionPatch,
@@ -639,6 +656,7 @@ export class RunnerService {
 
     // FileRunner owns write/patch serialization and rechecks this exact
     // preimage while holding canonical file ownership.
+    await this.regressions.assertWritable(taskRun.id,taskRun.targetDir,executionPatch.path,applied.afterContent);
     const written = await this.file.run({
       targetDir: taskRun.targetDir,
       patch: { path: executionPatch.path, before, after: applied.afterContent },
@@ -683,6 +701,7 @@ export class RunnerService {
         `Snapshot path resolves outside targetDir: ${targetPath}`,
       );
     }
+    await this.regressions.assertWritable(taskRun.id,taskRun.targetDir,targetPath);
     await this.deps.state.writeDbSnapshot(targetPath);
     result.changedFiles = [targetPath];
 
@@ -737,7 +756,9 @@ export class RunnerService {
     let failure: unknown;
     try {
       if (signal?.aborted) throw new RunnerError(RUNNER_CANCELLED, "Execution cancelled before checker process");
-      runOutcome = useTestRunner ? await this.test.run({
+      runOutcome = details.regressionCheck
+        ? await this.regressions.execute(taskRun.id,taskRun.targetDir,details.regressionCheck,signal)
+        : useTestRunner ? await this.test.run({
           command: details.command,
           ...(details.args !== undefined ? { args: details.args } : {}),
           cwd: taskRun.targetDir,
@@ -755,12 +776,14 @@ export class RunnerService {
       result.exitCode = runOutcome.exitCode;
       result.stdout = maskSecrets(runOutcome.stdout);
       result.stderr = maskSecrets(runOutcome.stderr);
+      const regressionSummary = details.regressionCheck
+        ? [...runOutcome.stdout.matchAll(/^(reference|candidate): exit=(-?\d+)$/gm)].map(match => match[0]).join("; ") : "";
 
       const logArtifact = await this.persistArtifact({
         taskRunId: taskRun.id, stepId: step.id, kind: "log",
         title: `${isTest ? "test" : "shell"}: ${commandDisplay.slice(0, 64)}`,
         content: formatShellLog(result.stdout, result.stderr, runOutcome.exitCode),
-        summary: `exit=${runOutcome.exitCode}, ${runOutcome.durationMs}ms`,
+        summary: `${regressionSummary} exit=${runOutcome.exitCode}, ${runOutcome.durationMs}ms`,
       });
       result.artifactIds.push(logArtifact.id);
       proofArtifactId = logArtifact.id;
@@ -772,7 +795,7 @@ export class RunnerService {
           title: `test_result: ${commandDisplay.slice(0, 64)}`,
           content: formatTestResult({ command: commandDisplay, exitCode: runOutcome.exitCode,
             durationMs: runOutcome.durationMs, stdout: result.stdout, stderr: result.stderr }),
-          summary: `exit=${runOutcome.exitCode} ${passed ? "passed" : "failed"}`,
+          summary: `${regressionSummary} exit=${runOutcome.exitCode} ${passed ? "passed" : "failed"}`,
         });
         result.artifactIds.push(testArtifact.id);
         proofArtifactId = testArtifact.id;
@@ -787,7 +810,7 @@ export class RunnerService {
     } finally {
       if (run) {
         const finished = await captureValidationRevision(taskRun.targetDir, { signal });
-        const command = signal?.aborted ? validation.command : await resolveValidationCommand({ command: details.command, args: details.args, cwd: taskRun.targetDir });
+        const command = signal?.aborted || details.regressionCheck ? validation.command : await resolveValidationCommand({ command: details.command, args: details.args, cwd: taskRun.targetDir });
         const epoch = await this.workspaceEpoch(validation.revision.workspaceKey);
         const identityChanged = command.checkerId !== validation.command.checkerId;
         const inputChanged = finished.workspaceKey !== validation.revision.workspaceKey ||
@@ -801,7 +824,7 @@ export class RunnerService {
           status: failed ? isRunnerCancelled(failure) || signal?.aborted ? "cancelled" : "failed" : "completed",
           ...(runOutcome ? { exitCode: runOutcome.exitCode } : {}),
           ...(proofArtifactId ? { artifactId: proofArtifactId } : {}),
-          finishFingerprint: identityChanged || epoch.activeMutations !== 0 ? null : finished.fingerprint,
+          finishFingerprint: identityChanged || epoch.activeMutations !== 0 || (details.regressionCheck && !runOutcome) ? null : finished.fingerprint,
           finishGeneration: epoch.generation,
           ...(reason ? { reason } : {}),
         });

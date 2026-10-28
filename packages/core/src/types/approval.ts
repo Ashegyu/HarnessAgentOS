@@ -116,6 +116,8 @@ export interface ProposedActionDetails {
   capabilityUse?: ProposedCapabilityUse;
   modelUse?: ProposedModelUse;
   dbSnapshotExport?: ProposedDbSnapshotExport;
+  /** Host-created, manually approved positive-control execution. */
+  regressionCheck?: { contractId: string; inputFingerprint: string };
 }
 
 export interface Approval {

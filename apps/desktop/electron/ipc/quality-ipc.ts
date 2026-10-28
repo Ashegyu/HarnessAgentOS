@@ -1,4 +1,6 @@
 import { handleIpc } from "./ipc-lifecycle";
+import type { RunnerService } from "@harness/runners";
+import { buildRegressionHandler } from "./quality-regression-handlers";
 
 import {
   IPC_CHANNELS,
@@ -55,7 +57,12 @@ export const registerQualityIpc = (
   events: HarnessEventBus,
   instinctService?: InstinctService,
   pipelineBackflow?: PipelineBackflowService,
+  runner?: RunnerService,
 ): void => {
+  for (const operation of ["registerRegression", "listRegressions", "prepareRegression"] as const) {
+    const handler = buildRegressionHandler(runner,id => events.taskRunChanged(id),operation);
+    handleIpc(IPC_CHANNELS.quality[operation], (_e,input:unknown) => handler(input));
+  }
   handleIpc(
     IPC_CHANNELS.quality.evaluate,
     async (_e, input: unknown): Promise<HarnessResult<QualityGateResult>> => {
@@ -229,3 +236,4 @@ export const registerQualityIpc = (
     },
   );
 };
+

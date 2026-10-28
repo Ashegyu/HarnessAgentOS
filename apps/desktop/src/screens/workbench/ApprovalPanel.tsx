@@ -360,6 +360,7 @@ export const ApprovalPanel = ({
               onClick={() => setConfiguring(a)}
               disabled={
                 busyId !== null ||
+                Boolean(a.proposedAction?.regressionCheck) ||
                 blocked ||
                 EXECUTION_NOT_REQUIRED.has(a.actionType)
               }
