@@ -973,6 +973,9 @@ interface ShadowPreview {
 ## `window.harness.quality`
 
 ```ts
+quality.registerRegression(input: RegisterRegressionContractInput): Promise<RegressionContractSummary>;
+quality.listRegressions(input: { taskRunId: string }): Promise<RegressionContractSummary[]>;
+quality.prepareRegression(input: { taskRunId: string; contractId: string }): Promise<Approval>;
 quality.evaluate(input: QualityGateInput): Promise<QualityGateResult>;
 quality.getLatest(input: { taskRunId: string }): Promise<QualityGateResult | null>;
 quality.approveKnownRisks(input: { taskRunId: string; message: string }): Promise<TaskRun>;
@@ -2234,3 +2237,5 @@ schema 43은 품질 gate의 task-scoped 인덱스와 최근 작업의 updatedAt 
 - callback/직렬 결과 발행, MCP/schema cleanup, parent orchestration/backflow, startup, 진단 heartbeat의 진행 중 read 및 기존 IPC가 정산된 뒤에 DB를 닫는다. 이 과정은 승인 내용을 바꾸거나 파일 부수효과를 되돌리지 않는다. 임의 shell의 claim은 기존 `uncertain`·실행 결과 검토·새 수동 승인 계약을 유지한다. 종료를 이유로 성공/실패를 임의 확정하거나 기존 승인을 재실행하지 않는다.
 - 기본 정산 제한은 20초다. timeout 또는 프로세스 정리/결과 저장을 확인하지 못하면 DB를 열어 두고 오류를 알리며 새 실행 차단을 유지한다. 자동 강제 종료하지 않는다. timeout 뒤 정산 완료 시 재시도가 가능하지만, 미확정 종료/저장 오류는 자동으로 안전 판정으로 바꾸지 않는다. OS 강제 종료와 원격 서버의 작업 중단을 보장하는 계약은 아니다.
 
+- `registerRegression`은 `referenceDir`에 더해 선택적인 `additionalReferenceDirs: string[]`(최대 3개)를 받는다. 사용자가 같은 계약의 정상 구현으로 명시적으로 신뢰한 절대 경로만 등록하며, 기준 소스 집합은 SQLite 등록 시 동결한다. 중복 경로/내용과 전체 8 MiB 상한 초과는 거부한다. 반환 summary의 `referenceCount`는 기준 집합 크기이며 구 데이터는 1개로 해석한다. 등록은 코드 실행 승인이 아니며 `prepareRegression`이 만든 pending 승인 후 Runner가 실행한다.
+- 같은 검사·공용 계약으로 기준을 모두 실행하고 전부 통과해야 검사 보호 및 후보 실행이 가능하다. 나중 기준의 실패·취소·입력 변경으로 앞선 일부 성공을 보호/완료로 승격하지 않는다. 기준 집합의 reference phase 전체 120초 예산을 공유한다. 호스트 증거의 선택적 `references: {total, exits}`는 순서 있는 실제 종료 코드이며 전체 성공·실패/미실행을 구분한다. 이미 보호한 기존 검사는 추가 기준의 등록만으로 해제하지 않는다.

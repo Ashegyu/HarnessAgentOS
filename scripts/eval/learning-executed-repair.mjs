@@ -6,17 +6,18 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {training,heldout} from './learning-transfer-fixtures.mjs';
 import {compileRun,extract} from './learning-transfer.mjs';
+import {normalReferenceVariants} from './normal-reference-variants.mjs';
 import {openDb,LocalStateService,FilesystemArtifactStore} from '../../packages/storage/src/index.ts';
 import {ConversationService,TaskRunCompletionService,readRegressionControlArtifact} from '../../packages/core/src/index.ts';
 import {RunnerService} from '../../packages/runners/src/index.ts';
 import {QualityEvaluator,RepairLoopService} from '../../packages/quality/src/index.ts';
 import {InstinctService} from '../../packages/learner/src/index.ts';
 import {AgentPlanningService,DefaultModelCliAdapter,parseAgentPlan} from '../../packages/agent/src/index.ts';
-const root=resolve(process.argv[3]??'.cache/learning-executed-repair'),mode=process.argv[2],compilerRetry=mode?.endsWith('-compiler')??false,repo=resolve('.'),workspace=join(root,'workspace');
+const root=resolve(process.argv[3]??'.cache/learning-executed-repair'),mode=process.argv[2],multiReference=mode?.endsWith('-multi')??false,compilerRetry=(mode?.endsWith('-compiler')??false)||multiReference,repo=resolve('.'),workspace=join(root,'workspace');
 const sha=x=>createHash('sha256').update(x).digest('hex'),read=f=>JSON.parse(readFileSync(join(root,f),'utf8'));
 const save=(p,v)=>writeFileSync(join(root,p),JSON.stringify(v,null,2));
 const runtimeFiles=['scripts/eval/learning-executed-repair.mjs','scripts/eval/learning-transfer.mjs','scripts/eval/learning-transfer-fixtures.mjs','packages/core/src/regression-control-evidence.ts','packages/core/src/types/regression-contract.ts','packages/core/src/types/failure-lesson.ts','packages/runners/src/regression-contract-service.ts','packages/runners/src/regression-compiler-diagnostics.ts','packages/runners/src/regression-repair-context.ts','packages/runners/src/runner-service.ts','packages/quality/src/repair-loop-service.ts','packages/agent/src/agent-planning-service.ts','packages/agent/src/agent-prompt-builder.ts','packages/agent/src/model-cli-adapter.ts','packages/core/src/redact-secrets.ts','packages/learner/src/failure-learning.ts','packages/learner/src/failure-lesson.ts','packages/learner/src/instinct-service.ts','packages/learner/src/observation-recall.ts'];
-const currentSources=()=>runtimeFiles.map(path=>({path,sha256:sha(readFileSync(path))}));
+const currentSources=()=>[...runtimeFiles,'scripts/eval/normal-reference-variants.mjs','packages/storage/src/repositories/regression-contract-repository.ts'].map(path=>({path,sha256:sha(readFileSync(path))}));
 export const remainingRepairCalls=(attempts,arm)=>Math.max(0,4-attempts.filter(r=>r.arm===arm).flatMap(r=>r.calls).filter(c=>c.stage!=='initial').length);
 export const compilerRetryEligible=r=>!!(r.repairAttempted&&r.repairApprovalIds?.length===1&&!r.compilerRetryAttempted&&r.finalControl?.evidence?.compilationFailure?.phase==='reference'&&r.finalControl.evidence.compilationFailure.diagnostics.some(d=>d.path==='Verification.cs'&&/^CS\d+$/.test(d.code)));
 export const shouldGradeSubmittedAnswer=r=>!!(r.completed&&existsSync(join(r.folder,'initial-candidate.cs'))&&existsSync(join(r.folder,'initial-verification.cs')));
@@ -30,11 +31,19 @@ function freeze(){
  const old=execFileSync('git',['show','7d295d2:scripts/eval/learning-transfer.mjs'],{encoding:'utf8'}),now=readFileSync('scripts/eval/learning-transfer.mjs','utf8');
  const helper=s=>s.slice(s.indexOf('function compileRun('),s.indexOf('async function prepare('));
  if(helper(old)!==helper(now))throw Error('Original compilation/extraction helpers changed');
- save('repair-protocol.json',{...base,maxInitialModelCalls:8,maxRepairModelCalls:8,maxModelCalls:16,maxRepairsPerAnswer:compilerRetry?2:1,maxRepairCallsPerArm:4,compilerRetry,
+ const controls=[];
+ if(multiReference)for(const c of heldout){
+  const variants=normalReferenceVariants(c),record={id:c.id,canonicalSha256:sha(c.reference),feedback:{id:variants.feedback.id,sha256:sha(variants.feedback.source)},probe:{id:variants.probe.id,sha256:sha(variants.probe.source)},preflight:{}};
+  for(const kind of ['feedback','probe']){const outcome=compileRun(join(root,'normal-control-preflight',c.id,kind),variants[kind].source,c.judge);if(outcome.exitCode!==0||!outcome.groups||!Object.values(outcome.groups).every(Boolean))throw Error('Invalid normal control '+c.id+'/'+kind);record.preflight[kind]=outcome;}
+  controls.push(record);
+ }
+ if(multiReference)save('positive-controls.json',controls);
+ save('repair-protocol.json',{...base,maxInitialModelCalls:8,maxRepairModelCalls:8,maxModelCalls:16,maxRepairsPerAnswer:compilerRetry?2:1,maxRepairCallsPerArm:4,compilerRetry,multiReference,
   correction:'Both arms get the same registered trusted reference execution. Only a host-proven reference checker failure may receive one repair call. Never feed candidate-only failure, hidden groups, mutants, scores, or trusted reference source to a repair. Candidate bytes frozen. Approved checker patch only, at most 32 changed lines, then rerun the same contract.',
   constraints:'Original initial request, model, effort, timeout, tools prohibition, training corpus, case/repetition order and scoring retained. User approved extra correction stage and 16-call maximum. No hidden feedback until all generation/correction calls finish. No reruns/tuning.',
   ...(compilerRetry?{compilerRetryPolicy:'Run all eight initial answers and existing primary corrections first. Then allow at most one further correction per answer only for a host-proven compiler diagnostic in Verification.cs after its first approved patch. Both arms retain the same four-call correction budget and global16 maximum. Re-stage frozen inputs and execute a fresh check before retry; never feed hidden grading. If no arm budget remains, retain failure.'}:{}),
-  changedFromPriorProtocol:compilerRetry?['compiler-only second correction within the existing equal four-calls-per-arm budget; all primary corrections have priority']:['host positive-control feedback and a bounded correction stage, equally available to both arms','maximum calls 8 -> 16, explicitly approved by user'],
+  ...(multiReference?{positiveControls:controls.map(({id,canonicalSha256,feedback,probe})=>({id,canonicalSha256,feedback,probe})),referencePolicy:'Both arms use the same canonical and additional normal implementation. All must pass before adoption or candidate execution. References are frozen at registration; failure feedback includes only actual checker outputs and ordered exits, never reference source. The separate unseen normal probe is diagnostic only after every model call; primary 60+40 scoring still uses exactly the original canonical judge and mutants.'}:{}),
+  changedFromPriorProtocol:multiReference?['two frozen normal implementations per case, equally applied to both arms; every control must pass before adoption']:compilerRetry?['compiler-only second correction within the existing equal four-calls-per-arm budget; all primary corrections have priority']:['host positive-control feedback and a bounded correction stage, equally available to both arms','maximum calls 8 -> 16, explicitly approved by user'],
   unchangedFromPrior:['two problems and two repeats per arm','initial source/request','model/effort/timeouts','60+40 score and hidden graders','three training experiences; no evaluated outputs learned']});
  save('repair-source-manifest.json',{revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),createdAt:new Date().toISOString(),files:currentSources(),gradingHelpersUnchanged:true,gradingHelpersSha256:sha(helper(now)),fixtureSha256:sha(readFileSync('scripts/eval/learning-transfer-fixtures.mjs'))});
  save('repair-analysis-plan.json',{createdAt:new Date().toISOString(),beforeModelCalls:true,primary:'New final after versus new final before with identical host correction rules; retain all original initial scores separately.',success:'Report every answer, reference pass and mutant kills, before/after paired delta, correction benefit and failures. Do not claim stable generation unless all after answers are valid across repeats.',replay:{additionalReferenceRunsPerFinalAnswer:5,perProcessTimeoutMs:10000,wholeBudgetMs:120000,neverRescore:true},limits:'Repeated development questions, not fresh blind generalization. Prior no-feedback scores are descriptive only because this run adds a user-approved execution feedback stage.'});
@@ -42,6 +51,7 @@ function freeze(){
 }
 async function run(){
  const protocol=read('repair-protocol.json'),manifest=read('repair-source-manifest.json');
+ if(Boolean(protocol.multiReference)!==multiReference||Boolean(protocol.compilerRetry)!==compilerRetry)throw Error('Execution mode differs from the frozen protocol');
  const assertSources=()=>{if(JSON.stringify(manifest.files)!==JSON.stringify(currentSources()))throw Error('Frozen sources changed');};assertSources();
  if(existsSync(join(root,'repair-attempts.json')))throw Error('Refusing to rerun the frozen evaluation');
  const result={startedAt:new Date().toISOString(),protocolSha256:sha(readFileSync(join(root,'repair-protocol.json'))),modelCalls:0,initialCalls:0,repairCalls:0,attempts:[]};
@@ -83,7 +93,9 @@ async function run(){
    }
    record.inputsApplied=true;
    const ref=join(folder,'reference-input');mkdirSync(ref);writeFileSync(join(ref,'Candidate.cs'),c.reference);
-   const contract=await runner.registerRegressionContract({taskRunId:validation.id,title:c.id,referenceDir:ref,sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true});record.contractId=contract.id;
+   const additionalReferenceDirs=[];
+   if(multiReference){const extra=join(folder,'reference-additional');mkdirSync(extra);writeFileSync(join(extra,'Candidate.cs'),normalReferenceVariants(c).feedback.source);additionalReferenceDirs.push(extra);}
+   const contract=await runner.registerRegressionContract({taskRunId:validation.id,title:c.id,referenceDir:ref,...(multiReference?{additionalReferenceDirs}:{}),sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true});record.contractId=contract.id;
    const check=async()=>{const a=await runner.prepareRegressionCheck({taskRunId:validation.id,contractId:contract.id});await approve(a);try{await runner.executeApproved(a.id);}catch(e){if(!/exited/.test(e.message))throw e;}const runs=await state.validationRuns.listByTaskRun(validation.id),r=runs.at(-1);if(!r?.artifactId)throw Error('Missing host execution artifact');const artifact=(await state.listArtifactsByTaskRun(validation.id)).find(a=>a.id===r.artifactId);return{runId:r.id,artifactId:r.artifactId,evidence:readRegressionControlArtifact(await store.read({taskRunId:validation.id,artifactId:r.artifactId,kind:artifact.kind}))};};
    record.initialControl=await check();persist();
    const gate=await evaluator.evaluate({taskRunId:validation.id,requireTests:true});await completion.applyQualityGateResult(gate);
@@ -107,6 +119,7 @@ async function run(){
     record.candidateUnchanged=!record.inputsApplied||readFileSync(join(workspace,'Candidate.cs'),'utf8')===candidate;
     writeFileSync(join(folder,'final-verification.cs'),readFileSync(record.inputsApplied?join(workspace,'Verification.cs'):join(folder,'initial-verification.cs')));
    }
+   if(record.contractId){const c=(await state.regressionContracts.list(record.validationTaskRunId)).find(c=>c.id===record.contractId);record.referenceAcceptance={referenceCount:1+(c?.additionalReferenceSources?.length??0),protected:!!c?.protectedVerification,verificationSha256:c?.protectedVerification?.find(s=>s.path==='Verification.cs')?sha(c.protectedVerification.find(s=>s.path==='Verification.cs').content):null};}
    await agent.shutdown();await runner.shutdown();db.close();persist();console.log(`ATTEMPT_FINISH ${c.id} ${repeat} ${arm} correction=${record.repairAttempted}`);
   }
   if(record.error&&/auth|unauthor|401|403|quota|rate.limit|model.*not.*found/i.test(record.error.message))throw Error('Infrastructure failure; no retries');
@@ -136,6 +149,7 @@ async function run(){
    }catch(e){r.compilerRetryError={code:e.code??null,message:e.message};}
    finally{
     r.candidateUnchanged=readFileSync(join(workspace,'Candidate.cs'),'utf8')===readFileSync(join(r.folder,'initial-candidate.cs'),'utf8');writeFileSync(join(r.folder,'final-verification.cs'),readFileSync(join(workspace,'Verification.cs')));
+    const c=(await state.regressionContracts.list(r.validationTaskRunId)).find(c=>c.id===r.contractId);r.referenceAcceptance={referenceCount:1+(c?.additionalReferenceSources?.length??0),protected:!!c?.protectedVerification,verificationSha256:c?.protectedVerification?.find(s=>s.path==='Verification.cs')?sha(c.protectedVerification.find(s=>s.path==='Verification.cs').content):null};
     await agent.shutdown();await runner.shutdown();db.close();persist();console.log(`COMPILER_RETRY_FINISH ${r.id} ${r.repeat} ${r.arm}`);
    }
   }
@@ -166,5 +180,5 @@ async function run(){
  save('repair-summary.json',summary);console.log('RESULT '+JSON.stringify(summary));
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- if(mode==='--freeze'||mode==='--freeze-compiler')freeze();else if(mode==='--run'||mode==='--run-compiler')await run();else throw Error('Usage: --freeze[-compiler] | --run[-compiler] <prepared fresh directory>');
+ if(['--freeze','--freeze-compiler','--freeze-multi'].includes(mode))freeze();else if(['--run','--run-compiler','--run-multi'].includes(mode))await run();else throw Error('Usage: --freeze[-compiler|-multi] | --run[-compiler|-multi] <prepared fresh directory>');
 }
