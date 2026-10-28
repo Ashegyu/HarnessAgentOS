@@ -39,7 +39,6 @@ test("verified repair retains concrete failure, approved rationale, patch and ch
   await f.repair();f.setExit(0);await f.check();
   await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
   const [a,b]=await Promise.all([service.recordRecovery({taskRunId:f.task.id}),service.recordRecovery({taskRunId:f.task.id})]);
-  if(process.env.HARNESS_LEARNING_DIAGNOSTICS==="1")console.error(JSON.stringify({gate:await f.state.getLatestQualityGateResult(f.task.id),runs:await f.state.validationRuns.listByTaskRun(f.task.id),steps:await f.state.listStepsByTaskRun(f.task.id),approvals:await f.state.listApprovalsByTaskRun(f.task.id)}));
   const rows=await f.state.listObservations({taskRunId:f.task.id});const lessons=rows.filter(x=>x.eventType==="verified_failure_repair");assert.equal(lessons.length,1);
   const lesson=lessons[0].payload.failureLesson;
   assert.match(lesson.symptom,/removed replacement/);assert.match(lesson.repairHypothesis,/captured entry identity/);
@@ -52,6 +51,8 @@ test("verified repair retains concrete failure, approved rationale, patch and ch
   await instinct.approveCandidate({candidateId:candidates[0].id});
   const selected=await instinct.forTask({taskRun:{...f.task,id:"heldout",userRequest:"C# replace lease then release old lease identity"}});assert.equal(selected.length,1);
   assert.deepEqual(await instinct.forTask({taskRun:{...f.task,id:"other",userRequest:"CSS button color contrast"}}),[]);
+  const foreign=join(f.root,'foreign-project');await mkdir(foreign);
+  assert.deepEqual(await instinct.forTask({taskRun:{...f.task,id:'foreign',targetDir:foreign,userRequest:'lease release replacement identity'}}),[]);
   const recall=await new ObservationRecallService({state:f.state}).recall({projectKey:lessons[0].projectKey,query:"captured lease identity",excludeTaskRunId:"heldout"});
   assert.ok(recall.some(x=>x.failureLesson?.recoveryRunId===lesson.recoveryRunId));
   const {buildSplitAgentPrompt}=await import('../../agent/src/agent-prompt-builder.ts');
@@ -82,6 +83,13 @@ test("missing repair evidence is not promoted and learning failures cannot block
   assert.deepEqual(await service.recordRecovery({taskRunId:f.task.id}),[]);
   const instinct=new InstinctService({state:f.state,recordVerifiedRepairs:async()=>{throw new Error('learning unavailable');}});
   const observation=await instinct.recordQualityGate(gate);assert.equal(observation.signal,'passed');
+ }finally{await f.cleanup();}
+});
+
+test("adding failure-learning selection preserves the existing eight ordinary guidance slots",async()=>{
+ const f=await fixture();try{
+  for(let i=0;i<8;i++)await f.state.createInstinct({scope:'global',title:'ordinary '+i,rule:'existing guidance '+i,rationale:'already approved',confidence:0.9,sourceObservationIds:[],tags:[]});
+  assert.equal((await new InstinctService({state:f.state}).forTask({taskRun:f.task})).length,8);
  }finally{await f.cleanup();}
 });
 
