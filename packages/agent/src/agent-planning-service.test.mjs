@@ -686,6 +686,31 @@ const workerProfile = (overrides = {}) => ({
   ...overrides,
 });
 
+for (const kind of ["planner", "worker"]) {
+  test(`${kind} sends regression review to the adapter while preserving the proposed answer`, async () => {
+    let request;
+    const summary = "C# test proposal; compilation and execution are unverified.";
+    const fixture = preparationCancellationFixture({
+      invoke: async input => {
+        request = input;
+        return { provider: "codex", model: "test", exitCode: 0, stderr: "", normalizedEvents: [], latencyMs: 1,
+          stdout: "```harness_agent_plan\n" + JSON.stringify({ summary, assumptions: [], steps: [], proposedActions: [], suggestedQualityChecks: [], questions: [] }) + "\n```" };
+      },
+    });
+    fixture.taskRun.userRequest = "C# 회귀 검사를 작성해줘. 검사는 실행하지 마.";
+    try {
+      await fixture.run(kind);
+      assert.equal(fixture.modelCalls, 1);
+      assert.match(request.systemPrompt, /REGRESSION TEST REVIEW/);
+      assert.match(request.systemPrompt, /validation before the first await/i);
+      assert.match(request.systemPrompt, /final CR.*not.*invalid JSON/i);
+      assert.match(request.systemPrompt, /unexecuted.*unverified/i);
+      assert.equal(fixture.approvals.length, 0);
+      assert.ok(fixture.artifacts.some(a => a.summary?.includes(summary)), "the host must not silently rewrite generated test answers");
+    } finally { await fixture.service.shutdown(); }
+  });
+}
+
 test("local worker tool inputs mask nested secret keys before stream and artifact publication", async () => {
   const events = [];
   const input = { credentials: { token: "SYNTHETIC_LOCAL_TOKEN" }, nested: [{ api_key: "SYNTHETIC_LOCAL_KEY" }], tokenUsage: 5 };

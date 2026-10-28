@@ -143,6 +143,25 @@ const makeAgentPlanningStub = (state) => ({
   },
 });
 
+test("repair reviews failed assertions against the contract before changing implementation", async () => {
+  const db = openDb({ filePath: ":memory:" });
+  try {
+    const state = new LocalStateService(db);
+    const { taskRun } = await seed(state);
+    const planning = makeAgentPlanningStub(state);
+    let instruction;
+    const service = new RepairLoopService({ state, completion: makeCompletion(state),
+      agentPlanning: { generatePlan: async input => { instruction = input.instruction; return planning.generatePlan(input); } } });
+    const draft = await service.createRepairPlan({ taskRunId: taskRun.id });
+    assert.match(instruction, /failed assertion.*user contract/i);
+    assert.match(instruction, /test itself can be wrong/i);
+    assert.match(instruction, /preserve existing valid regression coverage/i);
+    assert.match(instruction, /known-good.*original defect/i);
+    assert.equal(draft.approvals[0].status, "pending");
+    assert.equal((await state.repairAttempts.listByTaskRun(taskRun.id)).length, 1);
+  } finally { closeDb(db); }
+});
+
 test("RepairLoopService creates agent repair attempt and approval-gated draft", async () => {
   const t = tmp();
   const db = openDb({ filePath: t.file });

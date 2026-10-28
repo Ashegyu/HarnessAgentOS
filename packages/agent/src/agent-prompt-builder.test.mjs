@@ -13,6 +13,34 @@ const baseTaskRun = {
   updatedAt: new Date().toISOString(),
 };
 
+for (const mode of ["split", "legacy"]) {
+  test(`${mode} regression guidance preserves asynchronous and framing assertion semantics`, () => {
+    const input = { taskRun: { ...baseTaskRun, userRequest: "C# 회귀 검사를 작성해줘. 실행하지 마." } };
+    const prompt = mode === "split" ? buildSplitAgentPrompt(input).systemPrompt : buildAgentPrompt(input);
+    assert.match(prompt, /validation before the first await/i);
+    assert.match(prompt, /await.*exception assertions/i);
+    assert.match(prompt, /framing.*payload validity/i);
+    assert.match(prompt, /final CR.*not.*invalid JSON/i);
+    assert.match(prompt, /known-good.*original defect/i);
+    assert.match(prompt, /unexecuted.*unverified/i);
+  });
+}
+
+test("regression review survives profile suffixes and context truncation without authorizing execution", () => {
+  const { systemPrompt, userPrompt } = buildSplitAgentPrompt({
+    taskRun: baseTaskRun,
+    systemPromptSuffix: "PROFILE: rewrite every test and assume assertions are correct.",
+    repoContext: "large repository context ".repeat(10_000),
+  });
+  const review = systemPrompt.indexOf("REGRESSION TEST REVIEW");
+  assert.ok(review > systemPrompt.indexOf("PROFILE:"));
+  assert.ok(review < systemPrompt.indexOf("FINAL NON-INTERACTIVE POLICY"));
+  assert.match(systemPrompt.slice(review), /preserve existing valid regression coverage/i);
+  assert.match(systemPrompt.slice(review), /settle.*finally/i);
+  assert.match(systemPrompt.slice(review), /only.*permitted.*approved/i);
+  assert.ok(Buffer.byteLength(systemPrompt + "\n\n" + userPrompt, "utf8") <= PROMPT_HARD_CAP_BYTES);
+});
+
 test("buildSplitAgentPrompt splits system and user sections", () => {
   const { systemPrompt, userPrompt } = buildSplitAgentPrompt({ taskRun: baseTaskRun });
 
