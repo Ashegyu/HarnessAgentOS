@@ -104,6 +104,17 @@ test("a successful task with no failed checker avoids redundant workspace captur
  }finally{await f.cleanup();}
 });
 
+test("rerunning the same successful repair does not count as an independent learned experience",async()=>{
+ const f=await fixture();try{
+  const {FailureLearningService}=await import('./failure-learning.ts');const service=new FailureLearningService({state:f.state,artifactStore:f.artifactStore});
+  await f.recover();await service.recordRecovery({taskRunId:f.task.id});
+  await f.check();await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
+  await service.recordRecovery({taskRunId:f.task.id});
+  const lessons=(await f.state.listObservations({taskRunId:f.task.id})).filter(x=>x.eventType==='verified_failure_repair');
+  assert.equal(lessons.length,1);
+ }finally{await f.cleanup();}
+});
+
 test("a prose success, changed workspace or unverified process cannot manufacture a repair lesson",async()=>{
  const f=await fixture();try{
   const {FailureLearningService}=await import('./failure-learning.ts').catch(()=>({}));assert.equal(typeof FailureLearningService,"function");
