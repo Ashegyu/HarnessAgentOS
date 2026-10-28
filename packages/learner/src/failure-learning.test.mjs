@@ -93,6 +93,17 @@ test("adding failure-learning selection preserves the existing eight ordinary gu
  }finally{await f.cleanup();}
 });
 
+test("a successful task with no failed checker avoids redundant workspace capture",async()=>{
+ const f=await fixture();try{
+  await f.repair();f.setExit(0);await f.check();await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
+  let captures=0;const original=f.state.assertQualityGateCurrent.bind(f.state);
+  f.state.assertQualityGateCurrent=async gate=>{captures++;return original(gate);};
+  const {FailureLearningService}=await import('./failure-learning.ts');
+  assert.deepEqual(await new FailureLearningService({state:f.state,artifactStore:f.artifactStore}).recordRecovery({taskRunId:f.task.id}),[]);
+  assert.equal(captures,0);
+ }finally{await f.cleanup();}
+});
+
 test("a prose success, changed workspace or unverified process cannot manufacture a repair lesson",async()=>{
  const f=await fixture();try{
   const {FailureLearningService}=await import('./failure-learning.ts').catch(()=>({}));assert.equal(typeof FailureLearningService,"function");
