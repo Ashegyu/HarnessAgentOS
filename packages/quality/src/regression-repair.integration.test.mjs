@@ -145,6 +145,29 @@ test('runtime output resembling a compiler error is not a host compilation failu
 });
 const alternateReference=reference.replace('return new(0,Task.FromCanceled<string>(caller))','return new(long.MinValue,Task.FromCanceled<string>(caller))');
 const zeroAssertion=bad.replace('cancelled.Generation!=live.Generation','cancelled.Generation!=0');
+
+test('fresh execution after the first patch reveals a different semantic failure and permits a second approved repair',{skip:process.env.HARNESS_DOTNET_INTEGRATION!=='1',timeout:120000},async t=>{
+ const first='  throw new Exception("first noncontractual assumption");\n';
+ const verification=zeroAssertion.replace(' static async Task Main(){',' static async Task Main(){\n'+first.trimEnd());
+ const firstPatch='--- a/Verification.cs\n+++ b/Verification.cs\n@@\n-'+first.trimEnd()+'\n';
+ const secondPatch=patch.replace('cancelled.Generation!=live.Generation','cancelled.Generation!=0');
+ const f=await fixture(t,{real:true,maxAttempts:2,verification,additionalReferences:[alternateReference],reply:n=>plan([{...action,patch:n===1?firstPatch:secondPatch}])});
+ const candidate=reference+'\n// frozen submitted candidate';
+ const step=await f.state.createStep({taskRunId:f.task.id,index:0,kind:'approval',title:'apply submitted candidate',status:'pending'}),cp=await f.state.createCheckpoint({taskRunId:f.task.id,stepId:step.id,reason:'before_edit',stateRef:'{}',summary:'submitted source'});
+ const a=await f.state.createApproval({taskRunId:f.task.id,checkpointId:cp.id,actionType:'file_write',actionSummary:'apply submitted candidate',proposedAction:{type:'file_write',filePatch:{path:'Candidate.cs',after:candidate}}});await f.approve(a);await f.runner.executeApproved(a.id);
+ const firstGate=await f.fail();const initial=await f.control();assert.equal(initial.references.exits.length,1);
+ let draft=await f.repair.createRepairPlan({taskRunId:f.task.id});await f.approve(draft.approvals[0]);await f.runner.executeApproved(draft.approvals[0].id);
+ const secondGate=await f.fail();assert.deepEqual(secondGate.knownRisks,firstGate.knownRisks,'only the actual execution failure changed');const revealed=await f.control();assert.deepEqual(revealed.references.exits,[0,initial.referenceExitCode]);
+ assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,false);
+ draft=await f.repair.createRepairPlan({taskRunId:f.task.id});
+ assert.equal(f.requests.length,2);assert.match(f.requests[1].prompt,/Unpromised Generation identity/);
+ assert.equal(draft.approvals[0].status,'pending');assert.match(await readFile(join(f.project,'Verification.cs'),'utf8'),/cancelled.Generation!=0/);
+ await f.approve(draft.approvals[0]);await f.runner.executeApproved(draft.approvals[0].id);await f.check();
+ assert.deepEqual((await f.control()).references.exits,[0,0]);assert.equal((await f.evaluator.evaluate({taskRunId:f.task.id,requireTests:true})).status,'passed');
+ assert.equal(await readFile(join(f.project,'Candidate.cs'),'utf8'),candidate);
+ assert.equal((await f.runner.listRegressionContracts({taskRunId:f.task.id}))[0].protected,true);
+ await assert.rejects(f.repair.createRepairPlan({taskRunId:f.task.id}),/already passed/);
+});
 test('all trusted implementations must pass before freezing: Generation zero is repaired from actual execution',{skip:process.env.HARNESS_DOTNET_INTEGRATION!=='1',timeout:120000},async t=>{
  const zeroPatch=patch.replace('cancelled.Generation!=live.Generation','cancelled.Generation!=0');
  const f=await fixture(t,{real:true,verification:zeroAssertion,additionalReferences:[alternateReference],reply:plan([{...action,patch:zeroPatch}])});

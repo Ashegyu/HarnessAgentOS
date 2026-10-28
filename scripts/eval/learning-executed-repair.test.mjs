@@ -2,6 +2,12 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';import {tmpdir} from 'node:os';import {join} from 'node:path';
 import * as evaluation from './learning-executed-repair.mjs';
 import {remainingRepairCalls,compilerRetryEligible} from './learning-executed-repair.mjs';
+
+test('a later host-proven semantic reference failure is eligible within the same second-repair budget',()=>{
+ const r={repairAttempted:true,repairApprovalIds:['approved'],referenceAcceptance:{protected:false},finalControl:{failureFingerprint:'a'.repeat(64),evidence:{referenceExitCode:1,contractId:'reg_one',references:{total:2,exits:[0,1]}}}};
+ assert.equal(evaluation.executionRetryEligible?.(r),true);
+ for(const x of [{...r,secondaryRetryAttempted:true},{...r,repairApprovalIds:[]},{...r,referenceAcceptance:{protected:true}},{...r,finalControl:{...r.finalControl,failureFingerprint:undefined}},{...r,finalControl:{...r.finalControl,evidence:{referenceExitCode:0,candidateExitCode:1}}}])assert.equal(evaluation.executionRetryEligible?.(x),false);
+});
 test('compiler retry uses only the remaining equal arm budget after primary calls',()=>{
  const attempts=[{arm:'before',calls:[{stage:'initial'},{stage:'repair'},{stage:'compiler-repair'}]},{arm:'after',calls:[{stage:'initial'},{stage:'repair'}]}];
  assert.equal(remainingRepairCalls(attempts,'before'),2);assert.equal(remainingRepairCalls(attempts,'after'),3);
