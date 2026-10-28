@@ -65,7 +65,7 @@ export class InstinctService {
       }
     }
     selected.sort((a,b)=>b.score-a.score||b.instinct.confidence-a.instinct.confidence||a.instinct.id.localeCompare(b.instinct.id));
-    return [...ordinary.slice(0,5),...selected.slice(0,3).map(s=>s.instinct)];
+    return [...ordinary.slice(0,8),...selected.slice(0,Math.max(0,Math.min(3,8-ordinary.length))).map(s=>s.instinct)];
   }
 
   async listCandidates(input: {

@@ -16,6 +16,8 @@ const isSensitiveKey = (key: string): boolean =>
 // This fallback also handles JSON properties embedded in logs and Markdown.
 // JSON.parse decodes escaped key names before the policy is applied.
 const JSON_PROPERTY = /("(?:\\.|[^"\\])*")(\s*:\s*)("(?:\\.|[^"\\])*(?:"|\\?$)|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+const CT_DEFAULT = /\b(?:(?:global::)?System\.Threading\.)?CancellationToken\s+[A-Za-z_]\w*\s*=\s*default(?:\s*\(\s*(?:(?:global::)?System\.Threading\.)?CancellationToken\s*\))?(?=\s*[,);])/g;
+const CT_MARKERS = ["__HARNESS_CT_DEFAULT_0__","__HARNESS_CT_DEFAULT_1__","__HARNESS_CT_DEFAULT_2__","__HARNESS_CT_DEFAULT_3__"];
 
 /** Create an audit copy without mutating structured tool/provider input. */
 export const redactSecretValues = (value: unknown): unknown => {
@@ -67,7 +69,14 @@ export const redactSecrets = (text: string, maxLen = 240): string => {
       return match;
     } catch { return match; }
   });
+  // A typed C# default value cannot contain credentials. Protect only this
+  // complete declaration, so token-like parameter names do not consume code.
+  // Other assignments, including adjacent real secrets, still pass all masks.
+  const marker = CT_MARKERS.find(candidate => !out.includes(candidate));
+  const declarations: string[] = [];
+  if (marker) out = out.replace(CT_DEFAULT, declaration => `${marker}${declarations.push(declaration)-1}__`);
   for (const re of SECRET_PATTERNS) out = out.replace(re, "[REDACTED]");
+  if (marker && declarations.length) out = out.replace(new RegExp(`${marker}(\\d+)__`,"g"), (_match,index:string) => declarations[Number(index)]!);
   if (out.length > maxLen) out = `${out.slice(0, maxLen - 3)}…`;
   return out;
 };

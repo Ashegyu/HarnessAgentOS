@@ -3,7 +3,7 @@ import {selectCurrentValidationEvidence,type ArtifactStore,type FailureLesson,ty
 import type {LocalStateService} from "@harness/storage";
 import {deriveProjectKey} from "./project-key.ts";
 import {redactSecrets} from "./redact-secrets.ts";
-import {lessonTerms} from "./failure-lesson.ts";
+import {lessonTerms,observationLesson} from "./failure-lesson.ts";
 
 /** No model call or automatic rule activation. Only host-proven failure→edit→pass episodes. */
 export class FailureLearningService {
@@ -12,8 +12,10 @@ export class FailureLearningService {
     const {state,artifactStore}=this.deps;
     const task=await state.getTaskRun(taskRunId),gate=await state.getLatestQualityGateResult(taskRunId);
     if(!task||!gate||gate.status!=="passed"||!gate.validationState?.fingerprint) return [];
+    const runs=await state.validationRuns.listByTaskRun(taskRunId);
+    if(!runs.some(r=>r.status==="failed"&&Number.isInteger(r.exitCode)&&r.exitCode!==0))return [];
     try {await state.assertQualityGateCurrent(gate);} catch{return [];}
-    const [runs,steps,artifacts,approvals]=await Promise.all([state.validationRuns.listByTaskRun(taskRunId),state.listStepsByTaskRun(taskRunId),state.listArtifactsByTaskRun(taskRunId),state.listApprovalsByTaskRun(taskRunId)]);
+    const [steps,artifacts,approvals,observations]=await Promise.all([state.listStepsByTaskRun(taskRunId),state.listArtifactsByTaskRun(taskRunId),state.listApprovalsByTaskRun(taskRunId),state.listObservations({taskRunId,limit:1000})]);
     const current=selectCurrentValidationEvidence({taskRunId,runs,steps,artifacts,current:{...gate.validationState,activeMutations:0}}).runs;
     const result:Observation[]=[];
     for(const pass of current.filter(r=>r.status==="completed"&&r.exitCode===0)){
@@ -21,6 +23,8 @@ export class FailureLearningService {
         Number.isInteger(r.exitCode)&&r.exitCode!==0&&r.artifactId&&r.startFingerprint&&r.startFingerprint===r.finishFingerprint&&
         r.startGeneration===r.finishGeneration&&steps.some(s=>s.id===r.stepId&&s.status==="failed"));
       if(!failure?.artifactId||!pass.artifactId)continue;
+      const id="obs_failure_"+createHash("sha256").update(`${taskRunId}\0${failure.id}`).digest("hex");
+      if(await state.observations.get(id)||observations.some(o=>observationLesson(o)?.failureRunId===failure.id))continue;
       // A later pass without an actual approved code change is not a learned correction.
       const edits=steps.filter(s=>s.kind==="edit"&&s.status==="succeeded"&&s.finishedAt&&s.finishedAt>=(failure.finishedAt??failure.startedAt)&&s.finishedAt<=pass.startedAt);
       const diffs=artifacts.filter(a=>a.kind==="diff"&&edits.some(s=>s.id===a.stepId));
@@ -43,7 +47,6 @@ export class FailureLearningService {
         evidenceArtifactIds:[failure.artifactId,pass.artifactId,...diffs.slice(-3).map(a=>a.id)]};
       // Revalidate after reading evidence. A stale/partial repair must not be promoted.
       try{await state.assertQualityGateCurrent(gate);}catch{return result;}
-      const id="obs_failure_"+createHash("sha256").update(`${taskRunId}\0${failure.id}\0${pass.id}`).digest("hex");
       result.push(await state.createObservation({id,taskRunId,threadId:task.threadId,projectKey:await deriveProjectKey({targetDir:task.targetDir}),
         source:"learner",eventType:"verified_failure_repair",signal:"repaired",summary:redactSecrets(`${symptom} Repair hypothesis: ${hypothesis}`,1600),payload:{failureLesson:lesson}}));
     }
