@@ -40,6 +40,11 @@ export async function regressionRepairContext(state:LocalStateService,store:Arti
     const failureKind=compilation?.phase==='reference'?'compilation' as const:'execution' as const;
     return {validatePlan,failureKind,compilationFailure:compilation,instruction:[
       'VERIFICATION REPAIR FROM EXECUTION',
+      ...(evidence.references?[
+        'ALL TRUSTED POSITIVE CONTROLS',
+        `The user registered ${evidence.references.total} trusted implementations for one contract. Ordered host exits so far: ${JSON.stringify(evidence.references.exits)}. Candidate execution starts only after all controls pass.`,
+        'The same checker must accept every trusted implementation. Do not retarget an assertion to a concrete value observed in one implementation. Remove or repair only the noncontractual assumption, preserving other coverage; every original control will be rerun before adoption.',
+      ]:[]),
       ...(failureKind==='compilation'?[
         'VERIFICATION COMPILER DIAGNOSTICS',
         'The separate host build failed before the checker could execute. Fix the current compiler error, not candidate behavior. Preserve the previous correction and other checks; do not replace assertions with a success-only program.',

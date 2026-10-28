@@ -789,7 +789,7 @@ export class RunnerService {
       result.stdout = maskSecrets(runOutcome.stdout);
       result.stderr = maskSecrets(runOutcome.stderr);
       const regressionSummary = details.regressionCheck
-        ? [...runOutcome.stdout.matchAll(/^(reference|candidate): exit=(-?\d+)$/gm)].map(match => match[0]).join("; ") : "";
+        ? [...runOutcome.stdout.matchAll(/^(reference(?:\[\d+\/\d+\])?|candidate): exit=(-?\d+)$/gm)].map(match => match[0]).join("; ") : "";
 
       const logArtifact = await this.persistArtifact({
         taskRunId: taskRun.id, stepId: step.id, kind: "log",

@@ -3,6 +3,8 @@ export interface RegisterRegressionContractInput {
   taskRunId: string;
   title: string;
   referenceDir: string;
+  /** Additional user-trusted implementations, frozen together at registration (up to three). */
+  additionalReferenceDirs?: string[];
   sourcePaths: string[];
   sharedPaths: string[];
   verificationPaths: string[];
@@ -16,6 +18,7 @@ export interface RegressionContractSummary {
   verificationPaths: string[];
   protected: boolean;
   createdAt: string;
+  referenceCount?: number;
 }
 export const regressionCheckerId = (id: string): string => `regression:${id}`;
 
@@ -28,6 +31,8 @@ export interface RegressionControlEvidence {
   referenceFingerprint: string;
   candidateFingerprint: string;
   verificationFingerprint: string;
+  /** Ordered host exits; all controls must finish successfully before candidate execution or adoption. */
+  references?: {total:number;exits:number[]};
   /** Only a separate host dotnet build may populate this; program stdout cannot. */
   compilationFailure?: {
     phase:'reference'|'candidate';

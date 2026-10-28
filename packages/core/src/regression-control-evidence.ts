@@ -13,6 +13,10 @@ export const readRegressionControlArtifact = (body:string):RegressionControlEvid
       !Number.isSafeInteger(e.referenceExitCode)||
       ![e.referenceFingerprint,e.candidateFingerprint,e.verificationFingerprint].every(s=>typeof s==="string"&&/^[a-f0-9]{64}$/.test(s))||
       (e.candidateExitCode!==undefined&&(!Number.isSafeInteger(e.candidateExitCode)||e.referenceExitCode!==0)))return null;
+    const refs=e.references;
+    if(refs!==undefined&&(!refs||!Number.isSafeInteger(refs.total)||refs.total<2||refs.total>4||!Array.isArray(refs.exits)||!refs.exits.length||refs.exits.length>refs.total||
+      !refs.exits.every(Number.isSafeInteger)||refs.exits.slice(0,-1).some(n=>n!==0)||refs.exits.at(-1)!==e.referenceExitCode||
+      (e.referenceExitCode===0&&refs.exits.length!==refs.total)))return null;
     const c=e.compilationFailure;
     if(c!==undefined){
       if(!c||!Number.isSafeInteger(c.exitCode)||c.exitCode===0||

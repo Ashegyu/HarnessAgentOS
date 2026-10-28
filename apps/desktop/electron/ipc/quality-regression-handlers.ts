@@ -15,7 +15,8 @@ export const buildRegressionHandler = (runner: RunnerService | undefined, change
       return ok(result);
     }
     if (input.manualConfirmation !== true || !isNonEmptyString(input.title) || !isNonEmptyString(input.referenceDir) ||
-        ![input.sourcePaths,input.sharedPaths,input.verificationPaths].every(p => Array.isArray(p) && p.every(v => typeof v === "string"))) {
+        ![input.sourcePaths,input.sharedPaths,input.verificationPaths].every(p => Array.isArray(p) && p.every(v => typeof v === "string"))||
+        (input.additionalReferenceDirs!==undefined&&(!Array.isArray(input.additionalReferenceDirs)||input.additionalReferenceDirs.length>3||!input.additionalReferenceDirs.every(isNonEmptyString)))) {
       return err(harnessError(STATE_INVALID_INPUT,"Confirm the trusted reference and specify C# input paths"));
     }
     const result = await runner.registerRegressionContract(input as unknown as RegisterRegressionContractInput);

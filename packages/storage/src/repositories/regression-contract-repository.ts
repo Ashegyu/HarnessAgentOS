@@ -6,6 +6,7 @@ export interface RegressionContract extends Omit<RegressionContractSummary, "pro
   workspaceKey: string;
   sharedSources: RegressionSource[];
   referenceSources: RegressionSource[];
+  additionalReferenceSources?: RegressionSource[][];
   protectedVerification: RegressionSource[] | null;
 }
 interface Row { definition_json: string; protected_verification_json: string | null }
