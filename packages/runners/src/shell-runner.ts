@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { win32 } from "node:path";
 import {
+  type RegressionControlEvidence,
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
 } from "@harness/core";
@@ -8,6 +9,7 @@ import { classifyShellCommand } from "./runner-policy.ts";
 import { decodeCommandOutput, resolveWindowsCommand, simpleNpmArgs } from "./windows-command.ts";
 
 export interface ShellRunResult {
+  regressionControl?: RegressionControlEvidence;
   exitCode: number;
   stdout: string;
   stderr: string;

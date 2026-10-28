@@ -18,3 +18,11 @@ export interface RegressionContractSummary {
   createdAt: string;
 }
 export const regressionCheckerId = (id: string): string => `regression:${id}`;
+
+/** Written by the host outside process stdout; absent for legacy/generic shell runs. */
+export interface RegressionControlEvidence {
+  schemaVersion: 1;
+  contractId: string;
+  referenceExitCode: number;
+  candidateExitCode?: number;
+}

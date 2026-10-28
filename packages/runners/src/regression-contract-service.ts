@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, open, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import { regressionCheckerId, taskContractFor, type RegisterRegressionContractInput, type RegressionContractSummary } from "@harness/core";
+import { regressionCheckerId, taskContractFor, type RegisterRegressionContractInput, type RegressionContractSummary, type RegressionControlEvidence } from "@harness/core";
 import { resolveValidationWorkspaceKey, type LocalStateService } from "@harness/storage";
 import type { RegressionContract, RegressionSource } from "@harness/storage";
 import { isRealPathWithin, isWithin } from "./runner-policy.ts";
@@ -88,6 +88,7 @@ export class RegressionContractService {
     const started = Date.now(), temp = await mkdtemp(join(tmpdir(),"hgos-regression-"));
     let cleanup = true;
     const outputs: string[] = [];
+    let regressionControl: RegressionControlEvidence | undefined;
     try {
       for (const phase of ["reference","candidate"] as const) {
         signal?.throwIfAborted();
@@ -100,8 +101,11 @@ export class RegressionContractService {
           "-p:ImportDirectoryBuildProps=false","-p:ImportDirectoryBuildTargets=false","-p:ImportDirectoryPackagesProps=false"],
           cwd: dir, timeoutMs: 120_000, idleTimeoutMs: 60_000, env: { DOTNET_CLI_TELEMETRY_OPTOUT: "1", DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1" }, signal });
         outputs.push(`${phase}: exit=${outcome.exitCode}\n${outcome.stdout}\n${outcome.stderr}`);
+        regressionControl = phase==="reference"
+          ? {schemaVersion:1,contractId:c.id,referenceExitCode:outcome.exitCode}
+          : {...regressionControl!,candidateExitCode:outcome.exitCode};
         signal?.throwIfAborted();
-        if (outcome.exitCode !== 0) return { ...outcome, command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };
+        if (outcome.exitCode !== 0) return { ...outcome, regressionControl, command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };
         if (phase === "reference") {
           // Do not freeze a test that changed while its positive control was running.
           if (hash(await this.inputs(c,root)) !== check.inputFingerprint) throw new Error("Regression inputs changed during reference execution");
@@ -109,7 +113,7 @@ export class RegressionContractService {
           await this.state.regressionContracts.protect(c.id,inputs.verification);
         }
       }
-      return { exitCode: 0, stdout: outputs.join("\n"), stderr: "", command: regressionCheckerId(c.id), cwd: root, durationMs: Date.now()-started };
+      return { exitCode: 0, regressionControl, stdout: outputs.join("\n"), stderr: "", command: regressionCheckerId(c.id), cwd: root, durationMs: Date.now()-started };
     } catch (error) {
       cleanup = !(error && typeof error === "object" && "code" in error && error.code === "RUNNER_TERMINATION_UNCONFIRMED");
       throw error;

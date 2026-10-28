@@ -11,7 +11,7 @@ import type { LocalStateService } from "@harness/storage";
 import { scoreInstinctCandidates } from "./instinct-candidate-scorer.ts";
 import { ObservationCollector } from "./observation-collector.ts";
 import { redactSecrets } from "./redact-secrets.ts";
-import {observationLesson,lessonTerms} from "./failure-lesson.ts";
+import {observationLesson,lessonTerms,requestsVerificationWork} from "./failure-lesson.ts";
 import {deriveProjectKey} from "./project-key.ts";
 import type {TaskRun} from "@harness/core";
 
@@ -53,18 +53,21 @@ export class InstinctService {
     const projectKey=await deriveProjectKey({targetDir:taskRun.targetDir});
     const all=await this.list({projectKey}),query=new Set(lessonTerms(taskRun.userRequest));
     const ordinary=all.filter(i=>!i.tags.includes("failure-repair"));
-    const selected:{instinct:Instinct;score:number}[]=[];
+    const verificationWork=requestsVerificationWork(taskRun.userRequest);
+    const selected:{instinct:Instinct;score:number;priority:number}[]=[];
     for(const instinct of all.filter(i=>i.tags.includes("failure-repair"))){
       for(const id of instinct.sourceObservationIds){
         const observation=await this.deps.state.observations.get(id);
         if(!observation||observation.projectKey!==projectKey||observation.taskRunId===taskRun.id)continue;
         const lesson=observationLesson(observation);if(!lesson)continue;
+        const verificationRepair=lesson.control?.kind==="verification_repair";
+        if(verificationRepair&&!verificationWork)continue;
         const score=lesson.applicabilityTerms.filter(term=>query.has(term)).length;
-        if(score>=2)selected.push({instinct:{...instinct,failureLesson:lesson},score});
+        if(score>=2||verificationRepair)selected.push({instinct:{...instinct,failureLesson:lesson},score,priority:verificationRepair?1:0});
         break;
       }
     }
-    selected.sort((a,b)=>b.score-a.score||b.instinct.confidence-a.instinct.confidence||a.instinct.id.localeCompare(b.instinct.id));
+    selected.sort((a,b)=>b.priority-a.priority||b.score-a.score||b.instinct.confidence-a.instinct.confidence||a.instinct.id.localeCompare(b.instinct.id));
     return [...ordinary.slice(0,8),...selected.slice(0,Math.max(0,Math.min(3,8-ordinary.length))).map(s=>s.instinct)];
   }
 

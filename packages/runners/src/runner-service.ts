@@ -11,6 +11,8 @@ import type {
 import {
   AsyncWorkScope,
   regressionCheckerId,
+  regressionControlArtifactHeader,
+  type RegressionControlEvidence,
   type RegisterRegressionContractInput,
   DEFAULT_RUNNER_IDLE_TIMEOUT_MS,
   DEFAULT_RUNNER_SHELL_TIMEOUT_MS,
@@ -799,7 +801,8 @@ export class RunnerService {
           taskRunId: taskRun.id, stepId: step.id, kind: "test_result",
           title: `test_result: ${commandDisplay.slice(0, 64)}`,
           content: formatTestResult({ command: commandDisplay, exitCode: runOutcome.exitCode,
-            durationMs: runOutcome.durationMs, stdout: result.stdout, stderr: result.stderr }),
+            durationMs: runOutcome.durationMs, stdout: result.stdout, stderr: result.stderr,
+            regressionControl:details.regressionCheck ? runOutcome.regressionControl : undefined }),
           summary: `${regressionSummary} exit=${runOutcome.exitCode} ${passed ? "passed" : "failed"}`,
         });
         result.artifactIds.push(testArtifact.id);
@@ -993,6 +996,7 @@ const formatShellLog = (
 };
 
 const formatTestResult = (input: {
+  regressionControl?: RegressionControlEvidence;
   command: string;
   exitCode: number;
   durationMs: number;
@@ -1003,6 +1007,7 @@ const formatTestResult = (input: {
   return [
     `# test_result`,
     "",
+    ...(input.regressionControl ? [regressionControlArtifactHeader(input.regressionControl)] : []),
     `**command**: \`${input.command}\``,
     `**exit**=${input.exitCode} (${passed ? "passed" : "failed"})`,
     `**duration**=${input.durationMs}ms`,

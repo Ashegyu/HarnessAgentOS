@@ -213,6 +213,16 @@ test("positive-control verifier repairs are learned and recalled for new test-wr
   }finally{await f.cleanup();}
 });
 
+test("a no-op checker write followed by a lucky pass is not learned as a verifier repair",async()=>{
+  const outcomes=[1,0,0],unchanged="// identical checker";
+  const f=await fixture(source,unchanged,{run:async input=>({exitCode:outcomes.shift(),stdout:"intermittent outcome",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
+  try{
+    const c=await f.register();await assert.rejects(f.check(c));await f.edit("Verification.cs",unchanged);await f.check(c);
+    await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
+    assert.deepEqual(await new FailureLearningService({state:f.state,artifactStore:f.artifactStore}).recordRecovery({taskRunId:f.task.id}),[]);
+  }finally{await f.cleanup();}
+});
+
 test("deferred cleanup is a valid positive control; learn the checker repair without assuming immediate effects",real,async()=>{
   const implementation=`public sealed class CloseSession {
     readonly CancellationTokenSource lifetime=new();

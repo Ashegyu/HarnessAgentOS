@@ -6,6 +6,7 @@ export * from "./diagnostic-log.ts";
 export * from "./redact-secrets.ts";
 export * from "./redacted-agent-stream.ts";
 export * from "./validation-evidence-policy.ts";
+export * from "./regression-control-evidence.ts";
 export * from "./json.ts";
 export * from "./api.ts";
 export * from "./ipc-channels.ts";

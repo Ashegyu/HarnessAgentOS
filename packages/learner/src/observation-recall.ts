@@ -195,6 +195,7 @@ const observationRecallText = (observation: Observation): string =>
     observation.signal,
     observation.summary,
     observationLesson(observation)?.applicabilityTerms.join(" ") ?? "",
+    observationLesson(observation)?.control?.kind==="verification_repair" ? "verification tests test testing regression checks 검증 테스트 회귀 검사" : "",
   ].join(" ");
 
 const toRecallResult = (
