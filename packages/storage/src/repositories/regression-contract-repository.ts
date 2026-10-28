@@ -20,6 +20,10 @@ export class SqliteRegressionContractRepository {
     return (this.db.prepare("SELECT definition_json,protected_verification_json FROM regression_contracts WHERE task_run_id=? ORDER BY created_at,id")
       .all(taskRunId) as Row[]).map(decode);
   }
+  async inputPaths(taskRunId: string): Promise<string[]> {
+    return [...new Set((await this.list(taskRunId)).flatMap(c =>
+      [...c.sourcePaths,...c.verificationPaths,...c.sharedSources.map(source => source.path)]))];
+  }
   async create(contract: RegressionContract): Promise<void> {
     this.db.transaction(() => {
       const task = this.db.prepare("SELECT status FROM task_runs WHERE id=?").get(contract.taskRunId) as {status:string} | undefined;

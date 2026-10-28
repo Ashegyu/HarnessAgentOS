@@ -36,6 +36,33 @@ const gitFixture = t => {
 };
 const git = (root, ...args) => childProcess.execFileSync("git", ["-C", root, ...args], { stdio: "pipe", windowsHide: true });
 
+test("explicit checker inputs override build exclusions, reject escapes and include disappearance", async t => {
+  const capture = await loadCapture(),root=fixture(t);
+  mkdirSync(join(root,"bin"));
+  writeFileSync(join(root,"bin","Regression.cs"),"original");
+  const ordinary=await capture(root);
+  const options={additionalPaths:["bin/Regression.cs"]};
+  const explicit=await capture(root,options);
+  writeFileSync(join(root,"bin","Regression.cs"),"weakened");
+  assert.equal((await capture(root)).fingerprint,ordinary.fingerprint);
+  assert.notEqual((await capture(root,options)).fingerprint,explicit.fingerprint);
+  assert.equal((await capture(root,{additionalPaths:["../outside.cs"]})).fingerprint,null);
+  await fs.unlink(join(root,"bin","Regression.cs"));
+  assert.equal((await capture(root,options)).fingerprint,null);
+});
+
+test("Git ignored regression inputs participate in explicit checker revisions",async t=>{
+  const capture=await loadCapture(),root=gitFixture(t);
+  git(root,"init","--quiet");
+  writeFileSync(join(root,".gitignore"),"Ignored.cs\n");
+  writeFileSync(join(root,"Ignored.cs"),"original");
+  const options={additionalPaths:["Ignored.cs"]};
+  const first=await capture(root,options);
+  assert.ok(first.fingerprint);
+  writeFileSync(join(root,"Ignored.cs"),"weakened");
+  assert.notEqual((await capture(root,options)).fingerprint,first.fingerprint);
+});
+
 test("complete validation revisions are stable and use canonical workspace identity", async t => {
   const capture = await loadCapture();
   const root = fixture(t);

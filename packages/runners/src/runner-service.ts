@@ -330,7 +330,7 @@ export class RunnerService {
     // surfaces as a "test" step in the timeline so the UI can mark
     // pass/fail at the right granularity (mvp-user-flows Flow 11).
     const shellValidation = approval.actionType === "shell"
-      ? await this.prepareShellValidation(details, taskRun.targetDir, signal)
+      ? await this.prepareShellValidation(details, taskRun.targetDir, taskRun.id, signal)
       : undefined;
     const isTestShell = shellValidation?.command.kinds.includes("test") === true;
     const stepKind = isTestShell
@@ -521,11 +521,11 @@ export class RunnerService {
 
   // -- Runner dispatchers ------------------------------------------------
 
-  private async prepareShellValidation(details: ProposedActionDetails, cwd: string, signal?: AbortSignal): Promise<ShellValidationContext> {
+  private async prepareShellValidation(details: ProposedActionDetails, cwd: string, taskRunId: string, signal?: AbortSignal): Promise<ShellValidationContext> {
     const workspaceKey = await resolveValidationWorkspaceKey(cwd);
     const before = await this.workspaceEpoch(workspaceKey);
     const revision = this.deps.state.validationRuns && this.deps.state.workspaceMutations
-      ? await captureValidationRevision(cwd, { signal })
+      ? await this.captureRevision(cwd,taskRunId,signal)
       : { workspaceKey, fingerprint: null, reason: "Execution ledger is unavailable" };
     // Resolve scripts inside the captured interval. A script changed before
     // actual execution cannot retain the old checker identity.
@@ -543,6 +543,11 @@ export class RunnerService {
 
   private workspaceEpoch(workspaceKey: string): Promise<{ generation: number; activeMutations: number }> {
     return this.deps.state.workspaceMutations?.get(workspaceKey) ?? Promise.resolve({ generation: 0, activeMutations: 0 });
+  }
+
+  private async captureRevision(cwd: string,taskRunId: string,signal?: AbortSignal): Promise<ValidationRevision> {
+    const additionalPaths = await this.deps.state.regressionContracts?.inputPaths(taskRunId) ?? [];
+    return captureValidationRevision(cwd,{signal,additionalPaths});
   }
 
   private async runFileWrite(args: {
@@ -809,7 +814,7 @@ export class RunnerService {
       throw error;
     } finally {
       if (run) {
-        const finished = await captureValidationRevision(taskRun.targetDir, { signal });
+        const finished = await this.captureRevision(taskRun.targetDir,taskRun.id,signal);
         const command = signal?.aborted || details.regressionCheck ? validation.command : await resolveValidationCommand({ command: details.command, args: details.args, cwd: taskRun.targetDir });
         const epoch = await this.workspaceEpoch(validation.revision.workspaceKey);
         const identityChanged = command.checkerId !== validation.command.checkerId;

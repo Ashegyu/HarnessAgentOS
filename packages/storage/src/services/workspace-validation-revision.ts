@@ -11,6 +11,8 @@ export interface ValidationRevision {
 }
 
 export interface CaptureValidationRevisionOptions {
+  /** Explicit checker inputs remain inputs even when Git/build exclusions omit them. */
+  additionalPaths?: readonly string[];
   maxFiles?: number;
   maxFileBytes?: number;
   maxTotalBytes?: number;
@@ -107,7 +109,7 @@ export const captureValidationRevision = async (
         };
         await visit(root, 0);
       }
-      paths = [...new Set(paths)];
+      paths = [...new Set([...paths, ...(options.additionalPaths ?? []).map(path => resolve(root,path))])];
       if (paths.length > maxFiles) throw new UnverifiableRevision("file_count_limit");
       paths.sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
       let bytes = 0;

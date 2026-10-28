@@ -43,6 +43,9 @@ export class QualityEvaluator {
       throw new Error(`TaskRun ${input.taskRunId} not found`);
     }
     const contract = taskContractFor(taskRun);
+    const regressions = await this.deps.state.regressionContracts?.list(taskRun.id) ?? [];
+    const additionalPaths = regressions.flatMap(c => [...c.sourcePaths,...c.verificationPaths,...c.sharedSources.map(s => s.path)]);
+    const capture = this.deps.captureRevision ?? ((targetDir: string) => captureValidationRevision(targetDir,{additionalPaths}));
     const watermark = await this.deps.state.validationRuns?.getWatermark(input.taskRunId) ?? 0;
     const [steps, artifacts, runs] = await Promise.all([
       this.deps.state.listStepsByTaskRun(input.taskRunId),
@@ -61,7 +64,7 @@ export class QualityEvaluator {
       currentSteps.some(step => step.kind === "edit");
     const captureWorkspace = needsWorkspaceValidation && typeof taskRun.targetDir === "string";
     const revision = captureWorkspace
-      ? await (this.deps.captureRevision ?? captureValidationRevision)(taskRun.targetDir)
+      ? await capture(taskRun.targetDir)
       : { workspaceKey: "", fingerprint: null };
     const epoch = captureWorkspace
       ? await this.deps.state.workspaceMutations?.get(revision.workspaceKey) ?? { generation: 0, activeMutations: 0 }
@@ -72,7 +75,7 @@ export class QualityEvaluator {
       changedArtifacts.every(a => currentSteps.some(step => step.id === a.stepId && step.kind === "edit" && step.status === "succeeded")) &&
       await this.deps.verifyReportDelivery?.(taskRun, changedArtifacts) === true;
     const finalRevision = captureWorkspace
-      ? await (this.deps.captureRevision ?? captureValidationRevision)(taskRun.targetDir)
+      ? await capture(taskRun.targetDir)
       : revision;
     const finalEpoch = captureWorkspace ? await this.deps.state.workspaceMutations?.get(revision.workspaceKey) ?? epoch : epoch;
     const finalWatermark = await this.deps.state.validationRuns?.getWatermark(input.taskRunId) ?? watermark;
@@ -125,7 +128,6 @@ export class QualityEvaluator {
       if (status !== "failed") status = "warning";
     }
 
-    const regressions = await this.deps.state.regressionContracts?.list(taskRun.id) ?? [];
     if (regressions.length > 0) {
       const verified = selectCurrentValidationEvidence({ taskRunId: taskRun.id, runs: currentRuns, steps: currentSteps,
         artifacts: currentArtifacts, current: { ...revision, ...epoch } }).runs;

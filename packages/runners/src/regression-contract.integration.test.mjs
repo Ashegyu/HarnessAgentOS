@@ -163,6 +163,7 @@ test("explicit regression inputs remain current even in normally excluded direct
     const previous = await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true});
     assert.notEqual(previous.status,"not_run");
     await writeFile(join(f.project,"bin","Verification.cs"),"internal static class Program{static void Main(){}}");
+    await assert.rejects(f.state.assertQualityGateCurrent(previous),/changed/i);
     const gate = await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true});
     assert.equal(gate.status,"not_run");
   } finally { await f.cleanup(); }

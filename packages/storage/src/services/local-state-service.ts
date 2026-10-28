@@ -568,7 +568,7 @@ export class LocalStateService implements ConversationStateGateway {
     const task = await this.getTaskRun(gate.taskRunId);
     if (!task || validation.fingerprint === null) throw qualityBlocked("Workspace revision cannot be verified");
     this.assertValidationStateCurrent(gate.taskRunId, validation);
-    const snapshot = await captureValidationRevision(task.targetDir);
+    const snapshot = await captureValidationRevision(task.targetDir,{additionalPaths:await this.regressionContracts.inputPaths(task.id)});
     if (snapshot.workspaceKey !== validation.workspaceKey || snapshot.fingerprint === null || snapshot.fingerprint !== validation.fingerprint) {
       throw qualityBlocked("Workspace changed after quality evaluation; run the checks again");
     }
