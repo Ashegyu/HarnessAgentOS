@@ -351,6 +351,10 @@ export class AgentPlanningService {
     }
     const model = resolveModel(provider, modelHint);
     const codexRuntime = codexRuntimeOptions(settings.agent, taskRun);
+    if(input.validatePlan){
+      // A host-scoped correction proposes patches only, regardless of the user's normal direct-edit mode.
+      codexRuntime.sandboxMode='read-only';codexRuntime.autoReview=false;codexRuntime.disableWebSearch=true;
+    }
     const agentStepName = formatStepAgentName(resolved.profile?.name);
     assertProviderSupportsProfileBoundaries(provider, resolved.profile);
     try {
@@ -815,7 +819,9 @@ export class AgentPlanningService {
         const message=redactSecrets(error instanceof Error?error.message:String(error),2000);
         await this.deps.state.updateAgentInvocation(invocation.id,{status:'failed',errorCode:AGENT_PROPOSED_ACTION_INVALID,errorMessage:message,finishedAt:new Date().toISOString()});
         await this.deps.state.setStepStatus(planStep.id,'failed',{outputSummary:message});
-        if(!lifetime.signal.aborted)await this.deps.state.setTaskRunStatus(taskRun.id,'blocked');
+        const currentTask=await this.deps.state.getTaskRun(taskRun.id);
+        if(!lifetime.signal.aborted&&currentTask&&!['paused','cancelled','done'].includes(currentTask.status))await this.deps.state.setTaskRunStatus(taskRun.id,'blocked');
+        throwIfInvocationCancelled(lifetime.signal);
         throw new AgentPlanningError(AGENT_PROPOSED_ACTION_INVALID,message);
       }
     }

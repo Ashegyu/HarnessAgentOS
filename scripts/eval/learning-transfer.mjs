@@ -2,6 +2,7 @@
 import {readFileSync,writeFileSync,mkdirSync,existsSync,rmSync} from "node:fs";
 import {join,resolve} from "node:path";
 import {spawnSync} from "node:child_process";
+import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
 import {training,heldout} from "./learning-transfer-fixtures.mjs";
 import {openDb,LocalStateService,FilesystemArtifactStore} from "../../packages/storage/src/index.ts";
@@ -126,4 +127,7 @@ async function run(){
  writeFileSync(join(root,'report.html'),'<!doctype html><meta charset="utf-8"><title>Learn 독립 평가</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:20px;line-height:1.6;background:#101822;color:#e8edf3}table{width:100%;border-collapse:collapse}th,td{padding:12px;border-bottom:1px solid #456;text-align:left}a{color:#9cf}pre{white-space:pre-wrap}</style><h1>Learn·메모리 독립 평가</h1><p>학습 3문제 / 별도 평가 2문제 × 전후 2회 = 모델 호출 8회. 모델·설정·요청·채점 기준 고정.</p><pre>'+esc(JSON.stringify(summary,null,2))+'</pre><table><tr><th>문제</th><th>반복</th><th>조건</th><th>교훈 수</th><th>정확성 /60</th><th>회귀 /40</th><th>총점</th></tr>'+result.attempts.map(r=>'<tr><td>'+esc(r.id)+'</td><td>'+r.repeat+'</td><td>'+r.arm+'</td><td>'+r.memoryIds?.length+'</td><td>'+esc(r.correctness??'invalid')+'</td><td>'+esc(r.regression??'invalid')+'</td><td>'+esc(r.score??r.error?.message)+'</td></tr>').join('')+'</table><p>실제 컴파일·실행 로그는 각 attempts 폴더에 보관. 평가 결과는 교훈 수집에 사용하지 않았습니다. 소규모 결과를 일반적인 성능 향상으로 해석하지 마세요.</p>');
  console.log('RESULT '+JSON.stringify(summary));
 }
-if(mode==='--prepare')await prepare();else if(mode==='--run')await run();else throw Error('Usage: --prepare or --run <artifact directory>');
+export {compileRun,extract};
+if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
+ if(mode==='--prepare')await prepare();else if(mode==='--run')await run();else throw Error('Usage: --prepare or --run <artifact directory>');
+}
