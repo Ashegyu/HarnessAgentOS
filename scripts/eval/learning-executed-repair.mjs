@@ -19,6 +19,7 @@ const runtimeFiles=['scripts/eval/learning-executed-repair.mjs','scripts/eval/le
 const currentSources=()=>runtimeFiles.map(path=>({path,sha256:sha(readFileSync(path))}));
 export const remainingRepairCalls=(attempts,arm)=>Math.max(0,4-attempts.filter(r=>r.arm===arm).flatMap(r=>r.calls).filter(c=>c.stage!=='initial').length);
 export const compilerRetryEligible=r=>!!(r.repairAttempted&&r.repairApprovalIds?.length===1&&!r.compilerRetryAttempted&&r.finalControl?.evidence?.compilationFailure?.phase==='reference'&&r.finalControl.evidence.compilationFailure.diagnostics.some(d=>d.path==='Verification.cs'&&/^CS\d+$/.test(d.code)));
+export const shouldGradeSubmittedAnswer=r=>!!(r.completed&&existsSync(join(r.folder,'initial-candidate.cs'))&&existsSync(join(r.folder,'initial-verification.cs')));
 function freeze(){
  if(existsSync(join(root,'repair-protocol.json'))||existsSync(join(root,'repair-attempts.json')))throw Error('Frozen evaluation already exists');
  const base=read('protocol.json');
@@ -80,6 +81,7 @@ async function run(){
     const cp=await state.createCheckpoint({taskRunId:validation.id,stepId:step.id,reason:'before_edit',stateRef:'{}',summary:'Approved synthetic evaluation input'});
     const a=await state.createApproval({taskRunId:validation.id,checkpointId:cp.id,actionType:'file_write',actionSummary:'Apply submitted '+path,proposedAction:{type:'file_write',filePatch:{path,after}}});await approve(a);await runner.executeApproved(a.id);
    }
+   record.inputsApplied=true;
    const ref=join(folder,'reference-input');mkdirSync(ref);writeFileSync(join(ref,'Candidate.cs'),c.reference);
    const contract=await runner.registerRegressionContract({taskRunId:validation.id,title:c.id,referenceDir:ref,sourcePaths:['Candidate.cs'],sharedPaths:[],verificationPaths:['Verification.cs'],manualConfirmation:true});record.contractId=contract.id;
    const check=async()=>{const a=await runner.prepareRegressionCheck({taskRunId:validation.id,contractId:contract.id});await approve(a);try{await runner.executeApproved(a.id);}catch(e){if(!/exited/.test(e.message))throw e;}const runs=await state.validationRuns.listByTaskRun(validation.id),r=runs.at(-1);if(!r?.artifactId)throw Error('Missing host execution artifact');const artifact=(await state.listArtifactsByTaskRun(validation.id)).find(a=>a.id===r.artifactId);return{runId:r.id,artifactId:r.artifactId,evidence:readRegressionControlArtifact(await store.read({taskRunId:validation.id,artifactId:r.artifactId,kind:artifact.kind}))};};
@@ -98,8 +100,15 @@ async function run(){
    }
    const finalCandidate=readFileSync(join(workspace,'Candidate.cs'),'utf8');record.candidateUnchanged=finalCandidate===output.Candidate;if(!record.candidateUnchanged)throw Error('Correction changed frozen candidate');
    writeFileSync(join(folder,'final-verification.cs'),readFileSync(join(workspace,'Verification.cs'),'utf8'));
-  }catch(e){record.error={code:e.code??null,message:e.message};}
-  finally{await agent.shutdown();await runner.shutdown();db.close();persist();console.log(`ATTEMPT_FINISH ${c.id} ${repeat} ${arm} correction=${record.repairAttempted}`);}
+  }catch(e){record[record.completed?'validationError':'error']={code:e.code??null,message:e.message};}
+  finally{
+   if(shouldGradeSubmittedAnswer(record)&&!existsSync(join(folder,'final-verification.cs'))){
+    const candidate=readFileSync(join(folder,'initial-candidate.cs'),'utf8');
+    record.candidateUnchanged=!record.inputsApplied||readFileSync(join(workspace,'Candidate.cs'),'utf8')===candidate;
+    writeFileSync(join(folder,'final-verification.cs'),readFileSync(record.inputsApplied?join(workspace,'Verification.cs'):join(folder,'initial-verification.cs')));
+   }
+   await agent.shutdown();await runner.shutdown();db.close();persist();console.log(`ATTEMPT_FINISH ${c.id} ${repeat} ${arm} correction=${record.repairAttempted}`);
+  }
   if(record.error&&/auth|unauthor|401|403|quota|rate.limit|model.*not.*found/i.test(record.error.message))throw Error('Infrastructure failure; no retries');
  }
  if(compilerRetry){
@@ -134,7 +143,7 @@ async function run(){
  // Frozen hidden grading begins only after all model work. Nothing here is returned to a model or learner.
  console.log('ALL_MODEL_CALLS_FINISHED; GRADING_START');save('calls-finished.json',{at:new Date().toISOString(),modelCalls:result.modelCalls});
  for(const r of result.attempts){
-  const c=heldout.find(c=>c.id===r.id);if(!r.completed||r.error)continue;
+  const c=heldout.find(c=>c.id===r.id);if(!shouldGradeSubmittedAnswer(r))continue;
   const candidate=readFileSync(join(r.folder,'initial-candidate.cs'),'utf8'),initial=readFileSync(join(r.folder,'initial-verification.cs'),'utf8'),final=readFileSync(join(r.folder,'final-verification.cs'),'utf8');
   const hidden=compileRun(join(r.folder,'hidden'),candidate,c.judge);
   const grade=(program,label)=>{
