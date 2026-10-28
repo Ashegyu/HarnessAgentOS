@@ -70,6 +70,7 @@ export interface ObservationRecallInput {
 }
 
 export interface ObservationRecallResult {
+  failureLesson?: import("./failure-lesson.ts").FailureLesson;
   observationId: string;
   taskRunId?: string;
   threadId?: string;

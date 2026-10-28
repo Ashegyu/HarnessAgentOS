@@ -39,6 +39,7 @@ test("verified repair retains concrete failure, approved rationale, patch and ch
   await f.repair();f.setExit(0);await f.check();
   await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
   const [a,b]=await Promise.all([service.recordRecovery({taskRunId:f.task.id}),service.recordRecovery({taskRunId:f.task.id})]);
+  if(process.env.HARNESS_LEARNING_DIAGNOSTICS==="1")console.error(JSON.stringify({gate:await f.state.getLatestQualityGateResult(f.task.id),runs:await f.state.validationRuns.listByTaskRun(f.task.id),steps:await f.state.listStepsByTaskRun(f.task.id),approvals:await f.state.listApprovalsByTaskRun(f.task.id)}));
   const rows=await f.state.listObservations({taskRunId:f.task.id});const lessons=rows.filter(x=>x.eventType==="verified_failure_repair");assert.equal(lessons.length,1);
   const lesson=lessons[0].payload.failureLesson;
   assert.match(lesson.symptom,/removed replacement/);assert.match(lesson.repairHypothesis,/captured entry identity/);
@@ -53,6 +54,34 @@ test("verified repair retains concrete failure, approved rationale, patch and ch
   assert.deepEqual(await instinct.forTask({taskRun:{...f.task,id:"other",userRequest:"CSS button color contrast"}}),[]);
   const recall=await new ObservationRecallService({state:f.state}).recall({projectKey:lessons[0].projectKey,query:"captured lease identity",excludeTaskRunId:"heldout"});
   assert.ok(recall.some(x=>x.failureLesson?.recoveryRunId===lesson.recoveryRunId));
+  const {buildSplitAgentPrompt}=await import('../../agent/src/agent-prompt-builder.ts');
+  const prompt=buildSplitAgentPrompt({taskRun:{...f.task,id:'heldout'},instinctContexts:selected,pinnedObservationContexts:recall});
+  assert.match(prompt.userPrompt,/Repair hypothesis, not proven root cause/);assert.match(prompt.userPrompt,/compare captured lease identity/);
+  assert.match(prompt.userPrompt,/no execution permission/);
+  await instinct.disable({instinctId:selected[0].id,reason:'no longer applicable'});
+  assert.deepEqual(await instinct.forTask({taskRun:{...f.task,id:'heldout',userRequest:'lease release replacement identity'}}),[]);
+ }finally{await f.cleanup();}
+});
+
+test("malformed lessons, generic programming words and conflicting replay identities are rejected",async()=>{
+ const {readFailureLesson,lessonTerms}=await import('./failure-lesson.ts');
+ assert.equal(readFailureLesson(null),null);assert.equal(readFailureLesson({version:1}),null);
+ assert.deepEqual(lessonTerms('public class Dictionary record string values current before after'),[]);
+ assert.ok(lessonTerms('LeaseGeneration snapshotEquality').includes('generation'));
+ const f=await fixture();try{
+  const input={id:'obs_replay',taskRunId:f.task.id,source:'learner',eventType:'verified_failure_repair',signal:'repaired',summary:'original',payload:{}};
+  await f.state.createObservation(input);await assert.rejects(f.state.createObservation({...input,summary:'different'}),/idempotency/);
+  const candidates=await new InstinctService({state:f.state}).refreshCandidates();assert.deepEqual(candidates,[]);
+ }finally{await f.cleanup();}
+});
+
+test("missing repair evidence is not promoted and learning failures cannot block quality recording",async()=>{
+ const f=await fixture();try{
+  const {FailureLearningService}=await import('./failure-learning.ts');const gate=await f.recover();
+  const service=new FailureLearningService({state:f.state,artifactStore:{read:async()=>{throw new Error('missing artifact');}}});
+  assert.deepEqual(await service.recordRecovery({taskRunId:f.task.id}),[]);
+  const instinct=new InstinctService({state:f.state,recordVerifiedRepairs:async()=>{throw new Error('learning unavailable');}});
+  const observation=await instinct.recordQualityGate(gate);assert.equal(observation.signal,'passed');
  }finally{await f.cleanup();}
 });
 

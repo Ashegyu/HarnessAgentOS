@@ -38,6 +38,7 @@ import {
   LearnerAdvisor,
   TopologyAdvisor,
   TraceRecorder,
+  FailureLearningService,
 } from "@harness/learner";
 import {
   HarnessPackageService,
@@ -262,7 +263,8 @@ const initServices = (): {
   // Trace recorder is constructed first so the completion service can
   // stamp a LearningTrace as part of every markDone (Phase 6 acceptance).
   const traceRecorder = new TraceRecorder({ state });
-  const instinctService = new InstinctService({ state });
+  const failureLearning = new FailureLearningService({state,artifactStore});
+  const instinctService = new InstinctService({ state,recordVerifiedRepairs:input=>failureLearning.recordRecovery(input) });
   const refreshInstinctCandidates = async (observation: Observation): Promise<void> => {
     await instinctService.refreshCandidates(
       observation.projectKey ? { projectKey: observation.projectKey } : {},
@@ -493,8 +495,7 @@ const initServices = (): {
     getApprovedLearnerModel: ({ taskRunId }) =>
       learnerAdvisor.approvedModelContext({ taskRunId }),
     getActiveInstincts: async ({ taskRun }) => {
-      const projectKey = await deriveProjectKey({ targetDir: taskRun.targetDir });
-      return instinctService.list({ projectKey });
+      return instinctService.forTask({taskRun});
     },
     recordContextPackObservation: async ({
       taskRun,

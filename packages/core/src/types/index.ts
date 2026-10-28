@@ -50,3 +50,4 @@ export * from "./diagnostics.ts";
 export * from "./export.ts";
 export * from "./validation-run.ts";
 export * from "./regression-contract.ts";
+export * from "./failure-lesson.ts";

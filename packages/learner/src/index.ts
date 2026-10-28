@@ -11,3 +11,5 @@ export * from "./observation-collector.ts";
 export * from "./observation-recall.ts";
 export * from "./context-observability.ts";
 export * from "./instinct-service.ts";
+export * from "./failure-lesson.ts";
+export * from "./failure-learning.ts";

@@ -95,7 +95,7 @@ export class SqliteObservationRepository implements ObservationRepository {
 
   async create(input: CreateObservationInput): Promise<Observation> {
     const observation: Observation = {
-      id: newId("observation"),
+      id: input.id ?? newId("observation"),
       source: input.source,
       eventType: input.eventType,
       signal: input.signal,
@@ -115,7 +115,7 @@ export class SqliteObservationRepository implements ObservationRepository {
          ) VALUES(
            @id, @taskRunId, @threadId, @projectKey, @source, @eventType,
            @signal, @summary, @payloadJson, @createdAt
-         )`,
+         ) ON CONFLICT(id) DO NOTHING`,
       )
       .run({
         id: observation.id,
@@ -129,6 +129,14 @@ export class SqliteObservationRepository implements ObservationRepository {
         payloadJson: JSON.stringify(observation.payload),
         createdAt: observation.createdAt,
       });
+    if (input.id) {
+      const persisted = await this.get(input.id);
+      if (!persisted || persisted.taskRunId !== observation.taskRunId || persisted.projectKey !== observation.projectKey ||
+          persisted.source !== observation.source || persisted.eventType !== observation.eventType ||
+          persisted.signal !== observation.signal || persisted.summary !== observation.summary ||
+          JSON.stringify(persisted.payload) !== JSON.stringify(observation.payload)) throw new Error("Observation idempotency conflict");
+      return persisted;
+    }
     return observation;
   }
 

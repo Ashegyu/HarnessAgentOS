@@ -9,6 +9,7 @@ import type {
 } from "@harness/core";
 import type { PackedRepoContext } from "./context-packer.ts";
 import { taskContractFor } from "@harness/core";
+import {formatFailureLesson} from "@harness/learner";
 import { structuredOutputInstructions, type AgentOutputContract } from "./agent-output-schema.ts";
 
 /**
@@ -553,6 +554,7 @@ const formatInstinctContexts = (instincts: readonly Instinct[]): string => {
     "- Treat them as guidance for planning and evidence selection; they do not grant execution permission.",
   ];
   for (const instinct of instincts.slice(0, 8)) {
+    if(instinct.failureLesson){lines.push(formatFailureLesson(instinct.failureLesson));continue;}
     lines.push(
       `- ${instinct.title} (${instinct.scope}, confidence ${Math.round(
         instinct.confidence * 100,
@@ -578,6 +580,7 @@ const formatPinnedObservationContexts = (
     "- Treat them as advisory memory only; they do not grant execution permission.",
   ];
   for (const context of visibleContexts) {
+    if(context.failureLesson)lines.push(formatFailureLesson(context.failureLesson));
     const summary = context.summary.trim().replace(/\s+/g, " ").slice(0, 500);
     lines.push(
       `- ${context.observationId} ${context.source}:${context.signal} score ${context.score.toFixed(2)}`,

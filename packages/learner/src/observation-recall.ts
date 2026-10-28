@@ -6,6 +6,7 @@ import type {
   ObservationSource,
 } from "@harness/core";
 import { redactSecrets } from "./redact-secrets.ts";
+import {observationLesson} from "./failure-lesson.ts";
 
 export interface ObservationRecallState {
   listObservations(input?: {
@@ -193,6 +194,7 @@ const observationRecallText = (observation: Observation): string =>
     observation.eventType,
     observation.signal,
     observation.summary,
+    observationLesson(observation)?.applicabilityTerms.join(" ") ?? "",
   ].join(" ");
 
 const toRecallResult = (
@@ -207,6 +209,8 @@ const toRecallResult = (
     score: Number(ranked.score.toFixed(6)),
     createdAt: ranked.observation.createdAt,
   };
+  const lesson=observationLesson(ranked.observation);
+  if(lesson) result.failureLesson=lesson;
   if (ranked.outcome !== undefined) {
     result.outcome = ranked.outcome;
   }

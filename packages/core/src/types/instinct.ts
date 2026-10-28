@@ -28,6 +28,8 @@ export interface Observation {
 }
 
 export interface CreateObservationInput {
+  /** Host idempotency identity; normal observations retain generated ids. */
+  id?: string;
   taskRunId?: string;
   threadId?: string;
   projectKey?: string;
@@ -39,6 +41,7 @@ export interface CreateObservationInput {
 }
 
 export interface Instinct {
+  failureLesson?: import("./failure-lesson.ts").FailureLesson;
   id: string;
   projectKey?: string;
   scope: InstinctScope;

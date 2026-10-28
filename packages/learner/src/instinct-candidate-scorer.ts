@@ -2,6 +2,7 @@ import type {
   CreateEvolutionCandidateInput,
   Observation,
 } from "@harness/core";
+import {observationLesson,formatFailureLesson} from "./failure-lesson.ts";
 
 export interface InstinctCandidateScorerInput {
   observations: Observation[];
@@ -17,6 +18,13 @@ export const scoreInstinctCandidates = (
     input.observations,
     minSignals,
   );
+  for(const observation of input.observations){
+    const lesson=observationLesson(observation);
+    if(!lesson||!observation.projectKey)continue;
+    candidates.push({projectKey:observation.projectKey,title:`검증된 수정 경험: ${lesson.symptom.slice(0,100)}`,
+      proposedRule:formatFailureLesson(lesson),rationale:"실제 실패·승인된 변경·재통과에 연결된 단일 경험입니다. 원인 설명은 가설이며 사용자 검토가 필요합니다.",
+      confidence:0.6,observationIds:[observation.id]});
+  }
   const groups = new Map<string, Observation[]>();
 
   for (const observation of input.observations) {
@@ -65,6 +73,7 @@ const normalizeSummary = (summary: string): string =>
   summary.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 120);
 
 const isCandidateSignal = (observation: Observation): boolean => {
+  if(observation.eventType==="verified_failure_repair")return false;
   if (isPinnedContextOutcomeObservation(observation)) {
     return false;
   }

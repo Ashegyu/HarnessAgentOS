@@ -11,6 +11,9 @@ import type { LocalStateService } from "@harness/storage";
 import { scoreInstinctCandidates } from "./instinct-candidate-scorer.ts";
 import { ObservationCollector } from "./observation-collector.ts";
 import { redactSecrets } from "./redact-secrets.ts";
+import {observationLesson,lessonTerms} from "./failure-lesson.ts";
+import {deriveProjectKey} from "./project-key.ts";
+import type {TaskRun} from "@harness/core";
 
 export class InstinctServiceError extends Error {
   readonly code: string;
@@ -26,6 +29,7 @@ export interface InstinctServiceDeps {
   state: LocalStateService;
   collector?: ObservationCollector;
   minSignals?: number;
+  recordVerifiedRepairs?: (input:{taskRunId:string})=>Promise<unknown>;
 }
 
 export class InstinctService {
@@ -42,6 +46,26 @@ export class InstinctService {
     includeDisabled?: boolean;
   } = {}): Promise<Instinct[]> {
     return this.deps.state.listInstincts(input);
+  }
+
+  /** User-approved repair lessons are selected by project and relevance, never broadcast to every task. */
+  async forTask({taskRun}:{taskRun:TaskRun}):Promise<Instinct[]> {
+    const projectKey=await deriveProjectKey({targetDir:taskRun.targetDir});
+    const all=await this.list({projectKey}),query=new Set(lessonTerms(taskRun.userRequest));
+    const ordinary=all.filter(i=>!i.tags.includes("failure-repair"));
+    const selected:{instinct:Instinct;score:number}[]=[];
+    for(const instinct of all.filter(i=>i.tags.includes("failure-repair"))){
+      for(const id of instinct.sourceObservationIds){
+        const observation=await this.deps.state.observations.get(id);
+        if(!observation||observation.projectKey!==projectKey||observation.taskRunId===taskRun.id)continue;
+        const lesson=observationLesson(observation);if(!lesson)continue;
+        const score=lesson.applicabilityTerms.filter(term=>query.has(term)).length;
+        if(score>=2)selected.push({instinct:{...instinct,failureLesson:lesson},score});
+        break;
+      }
+    }
+    selected.sort((a,b)=>b.score-a.score||b.instinct.confidence-a.instinct.confidence||a.instinct.id.localeCompare(b.instinct.id));
+    return [...ordinary.slice(0,5),...selected.slice(0,3).map(s=>s.instinct)];
   }
 
   async listCandidates(input: {
@@ -133,6 +157,8 @@ export class InstinctService {
       sourceObservationIds: candidate.observationIds,
       tags: ["evolved"],
     };
+    const source=candidate.observationIds[0]?await this.deps.state.observations.get(candidate.observationIds[0]):null;
+    if(source&&source.projectKey===candidate.projectKey&&observationLesson(source)) instinctInput.tags=["evolved","failure-repair"];
     if (candidate.projectKey) instinctInput.projectKey = candidate.projectKey;
     const instinct = await this.deps.state.createInstinct(instinctInput);
     await this.deps.state.updateEvolutionCandidateStatus(
@@ -196,6 +222,9 @@ export class InstinctService {
   async recordQualityGate(
     result: QualityGateResult,
   ): Promise<Observation | null> {
+    if(result.status==="passed") {
+      try{await this.deps.recordVerifiedRepairs?.({taskRunId:result.taskRunId});}catch{/* Advisory failure cannot change execution truth. */}
+    }
     const observation = await this.collector.recordQualityGate(result);
     if (observation) {
       await this.refreshForObservation(observation);
