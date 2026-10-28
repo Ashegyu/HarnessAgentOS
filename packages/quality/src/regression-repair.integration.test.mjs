@@ -99,7 +99,7 @@ test('checker correction overrides direct workspace-write settings with read-onl
  assert.equal(f.requests[0].sandbox.mode,'read-only');assert.equal(f.requests[0].sandbox.autoReview,false);assert.equal(f.requests[0].sandbox.disableWebSearch,true);
 });
 test('Pause during model correction is preserved and creates no repair approval',async t=>{
- const f=await fixture(t,{providerHook:async({state,task})=>state.setTaskRunStatus(task.id,'paused')});await f.fail();const count=(await f.state.listApprovalsByTaskRun(f.task.id)).length;
+ const f=await fixture(t,{providerHook:async({state,task})=>{await state.setTaskRunStatus(task.id,'running');await state.setTaskRunStatus(task.id,'paused');}});await f.fail();const count=(await f.state.listApprovalsByTaskRun(f.task.id)).length;
  await assert.rejects(f.repair.createRepairPlan({taskRunId:f.task.id}),/active|paused/i);
  assert.equal((await f.state.getTaskRun(f.task.id)).status,'paused');assert.equal((await f.state.listApprovalsByTaskRun(f.task.id)).length,count);
 });
