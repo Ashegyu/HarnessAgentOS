@@ -122,6 +122,14 @@ test('actual compiler diagnostics repair Timeout shadowing after the first check
  assert.ok(evidence.compilationFailure.diagnostics.some(d=>d.code==='CS1061'&&d.path==='Verification.cs'&&d.line>0));
  assert.equal(evidence.candidateExitCode,undefined,'build failure must not execute either submitted checker or candidate');
  const context=await f.runner.getRegressionRepairContext(compilerGate);assert.equal(context.failureKind,'compilation');
+ const savedChecker=await readFile(join(f.project,'Verification.cs'),'utf8');
+ await writeFile(join(f.project,'Candidate.cs'),reference+'\n// another answer');await writeFile(join(f.project,'Verification.cs'),'// another answer');
+ await assert.rejects(context.validatePlan({proposedActions:[{...action,patch:compilerPatch}],suggestedQualityChecks:[]}),/changed|revision/i);
+ for(const[path,after]of [['Candidate.cs',reference],['Verification.cs',savedChecker]]){
+  const step=await f.state.createStep({taskRunId:f.task.id,index:(await f.state.listStepsByTaskRun(f.task.id)).length,kind:'approval',title:'restore exact retry inputs',status:'pending'}),cp=await f.state.createCheckpoint({taskRunId:f.task.id,stepId:step.id,reason:'before_edit',stateRef:'{}',summary:'restore fixture'});
+  const a=await f.state.createApproval({taskRunId:f.task.id,checkpointId:cp.id,actionType:'file_write',actionSummary:'restore '+path,proposedAction:{type:'file_write',filePatch:{path,after}}});await f.approve(a);await f.runner.executeApproved(a.id);
+ }
+ await f.fail();assert.equal((await f.control()).verificationFingerprint,evidence.verificationFingerprint,'restored inputs need fresh compilation proof');
  draft=await f.repair.createRepairPlan({taskRunId:f.task.id});
  assert.match(f.requests[1].prompt,/VERIFICATION COMPILER DIAGNOSTICS/);assert.match(f.requests[1].prompt,/CS1061/);
  assert.equal(await readFile(join(f.project,'Candidate.cs'),'utf8'),reference);
