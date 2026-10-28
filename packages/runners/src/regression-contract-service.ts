@@ -7,6 +7,7 @@ import { resolveValidationWorkspaceKey, type LocalStateService } from "@harness/
 import type { RegressionContract, RegressionSource } from "@harness/storage";
 import { isRealPathWithin, isWithin } from "./runner-policy.ts";
 import type { ShellRunner, ShellRunResult } from "./shell-runner.ts";
+import {regressionCompilerDiagnostics} from './regression-compiler-diagnostics.ts';
 
 const hash = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const key = (path: string): string => process.platform === "win32" ? path.replaceAll("\\","/").toLowerCase() : path;
@@ -101,20 +102,26 @@ export class RegressionContractService {
     let regressionControl: RegressionControlEvidence | undefined;
     try {
       for (const phase of ["reference","candidate"] as const) {
+        const phaseStarted=Date.now();
         signal?.throwIfAborted();
         const dir = join(temp,phase); await mkdir(dir);
         const sources = [...(phase === "reference" ? c.referenceSources : inputs.candidate),...c.sharedSources,...inputs.verification];
         for (const [index, file] of sources.entries()) await writeFile(join(dir,`Source${index}.cs`),file.content,"utf8");
         await writeFile(join(dir,"HarnessRegression.csproj"),`<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><UseSharedCompilation>false</UseSharedCompilation><NuGetAudit>false</NuGetAudit><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include="Source*.cs" /></ItemGroup></Project>`);
         await writeFile(join(dir,"NuGet.Config"),'<configuration><packageSources><clear /></packageSources></configuration>');
-        const outcome = await this.shell.run({ command: "dotnet", args: ["run","--project",join(dir,"HarnessRegression.csproj"),"--configuration","Release","--no-launch-profile",
+        const build = await this.shell.run({ command: "dotnet", args: ["build",join(dir,"HarnessRegression.csproj"),"--configuration","Release","--nologo","--verbosity","quiet","--output",join(dir,'compiled'),
           "-p:ImportDirectoryBuildProps=false","-p:ImportDirectoryBuildTargets=false","-p:ImportDirectoryPackagesProps=false"],
           cwd: dir, timeoutMs: 120_000, idleTimeoutMs: 60_000, env: { DOTNET_CLI_TELEMETRY_OPTOUT: "1", DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1" }, signal });
+        signal?.throwIfAborted();
+        // A successful build is distinct from running the checker. Keep their combined phase budget unchanged.
+        const remaining=Math.max(1,120_000-(Date.now()-phaseStarted));
+        const outcome=build.exitCode!==0?build:await this.shell.run({command:'dotnet',args:[join(dir,'compiled','HarnessRegression.dll')],cwd:dir,timeoutMs:remaining,idleTimeoutMs:Math.min(60_000,remaining),signal});
         outputs.push(`${phase}: exit=${outcome.exitCode}\n${outcome.stdout}\n${outcome.stderr}`);
         regressionControl = phase==="reference"
           ? {schemaVersion:1,contractId:c.id,referenceExitCode:outcome.exitCode,
             referenceFingerprint:hash([c.referenceSources,c.sharedSources]),candidateFingerprint:hash(inputs.candidate),verificationFingerprint:hash(inputs.verification)}
           : {...regressionControl!,candidateExitCode:outcome.exitCode};
+        if(build.exitCode!==0)regressionControl.compilationFailure={phase,exitCode:build.exitCode,diagnostics:regressionCompilerDiagnostics(build.stdout+'\n'+build.stderr,sources)};
         signal?.throwIfAborted();
         if (outcome.exitCode !== 0) return { ...outcome, regressionControl, command: regressionCheckerId(c.id), cwd: root, stdout: outputs.join("\n"), durationMs: Date.now()-started };
         if (phase === "reference") {

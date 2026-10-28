@@ -28,4 +28,10 @@ export interface RegressionControlEvidence {
   referenceFingerprint: string;
   candidateFingerprint: string;
   verificationFingerprint: string;
+  /** Only a separate host dotnet build may populate this; program stdout cannot. */
+  compilationFailure?: {
+    phase:'reference'|'candidate';
+    exitCode:number;
+    diagnostics:Array<{code:string;message:string;path?:string;line?:number;column?:number}>;
+  };
 }

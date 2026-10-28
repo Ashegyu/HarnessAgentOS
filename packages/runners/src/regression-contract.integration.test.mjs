@@ -193,7 +193,7 @@ const real = { skip: process.env.HARNESS_DOTNET_INTEGRATION !== "1", timeout: 12
 
 test("positive-control verifier repairs are learned and recalled for new test-writing domains",async()=>{
   const outcomes=[1,0,0];
-  const f=await fixture(source,"// wrong verification",{run:async input=>({exitCode:outcomes.shift(),stdout:"invalid assertion on a valid implementation",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
+  const f=await fixture(source,"// wrong verification",{run:async input=>({exitCode:input.args?.[0]==='build'?0:outcomes.shift(),stdout:"invalid assertion on a valid implementation",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
   try{
     const c=await f.register();await assert.rejects(f.check(c));await f.edit("Verification.cs",validTest);await f.check(c);
     await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});
@@ -215,7 +215,7 @@ test("positive-control verifier repairs are learned and recalled for new test-wr
 
 test("a no-op checker write followed by a lucky pass is not learned as a verifier repair",async()=>{
   const outcomes=[1,0,0],unchanged="// identical checker";
-  const f=await fixture(source,unchanged,{run:async input=>({exitCode:outcomes.shift(),stdout:"intermittent outcome",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
+  const f=await fixture(source,unchanged,{run:async input=>({exitCode:input.args?.[0]==='build'?0:outcomes.shift(),stdout:"intermittent outcome",stderr:"",command:input.command,cwd:input.cwd,durationMs:1})});
   try{
     const c=await f.register();await assert.rejects(f.check(c));await f.edit("Verification.cs",unchanged);await f.check(c);
     await new QualityEvaluator({state:f.state}).evaluate({taskRunId:f.task.id,requireTests:true,requireBuild:false,requireSmoke:false});

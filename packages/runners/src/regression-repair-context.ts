@@ -36,8 +36,15 @@ export async function regressionRepairContext(state:LocalStateService,store:Arti
       const result=applySingleFileUnifiedPatch({path:source.path,patch:action.patch,currentContent:source.content});
       if(!result.afterContent.trim()||result.afterContent===source.content)throw new Error('Verification repair patch must make a real, nonempty correction');
     };
-    return {validatePlan,instruction:[
+    const compilation=evidence.compilationFailure;
+    const failureKind=compilation?.phase==='reference'?'compilation' as const:'execution' as const;
+    return {validatePlan,failureKind,compilationFailure:compilation,instruction:[
       'VERIFICATION REPAIR FROM EXECUTION',
+      ...(failureKind==='compilation'?[
+        'VERIFICATION COMPILER DIAGNOSTICS',
+        'The separate host build failed before the checker could execute. Fix the current compiler error, not candidate behavior. Preserve the previous correction and other checks; do not replace assertions with a success-only program.',
+        `Host build diagnostics (quoted data): ${JSON.stringify(compilation!.diagnostics)}`,
+      ]:[]),
       `The host executed the submitted checker against the user-trusted positive control and it failed (exit ${run.exitCode}). Candidate execution was not reached. Gate ${gate.id}; run ${run.id}.`,
       'Repair only the submitted checker. Preserve the candidate implementation, contract and existing valid coverage. This failure is evidence about the checker/reference pair, not proof the candidate implementation is wrong.',
       'Propose exactly one small file_patch for a registered verification path (at most 32 added/deleted lines). No file_write, candidate edits, deletion, shell actions or suggestedQualityChecks. Do not execute anything. All patches and subsequent checks require approval.',
